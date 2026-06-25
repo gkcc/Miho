@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -215,7 +216,25 @@ def load_tesseract_dependency() -> Any:
             if candidate.exists():
                 pytesseract.pytesseract.tesseract_cmd = str(candidate)
                 break
+    configure_tessdata_prefix()
     return pytesseract
+
+
+def configure_tessdata_prefix() -> None:
+    candidates: list[Path] = []
+    current = os.environ.get("TESSDATA_PREFIX")
+    if current:
+        current_path = Path(current)
+        candidates.extend([current_path, current_path / "tessdata"])
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "Tesseract-OCR" / "tessdata")
+
+    for candidate in candidates:
+        if (candidate / "chi_sim.traineddata").exists() and (candidate / "eng.traineddata").exists():
+            os.environ["TESSDATA_PREFIX"] = str(candidate)
+            return
 
 
 def load_paddle_dependency() -> tuple[Any, Any]:
