@@ -24,6 +24,8 @@ TestResults.xml
 
 ### MiYo local data and probe outputs ###
 data/probes/
+data/probes/exported_images/
+data/probes/parsed/
 data/raw/
 data/processed/
 *.sqlite
