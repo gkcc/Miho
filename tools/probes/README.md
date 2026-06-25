@@ -75,7 +75,17 @@ data/probes/exported_images/
 
 ```powershell
 python tools/probes/export_image_parse_probe.py --image "data/probes/exported_images/example.png"
+python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --lang chi_sim+eng
+python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --lang eng
 ```
+
+如果本机已安装 Tesseract 中文语言包，优先使用 `--lang chi_sim+eng`。如果没有 `chi_sim`，先用 `--lang eng` 跑通固定区域解析，确认数字字段覆盖率。
+
+新增参数：
+
+* `--engine tesseract|paddle|none`：默认 `tesseract`；`paddle` 是可选分支，未安装依赖时只会给出提示。
+* `--game zzz|hsr`：当前固定区域解析只支持 `zzz`。
+* `--layout full|zzz-agent-card`：默认 `full`；`--game zzz --layout zzz-agent-card` 会按绝区零分享图固定区域裁剪并分别 OCR。
 
 输出目录：
 
@@ -89,6 +99,8 @@ data/probes/parsed/
 * 文本位置；
 * 可能的字段分类；
 * 是否匹配 ADR-0003 的 `Character`、`CharacterBuildSnapshot`、`Equipment`、`SkillOrTrace`、`ArtifactOrDriveDisc`；
+* `extracted_draft` 字段草案；
+* `coverage_summary` 覆盖率摘要；
 * confidence / uncertain。
 
 如果本地没有 OCR 依赖，工具会输出清晰提示。可选依赖：
