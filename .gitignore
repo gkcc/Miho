@@ -21,3 +21,17 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+
+### MiYo local data and probe outputs ###
+data/probes/
+data/raw/
+data/processed/
+*.sqlite
+*.db
+cookies.json
+tokens.json
+browser-profile/
+app-profile/
+*.har
+__pycache__/
+*.pyc
