@@ -36,6 +36,7 @@ CJK_TEXT_RE = re.compile(r"[\u4e00-\u9fff][\u4e00-\u9fff·]{1,18}")
 LV_RE = re.compile(r"\bL[Vv]\.?\s*(\d{1,3})\b")
 FUZZY_LV_RE = re.compile(r"(?i)\b[O0]?[IiLl1]?[VvWw]\.?\s*(\d{1,3})\b")
 RANK_RE = re.compile(r"\b([SABC])\s*(?:RANK)?\b", re.IGNORECASE)
+ENHANCEMENT_RE = re.compile(r"\+\s*(\d+)")
 
 FIELD_RULES = [
     ("Character", re.compile(r"(角色|代理人|开拓者|名称|Name|Lv\.?|等级|星魂|影画)", re.IGNORECASE)),
@@ -73,6 +74,17 @@ STAT_ALIASES = [
     "物理伤害加成",
     "穿透值",
 ]
+
+STAT_ALIAS_CANONICAL = {
+    "攻击刀": "攻击力",
+    "防御刀": "防御力",
+    "王命值": "生命值",
+    "生俞值": "生命值",
+    "异吊精通": "异常精通",
+    "异吊掌控": "异常掌控",
+}
+
+STAT_ALIASES = list(dict.fromkeys(STAT_ALIASES + list(STAT_ALIAS_CANONICAL)))
 
 TEXT_FILTER_PHRASES = {
     "代理人信息",
@@ -614,12 +626,11 @@ def run_paddle_on_region(
     np, PaddleOCR = load_paddle_dependency()
     crop = image.crop((region_box["left"], region_box["top"], region_box["right"], region_box["bottom"]))
     paddle_lang = paddle_lang_from_tesseract_lang(lang)
-    try:
-        if paddle_lang not in PADDLE_OCR_CACHE:
+    if paddle_lang not in PADDLE_OCR_CACHE:
+        try:
             PADDLE_OCR_CACHE[paddle_lang] = create_paddle_ocr(PaddleOCR, paddle_lang)
-        ocr = PADDLE_OCR_CACHE[paddle_lang]
-    except Exception as exc:
-        raise ProbeError(f"PaddleOCR failed. Details: {redact_text(exc)}") from exc
+        except Exception as exc:
+            raise ProbeError(f"PaddleOCR failed. Details: {redact_text(exc)}") from exc
 
     candidates: list[tuple[tuple[int, int, float], list[dict[str, Any]], dict[str, Any]]] = []
     errors: list[str] = []
@@ -636,7 +647,7 @@ def run_paddle_on_region(
             )
             continue
         try:
-            raw_result = call_paddle_ocr(ocr, np.array(processed.convert("RGB")))
+            raw_result = call_paddle_ocr(PADDLE_OCR_CACHE[paddle_lang], np.array(processed.convert("RGB")))
             blocks = parse_paddle_blocks(
                 raw_result,
                 region_name=region_name,
@@ -1216,12 +1227,20 @@ def parse_drive_set_name(text: str, slot: int) -> str | None:
     return best_cjk_name(text)
 
 
+def canonical_stat_label(text: str) -> str | None:
+    for alias in sorted(STAT_ALIASES, key=len, reverse=True):
+        if alias in text:
+            return STAT_ALIAS_CANONICAL.get(alias, alias)
+    return None
+
+
+def enhancement_value(text: str) -> int | None:
+    match = ENHANCEMENT_RE.search(text)
+    return int(match.group(1)) if match else None
+
+
 def parse_main_stat(label_text: str, value_text: str) -> str | None:
-    label = None
-    for alias in STAT_ALIASES:
-        if alias in label_text:
-            label = alias
-            break
+    label = canonical_stat_label(label_text)
     value_candidates = numeric_tokens(value_text)
     if label and value_candidates:
         return f"{label} {value_candidates[-1]}"
@@ -1230,32 +1249,62 @@ def parse_main_stat(label_text: str, value_text: str) -> str | None:
     return None
 
 
-def parse_sub_stats(blocks: list[dict[str, Any]], value_zone: dict[str, int]) -> list[dict[str, Any]]:
-    lines = []
-    ordered = sorted(blocks, key=lambda block: (block.get("box", {}).get("top", 0), block.get("box", {}).get("left", 0)))
+def group_blocks_by_row(blocks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    ordered = sorted(blocks, key=lambda block: (block_center(block)[1], block_center(block)[0]))
+    rows: list[dict[str, Any]] = []
+    heights = [int(block.get("box", {}).get("height", 0)) for block in ordered if int(block.get("box", {}).get("height", 0)) > 0]
+    median_height = sorted(heights)[len(heights) // 2] if heights else 32
+    row_threshold = max(28, min(56, round(median_height * 1.8)))
     for block in ordered:
-        text = str(block.get("text", ""))
-        if not any(alias in text for alias in STAT_ALIASES):
+        center_y = block_center(block)[1]
+        target = None
+        for row in rows:
+            if abs(float(row["center_y"]) - center_y) <= row_threshold:
+                target = row
+                break
+        if target is None:
+            rows.append({"center_y": center_y, "blocks": [block]})
             continue
-        value = None
-        nearby_values = [
-            candidate
-            for candidate in ordered
-            if block_in_box(candidate, value_zone)
-            and abs(block_center(candidate)[1] - block_center(block)[1]) < 36
-            and numeric_tokens(str(candidate.get("text", "")))
-        ]
-        if nearby_values:
-            value = numeric_tokens(str(nearby_values[-1].get("text", "")))[-1]
+        target["blocks"].append(block)
+        target["center_y"] = sum(block_center(item)[1] for item in target["blocks"]) / len(target["blocks"])
+    return [sorted(row["blocks"], key=lambda block: block_center(block)[0]) for row in rows]
+
+
+def row_value_token(row: list[dict[str, Any]], value_zone: dict[str, int]) -> str | None:
+    candidates: list[tuple[float, str]] = []
+    for block in row:
+        if not block_in_box(block, value_zone):
+            continue
+        for token in numeric_tokens(str(block.get("text", ""))):
+            if token.startswith("+"):
+                continue
+            candidates.append((block_center(block)[0], token))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[-1][1]
+
+
+def parse_sub_stats(blocks: list[dict[str, Any]], value_zone: dict[str, int]) -> list[dict[str, Any]]:
+    lines: list[dict[str, Any]] = []
+    for row in group_blocks_by_row(blocks):
+        row_texts = [str(block.get("text", "")) for block in row if str(block.get("text", "")).strip()]
+        row_text = " ".join(row_texts)
+        stat = canonical_stat_label(row_text)
+        if not stat:
+            continue
+        value = row_value_token(row, value_zone)
+        enhancement = enhancement_value(row_text)
         lines.append(
             {
-                "stat": text,
+                "stat": stat,
                 "value": value,
+                "enhancement": enhancement,
                 "uncertain": value is None,
-                "evidence": [text] + ([value] if value else []),
+                "evidence": row_texts,
             }
         )
-    return lines
+    return lines[:4]
 
 
 def extract_drive_discs(blocks: list[dict[str, Any]], layout_regions: list[dict[str, Any]]) -> list[dict[str, Any]]:

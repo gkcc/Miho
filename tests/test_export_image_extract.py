@@ -97,7 +97,8 @@ class ExportImageExtractTests(unittest.TestCase):
             ocr_block("LV.15", "drive_disc_1", 250, 960, 70, 28),
             ocr_block("暴击率", "drive_disc_1", 50, 1060, 80, 28),
             ocr_block("24%", "drive_disc_1", 250, 1060, 60, 28),
-            ocr_block("攻击力", "drive_disc_1", 50, 1150, 80, 28),
+            ocr_block("攻击刀", "drive_disc_1", 50, 1150, 80, 28),
+            ocr_block("+2", "drive_disc_1", 160, 1150, 42, 28),
             ocr_block("219", "drive_disc_1", 250, 1150, 60, 28),
         ]
 
@@ -124,6 +125,7 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertEqual(draft["drive_discs"][0]["set_name"]["value"], "啄木鸟电音")
         self.assertEqual(draft["drive_discs"][0]["main_stat"]["value"], "暴击率 24%")
         self.assertEqual(draft["drive_discs"][0]["sub_stats"]["value"][0]["stat"], "攻击力")
+        self.assertEqual(draft["drive_discs"][0]["sub_stats"]["value"][0]["enhancement"], 2)
 
         coverage = probe.summarize_coverage(draft, blocks)
         self.assertIn("character_level", coverage["matched_fields"])
@@ -264,6 +266,36 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertEqual(blocks[0]["box"]["left"], 105)
         self.assertEqual(blocks[0]["box"]["top"], 210)
         self.assertGreater(blocks[0]["ocr_confidence_raw"], 97)
+
+    def test_parse_drive_disc_sub_stats_by_rows_with_enhancement(self) -> None:
+        blocks = [
+            ocr_block("攻击刀", "drive_disc_1", 80, 100, 80, 24),
+            ocr_block("19", "drive_disc_1", 320, 98, 40, 24),
+            ocr_block("防御刀", "drive_disc_1", 80, 180, 80, 24),
+            ocr_block("+2", "drive_disc_1", 210, 178, 40, 24),
+            ocr_block("45", "drive_disc_1", 320, 178, 40, 24),
+            ocr_block("王命值", "drive_disc_1", 80, 260, 80, 24),
+            ocr_block("+1", "drive_disc_1", 210, 258, 40, 24),
+            ocr_block("9%", "drive_disc_1", 320, 258, 40, 24),
+            ocr_block("异吊精通", "drive_disc_1", 80, 340, 90, 24),
+            ocr_block("+3", "drive_disc_1", 210, 338, 40, 24),
+            ocr_block("36", "drive_disc_1", 320, 338, 40, 24),
+            ocr_block("暴击率", "drive_disc_1", 80, 420, 80, 24),
+            ocr_block("2.4%", "drive_disc_1", 320, 418, 60, 24),
+        ]
+        value_zone = {"left": 280, "top": 0, "right": 390, "bottom": 480, "width": 110, "height": 480}
+
+        sub_stats = probe.parse_sub_stats(blocks, value_zone)
+
+        self.assertEqual(
+            sub_stats,
+            [
+                {"stat": "攻击力", "value": "19", "enhancement": None, "uncertain": False, "evidence": ["攻击刀", "19"]},
+                {"stat": "防御力", "value": "45", "enhancement": 2, "uncertain": False, "evidence": ["防御刀", "+2", "45"]},
+                {"stat": "生命值", "value": "9%", "enhancement": 1, "uncertain": False, "evidence": ["王命值", "+1", "9%"]},
+                {"stat": "异常精通", "value": "36", "enhancement": 3, "uncertain": False, "evidence": ["异吊精通", "+3", "36"]},
+            ],
+        )
 
     def test_tesseract_eng_route_is_marked_numeric_debug_only(self) -> None:
         result = {

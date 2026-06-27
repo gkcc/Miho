@@ -124,7 +124,8 @@ def normalize(value: Any) -> Any:
     if isinstance(value, list):
         return [normalize(item) for item in value]
     if isinstance(value, dict):
-        return {str(key): normalize(item) for key, item in sorted(value.items()) if key not in {"evidence", "source_region"}}
+        ignored_keys = {"evidence", "source_region", "uncertain", "status"}
+        return {str(key): normalize(item) for key, item in sorted(value.items()) if key not in ignored_keys}
     return value
 
 

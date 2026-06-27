@@ -30,6 +30,20 @@ REVIEW_REGION_NAMES = (
     "drive_disc_6",
 )
 
+REGION_LABELS = {
+    "header": "页眉",
+    "character_card": "角色信息",
+    "core_stats": "核心属性",
+    "skill_levels": "技能等级",
+    "equipment": "音擎",
+    "drive_disc_1": "驱动盘 1",
+    "drive_disc_2": "驱动盘 2",
+    "drive_disc_3": "驱动盘 3",
+    "drive_disc_4": "驱动盘 4",
+    "drive_disc_5": "驱动盘 5",
+    "drive_disc_6": "驱动盘 6",
+}
+
 REGION_COLORS = {
     "header": "#4f46e5",
     "character_card": "#0ea5e9",
@@ -57,6 +71,37 @@ STAT_FIELDS = (
     "energy_regen",
     "physical_dmg_bonus",
 )
+
+FIELD_LABELS = {
+    "name": "名称",
+    "level": "等级",
+    "rank": "评级",
+    "slot": "位置",
+    "set_name": "套装",
+    "main_stat": "主属性",
+    "sub_stats": "副属性",
+    "coverage_level": "覆盖等级",
+    "matched_fields": "命中字段",
+    "missing_fields": "缺失字段",
+    "invalid_fields": "无效候选",
+    "numeric_fields_detected": "数字字段",
+    "chinese_fields_detected": "中文字段",
+    "recommendation": "建议",
+}
+
+STAT_LABELS = {
+    "hp": "生命值",
+    "atk": "攻击力",
+    "def": "防御力",
+    "impact": "冲击力",
+    "crit_rate": "暴击率",
+    "crit_dmg": "暴击伤害",
+    "anomaly_mastery": "异常掌控",
+    "anomaly_proficiency": "异常精通",
+    "pen": "贯穿力",
+    "energy_regen": "能量自动累积",
+    "physical_dmg_bonus": "物理伤害加成",
+}
 
 INVALID_CANDIDATE_VALUES = {
     "驱动",
@@ -176,7 +221,7 @@ def render_overlay(parsed: dict[str, Any], image_path: Path, overlay_path: Path)
         left, top, right, bottom = box
         draw.rectangle((left, top, right, bottom), outline=rgb + (255,), width=4)
         draw.rectangle((left, top, right, bottom), fill=rgb + (22,))
-        label = name
+        label = REGION_LABELS.get(name, name)
         text_box = draw.textbbox((left + 5, top + 5), label, font=font)
         padding = 4
         draw.rectangle(
@@ -243,10 +288,12 @@ def format_value(value: Any) -> str:
             for item in value:
                 stat = item.get("stat")
                 stat_value = item.get("value")
+                enhancement = item.get("enhancement")
+                enhancement_text = f" (+{enhancement})" if enhancement not in (None, "") else ""
                 if stat_value in (None, ""):
-                    parts.append(str(stat))
+                    parts.append(f"{stat}{enhancement_text}")
                 else:
-                    parts.append(f"{stat}: {stat_value}")
+                    parts.append(f"{stat}: {stat_value}{enhancement_text}")
             return "；".join(parts)
         return " / ".join(str(item) for item in value)
     if isinstance(value, dict):
@@ -260,11 +307,12 @@ def render_field(label: str, field: Any, path: str | None = None) -> str:
     source = field.get("source_region") if is_field(field) else None
     uncertain = status != "ok" or (is_field(field) and field.get("uncertain"))
     uncertainty = f"status={status}; uncertain={'true' if uncertain else 'false'}"
+    display_label = FIELD_LABELS.get(label, STAT_LABELS.get(label, label))
     path_html = f"<span class=\"path\">{escape(path)}</span>" if path else ""
     source_html = f"<span class=\"source\">{escape(source)}</span>" if source else ""
     return (
         f"<div class=\"field field-{status}\">"
-        f"<div class=\"field-main\"><span class=\"field-label\">{escape(label)}</span>{path_html}</div>"
+        f"<div class=\"field-main\"><span class=\"field-label\">{escape(display_label)}</span>{path_html}</div>"
         f"<div class=\"field-value\">{escape(value)}</div>"
         f"<div class=\"field-meta\">{escape(uncertainty)} {source_html}</div>"
         "</div>"
@@ -384,7 +432,7 @@ def render_skills_card(draft: dict[str, Any]) -> str:
     body = ""
     for index in range(6):
         item = skill_levels[index] if index < len(skill_levels) and isinstance(skill_levels[index], dict) else {}
-        body += render_field(f"skill {index + 1}", item.get("level"), f"skill_levels[{index + 1}].level")
+        body += render_field(f"技能 {index + 1}", item.get("level"), f"skill_levels[{index + 1}].level")
     return render_card("技能卡", body)
 
 
@@ -407,7 +455,7 @@ def render_drive_discs_card(draft: dict[str, Any]) -> str:
         disc = next((item for item in discs if isinstance(item, dict) and item.get("slot") == slot), {})
         body = "".join(
             [
-                f"<div class=\"slot-label\">drive_disc_{slot}</div>",
+                f"<div class=\"slot-label\">驱动盘 {slot}</div>",
                 render_field("slot", {"value": slot, "uncertain": False, "evidence": [], "source_region": f"drive_disc_{slot}"}),
                 render_field("set_name", disc.get("set_name"), f"drive_discs[{slot}].set_name"),
                 render_field("level", disc.get("level"), f"drive_discs[{slot}].level"),
@@ -518,7 +566,7 @@ def render_coverage_card(coverage: dict[str, Any]) -> str:
             ),
         ]
     )
-    return render_card("coverage_summary", body)
+    return render_card("覆盖摘要", body)
 
 
 def render_uncertain_card(draft: dict[str, Any]) -> str:
@@ -539,7 +587,7 @@ def render_region_legend(parsed: dict[str, Any]) -> str:
         items.append(
             f"<div class=\"legend-item legend-{status}\">"
             f"<span class=\"legend-swatch\" style=\"background:{escape(color)}\"></span>"
-            f"<span>{escape(name)}</span>"
+            f"<span>{escape(REGION_LABELS.get(name, name))}</span>"
             "</div>"
         )
     return "<div class=\"legend\">" + "".join(items) + "</div>"

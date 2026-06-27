@@ -79,7 +79,7 @@ def mock_parsed_json(image_path: Path) -> dict:
                 "level": parsed_field("15", source_region=f"drive_disc_{slot}"),
                 "main_stat": parsed_field("暴击率 24%", source_region=f"drive_disc_{slot}"),
                 "sub_stats": parsed_field(
-                    [{"stat": "攻击力", "value": "219", "uncertain": False, "evidence": ["攻击力", "219"]}],
+                    [{"stat": "攻击力", "value": "219", "enhancement": 2, "uncertain": False, "evidence": ["攻击力", "+2", "219"]}],
                     source_region=f"drive_disc_{slot}",
                 ),
             }
@@ -189,9 +189,12 @@ class ExportReviewRenderTests(unittest.TestCase):
             self.assertIn("character.level", html_text)
             self.assertIn("coverage_summary", html_text)
             self.assertIn("coverage_level", html_text)
+            self.assertIn("覆盖摘要", html_text)
             self.assertIn("FAIL", html_text)
             self.assertIn("low", html_text)
+            self.assertIn("驱动盘 1", html_text)
             self.assertIn("drive_disc_1", html_text)
+            self.assertIn("攻击力: 219 (+2)", html_text)
             self.assertIn("equipment_name", html_text)
 
             md_text = md_path.read_text(encoding="utf-8")

@@ -125,6 +125,25 @@ class ExportParseEvaluateTests(unittest.TestCase):
         crit_rate = next(item for item in result["comparisons"] if item["path"] == "stats.crit_rate")
         self.assertEqual(crit_rate["status"], "FAIL")
 
+    def test_sub_stats_compare_enhancement_without_internal_parser_fields(self) -> None:
+        parsed = parsed_json(name="星见雅", skill_5="10")
+        expected = expected_json()
+        actual_sub_stats = [
+            {"stat": "防御力", "value": "45", "enhancement": 2, "uncertain": False, "evidence": ["防御力", "+2", "45"]},
+            {"stat": "暴击伤害", "value": "14.4%", "enhancement": 2, "uncertain": False, "evidence": ["暴击伤害", "+2", "14.4%"]},
+        ]
+        expected_sub_stats = [
+            {"stat": "防御力", "value": "45", "enhancement": 2},
+            {"stat": "暴击伤害", "value": "14.4%", "enhancement": 2},
+        ]
+        parsed["extracted_draft"]["drive_discs"][0]["sub_stats"] = field(actual_sub_stats)
+        expected["extracted_draft"]["drive_discs"][0]["sub_stats"] = expected_sub_stats
+
+        result = evaluate_tool.evaluate(parsed, expected)
+
+        disc_1_sub_stats = next(item for item in result["comparisons"] if item["path"] == "drive_discs[1].sub_stats")
+        self.assertEqual(disc_1_sub_stats["status"], "PASS")
+
     def test_make_expected_template_outputs_only_acceptance_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
