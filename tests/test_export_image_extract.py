@@ -245,6 +245,26 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertIn("rgb_3x", names)
         self.assertIn("rgb_2x_sharp_contrast", names)
 
+    def test_parse_paddle_v3_result_dicts(self) -> None:
+        raw_result = [
+            {
+                "rec_texts": ["星徽·比利", "LV.60"],
+                "rec_scores": [0.98, 0.99],
+                "rec_polys": [
+                    [[10, 20], [90, 20], [90, 42], [10, 42]],
+                    [[12, 50], [70, 50], [70, 72], [12, 72]],
+                ],
+            }
+        ]
+        region_box = {"left": 100, "top": 200, "right": 300, "bottom": 400}
+
+        blocks = probe.parse_paddle_blocks(raw_result, region_name="character_card", region_box=region_box, scale=2)
+
+        self.assertEqual([block["text"] for block in blocks], ["星徽·比利", "LV.60"])
+        self.assertEqual(blocks[0]["box"]["left"], 105)
+        self.assertEqual(blocks[0]["box"]["top"], 210)
+        self.assertGreater(blocks[0]["ocr_confidence_raw"], 97)
+
     def test_tesseract_eng_route_is_marked_numeric_debug_only(self) -> None:
         result = {
             "metadata": {"notes": [], "game": "zzz", "layout": "zzz-agent-card"},

@@ -255,6 +255,7 @@ def configure_tessdata_prefix() -> None:
 
 
 def load_paddle_dependency() -> tuple[Any, Any]:
+    os.environ.setdefault("FLAGS_enable_pir_api", "0")
     try:
         import numpy as np  # type: ignore[import-not-found]
         from paddleocr import PaddleOCR  # type: ignore[import-not-found]
@@ -265,6 +266,52 @@ def load_paddle_dependency() -> tuple[Any, Any]:
             "wheel, follow the PaddleOCR install guide for your Windows/Python/CUDA environment."
         ) from exc
     return np, PaddleOCR
+
+
+def create_paddle_ocr(PaddleOCR: Any, paddle_lang: str) -> Any:
+    init_attempts = (
+        {
+            "lang": paddle_lang,
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+        },
+        {
+            "lang": paddle_lang,
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": True,
+        },
+        {"lang": paddle_lang},
+        {"use_angle_cls": True, "lang": paddle_lang},
+    )
+    errors: list[str] = []
+    for kwargs in init_attempts:
+        try:
+            return PaddleOCR(**kwargs)
+        except Exception as exc:
+            errors.append(f"{kwargs}: {redact_text(exc)}")
+    raise ProbeError("PaddleOCR failed to initialize. Details: " + " | ".join(errors))
+
+
+def call_paddle_ocr(ocr: Any, image_array: Any) -> Any:
+    call_attempts = (
+        ("predict", {}),
+        ("ocr", {}),
+        ("ocr", {"cls": True}),
+    )
+    errors: list[str] = []
+    for method_name, kwargs in call_attempts:
+        method = getattr(ocr, method_name, None)
+        if method is None:
+            continue
+        try:
+            return method(image_array, **kwargs)
+        except TypeError as exc:
+            errors.append(f"{method_name}{kwargs}: {redact_text(exc)}")
+        except Exception as exc:
+            errors.append(f"{method_name}{kwargs}: {redact_text(exc)}")
+    raise ProbeError("PaddleOCR call failed. Details: " + " | ".join(errors))
 
 
 def load_rapidocr_dependency() -> tuple[Any, Any]:
@@ -480,6 +527,32 @@ def paddle_lang_from_tesseract_lang(lang: str) -> str:
 def iter_paddle_lines(raw_result: Any) -> Iterable[Any]:
     if not raw_result:
         return []
+    if isinstance(raw_result, list) and raw_result and isinstance(raw_result[0], dict):
+        lines = []
+        for page in raw_result:
+            texts = page.get("rec_texts") or []
+            scores = page.get("rec_scores") or []
+            polys = page.get("rec_polys")
+            boxes = page.get("rec_boxes")
+            for index, text in enumerate(texts):
+                if polys is not None and index < len(polys):
+                    points = polys[index]
+                    if hasattr(points, "tolist"):
+                        points = points.tolist()
+                elif boxes is not None and index < len(boxes):
+                    box = boxes[index]
+                    if hasattr(box, "tolist"):
+                        box = box.tolist()
+                    if len(box) >= 4:
+                        left, top, right, bottom = box[:4]
+                        points = [[left, top], [right, top], [right, bottom], [left, bottom]]
+                    else:
+                        continue
+                else:
+                    continue
+                confidence = scores[index] if index < len(scores) else 0
+                lines.append((points, (text, confidence)))
+        return lines
     if isinstance(raw_result, list) and raw_result and isinstance(raw_result[0], list):
         first = raw_result[0]
         if first and isinstance(first[0], list) and len(first[0]) == 2 and isinstance(first[0][1], tuple):
@@ -543,7 +616,7 @@ def run_paddle_on_region(
     paddle_lang = paddle_lang_from_tesseract_lang(lang)
     try:
         if paddle_lang not in PADDLE_OCR_CACHE:
-            PADDLE_OCR_CACHE[paddle_lang] = PaddleOCR(use_angle_cls=True, lang=paddle_lang, show_log=False)
+            PADDLE_OCR_CACHE[paddle_lang] = create_paddle_ocr(PaddleOCR, paddle_lang)
         ocr = PADDLE_OCR_CACHE[paddle_lang]
     except Exception as exc:
         raise ProbeError(f"PaddleOCR failed. Details: {redact_text(exc)}") from exc
@@ -551,8 +624,19 @@ def run_paddle_on_region(
     candidates: list[tuple[tuple[int, int, float], list[dict[str, Any]], dict[str, Any]]] = []
     errors: list[str] = []
     for processed, preprocess_info in preprocess_for_paddle_profiles(crop):
+        if preprocess_info.get("profile") != "rgb_original":
+            errors.append(f"{preprocess_info.get('profile')}: skipped; stable PaddleOCR batch route uses rgb_original only")
+            continue
+        if float(preprocess_info["scale"]) > 2:
+            errors.append(f"{preprocess_info.get('profile')}: skipped; PaddleOCR Windows CPU backend is unstable above 2x")
+            continue
+        if max(processed.size) > 4000:
+            errors.append(
+                f"{preprocess_info.get('profile')}: skipped; processed side {max(processed.size)} exceeds PaddleOCR max_side_limit"
+            )
+            continue
         try:
-            raw_result = ocr.ocr(np.array(processed.convert("RGB")), cls=True)
+            raw_result = call_paddle_ocr(ocr, np.array(processed.convert("RGB")))
             blocks = parse_paddle_blocks(
                 raw_result,
                 region_name=region_name,
