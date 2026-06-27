@@ -52,6 +52,8 @@ def run_review(
     game: str,
     layout: str,
     open_html: bool = False,
+    write_crops: bool = False,
+    crop_output_dir: Path | None = None,
 ) -> dict[str, Any]:
     if layout == "zzz-agent-card" and game != "zzz":
         raise ReviewOnceError("--layout zzz-agent-card requires --game zzz.")
@@ -68,7 +70,13 @@ def run_review(
         game=game,
         layout=layout,
     )
-    json_path, md_path = parse_probe.write_outputs(parsed, output_dir, image_path)
+    json_path, md_path = parse_probe.write_outputs(
+        parsed,
+        output_dir,
+        image_path,
+        write_crops=write_crops,
+        crop_output_dir=crop_output_dir,
+    )
     review_result = review_render.render_review(json_path, image_override=str(image_path), output_dir=str(output_dir))
 
     draft = parsed.get("extracted_draft", {})
@@ -89,6 +97,7 @@ def run_review(
         "markdown_path": str(md_path),
         "review_html": str(html_path),
         "overlay_png": str(overlay_path),
+        "crop_outputs": parsed.get("crop_outputs", []),
         "open_command": powershell_start_command(html_path),
         "errors": parsed.get("errors", []),
     }
@@ -111,6 +120,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--open", action="store_true", help="Open the generated HTML review page in the default browser.")
     parser.add_argument(
+        "--write-crops",
+        action="store_true",
+        help="Write field-level crop images for key acceptance fields under data/probes/crops/.",
+    )
+    parser.add_argument(
+        "--crop-output-dir",
+        default=str(parse_probe.DEFAULT_CROP_OUTPUT_DIR),
+        help="Crop output directory. Default: data/probes/crops",
+    )
+    parser.add_argument(
         "--strict-exit",
         action="store_true",
         help="Return non-zero if parsing errors occurred or review_status is FAIL. Default returns 0 when reports are generated.",
@@ -129,6 +148,8 @@ def main() -> int:
             game=args.game,
             layout=args.layout,
             open_html=args.open,
+            write_crops=args.write_crops,
+            crop_output_dir=resolve_path(args.crop_output_dir),
         )
     except ReviewOnceError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -141,6 +162,8 @@ def main() -> int:
     print(f"parsed_markdown: {result['markdown_path']}")
     print(f"review_html: {result['review_html']}")
     print(f"overlay_png: {result['overlay_png']}")
+    if args.write_crops:
+        print(f"field_crops: {len(result.get('crop_outputs', []))}")
     print(f"open_command: {result['open_command']}")
     if result["errors"]:
         print("parse_errors:")

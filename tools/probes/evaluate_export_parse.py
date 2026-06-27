@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal, InvalidOperation
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -50,6 +52,9 @@ COMPARE_PATHS = [
     "drive_discs[6].main_stat",
     "drive_discs[6].sub_stats",
 ]
+
+NUMERIC_TEXT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
+PERCENT_TEXT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?%$")
 
 
 class EvaluateError(RuntimeError):
@@ -117,21 +122,115 @@ def normalize(value: Any) -> Any:
     return value
 
 
-def compare_values(actual: Any, expected: Any) -> bool:
-    return normalize(actual) == normalize(expected)
+def decimal_value(value: str) -> Decimal | None:
+    try:
+        return Decimal(value)
+    except (InvalidOperation, ValueError):
+        return None
 
 
-def evaluate(parsed: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]:
+def numeric_strings_equal(actual: str, expected: str) -> bool:
+    actual_number = decimal_value(actual)
+    expected_number = decimal_value(expected)
+    return actual_number is not None and expected_number is not None and actual_number == expected_number
+
+
+def compare_string_values(actual: str, expected: str, *, loose_numeric_text: bool) -> bool:
+    actual_text = actual.strip()
+    expected_text = expected.strip()
+    actual_has_percent = "%" in actual_text
+    expected_has_percent = "%" in expected_text
+    if actual_has_percent or expected_has_percent:
+        if actual_has_percent != expected_has_percent:
+            return False
+        if not (PERCENT_TEXT_RE.fullmatch(actual_text) and PERCENT_TEXT_RE.fullmatch(expected_text)):
+            return actual_text == expected_text
+        if not loose_numeric_text:
+            return actual_text == expected_text
+        return numeric_strings_equal(actual_text[:-1], expected_text[:-1])
+    if loose_numeric_text and NUMERIC_TEXT_RE.fullmatch(actual_text) and NUMERIC_TEXT_RE.fullmatch(expected_text):
+        return numeric_strings_equal(actual_text, expected_text)
+    return actual_text == expected_text
+
+
+def compare_normalized_values(actual_value: Any, expected_value: Any, *, loose_numeric_text: bool) -> bool:
+    if isinstance(actual_value, str) and isinstance(expected_value, str):
+        return compare_string_values(actual_value, expected_value, loose_numeric_text=loose_numeric_text)
+    if isinstance(actual_value, list) and isinstance(expected_value, list):
+        if len(actual_value) != len(expected_value):
+            return False
+        return all(
+            compare_normalized_values(actual_item, expected_item, loose_numeric_text=loose_numeric_text)
+            for actual_item, expected_item in zip(actual_value, expected_value)
+        )
+    if isinstance(actual_value, dict) and isinstance(expected_value, dict):
+        if set(actual_value.keys()) != set(expected_value.keys()):
+            return False
+        return all(
+            compare_normalized_values(actual_value[key], expected_value[key], loose_numeric_text=loose_numeric_text)
+            for key in actual_value
+        )
+    return actual_value == expected_value
+
+
+def compare_values(actual: Any, expected: Any, *, loose_numeric_text: bool = True) -> bool:
+    actual_value = normalize(actual)
+    expected_value = normalize(expected)
+    return compare_normalized_values(actual_value, expected_value, loose_numeric_text=loose_numeric_text)
+
+
+def group_for_path(path: str) -> str:
+    if path.startswith("skill_levels"):
+        return "skill_levels"
+    if path.startswith("drive_discs"):
+        return "drive_discs"
+    if path.startswith("stats."):
+        return "stats"
+    return path.split(".", 1)[0]
+
+
+def summarize_blockers(failed_groups: dict[str, list[str]], pass_rate: float) -> list[str]:
+    blockers: list[str] = []
+    if pass_rate < 0.8:
+        blockers.append("pass_rate below 80% target")
+    if "character" in failed_groups:
+        blockers.append("character key fields failed")
+    if "equipment" in failed_groups:
+        blockers.append("equipment key fields failed")
+    if "drive_discs" in failed_groups:
+        blockers.append("drive disc level/main/sub fields failed")
+    if "stats" in failed_groups and len(failed_groups["stats"]) >= 3:
+        blockers.append("core stat OCR mismatch is broad")
+    if "skill_levels" in failed_groups and len(failed_groups["skill_levels"]) >= 2:
+        blockers.append("multiple skill levels failed")
+    return blockers
+
+
+def next_action_for(failed_groups: dict[str, list[str]], pass_rate: float) -> str:
+    if not failed_groups:
+        return "Diff is clean. Continue to manual review or fixture replay; do not auto-import without explicit confirmation."
+    if pass_rate >= 0.8:
+        return "Pass rate meets the P0.8 target. Fix the remaining failed fields from their crop images before fixture promotion."
+    if "drive_discs" in failed_groups:
+        return "Open data/probes/crops for drive_disc_* crops first; main/sub stat crop alignment is the likely bottleneck."
+    if "character" in failed_groups or "equipment" in failed_groups:
+        return "Open character/equipment crops and rerun with --engine paddle; Chinese OCR quality is the likely bottleneck."
+    return "Inspect failed field crops, then adjust OCR engine, crop ratios, or field extraction rules."
+
+
+def evaluate(parsed: dict[str, Any], expected: dict[str, Any], *, loose_numeric_text: bool = True) -> dict[str, Any]:
     comparisons = []
     failed = 0
+    failed_groups: dict[str, list[str]] = {}
     for path in COMPARE_PATHS:
         expected_value = get_value(expected, path)
         actual_value = get_value(parsed, path)
         if expected_value is None and actual_value is None:
             continue
-        passed = compare_values(actual_value, expected_value)
+        passed = compare_values(actual_value, expected_value, loose_numeric_text=loose_numeric_text)
         if not passed:
             failed += 1
+            failed_groups.setdefault(group_for_path(path), []).append(path)
         comparisons.append(
             {
                 "path": path,
@@ -142,6 +241,8 @@ def evaluate(parsed: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]
         )
     total = len(comparisons)
     passed = total - failed
+    pass_rate = passed / total if total else 0.0
+    blockers = summarize_blockers(failed_groups, pass_rate)
     return {
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "overall_status": "PASS" if failed == 0 else "FAIL",
@@ -149,6 +250,15 @@ def evaluate(parsed: dict[str, Any], expected: dict[str, Any]) -> dict[str, Any]
             "total": total,
             "passed": passed,
             "failed": failed,
+            "pass_rate": round(pass_rate, 4),
+            "pass_rate_percent": round(pass_rate * 100, 2),
+            "target_pass_rate": 0.8,
+            "meets_target": pass_rate >= 0.8,
+            "loose_numeric_text": loose_numeric_text,
+            "failed_fields": [item for paths in failed_groups.values() for item in paths],
+            "failed_groups": failed_groups,
+            "blockers": blockers,
+            "next_action": next_action_for(failed_groups, pass_rate),
         },
         "comparisons": comparisons,
     }
@@ -162,10 +272,29 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"- total: {result['summary']['total']}",
         f"- passed: {result['summary']['passed']}",
         f"- failed: {result['summary']['failed']}",
+        f"- pass_rate: {result['summary']['pass_rate_percent']}%",
+        f"- meets_80_percent_target: {result['summary']['meets_target']}",
+        f"- blockers: {', '.join(result['summary'].get('blockers', [])) or 'none'}",
+        f"- next_action: {result['summary'].get('next_action', '')}",
         "",
+        "## Failed Fields By Group",
+        "",
+    ]
+    failed_groups = result["summary"].get("failed_groups", {})
+    if failed_groups:
+        for group, paths in failed_groups.items():
+            lines.append(f"- {group}: {', '.join(paths)}")
+    else:
+        lines.append("- none")
+    lines.extend(
+        [
+            "",
+            "## Field Diff",
+            "",
         "| path | status | expected | actual |",
         "|---|---|---|---|",
-    ]
+        ]
+    )
     for item in result["comparisons"]:
         expected = json.dumps(item.get("expected"), ensure_ascii=False)
         actual = json.dumps(item.get("actual"), ensure_ascii=False)
@@ -178,10 +307,17 @@ def default_output_paths(parsed_path: Path) -> tuple[Path, Path]:
     return parsed_path.with_name(f"{parsed_path.stem}_expected_diff.json"), parsed_path.with_name(f"{parsed_path.stem}_expected_diff.md")
 
 
-def evaluate_files(parsed_path: Path, expected_path: Path, output_json: Path | None = None, output_md: Path | None = None) -> dict[str, Any]:
+def evaluate_files(
+    parsed_path: Path,
+    expected_path: Path,
+    output_json: Path | None = None,
+    output_md: Path | None = None,
+    *,
+    loose_numeric_text: bool = True,
+) -> dict[str, Any]:
     parsed = load_json(parsed_path)
     expected = load_json(expected_path)
-    result = evaluate(parsed, expected)
+    result = evaluate(parsed, expected, loose_numeric_text=loose_numeric_text)
     default_json, default_md = default_output_paths(parsed_path)
     output_json = output_json or default_json
     output_md = output_md or default_md
@@ -207,6 +343,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected", required=True, help="Manually confirmed expected JSON.")
     parser.add_argument("--output-json", default=None, help="Output JSON diff path. Default: <parsed_stem>_expected_diff.json")
     parser.add_argument("--output-md", default=None, help="Output Markdown diff path. Default: <parsed_stem>_expected_diff.md")
+    parser.add_argument(
+        "--strict-leading-zero",
+        action="store_true",
+        help="Treat numeric text such as '08' and '8' as different. Default compares numeric text loosely.",
+    )
     return parser
 
 
@@ -218,12 +359,25 @@ def main() -> int:
             resolve_path(args.expected),
             resolve_path(args.output_json) if args.output_json else None,
             resolve_path(args.output_md) if args.output_md else None,
+            loose_numeric_text=not args.strict_leading_zero,
         )
     except EvaluateError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     print(f"overall_status: {result['overall_status']}")
+    print(f"pass_rate: {result['summary']['pass_rate_percent']}%")
     print(f"failed: {result['summary']['failed']}")
+    failed_groups = result["summary"].get("failed_groups", {})
+    if failed_groups:
+        print("failed_groups:")
+        for group, paths in failed_groups.items():
+            print(f"- {group}: {', '.join(paths)}")
+    blockers = result["summary"].get("blockers", [])
+    if blockers:
+        print("blockers:")
+        for blocker in blockers:
+            print(f"- {blocker}")
+    print(f"next_action: {result['summary'].get('next_action')}")
     print(f"Wrote JSON diff: {result['output_json']}")
     print(f"Wrote Markdown diff: {result['output_md']}")
     return 0 if result["overall_status"] == "PASS" else 1

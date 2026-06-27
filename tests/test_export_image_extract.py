@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 from pathlib import Path
 import sys
 import unittest
+
+from PIL import Image
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +59,11 @@ class ExportImageExtractTests(unittest.TestCase):
         args = probe.build_arg_parser().parse_args(["--image", "example.png"])
 
         self.assertEqual(args.engine, "auto")
+
+    def test_arg_parser_accepts_crop_output(self) -> None:
+        args = probe.build_arg_parser().parse_args(["--image", "example.png", "--write-crops"])
+
+        self.assertTrue(args.write_crops)
 
     def test_extract_zzz_agent_card_from_manual_ocr_blocks(self) -> None:
         blocks = [
@@ -188,6 +196,49 @@ class ExportImageExtractTests(unittest.TestCase):
 
         self.assertNotEqual(coverage["coverage_level"], "high")
         self.assertIn("character.name 缺失或不可信", coverage["high_blockers"])
+
+    def test_write_field_crops_outputs_key_field_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "share.png"
+            output_dir = root / "parsed"
+            crop_dir = root / "crops"
+            Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), "white").save(image_path)
+
+            result, exit_code = probe.build_result(
+                image_path,
+                engine="none",
+                lang="eng",
+                game="zzz",
+                layout="zzz-agent-card",
+            )
+            json_path, _ = probe.write_outputs(result, output_dir, image_path, write_crops=True, crop_output_dir=crop_dir)
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(json_path.exists())
+            crop_outputs = result["crop_outputs"]
+            crop_names = {Path(item["path"]).name for item in crop_outputs}
+            self.assertIn("character_name.png", crop_names)
+            self.assertIn("skill_1.png", crop_names)
+            self.assertIn("equipment_name.png", crop_names)
+            self.assertIn("drive_disc_1_main_stat.png", crop_names)
+            self.assertTrue(list(crop_dir.rglob("character_name.png")))
+            self.assertTrue(list(crop_dir.rglob("skill_1.png")))
+            self.assertTrue(list(crop_dir.rglob("equipment_name.png")))
+            self.assertTrue(list(crop_dir.rglob("drive_disc_1_main_stat.png")))
+
+    def test_tesseract_eng_route_is_marked_numeric_debug_only(self) -> None:
+        result = {
+            "metadata": {"notes": [], "game": "zzz", "layout": "zzz-agent-card"},
+            "layout_regions": [{"preprocess": {"engine_used": "tesseract"}}],
+            "coverage_summary": {"coverage_level": "high", "recommendation": "mock"},
+        }
+
+        probe.apply_ocr_route_recommendation(result, engine="tesseract", lang="eng")
+
+        self.assertEqual(result["metadata"]["ocr_route"], "tesseract_eng_numeric_debug_only")
+        self.assertEqual(result["coverage_summary"]["coverage_level"], "numeric_only")
+        self.assertIn("不可作为可导入解析结果", result["coverage_summary"]["recommendation"])
 
 
 if __name__ == "__main__":

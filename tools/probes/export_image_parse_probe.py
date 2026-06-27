@@ -17,6 +17,7 @@ from typing import Any, Iterable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "parsed"
+DEFAULT_CROP_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "crops"
 PADDLE_OCR_CACHE: dict[str, Any] = {}
 
 SECRET_VALUE_RE = re.compile(
@@ -258,8 +259,9 @@ def load_paddle_dependency() -> tuple[Any, Any]:
         from paddleocr import PaddleOCR  # type: ignore[import-not-found]
     except ImportError as exc:
         raise ProbeError(
-            "Missing optional PaddleOCR dependencies. Install them if you want --engine paddle or --engine auto: "
-            "python -m pip install paddleocr"
+            "PaddleOCR is not available. For real MiYouShe Chinese share-image parsing, install PaddleOCR and rerun "
+            "with --engine paddle. Suggested start: python -m pip install paddleocr. If Paddle asks for a PaddlePaddle "
+            "wheel, follow the PaddleOCR install guide for your Windows/Python/CUDA environment."
         ) from exc
     return np, PaddleOCR
 
@@ -852,6 +854,97 @@ def local_ratio_box(region_box: dict[str, int], ratio: tuple[float, float, float
     }
 
 
+def crop_box_tuple(box: dict[str, int]) -> tuple[int, int, int, int]:
+    return (
+        int(box.get("left", 0)),
+        int(box.get("top", 0)),
+        int(box.get("right", int(box.get("left", 0)) + int(box.get("width", 0)))),
+        int(box.get("bottom", int(box.get("top", 0)) + int(box.get("height", 0)))),
+    )
+
+
+def crop_specs(
+    *,
+    game: str | None,
+    layout: str,
+    layout_regions: list[dict[str, Any]],
+    image_info: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if game != "zzz" or layout != "zzz-agent-card":
+        return []
+
+    width = int(image_info.get("width", 0))
+    height = int(image_info.get("height", 0))
+    if width <= 0 or height <= 0:
+        return []
+
+    region_by_name = {str(region.get("name")): region for region in layout_regions}
+    specs: list[dict[str, Any]] = []
+
+    def add(field_path: str, filename: str, box: dict[str, int]) -> None:
+        if box.get("width", 0) > 0 and box.get("height", 0) > 0:
+            specs.append({"field_path": field_path, "filename": filename, "box": box})
+
+    character_box = ratio_box_to_pixels((0.015, 0.085, 0.315, 0.365), width, height)
+    add("character.name", "character_name.png", character_box)
+    add("character.level", "character_level.png", character_box)
+    add("character.rank", "character_rank.png", character_box)
+
+    for zone in ZZZ_CORE_STAT_ZONES:
+        add(f"stats.{zone.field}", f"stats_{zone.field}.png", ratio_box_to_pixels(zone.box_ratio, width, height))
+
+    for index, zone in enumerate(ZZZ_SKILL_ZONES, start=1):
+        add(f"skill_levels[{index}].level", f"skill_{index}.png", ratio_box_to_pixels(zone, width, height))
+
+    add("equipment.name", "equipment_name.png", ratio_box_to_pixels((0.115, 0.380, 0.320, 0.435), width, height))
+    add("equipment.level", "equipment_level.png", ratio_box_to_pixels((0.120, 0.415, 0.230, 0.455), width, height))
+    add("equipment.rank", "equipment_rank.png", ratio_box_to_pixels((0.860, 0.380, 0.965, 0.455), width, height))
+
+    for slot in range(1, 7):
+        region = region_by_name.get(f"drive_disc_{slot}", {})
+        region_box = region.get("box")
+        if not isinstance(region_box, dict):
+            region_box = ratio_box_to_pixels(ZZZ_AGENT_CARD_REGIONS[6 + slot].box_ratio, width, height)
+        add(f"drive_discs[{slot}].set_name", f"drive_disc_{slot}_set_name.png", local_ratio_box(region_box, (0.035, 0.030, 0.780, 0.220)))
+        add(f"drive_discs[{slot}].level", f"drive_disc_{slot}_level.png", local_ratio_box(region_box, (0.650, 0.020, 0.965, 0.220)))
+        add(f"drive_discs[{slot}].main_stat", f"drive_disc_{slot}_main_stat.png", local_ratio_box(region_box, (0.035, 0.235, 0.965, 0.430)))
+        add(f"drive_discs[{slot}].sub_stats", f"drive_disc_{slot}_sub_stats.png", local_ratio_box(region_box, (0.035, 0.430, 0.965, 0.970)))
+
+    return specs
+
+
+def write_field_crops(
+    result: dict[str, Any],
+    image_path: Path,
+    crop_output_dir: Path,
+) -> list[dict[str, Any]]:
+    specs = crop_specs(
+        game=result.get("metadata", {}).get("game"),
+        layout=result.get("metadata", {}).get("layout"),
+        layout_regions=result.get("layout_regions", []),
+        image_info=result.get("image", {}),
+    )
+    if not specs:
+        return []
+
+    Image = load_image_dependency()
+    crop_output_dir.mkdir(parents=True, exist_ok=True)
+    outputs: list[dict[str, Any]] = []
+    with Image.open(image_path) as image:
+        for spec in specs:
+            box = spec["box"]
+            output_path = crop_output_dir / spec["filename"]
+            image.crop(crop_box_tuple(box)).save(output_path)
+            outputs.append(
+                {
+                    "field_path": spec["field_path"],
+                    "path": relative_or_redacted(output_path),
+                    "box": box,
+                }
+            )
+    return outputs
+
+
 def parse_drive_set_name(text: str, slot: int) -> str | None:
     slot_pattern = re.compile(rf"([\u4e00-\u9fff][\u4e00-\u9fff·]{{1,12}})\s*[\[【(（]\s*{slot}\s*[\]】)）]")
     match = slot_pattern.search(text)
@@ -1245,9 +1338,22 @@ def summarize_entities(blocks: list[dict[str, Any]], draft: dict[str, Any] | Non
     }
 
 
-def write_outputs(result: dict[str, Any], output_dir: Path, image_path: Path) -> tuple[Path, Path]:
+def write_outputs(
+    result: dict[str, Any],
+    output_dir: Path,
+    image_path: Path,
+    *,
+    write_crops: bool = False,
+    crop_output_dir: Path | None = None,
+) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = output_stem(image_path)
+    if write_crops and image_path.exists() and result.get("image"):
+        crop_root = crop_output_dir or DEFAULT_CROP_OUTPUT_DIR
+        crop_dir = crop_root / stem
+        result["crop_outputs"] = write_field_crops(result, image_path, crop_dir)
+    elif write_crops:
+        result["crop_outputs"] = []
     json_path = output_dir / f"{stem}.json"
     md_path = output_dir / f"{stem}.md"
     json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1268,6 +1374,7 @@ def render_markdown(result: dict[str, Any]) -> str:
     draft = result.get("extracted_draft", {})
     blocks = result.get("text_blocks", [])
     regions = result.get("layout_regions", [])
+    crops = result.get("crop_outputs", [])
     errors = result.get("errors", [])
 
     lines = [
@@ -1347,6 +1454,19 @@ def render_markdown(result: dict[str, Any]) -> str:
             )
         lines.append("")
 
+    if crops:
+        lines.extend(["## Field Crops", "", "| field | crop | box |", "|---|---|---|"])
+        for crop in crops:
+            box = crop.get("box", {})
+            box_text = f"{box.get('left')},{box.get('top')},{box.get('width')},{box.get('height')}"
+            lines.append(
+                "| "
+                f"{markdown_cell(crop.get('field_path'), 120)} | "
+                f"{markdown_cell(crop.get('path'), 180)} | "
+                f"{markdown_cell(box_text)} |"
+            )
+        lines.append("")
+
     if coverage:
         lines.extend(["## 缺失字段", ""])
         missing_fields = coverage.get("missing_fields", [])
@@ -1406,6 +1526,52 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ProbeError("--layout zzz-agent-card requires --game zzz.")
 
 
+def actual_ocr_engines(layout_regions: list[dict[str, Any]]) -> set[str]:
+    engines = set()
+    for region in layout_regions:
+        preprocess = region.get("preprocess", {})
+        engine = preprocess.get("engine_used")
+        if engine:
+            engines.add(str(engine))
+    return engines
+
+
+def route_uses_tesseract_eng(engine: str, lang: str, layout_regions: list[dict[str, Any]]) -> bool:
+    lowered_lang = lang.casefold().replace(" ", "")
+    english_only = lowered_lang in {"eng", "en"}
+    if not english_only:
+        return False
+    if engine == "tesseract":
+        return True
+    engines = actual_ocr_engines(layout_regions)
+    return bool(engines) and engines == {"tesseract"}
+
+
+def apply_ocr_route_recommendation(result: dict[str, Any], *, engine: str, lang: str) -> None:
+    coverage = result.get("coverage_summary", {})
+    metadata = result.get("metadata", {})
+    notes = metadata.setdefault("notes", [])
+    if engine == "paddle":
+        metadata["ocr_route"] = "paddle_recommended"
+        coverage["ocr_recommendation"] = "PaddleOCR 是当前真实中文分享图的推荐路线；继续用 expected diff 和 crop 输出校准字段。"
+        return
+    if route_uses_tesseract_eng(engine, lang, result.get("layout_regions", [])):
+        metadata["ocr_route"] = "tesseract_eng_numeric_debug_only"
+        note = "Tesseract eng 只适合固定区域数字调试，不可作为可导入解析结果。真实图片请优先使用 --engine paddle。"
+        if note not in notes:
+            notes.append(note)
+        coverage["ocr_recommendation"] = note
+        if coverage.get("coverage_level") == "high":
+            coverage["coverage_level"] = "numeric_only"
+        recommendation = str(coverage.get("recommendation") or "")
+        if "Tesseract eng 只适合固定区域数字调试" not in recommendation:
+            coverage["recommendation"] = note + (" " + recommendation if recommendation else "")
+        return
+    if engine == "auto":
+        metadata["ocr_route"] = "auto_paddle_first"
+        coverage["ocr_recommendation"] = "auto 会先尝试 PaddleOCR；真实图片识别率不足时请显式运行 --engine paddle 并查看 PaddleOCR 安装错误。"
+
+
 def build_result(image_path: Path, *, engine: str, lang: str, game: str | None, layout: str) -> tuple[dict[str, Any], int]:
     result: dict[str, Any] = {
         "metadata": {
@@ -1420,6 +1586,7 @@ def build_result(image_path: Path, *, engine: str, lang: str, game: str | None, 
                 "Prototype only. Not a formal collector.",
                 "Does not overwrite the input image and does not write a formal database.",
                 "OCR/extracted_draft must be manually confirmed before any future import.",
+                "For real Chinese share images, prefer --engine paddle; tesseract eng is numeric-debug only.",
             ],
         },
         "image": {},
@@ -1456,11 +1623,13 @@ def build_result(image_path: Path, *, engine: str, lang: str, game: str | None, 
         )
         result["summary"] = summarize_entities(blocks, result["extracted_draft"])
         result["coverage_summary"] = summarize_coverage(result["extracted_draft"], blocks)
+        apply_ocr_route_recommendation(result, engine=engine, lang=lang)
         return result, 0
     except ProbeError as exc:
         result["errors"].append(str(exc))
         result["summary"] = summarize_entities([], result["extracted_draft"])
         result["coverage_summary"] = summarize_coverage(result["extracted_draft"], [])
+        apply_ocr_route_recommendation(result, engine=engine, lang=lang)
         return result, 1
 
 
@@ -1475,7 +1644,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--engine",
         choices=("auto", "tesseract", "paddle", "none"),
         default="auto",
-        help="OCR engine. Default: auto (PaddleOCR first, then Tesseract).",
+        help="OCR engine. Default: auto (PaddleOCR first, then Tesseract). Use --engine paddle for real share-image OCR.",
     )
     parser.add_argument("--game", choices=("zzz", "hsr"), default=None, help="Game layout hint: zzz or hsr.")
     parser.add_argument(
@@ -1483,6 +1652,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=("full", "zzz-agent-card"),
         default="full",
         help="Layout strategy. Default: full. zzz-agent-card requires --game zzz.",
+    )
+    parser.add_argument(
+        "--write-crops",
+        action="store_true",
+        help="Write field-level crop images for key acceptance fields under data/probes/crops/.",
+    )
+    parser.add_argument(
+        "--crop-output-dir",
+        default=str(DEFAULT_CROP_OUTPUT_DIR),
+        help="Crop output directory. Default: data/probes/crops",
     )
     return parser
 
@@ -1493,6 +1672,9 @@ def main() -> int:
     output_dir = Path(args.output_dir).expanduser()
     if not output_dir.is_absolute():
         output_dir = PROJECT_ROOT / output_dir
+    crop_output_dir = Path(args.crop_output_dir).expanduser()
+    if not crop_output_dir.is_absolute():
+        crop_output_dir = PROJECT_ROOT / crop_output_dir
 
     try:
         validate_args(args)
@@ -1524,9 +1706,17 @@ def main() -> int:
         }
         exit_code = 2
 
-    json_path, md_path = write_outputs(result, output_dir, image_path)
+    json_path, md_path = write_outputs(
+        result,
+        output_dir,
+        image_path,
+        write_crops=args.write_crops,
+        crop_output_dir=crop_output_dir,
+    )
     print(f"Wrote JSON: {json_path}")
     print(f"Wrote Markdown: {md_path}")
+    if args.write_crops:
+        print(f"Wrote field crops: {len(result.get('crop_outputs', []))}")
     if result.get("errors"):
         print("OCR probe did not complete successfully:", file=sys.stderr)
         for error in result["errors"]:
