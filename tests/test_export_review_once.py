@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -44,6 +45,58 @@ class ExportReviewOnceTests(unittest.TestCase):
             self.assertTrue(Path(result["review_html"]).exists())
             self.assertTrue(Path(result["overlay_png"]).exists())
             self.assertIn("start", result["open_command"])
+
+    def test_one_command_review_can_replay_existing_text_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "share.png"
+            replay_path = root / "old.json"
+            output_dir = root / "parsed"
+            Image.new("RGB", (1000, 2000), "white").save(image_path)
+            replay_path.write_text(
+                json.dumps(
+                    {
+                        "metadata": {"ocr_engine": "paddle", "lang": "ch"},
+                        "image": {"width": 1000, "height": 2000, "mode": "RGB", "format": "PNG"},
+                        "layout_regions": [
+                            {
+                                "name": region.name,
+                                "box": review_once.parse_probe.ratio_box_to_pixels(region.box_ratio, 1000, 2000),
+                                "preprocess": {"engine_used": "paddle"},
+                                "text": "",
+                                "text_block_count": 0,
+                            }
+                            for region in review_once.parse_probe.ZZZ_AGENT_CARD_REGIONS
+                        ],
+                        "text_blocks": [
+                            {
+                                "text": "星见雅 LV.60 S",
+                                "region": "character_card",
+                                "box": {"left": 70, "top": 260, "width": 150, "height": 30},
+                                "confidence": 0.95,
+                                "candidate_entities": ["unknown"],
+                                "uncertain": False,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = review_once.run_review(
+                image_path=image_path,
+                output_dir=output_dir,
+                engine="paddle",
+                lang="chi_sim+eng",
+                game="zzz",
+                layout="zzz-agent-card",
+                replay_parsed=replay_path,
+            )
+
+            self.assertTrue(Path(result["json_path"]).exists())
+            self.assertTrue(Path(result["review_html"]).exists())
+            self.assertEqual(result["errors"], [])
 
 
 if __name__ == "__main__":

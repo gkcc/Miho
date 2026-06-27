@@ -1888,6 +1888,89 @@ def apply_ocr_route_recommendation(result: dict[str, Any], *, engine: str, lang:
         coverage["ocr_recommendation"] = "auto 会先尝试 PaddleOCR；真实图片识别率不足时请显式运行 --engine paddle 并查看 PaddleOCR 安装错误。"
 
 
+def load_replay_source(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise ProbeError(f"Replay parsed JSON does not exist: {relative_or_redacted(path)}")
+    if not path.is_file():
+        raise ProbeError(f"Replay parsed path is not a file: {relative_or_redacted(path)}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ProbeError(f"Replay parsed JSON is invalid: {relative_or_redacted(path)}. Details: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ProbeError(f"Replay parsed JSON root must be an object: {relative_or_redacted(path)}")
+    return data
+
+
+def build_result_from_replay(
+    image_path: Path,
+    replay_path: Path,
+    *,
+    engine: str,
+    lang: str,
+    game: str | None,
+    layout: str,
+) -> tuple[dict[str, Any], int]:
+    source = load_replay_source(replay_path)
+    source_metadata = source.get("metadata", {}) if isinstance(source.get("metadata"), dict) else {}
+    source_engine = str(source_metadata.get("ocr_engine") or engine)
+    source_lang = str(source_metadata.get("lang") or lang)
+    source_image = source.get("image", {}) if isinstance(source.get("image"), dict) else {}
+    source_regions = source.get("layout_regions", [])
+    source_blocks = source.get("text_blocks", [])
+    if not isinstance(source_regions, list):
+        source_regions = []
+    if not isinstance(source_blocks, list):
+        source_blocks = []
+
+    result: dict[str, Any] = {
+        "metadata": {
+            "probe": "export_image_parse_probe",
+            "created_at": now_iso(),
+            "input_image": relative_or_redacted(image_path),
+            "ocr_engine": source_engine,
+            "lang": source_lang,
+            "game": game,
+            "layout": layout,
+            "replay_source": relative_or_redacted(replay_path),
+            "notes": [
+                "Prototype only. Not a formal collector.",
+                "Replay mode reused OCR text_blocks/layout_regions from an existing parsed JSON and did not run OCR.",
+                "OCR/extracted_draft must be manually confirmed before any future import.",
+            ],
+        },
+        "image": source_image,
+        "layout_regions": source_regions,
+        "summary": {},
+        "coverage_summary": {},
+        "extracted_draft": empty_draft(game),
+        "text_blocks": source_blocks,
+        "errors": [],
+    }
+
+    if not source_blocks:
+        result["errors"].append(f"Replay source has no text_blocks: {relative_or_redacted(replay_path)}")
+        result["summary"] = summarize_entities([], result["extracted_draft"])
+        result["coverage_summary"] = summarize_coverage(result["extracted_draft"], [])
+        apply_ocr_route_recommendation(result, engine=source_engine, lang=source_lang)
+        return result, 1
+
+    result["extracted_draft"] = build_extracted_draft(
+        game=game,
+        layout=layout,
+        blocks=source_blocks,
+        layout_regions=source_regions,
+        image_info=source_image,
+    )
+    result["summary"] = summarize_entities(source_blocks, result["extracted_draft"])
+    result["coverage_summary"] = summarize_coverage(result["extracted_draft"], source_blocks)
+    result["metadata"]["ocr_route"] = "replay_existing_text_blocks"
+    result["coverage_summary"][
+        "ocr_recommendation"
+    ] = "当前结果复用了已有 OCR 文本块，只能验收字段抽取和 review 渲染；端到端 OCR 仍需单独运行。"
+    return result, 0
+
+
 def build_result(image_path: Path, *, engine: str, lang: str, game: str | None, layout: str) -> tuple[dict[str, Any], int]:
     result: dict[str, Any] = {
         "metadata": {
@@ -1975,6 +2058,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Write field-level crop images for key acceptance fields under data/probes/crops/.",
     )
     parser.add_argument(
+        "--replay-parsed",
+        default=None,
+        help="Reuse text_blocks/layout_regions from an existing parsed JSON and rerun extraction without OCR.",
+    )
+    parser.add_argument(
         "--crop-output-dir",
         default=str(DEFAULT_CROP_OUTPUT_DIR),
         help="Crop output directory. Default: data/probes/crops",
@@ -1994,13 +2082,26 @@ def main() -> int:
 
     try:
         validate_args(args)
-        result, exit_code = build_result(
-            image_path,
-            engine=args.engine,
-            lang=args.lang,
-            game=args.game,
-            layout=args.layout,
-        )
+        if args.replay_parsed:
+            replay_path = Path(args.replay_parsed).expanduser()
+            if not replay_path.is_absolute():
+                replay_path = PROJECT_ROOT / replay_path
+            result, exit_code = build_result_from_replay(
+                image_path,
+                replay_path.resolve(),
+                engine=args.engine,
+                lang=args.lang,
+                game=args.game,
+                layout=args.layout,
+            )
+        else:
+            result, exit_code = build_result(
+                image_path,
+                engine=args.engine,
+                lang=args.lang,
+                game=args.game,
+                layout=args.layout,
+            )
     except ProbeError as exc:
         result = {
             "metadata": {

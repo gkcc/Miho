@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 from pathlib import Path
 import sys
@@ -70,6 +71,11 @@ class ExportImageExtractTests(unittest.TestCase):
 
         self.assertEqual(args.engine, "rapidocr")
 
+    def test_arg_parser_accepts_replay_parsed(self) -> None:
+        args = probe.build_arg_parser().parse_args(["--image", "example.png", "--replay-parsed", "old.json"])
+
+        self.assertEqual(args.replay_parsed, "old.json")
+
     def test_extract_zzz_agent_card_from_manual_ocr_blocks(self) -> None:
         blocks = [
             ocr_block("星见雅 LV.60 S", "character_card", 70, 260, 150, 30),
@@ -133,6 +139,51 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertIn("equipment_name", coverage["matched_fields"])
         self.assertIn("drive_disc_sub_stats", coverage["matched_fields"])
         self.assertIn(coverage["coverage_level"], {"medium", "high"})
+
+    def test_build_result_from_replay_reuses_text_blocks_without_ocr(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "share.png"
+            replay_path = root / "old.json"
+            Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), "white").save(image_path)
+            blocks = [
+                ocr_block("星见雅 LV.60 S", "character_card", 70, 260, 150, 30),
+                ocr_block("17398", "stat_hp", 600, 220),
+                ocr_block("啄木鸟电音 [1]", "drive_disc_1", 40, 960, 160, 28),
+                ocr_block("LV.15", "drive_disc_1", 250, 960, 70, 28),
+                ocr_block("暴击率", "drive_disc_1", 50, 1060, 80, 28),
+                ocr_block("24%", "drive_disc_1", 250, 1060, 60, 28),
+                ocr_block("防御刀", "drive_disc_1", 50, 1150, 80, 28),
+                ocr_block("+2", "drive_disc_1", 160, 1150, 42, 28),
+                ocr_block("45", "drive_disc_1", 250, 1150, 60, 28),
+            ]
+            replay_path.write_text(
+                json.dumps(
+                    {
+                        "metadata": {"ocr_engine": "paddle", "lang": "ch"},
+                        "image": {"width": IMAGE_WIDTH, "height": IMAGE_HEIGHT, "mode": "RGB", "format": "PNG"},
+                        "layout_regions": zzz_layout_regions(),
+                        "text_blocks": blocks,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result, exit_code = probe.build_result_from_replay(
+                image_path,
+                replay_path,
+                engine="paddle",
+                lang="chi_sim+eng",
+                game="zzz",
+                layout="zzz-agent-card",
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(result["metadata"]["ocr_route"], "replay_existing_text_blocks")
+            self.assertEqual(result["extracted_draft"]["character"]["name"]["value"], "星见雅")
+            self.assertEqual(result["extracted_draft"]["drive_discs"][0]["sub_stats"]["value"][0]["stat"], "防御力")
+            self.assertEqual(result["extracted_draft"]["drive_discs"][0]["sub_stats"]["value"][0]["enhancement"], 2)
 
     def test_invalid_candidates_and_missing_drive_stats_force_low_coverage(self) -> None:
         draft = probe.empty_draft("zzz")

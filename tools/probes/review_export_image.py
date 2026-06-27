@@ -54,6 +54,7 @@ def run_review(
     open_html: bool = False,
     write_crops: bool = False,
     crop_output_dir: Path | None = None,
+    replay_parsed: Path | None = None,
 ) -> dict[str, Any]:
     if layout == "zzz-agent-card" and game != "zzz":
         raise ReviewOnceError("--layout zzz-agent-card requires --game zzz.")
@@ -63,13 +64,23 @@ def run_review(
         raise ReviewOnceError(f"Input image is not a file: {image_path}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    parsed, parse_exit_code = parse_probe.build_result(
-        image_path,
-        engine=engine,
-        lang=lang,
-        game=game,
-        layout=layout,
-    )
+    if replay_parsed:
+        parsed, parse_exit_code = parse_probe.build_result_from_replay(
+            image_path,
+            replay_parsed,
+            engine=engine,
+            lang=lang,
+            game=game,
+            layout=layout,
+        )
+    else:
+        parsed, parse_exit_code = parse_probe.build_result(
+            image_path,
+            engine=engine,
+            lang=lang,
+            game=game,
+            layout=layout,
+        )
     json_path, md_path = parse_probe.write_outputs(
         parsed,
         output_dir,
@@ -135,6 +146,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Crop output directory. Default: data/probes/crops",
     )
     parser.add_argument(
+        "--replay-parsed",
+        default=None,
+        help="Reuse text_blocks/layout_regions from an existing parsed JSON and rerun extraction without OCR.",
+    )
+    parser.add_argument(
         "--strict-exit",
         action="store_true",
         help="Return non-zero if parsing errors occurred or review_status is FAIL. Default returns 0 when reports are generated.",
@@ -155,6 +171,7 @@ def main() -> int:
             open_html=args.open,
             write_crops=args.write_crops,
             crop_output_dir=resolve_path(args.crop_output_dir),
+            replay_parsed=resolve_path(args.replay_parsed) if args.replay_parsed else None,
         )
     except ReviewOnceError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
