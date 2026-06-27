@@ -348,6 +348,12 @@ class ExportImageExtractTests(unittest.TestCase):
             ],
         )
 
+    def test_stat_aliases_cover_paddle_common_misreads(self) -> None:
+        self.assertEqual(probe.canonical_stat_label("玫击力"), "攻击力")
+        self.assertEqual(probe.canonical_stat_label("暴击仿害"), "暴击伤害")
+        self.assertEqual(probe.canonical_stat_label("异吊精涌"), "异常精通")
+        self.assertEqual(probe.parse_main_stat("物理伤書加成", "30%"), "物理伤害加成 30%")
+
     def test_tesseract_eng_route_is_marked_numeric_debug_only(self) -> None:
         result = {
             "metadata": {"notes": [], "game": "zzz", "layout": "zzz-agent-card"},

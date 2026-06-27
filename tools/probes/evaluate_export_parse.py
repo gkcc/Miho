@@ -59,6 +59,14 @@ COMPARE_PATHS = [
     "drive_discs[6].sub_stats",
 ]
 
+P0_9_GROUPS = {
+    "character": [path for path in COMPARE_PATHS if path.startswith("character.")],
+    "stats": [path for path in COMPARE_PATHS if path.startswith("stats.")],
+    "skills": [path for path in COMPARE_PATHS if path.startswith("skill_levels")],
+    "equipment": [path for path in COMPARE_PATHS if path.startswith("equipment.")],
+    "drive_discs": [path for path in COMPARE_PATHS if path.startswith("drive_discs")],
+}
+
 NUMERIC_TEXT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 PERCENT_TEXT_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?%$")
 
@@ -188,7 +196,7 @@ def compare_values(actual: Any, expected: Any, *, loose_numeric_text: bool = Tru
 
 def group_for_path(path: str) -> str:
     if path.startswith("skill_levels"):
-        return "skill_levels"
+        return "skills"
     if path.startswith("drive_discs"):
         return "drive_discs"
     if path.startswith("stats."):
@@ -208,9 +216,62 @@ def summarize_blockers(failed_groups: dict[str, list[str]], pass_rate: float) ->
         blockers.append("drive disc level/main/sub fields failed")
     if "stats" in failed_groups and len(failed_groups["stats"]) >= 3:
         blockers.append("core stat OCR mismatch is broad")
-    if "skill_levels" in failed_groups and len(failed_groups["skill_levels"]) >= 2:
+    if "skills" in failed_groups and len(failed_groups["skills"]) >= 2:
         blockers.append("multiple skill levels failed")
     return blockers
+
+
+def group_summary_for(comparisons: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    by_path = {item["path"]: item for item in comparisons}
+    summary: dict[str, dict[str, Any]] = {}
+    for group, paths in P0_9_GROUPS.items():
+        group_items = [by_path[path] for path in paths if path in by_path]
+        total = len(group_items)
+        failed = sum(1 for item in group_items if item["status"] != "PASS")
+        passed = total - failed
+        pass_rate = passed / total if total else 0.0
+        summary[group] = {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "pass_rate": round(pass_rate, 4),
+            "pass_rate_percent": round(pass_rate * 100, 2),
+            "failed_fields": [item["path"] for item in group_items if item["status"] != "PASS"],
+        }
+    return summary
+
+
+def top_failed_fields(comparisons: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    priority = {"character": 0, "equipment": 1, "drive_discs": 2, "stats": 3, "skills": 4}
+    failed = [item for item in comparisons if item["status"] != "PASS"]
+    failed.sort(key=lambda item: (priority.get(group_for_path(item["path"]), 99), item["path"]))
+    return [
+        {
+            "path": item["path"],
+            "group": group_for_path(item["path"]),
+            "expected": item.get("expected"),
+            "actual": item.get("actual"),
+        }
+        for item in failed[:limit]
+    ]
+
+
+def p0_9_result(pass_rate: float, group_summary: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    blockers: list[str] = []
+    if pass_rate < 0.8:
+        blockers.append("single image pass_rate below 80%")
+    if group_summary.get("character", {}).get("passed", 0) == 0:
+        blockers.append("character fields all failed")
+    if group_summary.get("equipment", {}).get("passed", 0) == 0:
+        blockers.append("equipment fields all failed")
+    if group_summary.get("drive_discs", {}).get("passed", 0) == 0:
+        blockers.append("drive_disc fields all failed or missing")
+    return {
+        "single_image_pass_rate_target": 0.8,
+        "meets_single_image_pass_rate": pass_rate >= 0.8,
+        "meets_p0_9_standard": not blockers,
+        "blockers": blockers,
+    }
 
 
 def next_action_for(failed_groups: dict[str, list[str]], pass_rate: float) -> str:
@@ -250,6 +311,9 @@ def evaluate(parsed: dict[str, Any], expected: dict[str, Any], *, loose_numeric_
     passed = total - failed
     pass_rate = passed / total if total else 0.0
     blockers = summarize_blockers(failed_groups, pass_rate)
+    group_summary = group_summary_for(comparisons)
+    top_failed = top_failed_fields(comparisons)
+    p0_9 = p0_9_result(pass_rate, group_summary)
     return {
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "overall_status": "PASS" if failed == 0 else "FAIL",
@@ -264,6 +328,9 @@ def evaluate(parsed: dict[str, Any], expected: dict[str, Any], *, loose_numeric_
             "loose_numeric_text": loose_numeric_text,
             "failed_fields": [item for paths in failed_groups.values() for item in paths],
             "failed_groups": failed_groups,
+            "group_summary": group_summary,
+            "top_failed_fields": top_failed,
+            "p0_9": p0_9,
             "blockers": blockers,
             "next_action": next_action_for(failed_groups, pass_rate),
         },
@@ -281,12 +348,47 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"- failed: {result['summary']['failed']}",
         f"- pass_rate: {result['summary']['pass_rate_percent']}%",
         f"- meets_80_percent_target: {result['summary']['meets_target']}",
+        f"- meets_p0_9_standard: {result['summary'].get('p0_9', {}).get('meets_p0_9_standard')}",
         f"- blockers: {', '.join(result['summary'].get('blockers', [])) or 'none'}",
         f"- next_action: {result['summary'].get('next_action', '')}",
         "",
-        "## Failed Fields By Group",
+        "## Pass Rate By Group",
         "",
+        "| group | passed | total | pass_rate | failed_fields |",
+        "|---|---:|---:|---:|---|",
     ]
+    for group, item in result["summary"].get("group_summary", {}).items():
+        failed_fields = ", ".join(item.get("failed_fields", [])) or "none"
+        lines.append(
+            f"| {group} | {item.get('passed')} | {item.get('total')} | {item.get('pass_rate_percent')}% | {failed_fields} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Top Failed Fields",
+            "",
+        ]
+    )
+    top_failed = result["summary"].get("top_failed_fields", [])
+    if top_failed:
+        for item in top_failed:
+            lines.append(f"- {item['path']} ({item['group']})")
+    else:
+        lines.append("- none")
+    p0_9 = result["summary"].get("p0_9", {})
+    lines.extend(
+        [
+            "",
+            "## P0.9 Standard",
+            "",
+            f"- meets_single_image_pass_rate: {p0_9.get('meets_single_image_pass_rate')}",
+            f"- meets_p0_9_standard: {p0_9.get('meets_p0_9_standard')}",
+            f"- blockers: {', '.join(p0_9.get('blockers', [])) or 'none'}",
+            "",
+            "## Failed Fields By Group",
+            "",
+        ]
+    )
     failed_groups = result["summary"].get("failed_groups", {})
     if failed_groups:
         for group, paths in failed_groups.items():
@@ -298,8 +400,8 @@ def render_markdown(result: dict[str, Any]) -> str:
             "",
             "## Field Diff",
             "",
-        "| path | status | expected | actual |",
-        "|---|---|---|---|",
+            "| path | status | expected | actual |",
+            "|---|---|---|---|",
         ]
     )
     for item in result["comparisons"]:
@@ -374,6 +476,19 @@ def main() -> int:
     print(f"overall_status: {result['overall_status']}")
     print(f"pass_rate: {result['summary']['pass_rate_percent']}%")
     print(f"failed: {result['summary']['failed']}")
+    print("pass_rate_by_group:")
+    for group, item in result["summary"].get("group_summary", {}).items():
+        print(f"- {group}: {item.get('pass_rate_percent')}% ({item.get('passed')}/{item.get('total')})")
+    p0_9 = result["summary"].get("p0_9", {})
+    print(f"meets_p0_9_standard: {p0_9.get('meets_p0_9_standard')}")
+    if p0_9.get("blockers"):
+        print("p0_9_blockers:")
+        for blocker in p0_9["blockers"]:
+            print(f"- {blocker}")
+    if result["summary"].get("top_failed_fields"):
+        print("top_failed_fields:")
+        for item in result["summary"]["top_failed_fields"]:
+            print(f"- {item['path']} ({item['group']})")
     failed_groups = result["summary"].get("failed_groups", {})
     if failed_groups:
         print("failed_groups:")

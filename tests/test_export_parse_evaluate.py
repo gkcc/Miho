@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = PROJECT_ROOT / "tools" / "probes" / "evaluate_export_parse.py"
 TEMPLATE_SCRIPT_PATH = PROJECT_ROOT / "tools" / "probes" / "make_expected_template.py"
 MATRIX_SCRIPT_PATH = PROJECT_ROOT / "tools" / "probes" / "run_export_ocr_matrix.py"
+REPLAY_BATCH_SCRIPT_PATH = PROJECT_ROOT / "tools" / "probes" / "run_export_replay_batch.py"
 
 spec = importlib.util.spec_from_file_location("evaluate_export_parse", SCRIPT_PATH)
 assert spec is not None
@@ -35,6 +36,13 @@ matrix_tool = importlib.util.module_from_spec(matrix_spec)
 assert matrix_spec.loader is not None
 sys.modules[matrix_spec.name] = matrix_tool
 matrix_spec.loader.exec_module(matrix_tool)
+
+batch_spec = importlib.util.spec_from_file_location("run_export_replay_batch", REPLAY_BATCH_SCRIPT_PATH)
+assert batch_spec is not None
+batch_tool = importlib.util.module_from_spec(batch_spec)
+assert batch_spec.loader is not None
+sys.modules[batch_spec.name] = batch_tool
+batch_spec.loader.exec_module(batch_tool)
 
 
 def field(value):
@@ -97,8 +105,13 @@ class ExportParseEvaluateTests(unittest.TestCase):
             self.assertEqual(result["overall_status"], "FAIL")
             self.assertLess(result["summary"]["pass_rate"], 1)
             self.assertIn("failed_groups", result["summary"])
+            self.assertIn("group_summary", result["summary"])
+            self.assertIn("top_failed_fields", result["summary"])
+            self.assertIn("p0_9", result["summary"])
             self.assertIn("blockers", result["summary"])
             self.assertIn("next_action", result["summary"])
+            self.assertIn("character", result["summary"]["group_summary"])
+            self.assertIn("drive_discs", result["summary"]["group_summary"])
             self.assertGreater(result["summary"]["failed"], 0)
             self.assertTrue(Path(result["output_json"]).exists())
             self.assertTrue(Path(result["output_md"]).exists())
@@ -106,6 +119,21 @@ class ExportParseEvaluateTests(unittest.TestCase):
             self.assertIn("character.name", failed_paths)
             self.assertIn("skill_levels[5].level", failed_paths)
             self.assertIn("equipment.name", failed_paths)
+
+    def test_p0_9_fails_when_character_all_wrong_even_if_rate_is_high(self) -> None:
+        parsed = expected_json()
+        expected = expected_json()
+        parsed["extracted_draft"]["character"] = {
+            "name": field(""),
+            "level": field(""),
+            "rank": field(""),
+        }
+
+        result = evaluate_tool.evaluate(parsed, expected)
+
+        self.assertGreaterEqual(result["summary"]["pass_rate"], 0.8)
+        self.assertFalse(result["summary"]["p0_9"]["meets_p0_9_standard"])
+        self.assertIn("character fields all failed", result["summary"]["p0_9"]["blockers"])
 
     def test_numeric_text_is_loose_but_percent_unit_is_strict(self) -> None:
         parsed = parsed_json(name="星见雅", skill_5="10")
@@ -198,6 +226,26 @@ class ExportParseEvaluateTests(unittest.TestCase):
             self.assertTrue(Path(result["summary_md"]).exists())
             self.assertEqual(result["experiments"][0]["engine"], "vision-baseline")
             self.assertIn("failed_groups", result["experiments"][0])
+
+    def test_replay_batch_outputs_average_and_case_blockers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_dir = root / "batch"
+            cases = []
+            for index in range(3):
+                parsed_path = root / f"parsed_{index}.json"
+                expected_path = root / f"expected_{index}.json"
+                parsed_path.write_text(json.dumps(expected_json(), ensure_ascii=False, indent=2), encoding="utf-8")
+                expected_path.write_text(json.dumps(expected_json(), ensure_ascii=False, indent=2), encoding="utf-8")
+                cases.append({"name": f"case_{index}", "parsed": str(parsed_path), "expected": str(expected_path)})
+
+            result = batch_tool.run_batch(cases, output_dir=output_dir)
+
+            self.assertTrue(Path(result["summary_json"]).exists())
+            self.assertTrue(Path(result["summary_md"]).exists())
+            self.assertEqual(result["p0_9"]["case_count"], 3)
+            self.assertEqual(result["p0_9"]["average_pass_rate_percent"], 100.0)
+            self.assertTrue(result["p0_9"]["meets_p0_9_batch_standard"])
 
 
 if __name__ == "__main__":

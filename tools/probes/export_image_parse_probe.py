@@ -77,14 +77,48 @@ STAT_ALIASES = [
 
 STAT_ALIAS_CANONICAL = {
     "攻击刀": "攻击力",
+    "玫击力": "攻击力",
+    "玫击刀": "攻击力",
+    "攻去力": "攻击力",
     "防御刀": "防御力",
+    "防御乃": "防御力",
+    "防御万": "防御力",
     "王命值": "生命值",
     "生俞值": "生命值",
+    "生命直": "生命值",
+    "泩命值": "生命值",
+    "暴击仿害": "暴击伤害",
+    "暴击伤書": "暴击伤害",
+    "暴去率": "暴击率",
+    "暴去伤害": "暴击伤害",
     "异吊精通": "异常精通",
     "异吊掌控": "异常掌控",
+    "异吊精涌": "异常精通",
+    "异常精涌": "异常精通",
+    "贯穿值": "贯穿力",
+    "闪能自动累积": "能量自动累积",
+    "物理伤書加成": "物理伤害加成",
 }
 
 STAT_ALIASES = list(dict.fromkeys(STAT_ALIASES + list(STAT_ALIAS_CANONICAL)))
+
+STAT_TEXT_REPLACEMENTS = (
+    ("攻去", "攻击"),
+    ("玫击", "攻击"),
+    ("防御刀", "防御力"),
+    ("防御乃", "防御力"),
+    ("防御万", "防御力"),
+    ("王命", "生命"),
+    ("生俞", "生命"),
+    ("泩命", "生命"),
+    ("异吊", "异常"),
+    ("精涌", "精通"),
+    ("暴去", "暴击"),
+    ("仿害", "伤害"),
+    ("伤書", "伤害"),
+    ("闪能", "能量"),
+    ("物理伤書", "物理伤害"),
+)
 
 TEXT_FILTER_PHRASES = {
     "代理人信息",
@@ -1227,10 +1261,30 @@ def parse_drive_set_name(text: str, slot: int) -> str | None:
     return best_cjk_name(text)
 
 
+def normalize_stat_text(text: str) -> str:
+    normalized = text
+    for source, target in STAT_TEXT_REPLACEMENTS:
+        normalized = normalized.replace(source, target)
+    return normalized
+
+
 def canonical_stat_label(text: str) -> str | None:
+    candidates = (text, normalize_stat_text(text))
     for alias in sorted(STAT_ALIASES, key=len, reverse=True):
-        if alias in text:
-            return STAT_ALIAS_CANONICAL.get(alias, alias)
+        for candidate in candidates:
+            if alias in candidate:
+                return STAT_ALIAS_CANONICAL.get(alias, alias)
+    for label in sorted(ZZZ_STAT_LABELS.values(), key=len, reverse=True):
+        for candidate in candidates:
+            if label in candidate:
+                return label
+    for candidate in candidates:
+        if "穿透值" in candidate:
+            return "穿透值"
+    for alias, canonical in STAT_ALIAS_CANONICAL.items():
+        for candidate in candidates:
+            if alias in candidate:
+                return canonical
     return None
 
 
