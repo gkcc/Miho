@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -56,6 +57,19 @@ STAT_FIELDS = (
     "energy_regen",
     "physical_dmg_bonus",
 )
+
+INVALID_CANDIDATE_VALUES = {
+    "驱动",
+    "驱动盘",
+    "命中",
+    "共命中",
+    "有效副属性",
+    "属性",
+    "等级",
+    "音擎",
+    "装备",
+    "代理人信息",
+}
 
 
 class ReviewError(RuntimeError):
@@ -191,10 +205,28 @@ def field_value(field: Any) -> Any:
     return field.get("value") if is_field(field) else None
 
 
+def normalize_candidate_value(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value)).strip().casefold()
+
+
+def value_has_invalid_candidate(value: Any) -> bool:
+    if value in (None, "", []):
+        return False
+    if isinstance(value, str):
+        return normalize_candidate_value(value) in {normalize_candidate_value(item) for item in INVALID_CANDIDATE_VALUES}
+    if isinstance(value, list):
+        return any(value_has_invalid_candidate(item) for item in value)
+    if isinstance(value, dict):
+        return any(value_has_invalid_candidate(item) for item in value.values())
+    return False
+
+
 def field_status(field: Any) -> str:
     value = field_value(field)
     if value in (None, "", []):
         return "missing"
+    if field.get("status") == "invalid_candidate" or value_has_invalid_candidate(value):
+        return "invalid_candidate"
     if bool(field.get("uncertain")):
         return "uncertain"
     return "ok"
@@ -226,7 +258,8 @@ def render_field(label: str, field: Any, path: str | None = None) -> str:
     status = field_status(field)
     value = format_value(field_value(field))
     source = field.get("source_region") if is_field(field) else None
-    uncertainty = "uncertain=true" if is_field(field) and field.get("uncertain") else "uncertain=false"
+    uncertain = status != "ok" or (is_field(field) and field.get("uncertain"))
+    uncertainty = f"status={status}; uncertain={'true' if uncertain else 'false'}"
     path_html = f"<span class=\"path\">{escape(path)}</span>" if path else ""
     source_html = f"<span class=\"source\">{escape(source)}</span>" if source else ""
     return (
@@ -256,6 +289,76 @@ def iter_fields(value: Any, prefix: str = "") -> Iterable[tuple[str, dict[str, A
             label = item.get("slot", index + 1) if isinstance(item, dict) else index + 1
             next_prefix = f"{prefix}[{label}]"
             yield from iter_fields(item, next_prefix)
+
+
+def invalid_field_paths(draft: dict[str, Any]) -> list[str]:
+    return [path for path, field in iter_fields(draft) if field_status(field) == "invalid_candidate"]
+
+
+def missing_or_invalid(paths: Iterable[str], draft: dict[str, Any]) -> list[str]:
+    field_map = {path: field for path, field in iter_fields(draft)}
+    return [path for path in paths if field_status(field_map.get(path)) in {"missing", "invalid_candidate"}]
+
+
+def normalized_coverage_for_review(coverage: dict[str, Any], draft: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(coverage)
+    invalid = list(dict.fromkeys(list(coverage.get("invalid_fields", [])) + invalid_field_paths(draft)))
+    missing = list(coverage.get("missing_fields", []))
+    critical_missing = missing_or_invalid(
+        [
+            "character.name",
+            "character.level",
+            "character.rank",
+            "equipment.name",
+            "equipment.level",
+            "equipment.rank",
+        ],
+        draft,
+    )
+    hard_fail_reasons = []
+    if critical_missing:
+        hard_fail_reasons.append("关键字段缺失或不可信：" + "、".join(critical_missing))
+    if "drive_disc_main_stats" in missing:
+        hard_fail_reasons.append("drive_disc_main_stats 缺失")
+    if "drive_disc_sub_stats" in missing:
+        hard_fail_reasons.append("drive_disc_sub_stats 缺失")
+    if invalid:
+        hard_fail_reasons.append("存在 invalid_candidate：" + "、".join(invalid[:8]))
+
+    normalized["invalid_fields"] = invalid
+    if hard_fail_reasons:
+        normalized["coverage_level"] = "low"
+        normalized["recommendation"] = "解析可信度失败：" + "；".join(hard_fail_reasons) + "。请继续修 OCR、版面解析或字段抽取，不得进入 fixture/导入。"
+    elif coverage.get("coverage_level") == "high" and invalid:
+        normalized["coverage_level"] = "medium"
+        normalized["recommendation"] = "存在 invalid_candidate，不能判定为 high；需要人工确认后再继续。"
+    return normalized
+
+
+def review_status(coverage: dict[str, Any], draft: dict[str, Any]) -> str:
+    coverage_level = str(coverage.get("coverage_level") or "")
+    invalid_fields = coverage.get("invalid_fields") or invalid_field_paths(draft)
+    missing_fields = coverage.get("missing_fields") or []
+    critical_missing = missing_or_invalid(
+        [
+            "character.name",
+            "character.level",
+            "character.rank",
+            "equipment.name",
+            "equipment.level",
+            "equipment.rank",
+        ],
+        draft,
+    )
+    if coverage_level in {"low", "numeric_only"} or critical_missing:
+        return "FAIL"
+    if invalid_fields:
+        return "FAIL"
+    if "drive_disc_main_stats" in missing_fields or "drive_disc_sub_stats" in missing_fields:
+        return "FAIL"
+    if coverage_level == "high" and len(missing_fields) < 3:
+        return "PASS"
+    return "NEEDS_REVIEW"
 
 
 def render_character_card(draft: dict[str, Any]) -> str:
@@ -325,6 +428,15 @@ def render_missing_card(coverage: dict[str, Any]) -> str:
     return render_card("缺失字段卡", body, "来自 coverage_summary.missing_fields")
 
 
+def render_invalid_card(coverage: dict[str, Any], draft: dict[str, Any]) -> str:
+    invalid = list(dict.fromkeys(list(coverage.get("invalid_fields", [])) + invalid_field_paths(draft)))
+    if not invalid:
+        body = "<div class=\"empty-state\">无 invalid_candidate 字段</div>"
+    else:
+        body = "".join(f"<div class=\"pill pill-invalid\">{escape(item)}</div>" for item in invalid)
+    return render_card("invalid_candidate 字段卡", body, "泛词或明显错字段不会计入可信覆盖")
+
+
 def render_coverage_card(coverage: dict[str, Any]) -> str:
     def count_or_list(name: str) -> str:
         values = coverage.get(name, [])
@@ -363,6 +475,16 @@ def render_coverage_card(coverage: dict[str, Any]) -> str:
                     "source_region": "coverage_summary",
                 },
                 "coverage_summary.missing_fields",
+            ),
+            render_field(
+                "invalid_fields",
+                {
+                    "value": count_or_list("invalid_fields"),
+                    "uncertain": bool(coverage.get("invalid_fields")),
+                    "evidence": [],
+                    "source_region": "coverage_summary",
+                },
+                "coverage_summary.invalid_fields",
             ),
             render_field(
                 "numeric_fields_detected",
@@ -425,7 +547,7 @@ def render_region_legend(parsed: dict[str, Any]) -> str:
 
 def render_html(parsed: dict[str, Any], image_path: Path, overlay_path: Path, html_path: Path) -> str:
     meta = parsed.get("metadata", {})
-    coverage = parsed.get("coverage_summary", {})
+    coverage = normalized_coverage_for_review(parsed.get("coverage_summary", {}), parsed.get("extracted_draft", {}))
     draft = parsed.get("extracted_draft", {})
     image_info = parsed.get("image", {})
 
@@ -438,6 +560,7 @@ def render_html(parsed: dict[str, Any], image_path: Path, overlay_path: Path, ht
             render_drive_discs_card(draft),
             render_coverage_card(coverage),
             render_missing_card(coverage),
+            render_invalid_card(coverage, draft),
             render_uncertain_card(draft),
         ]
     )
@@ -445,6 +568,7 @@ def render_html(parsed: dict[str, Any], image_path: Path, overlay_path: Path, ht
     original_src = file_uri(image_path)
     overlay_src = overlay_path.name
     created_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    status = review_status(coverage, draft)
 
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -585,6 +709,8 @@ def render_html(parsed: dict[str, Any], image_path: Path, overlay_path: Path, ht
     .field-ok .field-value {{ color: var(--green); }}
     .field-uncertain .field-value {{ color: var(--yellow); }}
     .field-missing .field-value {{ color: var(--red); }}
+    .field-invalid_candidate {{ border-color: #f0a84d; background: #fff0dd; }}
+    .field-invalid_candidate .field-value {{ color: #9a4b00; }}
     .disc-grid {{
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -614,6 +740,21 @@ def render_html(parsed: dict[str, Any], image_path: Path, overlay_path: Path, ht
       overflow-wrap: anywhere;
     }}
     .pill-missing {{ background: var(--red-bg); color: var(--red); border: 1px solid #ffb4ac; }}
+    .pill-invalid {{ background: #fff0dd; color: #9a4b00; border: 1px solid #f0a84d; }}
+    .review-status {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 120px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: 0;
+    }}
+    .review-pass {{ background: var(--green-bg); color: var(--green); border: 1px solid #a7e0bd; }}
+    .review-fail {{ background: var(--red-bg); color: var(--red); border: 1px solid #ffb4ac; }}
+    .review-needs_review {{ background: var(--yellow-bg); color: var(--yellow); border: 1px solid #f4d071; }}
     .empty-state {{
       padding: 12px;
       border: 1px dashed var(--line);
@@ -640,6 +781,7 @@ def render_html(parsed: dict[str, Any], image_path: Path, overlay_path: Path, ht
   <header>
     <h1>米游社官方分享图解析验收</h1>
     <div class="meta-grid">
+      <div class="meta-item"><div class="meta-label">总体验收状态</div><div class="meta-value"><span class="review-status review-{escape(status.lower())}">{escape(status)}</span></div></div>
       <div class="meta-item meta-wide"><div class="meta-label">输入图片路径</div><div class="meta-value">{escape(str(image_path))}</div></div>
       <div class="meta-item"><div class="meta-label">OCR 引擎</div><div class="meta-value">{escape(meta.get("ocr_engine"))}</div></div>
       <div class="meta-item"><div class="meta-label">游戏</div><div class="meta-value">{escape(meta.get("game"))}</div></div>

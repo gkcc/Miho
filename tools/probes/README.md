@@ -138,7 +138,7 @@ Tesseract 程序本体和中文语言包需要单独安装到本机。
 
 ### P0.7 HTML 验收页
 
-P0.7 的目标是让用户肉眼验收分享图解析结果是否可靠。先解析官方分享图：
+P0.7 的目标是让用户肉眼验收分享图解析结果是否可靠。HTML 只是验收工具，不代表解析成功。先解析官方分享图：
 
 ```powershell
 python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --engine auto
@@ -167,17 +167,24 @@ HTML 验收页包含：
 * 解析区域 overlay；
 * `extracted_draft` 字段卡片；
 * `coverage_summary`；
+* 总体验收状态：`PASS` / `NEEDS_REVIEW` / `FAIL`；
 * 缺失字段和不确定字段；
+* `invalid_candidate` 泛词字段；
 * 下一步建议。
 
 验收标准：
 
-* `coverage_level` 至少为 `medium`；
+* `PASS`：才允许进入后续 fixture / 导入原型；
+* `NEEDS_REVIEW`：必须人工确认，不能直接导入；
+* `FAIL`：说明 OCR / 版面解析 / 字段抽取仍需修复；
+* `coverage_level` 至少为 `medium` 只是最低观察条件，不等于解析成功；
 * 角色等级正确；
 * 核心属性至少 4 个正确；
 * 六个技能等级至少 5 个正确；
 * 音擎等级正确；
 * 6 个驱动盘区域框基本对齐。
+
+如果 `character.name`、`character.rank`、`drive_disc_main_stats` 或 `drive_disc_sub_stats` 缺失，不得称为“字段覆盖较完整”。如果 `equipment.name` 是 `驱动` / `音擎` / `装备` 这类泛词，或驱动盘套装识别成 `命中` / `共命中`，必须视为 `invalid_candidate`。
 
 如果 JSON 里的 `metadata.input_image` 已移动或被脱敏，可以显式指定原图：
 
@@ -186,6 +193,22 @@ python tools/probes/render_export_review.py --json "data/probes/parsed/xxx.json"
 ```
 
 验收页仍是 probe 输出，不是正式采集结果。不要提交 `data/probes/`、真实图片或 HTML/overlay 输出。
+
+### Expected diff
+
+人工确认一份 expected JSON 后，可以用 diff 工具验证解析结果。该工具会输出 JSON 和 Markdown diff；只要任一关键字段不一致，整体就是 `FAIL`。
+
+```powershell
+python tools/probes/evaluate_export_parse.py --parsed "data/probes/parsed/xxx.json" --expected "data/probes/expected/xxx_expected.json"
+```
+
+至少比较：
+
+* `character.name` / `character.level` / `character.rank`
+* 核心属性：`hp` / `atk` / `def` / `crit_rate` / `crit_dmg`
+* 六个技能等级
+* 音擎名称、等级、评级
+* 六个驱动盘等级、主词条、副词条
 
 ## Visible UI Probe
 

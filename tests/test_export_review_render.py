@@ -148,6 +148,22 @@ def mock_parsed_json(image_path: Path) -> dict:
     }
 
 
+def failed_review_json(image_path: Path) -> dict:
+    parsed = mock_parsed_json(image_path)
+    parsed["coverage_summary"]["coverage_level"] = "high"
+    parsed["coverage_summary"]["recommendation"] = "字段覆盖较完整，可以继续做人工确认页和 fixture 回放；仍不要直接写正式数据库。"
+    parsed["coverage_summary"]["missing_fields"] = ["character_name", "rank", "drive_disc_main_stats", "drive_disc_sub_stats"]
+    draft = parsed["extracted_draft"]
+    draft["character"]["name"] = parsed_field(source_region="character_card")
+    draft["character"]["rank"] = parsed_field(source_region="character_card")
+    draft["equipment"]["name"] = parsed_field("驱动", source_region="equipment")
+    for disc in draft["drive_discs"]:
+        disc["set_name"] = parsed_field("命中", source_region=f"drive_disc_{disc['slot']}")
+        disc["main_stat"] = parsed_field(source_region=f"drive_disc_{disc['slot']}")
+        disc["sub_stats"] = parsed_field([], uncertain=True, source_region=f"drive_disc_{disc['slot']}")
+    return parsed
+
+
 class ExportReviewRenderTests(unittest.TestCase):
     def test_render_review_html_and_overlay_from_mock_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -173,13 +189,35 @@ class ExportReviewRenderTests(unittest.TestCase):
             self.assertIn("character.level", html_text)
             self.assertIn("coverage_summary", html_text)
             self.assertIn("coverage_level", html_text)
-            self.assertIn("medium", html_text)
+            self.assertIn("FAIL", html_text)
+            self.assertIn("low", html_text)
             self.assertIn("drive_disc_1", html_text)
             self.assertIn("equipment_name", html_text)
 
             md_text = md_path.read_text(encoding="utf-8")
             self.assertIn("review_html", md_text)
             self.assertIn("overlay_png", md_text)
+
+    def test_render_review_marks_invalid_high_coverage_as_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "share.png"
+            Image.new("RGB", (1000, 1400), "white").save(image_path)
+
+            json_path = root / "failed_parsed.json"
+            json_path.write_text(json.dumps(failed_review_json(image_path), ensure_ascii=False, indent=2), encoding="utf-8")
+
+            result = review.render_review(json_path)
+            html_text = Path(result["review_html"]).read_text(encoding="utf-8")
+
+            self.assertIn("FAIL", html_text)
+            self.assertIn("coverage_level", html_text)
+            self.assertIn("low", html_text)
+            self.assertNotIn("字段覆盖较完整，可以继续做人工确认页", html_text)
+            self.assertIn("invalid_candidate", html_text)
+            self.assertIn("equipment.name", html_text)
+            self.assertIn("驱动", html_text)
+            self.assertIn("命中", html_text)
 
 
 if __name__ == "__main__":

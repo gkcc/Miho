@@ -119,6 +119,76 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertIn("drive_disc_sub_stats", coverage["matched_fields"])
         self.assertIn(coverage["coverage_level"], {"medium", "high"})
 
+    def test_invalid_candidates_and_missing_drive_stats_force_low_coverage(self) -> None:
+        draft = probe.empty_draft("zzz")
+        draft["character"]["level"] = probe.field("60", uncertain=False, source_region="character_card")
+        for stat_name in probe.ZZZ_STAT_LABELS:
+            draft["stats"][stat_name] = probe.field("100", uncertain=False, source_region="core_stats")
+        draft["skill_levels"] = [
+            {"slot": slot, "level": probe.field("10", uncertain=False, source_region="skill_levels")}
+            for slot in range(1, 7)
+        ]
+        draft["equipment"] = {
+            "name": probe.field("驱动", uncertain=False, source_region="equipment"),
+            "level": probe.field("60", uncertain=False, source_region="equipment"),
+            "rank": probe.field("A", uncertain=False, source_region="equipment"),
+        }
+        draft["drive_discs"] = [
+            {
+                "slot": slot,
+                "set_name": probe.field("命中", uncertain=False, source_region=f"drive_disc_{slot}"),
+                "level": probe.field("15", uncertain=False, source_region=f"drive_disc_{slot}"),
+                "main_stat": probe.field(source_region=f"drive_disc_{slot}"),
+                "sub_stats": probe.field([], uncertain=True, source_region=f"drive_disc_{slot}"),
+            }
+            for slot in range(1, 7)
+        ]
+
+        coverage = probe.summarize_coverage(draft, [])
+
+        self.assertEqual(draft["equipment"]["name"]["status"], "invalid_candidate")
+        self.assertEqual(draft["drive_discs"][0]["set_name"]["status"], "invalid_candidate")
+        self.assertEqual(coverage["coverage_level"], "low")
+        self.assertIn("equipment_name", coverage["invalid_fields"])
+        self.assertIn("drive_disc_sets", coverage["invalid_fields"])
+        self.assertIn("drive_disc_main_stats 全缺", coverage["hard_low_reasons"])
+        self.assertIn("drive_disc_sub_stats 全缺", coverage["hard_low_reasons"])
+
+    def test_missing_character_name_can_not_be_high(self) -> None:
+        draft = probe.empty_draft("zzz")
+        draft["character"]["level"] = probe.field("60", uncertain=False, source_region="character_card")
+        draft["character"]["rank"] = probe.field("S", uncertain=False, source_region="character_card")
+        for stat_name in probe.ZZZ_STAT_LABELS:
+            draft["stats"][stat_name] = probe.field("100", uncertain=False, source_region="core_stats")
+        draft["skill_levels"] = [
+            {"slot": slot, "level": probe.field("10", uncertain=False, source_region="skill_levels")}
+            for slot in range(1, 7)
+        ]
+        draft["equipment"] = {
+            "name": probe.field("幻变魔方", uncertain=False, source_region="equipment"),
+            "level": probe.field("60", uncertain=False, source_region="equipment"),
+            "rank": probe.field("S", uncertain=False, source_region="equipment"),
+        }
+        draft["drive_discs"] = [
+            {
+                "slot": slot,
+                "set_name": probe.field(f"套装{slot}", uncertain=False, source_region=f"drive_disc_{slot}"),
+                "level": probe.field("15", uncertain=False, source_region=f"drive_disc_{slot}"),
+                "main_stat": probe.field("暴击率 24%", uncertain=False, source_region=f"drive_disc_{slot}"),
+                "sub_stats": probe.field(
+                    [{"stat": "攻击力", "value": "219", "uncertain": False, "evidence": ["攻击力", "219"]}],
+                    uncertain=False,
+                    source_region=f"drive_disc_{slot}",
+                ),
+            }
+            for slot in range(1, 7)
+        ]
+
+        coverage = probe.summarize_coverage(draft, [])
+
+        self.assertNotEqual(coverage["coverage_level"], "high")
+        self.assertIn("character.name 缺失或不可信", coverage["high_blockers"])
+
 
 if __name__ == "__main__":
     unittest.main()

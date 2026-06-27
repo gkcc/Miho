@@ -93,6 +93,21 @@ TEXT_FILTER_PHRASES = {
     "绝区零",
 }
 
+INVALID_CANDIDATE_VALUES = {
+    "驱动",
+    "驱动盘",
+    "命中",
+    "共命中",
+    "有效副属性",
+    "属性",
+    "等级",
+    "音擎",
+    "装备",
+    "代理人信息",
+}
+
+TRUSTED_NUMERIC_STAT_FIELDS = tuple(ZZZ_STAT_LABELS.keys())
+
 
 class ProbeError(RuntimeError):
     pass
@@ -583,13 +598,41 @@ def run_ocr(image_path: Path, *, engine: str, lang: str, game: str | None, layou
     return {"image": image_info, "layout_regions": layout_regions}, all_blocks
 
 
+def normalize_candidate_value(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value)).strip().casefold()
+
+
+def value_has_invalid_candidate(value: Any) -> bool:
+    if value in (None, "", []):
+        return False
+    if isinstance(value, str):
+        return normalize_candidate_value(value) in {normalize_candidate_value(item) for item in INVALID_CANDIDATE_VALUES}
+    if isinstance(value, list):
+        return any(value_has_invalid_candidate(item) for item in value)
+    if isinstance(value, dict):
+        return any(value_has_invalid_candidate(item) for item in value.values())
+    return False
+
+
+def infer_field_status(value: Any, uncertain: bool) -> str:
+    if value in (None, "", []):
+        return "missing"
+    if value_has_invalid_candidate(value):
+        return "invalid_candidate"
+    if uncertain:
+        return "uncertain"
+    return "ok"
+
+
 def field(value: Any = None, *, uncertain: bool = True, evidence: list[str] | None = None, source_region: str | None = None) -> dict[str, Any]:
     cleaned = redact_text(value).strip() if isinstance(value, str) else value
     if cleaned == "":
         cleaned = None
+    status = infer_field_status(cleaned, bool(uncertain if cleaned is not None else True))
     return {
         "value": cleaned,
-        "uncertain": bool(uncertain if cleaned is not None else True),
+        "uncertain": status != "ok",
+        "status": status,
         "evidence": evidence or [],
         "source_region": source_region,
     }
@@ -953,11 +996,28 @@ def extracted_value(item: Any) -> Any:
     return None
 
 
-def present_values(values: Iterable[Any]) -> list[Any]:
-    return [value for value in values if value not in (None, "", [])]
+def field_status(item: Any) -> str:
+    if not isinstance(item, dict) or not {"value", "uncertain", "evidence", "source_region"}.issubset(item.keys()):
+        return "missing"
+    status = item.get("status")
+    if status in {"ok", "missing", "uncertain", "invalid_candidate"}:
+        return str(status)
+    return infer_field_status(item.get("value"), bool(item.get("uncertain")))
 
 
-def target_coverage_values(draft: dict[str, Any]) -> list[tuple[str, list[Any]]]:
+def field_is_trusted(item: Any) -> bool:
+    return field_status(item) == "ok"
+
+
+def field_has_present_value(item: Any) -> bool:
+    return extracted_value(item) not in (None, "", [])
+
+
+def trusted_values(fields: Iterable[Any]) -> list[Any]:
+    return [extracted_value(item) for item in fields if field_is_trusted(item)]
+
+
+def target_coverage_fields(draft: dict[str, Any]) -> list[tuple[str, list[Any]]]:
     character = draft.get("character", {})
     stats = draft.get("stats", {})
     equipment = draft.get("equipment", {})
@@ -965,44 +1025,101 @@ def target_coverage_values(draft: dict[str, Any]) -> list[tuple[str, list[Any]]]
     drive_discs = draft.get("drive_discs", [])
 
     return [
-        ("character_name", [extracted_value(character.get("name"))]),
-        ("character_level", [extracted_value(character.get("level"))]),
-        ("rank", [extracted_value(character.get("rank"))]),
-        ("hp", [extracted_value(stats.get("hp"))]),
-        ("atk", [extracted_value(stats.get("atk"))]),
-        ("def", [extracted_value(stats.get("def"))]),
-        ("impact", [extracted_value(stats.get("impact"))]),
-        ("crit_rate", [extracted_value(stats.get("crit_rate"))]),
-        ("crit_dmg", [extracted_value(stats.get("crit_dmg"))]),
-        ("anomaly_mastery", [extracted_value(stats.get("anomaly_mastery"))]),
-        ("anomaly_proficiency", [extracted_value(stats.get("anomaly_proficiency"))]),
-        ("skill_levels", [extracted_value(item.get("level")) for item in skill_levels if isinstance(item, dict)]),
-        ("equipment_name", [extracted_value(equipment.get("name"))]),
-        ("equipment_level", [extracted_value(equipment.get("level"))]),
-        ("drive_disc_sets", [extracted_value(item.get("set_name")) for item in drive_discs if isinstance(item, dict)]),
-        ("drive_disc_main_stats", [extracted_value(item.get("main_stat")) for item in drive_discs if isinstance(item, dict)]),
-        ("drive_disc_sub_stats", [extracted_value(item.get("sub_stats")) for item in drive_discs if isinstance(item, dict)]),
+        ("character_name", [character.get("name")]),
+        ("character_level", [character.get("level")]),
+        ("rank", [character.get("rank")]),
+        ("hp", [stats.get("hp")]),
+        ("atk", [stats.get("atk")]),
+        ("def", [stats.get("def")]),
+        ("impact", [stats.get("impact")]),
+        ("crit_rate", [stats.get("crit_rate")]),
+        ("crit_dmg", [stats.get("crit_dmg")]),
+        ("anomaly_mastery", [stats.get("anomaly_mastery")]),
+        ("anomaly_proficiency", [stats.get("anomaly_proficiency")]),
+        ("skill_levels", [item.get("level") for item in skill_levels if isinstance(item, dict)]),
+        ("equipment_name", [equipment.get("name")]),
+        ("equipment_level", [equipment.get("level")]),
+        ("drive_disc_sets", [item.get("set_name") for item in drive_discs if isinstance(item, dict)]),
+        ("drive_disc_levels", [item.get("level") for item in drive_discs if isinstance(item, dict)]),
+        ("drive_disc_main_stats", [item.get("main_stat") for item in drive_discs if isinstance(item, dict)]),
+        ("drive_disc_sub_stats", [item.get("sub_stats") for item in drive_discs if isinstance(item, dict)]),
     ]
+
+
+def trusted_field_count(items: Iterable[Any]) -> int:
+    return sum(1 for item in items if field_is_trusted(item))
+
+
+def trusted_sub_stat_disc_count(drive_discs: list[Any]) -> int:
+    count = 0
+    for disc in drive_discs:
+        if not isinstance(disc, dict):
+            continue
+        sub_stats = disc.get("sub_stats")
+        if not field_is_trusted(sub_stats):
+            continue
+        value = extracted_value(sub_stats)
+        if not isinstance(value, list):
+            continue
+        if any(isinstance(item, dict) and item.get("stat") and item.get("value") not in (None, "") for item in value):
+            count += 1
+    return count
+
+
+def coverage_metrics(draft: dict[str, Any]) -> dict[str, Any]:
+    character = draft.get("character", {})
+    stats = draft.get("stats", {})
+    equipment = draft.get("equipment", {})
+    skill_levels = draft.get("skill_levels", [])
+    drive_discs = draft.get("drive_discs", [])
+    stat_items = [stats.get(name) for name in TRUSTED_NUMERIC_STAT_FIELDS]
+    skill_items = [item.get("level") for item in skill_levels if isinstance(item, dict)]
+    drive_level_items = [item.get("level") for item in drive_discs if isinstance(item, dict)]
+    drive_main_items = [item.get("main_stat") for item in drive_discs if isinstance(item, dict)]
+
+    return {
+        "character_name_ok": field_is_trusted(character.get("name")),
+        "character_level_ok": field_is_trusted(character.get("level")),
+        "character_rank_ok": field_is_trusted(character.get("rank")),
+        "core_stats_trusted": trusted_field_count(stat_items),
+        "core_stats_total": len(TRUSTED_NUMERIC_STAT_FIELDS),
+        "skill_levels_trusted": trusted_field_count(skill_items),
+        "skill_levels_total": 6,
+        "equipment_name_ok": field_is_trusted(equipment.get("name")),
+        "equipment_level_ok": field_is_trusted(equipment.get("level")),
+        "equipment_rank_ok": field_is_trusted(equipment.get("rank")),
+        "drive_disc_levels_trusted": trusted_field_count(drive_level_items),
+        "drive_disc_main_stats_trusted": trusted_field_count(drive_main_items),
+        "drive_disc_sub_stat_discs_trusted": trusted_sub_stat_disc_count(drive_discs if isinstance(drive_discs, list) else []),
+    }
 
 
 def summarize_coverage(draft: dict[str, Any], blocks: list[dict[str, Any]]) -> dict[str, Any]:
     matched_fields: list[str] = []
     missing_fields: list[str] = []
+    invalid_fields: list[str] = []
     detailed_matched_fields: list[str] = []
     detailed_missing_fields: list[str] = []
+    detailed_invalid_fields: list[str] = []
     numeric_fields_detected: list[dict[str, Any]] = []
     chinese_fields_detected: list[dict[str, Any]] = []
 
     for path, item in walk_fields(draft):
         value = item.get("value")
-        has_value = value not in (None, "", [])
-        if has_value:
+        status = field_status(item)
+        if status == "invalid_candidate":
+            detailed_invalid_fields.append(path)
+        if field_is_trusted(item):
             detailed_matched_fields.append(path)
+        elif status == "invalid_candidate":
+            detailed_missing_fields.append(path)
         else:
             detailed_missing_fields.append(path)
 
-    for target_name, values in target_coverage_values(draft):
-        values_present = present_values(values)
+    for target_name, fields in target_coverage_fields(draft):
+        values_present = trusted_values(fields)
+        if any(field_status(item) == "invalid_candidate" for item in fields):
+            invalid_fields.append(target_name)
         if values_present:
             matched_fields.append(target_name)
             value: Any = values_present[0] if len(values_present) == 1 else values_present
@@ -1018,13 +1135,53 @@ def summarize_coverage(draft: dict[str, Any], blocks: list[dict[str, Any]]) -> d
     matched_ratio = len(matched_fields) / total_fields if total_fields else 0
     numeric_raw_count = sum(1 for block in blocks if numeric_tokens(str(block.get("text", ""))))
     chinese_raw_count = sum(1 for block in blocks if CJK_RE.search(str(block.get("text", ""))))
+    metrics = coverage_metrics(draft)
 
-    if matched_ratio >= 0.72 and chinese_fields_detected:
+    hard_low_reasons: list[str] = []
+    high_blockers: list[str] = []
+    if metrics["drive_disc_main_stats_trusted"] == 0:
+        hard_low_reasons.append("drive_disc_main_stats 全缺")
+    if metrics["drive_disc_sub_stat_discs_trusted"] == 0:
+        hard_low_reasons.append("drive_disc_sub_stats 全缺")
+    if invalid_fields:
+        high_blockers.append("存在 invalid_candidate 字段")
+    if not metrics["character_name_ok"]:
+        high_blockers.append("character.name 缺失或不可信")
+    if not metrics["character_level_ok"]:
+        high_blockers.append("character.level 缺失或不可信")
+    if not metrics["character_rank_ok"]:
+        high_blockers.append("character.rank 缺失或不可信")
+    if metrics["core_stats_trusted"] < 10:
+        high_blockers.append("核心属性可信字段少于 10/11")
+    if metrics["skill_levels_trusted"] < 6:
+        high_blockers.append("六个技能等级未全部可信")
+    if not metrics["equipment_name_ok"]:
+        high_blockers.append("equipment.name 缺失或为泛词")
+    if not metrics["equipment_level_ok"]:
+        high_blockers.append("equipment.level 缺失或不可信")
+    if not metrics["equipment_rank_ok"]:
+        high_blockers.append("equipment.rank 缺失或不可信")
+    if metrics["drive_disc_levels_trusted"] < 6:
+        high_blockers.append("drive_disc level 可信数量少于 6")
+    if metrics["drive_disc_main_stats_trusted"] < 4:
+        high_blockers.append("drive_disc_main_stats 可信数量少于 4")
+    if metrics["drive_disc_sub_stat_discs_trusted"] < 4:
+        high_blockers.append("drive_disc_sub_stats 可信盘数少于 4")
+
+    if not high_blockers:
         coverage_level = "high"
         recommendation = "字段覆盖较完整，可以继续做人工确认页和 fixture 回放；仍不要直接写正式数据库。"
+    elif hard_low_reasons:
+        coverage_level = "low"
+        recommendation = "解析可信度失败：" + "；".join(hard_low_reasons) + "。请继续修 OCR、裁剪区域或字段抽取规则，不得进入导入。"
+    elif metrics["core_stats_trusted"] >= 8 and metrics["skill_levels_trusted"] >= 4 and (
+        not metrics["character_name_ok"] or not metrics["equipment_name_ok"]
+    ):
+        coverage_level = "numeric_only"
+        recommendation = "当前主要是数字字段可用，关键中文字段或装备/驱动盘字段不可信；只能用于版面调试，不能进入 fixture/导入。"
     elif matched_ratio >= 0.35 or len(numeric_fields_detected) >= 8 or numeric_raw_count >= 12:
         coverage_level = "medium"
-        recommendation = "官方分享图路线成立；优先补中文 OCR 语言包或 PaddleOCR，并继续调固定区域字段抽取。"
+        recommendation = "部分字段可用于人工比对，但仍有关键字段缺失或不确定；需要人工确认后再决定是否继续 fixture 回放。"
     else:
         coverage_level = "low"
         recommendation = "当前只能证明图片可离线处理；建议先确认版式、语言包和裁剪区域，再考虑字段抽取 prototype。"
@@ -1032,10 +1189,15 @@ def summarize_coverage(draft: dict[str, Any], blocks: list[dict[str, Any]]) -> d
     return {
         "matched_fields": matched_fields,
         "missing_fields": missing_fields,
+        "invalid_fields": invalid_fields,
         "numeric_fields_detected": numeric_fields_detected,
         "chinese_fields_detected": chinese_fields_detected,
         "detailed_matched_fields": detailed_matched_fields,
         "detailed_missing_fields": detailed_missing_fields,
+        "detailed_invalid_fields": detailed_invalid_fields,
+        "coverage_metrics": metrics,
+        "high_blockers": high_blockers,
+        "hard_low_reasons": hard_low_reasons,
         "raw_numeric_text_block_count": numeric_raw_count,
         "raw_chinese_text_block_count": chinese_raw_count,
         "coverage_level": coverage_level,
