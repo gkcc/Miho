@@ -8,14 +8,14 @@
 
 1. 用户手动导出一张米游社官方分享图。
 2. 将图片保存到 `data/probes/exported_images/`。
-3. 运行 parse probe：
+3. 优先运行一键验收：
 
 ```powershell
-python tools/probes/export_image_parse_probe.py --image "data/probes/exported_images/xxx.jpg" --game zzz --layout zzz-agent-card --engine auto
+python tools/probes/review_export_image.py --image "data/probes/exported_images/xxx.jpg" --open
 ```
 
-4. 查看 `data/probes/parsed/*.md` 和同名 JSON。
-5. 如果 `coverage_level` 为 `high` 或 `medium`，继续做字段抽取 prototype。
+4. 查看 HTML 顶部的 `PASS` / `NEEDS_REVIEW` / `FAIL`。
+5. 只有 `PASS` 才能继续 fixture / 导入原型；`NEEDS_REVIEW` 要人工确认；`FAIL` 继续修 OCR、版面解析或字段抽取。
 6. 如果 OCR 质量差，优先尝试 PaddleOCR，或安装 Tesseract `chi_sim` 语言包。
 7. 如果分享图字段不足，再研究多图组合、截图 RPA 或另开 ADR 评估底层 API。
 
@@ -138,7 +138,30 @@ Tesseract 程序本体和中文语言包需要单独安装到本机。
 
 ### P0.7 HTML 验收页
 
-P0.7 的目标是让用户肉眼验收分享图解析结果是否可靠。HTML 只是验收工具，不代表解析成功。先解析官方分享图：
+P0.7 的目标是让用户肉眼验收分享图解析结果是否可靠。HTML 只是验收工具，不代表解析成功。
+
+日常使用优先一条命令完成解析、HTML、overlay，并可选自动打开浏览器：
+
+```powershell
+python tools/probes/review_export_image.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --open
+```
+
+输出会包含：
+
+* `review_status`
+* `coverage_level`
+* parsed JSON / Markdown 路径
+* review HTML 路径
+* overlay PNG 路径
+* 可手动打开的 `start ...` 命令
+
+如果要把 `FAIL` 当作命令失败码，例如用于自动化回归，可以加：
+
+```powershell
+python tools/probes/review_export_image.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --strict-exit
+```
+
+拆开调试时，先解析官方分享图：
 
 ```powershell
 python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --engine auto
