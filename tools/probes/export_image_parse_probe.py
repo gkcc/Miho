@@ -19,6 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "parsed"
 DEFAULT_CROP_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "crops"
 PADDLE_OCR_CACHE: dict[str, Any] = {}
+RAPID_OCR_CACHE: dict[str, Any] = {}
 
 SECRET_VALUE_RE = re.compile(
     r"(?i)\b(cookie|token|stoken|ltoken|session|auth|authorization)\b"
@@ -266,6 +267,27 @@ def load_paddle_dependency() -> tuple[Any, Any]:
     return np, PaddleOCR
 
 
+def load_rapidocr_dependency() -> tuple[Any, Any]:
+    try:
+        import numpy as np  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ProbeError("RapidOCR requires numpy. Suggested start: python -m pip install numpy rapidocr-onnxruntime") from exc
+    try:
+        from rapidocr_onnxruntime import RapidOCR  # type: ignore[import-not-found]
+
+        return np, RapidOCR
+    except ImportError:
+        try:
+            from rapidocr import RapidOCR  # type: ignore[import-not-found]
+
+            return np, RapidOCR
+        except ImportError as exc:
+            raise ProbeError(
+                "RapidOCR is not available. It is an optional P0.8 fallback after PaddleOCR. "
+                "Suggested start: python -m pip install rapidocr-onnxruntime"
+            ) from exc
+
+
 def preprocess_for_ocr(image: Any) -> tuple[Any, dict[str, Any]]:
     try:
         from PIL import Image, ImageEnhance, ImageOps  # type: ignore[import-not-found]
@@ -284,6 +306,44 @@ def preprocess_for_ocr(image: Any) -> tuple[Any, dict[str, Any]]:
         "source_width": width,
         "source_height": height,
     }
+
+
+def preprocess_for_paddle_profiles(image: Any) -> list[tuple[Any, dict[str, Any]]]:
+    try:
+        from PIL import Image, ImageEnhance, ImageFilter  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ProbeError("Missing Pillow preprocessing helpers.") from exc
+
+    source = image.convert("RGB")
+    width, height = source.size
+    resample = getattr(getattr(Image, "Resampling", object), "LANCZOS", 1)
+
+    def scaled(scale: int) -> Any:
+        return source.resize((width * scale, height * scale), resample=resample)
+
+    profile_images: list[tuple[str, int, Any, dict[str, Any]]] = [
+        ("rgb_original", 1, source, {"rgb": True, "sharpen": False, "contrast": None}),
+        ("rgb_2x", 2, scaled(2), {"rgb": True, "sharpen": False, "contrast": None}),
+        ("rgb_3x", 3, scaled(3), {"rgb": True, "sharpen": False, "contrast": None}),
+    ]
+
+    enhanced = ImageEnhance.Contrast(scaled(2)).enhance(1.35).filter(ImageFilter.SHARPEN)
+    profile_images.append(("rgb_2x_sharp_contrast", 2, enhanced, {"rgb": True, "sharpen": True, "contrast": 1.35}))
+
+    return [
+        (
+            processed,
+            {
+                "profile": profile_name,
+                "scale": scale,
+                "grayscale": False,
+                "source_width": width,
+                "source_height": height,
+                **details,
+            },
+        )
+        for profile_name, scale, processed, details in profile_images
+    ]
 
 
 def classify_text(text: str, confidence: float) -> dict[str, Any]:
@@ -427,27 +487,8 @@ def iter_paddle_lines(raw_result: Any) -> Iterable[Any]:
     return raw_result
 
 
-def run_paddle_on_region(
-    image: Any,
-    *,
-    lang: str,
-    region_name: str,
-    region_box: dict[str, int],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    np, PaddleOCR = load_paddle_dependency()
-    crop = image.crop((region_box["left"], region_box["top"], region_box["right"], region_box["bottom"]))
-    processed, preprocess_info = preprocess_for_ocr(crop.convert("RGB"))
-    paddle_lang = paddle_lang_from_tesseract_lang(lang)
-    try:
-        if paddle_lang not in PADDLE_OCR_CACHE:
-            PADDLE_OCR_CACHE[paddle_lang] = PaddleOCR(use_angle_cls=True, lang=paddle_lang, show_log=False)
-        ocr = PADDLE_OCR_CACHE[paddle_lang]
-        raw_result = ocr.ocr(np.array(processed.convert("RGB")), cls=True)
-    except Exception as exc:
-        raise ProbeError(f"PaddleOCR failed. Details: {redact_text(exc)}") from exc
-
+def parse_paddle_blocks(raw_result: Any, *, region_name: str, region_box: dict[str, int], scale: float) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
-    scale = float(preprocess_info["scale"])
     for item in iter_paddle_lines(raw_result):
         try:
             points, payload = item
@@ -481,6 +522,140 @@ def run_paddle_on_region(
                 "uncertain": classification["uncertain"],
             }
         )
+    return blocks
+
+
+def block_quality_score(blocks: list[dict[str, Any]]) -> tuple[int, int, float]:
+    cjk_count = sum(1 for block in blocks if CJK_RE.search(str(block.get("text", ""))))
+    confidence_sum = sum(float(block.get("confidence") or 0) for block in blocks)
+    return (cjk_count, len(blocks), confidence_sum)
+
+
+def run_paddle_on_region(
+    image: Any,
+    *,
+    lang: str,
+    region_name: str,
+    region_box: dict[str, int],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    np, PaddleOCR = load_paddle_dependency()
+    crop = image.crop((region_box["left"], region_box["top"], region_box["right"], region_box["bottom"]))
+    paddle_lang = paddle_lang_from_tesseract_lang(lang)
+    try:
+        if paddle_lang not in PADDLE_OCR_CACHE:
+            PADDLE_OCR_CACHE[paddle_lang] = PaddleOCR(use_angle_cls=True, lang=paddle_lang, show_log=False)
+        ocr = PADDLE_OCR_CACHE[paddle_lang]
+    except Exception as exc:
+        raise ProbeError(f"PaddleOCR failed. Details: {redact_text(exc)}") from exc
+
+    candidates: list[tuple[tuple[int, int, float], list[dict[str, Any]], dict[str, Any]]] = []
+    errors: list[str] = []
+    for processed, preprocess_info in preprocess_for_paddle_profiles(crop):
+        try:
+            raw_result = ocr.ocr(np.array(processed.convert("RGB")), cls=True)
+            blocks = parse_paddle_blocks(
+                raw_result,
+                region_name=region_name,
+                region_box=region_box,
+                scale=float(preprocess_info["scale"]),
+            )
+            candidates.append((block_quality_score(blocks), blocks, preprocess_info))
+        except Exception as exc:
+            errors.append(f"{preprocess_info.get('profile')}: {redact_text(exc)}")
+    if not candidates:
+        raise ProbeError("PaddleOCR failed for all preprocessing profiles. Details: " + " | ".join(errors))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_blocks, best_preprocess = candidates[0]
+    best_preprocess = dict(best_preprocess)
+    best_preprocess["profile_scores"] = [
+        {
+            "profile": item[2].get("profile"),
+            "cjk_blocks": item[0][0],
+            "text_blocks": item[0][1],
+            "confidence_sum": round(item[0][2], 3),
+        }
+        for item in candidates
+    ]
+    best_preprocess["selected_score"] = {
+        "cjk_blocks": best_score[0],
+        "text_blocks": best_score[1],
+        "confidence_sum": round(best_score[2], 3),
+    }
+    if errors:
+        best_preprocess["profile_errors"] = errors
+    return best_blocks, best_preprocess
+
+
+def parse_rapidocr_blocks(raw_result: Any, *, region_name: str, region_box: dict[str, int], scale: float) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    if isinstance(raw_result, tuple):
+        raw_result = raw_result[0]
+    if not raw_result:
+        return blocks
+    for item in raw_result:
+        try:
+            points, text, confidence = item[0], item[1], item[2]
+            xs = [point[0] for point in points]
+            ys = [point[1] for point in points]
+        except Exception:
+            continue
+        text = redact_text(text).strip()
+        if not text:
+            continue
+        conf_percent = float(confidence) * 100 if float(confidence) <= 1 else float(confidence)
+        classification = classify_text(text, conf_percent)
+        left = region_box["left"] + round(min(xs) / scale)
+        top = region_box["top"] + round(min(ys) / scale)
+        right = region_box["left"] + round(max(xs) / scale)
+        bottom = region_box["top"] + round(max(ys) / scale)
+        blocks.append(
+            {
+                "text": text,
+                "region": region_name,
+                "box": {
+                    "left": left,
+                    "top": top,
+                    "width": max(0, right - left),
+                    "height": max(0, bottom - top),
+                },
+                "ocr_confidence_raw": round(conf_percent, 3),
+                "candidate_entities": classification["candidate_entities"],
+                "confidence": classification["confidence"],
+                "uncertain": classification["uncertain"],
+            }
+        )
+    return blocks
+
+
+def run_rapidocr_on_region(
+    image: Any,
+    *,
+    lang: str,
+    region_name: str,
+    region_box: dict[str, int],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    np, RapidOCR = load_rapidocr_dependency()
+    if "default" not in RAPID_OCR_CACHE:
+        try:
+            RAPID_OCR_CACHE["default"] = RapidOCR()
+        except Exception as exc:
+            raise ProbeError(f"RapidOCR failed to initialize. Details: {redact_text(exc)}") from exc
+    ocr = RAPID_OCR_CACHE["default"]
+    crop = image.crop((region_box["left"], region_box["top"], region_box["right"], region_box["bottom"]))
+    processed, preprocess_info = preprocess_for_paddle_profiles(crop)[1]
+    try:
+        raw_result = ocr(np.array(processed.convert("RGB")))
+    except Exception as exc:
+        raise ProbeError(f"RapidOCR failed. Details: {redact_text(exc)}") from exc
+    blocks = parse_rapidocr_blocks(
+        raw_result,
+        region_name=region_name,
+        region_box=region_box,
+        scale=float(preprocess_info["scale"]),
+    )
+    preprocess_info = dict(preprocess_info)
+    preprocess_info["engine_note"] = "RapidOCR optional fallback after PaddleOCR"
+    preprocess_info["lang_requested"] = lang
     return blocks, preprocess_info
 
 
@@ -526,6 +701,8 @@ def ocr_region(
         return run_tesseract_on_region(image, lang=lang, region_name=region_name, region_box=region_box, config=config)
     if engine == "paddle":
         return run_paddle_on_region(image, lang=lang, region_name=region_name, region_box=region_box)
+    if engine == "rapidocr":
+        return run_rapidocr_on_region(image, lang=lang, region_name=region_name, region_box=region_box)
     raise ProbeError(f"Unsupported OCR engine: {engine}")
 
 
@@ -584,6 +761,8 @@ def run_ocr(image_path: Path, *, engine: str, lang: str, game: str | None, layou
             region_box=region_box,
             config=config,
         )
+        preprocess_info = dict(preprocess_info)
+        preprocess_info.setdefault("engine_used", engine)
         all_blocks.extend(blocks)
         layout_regions.append(
             {
@@ -891,7 +1070,7 @@ def crop_specs(
     add("character.rank", "character_rank.png", character_box)
 
     for zone in ZZZ_CORE_STAT_ZONES:
-        add(f"stats.{zone.field}", f"stats_{zone.field}.png", ratio_box_to_pixels(zone.box_ratio, width, height))
+        add(f"stats.{zone.field}", f"stat_{zone.field}.png", ratio_box_to_pixels(zone.box_ratio, width, height))
 
     for index, zone in enumerate(ZZZ_SKILL_ZONES, start=1):
         add(f"skill_levels[{index}].level", f"skill_{index}.png", ratio_box_to_pixels(zone, width, height))
@@ -1555,6 +1734,10 @@ def apply_ocr_route_recommendation(result: dict[str, Any], *, engine: str, lang:
         metadata["ocr_route"] = "paddle_recommended"
         coverage["ocr_recommendation"] = "PaddleOCR 是当前真实中文分享图的推荐路线；继续用 expected diff 和 crop 输出校准字段。"
         return
+    if engine == "rapidocr":
+        metadata["ocr_route"] = "rapidocr_optional_fallback"
+        coverage["ocr_recommendation"] = "RapidOCR 是 PaddleOCR 不达标后的可选 OCR fallback；仍必须以 expected diff pass_rate 验收。"
+        return
     if route_uses_tesseract_eng(engine, lang, result.get("layout_regions", [])):
         metadata["ocr_route"] = "tesseract_eng_numeric_debug_only"
         note = "Tesseract eng 只适合固定区域数字调试，不可作为可导入解析结果。真实图片请优先使用 --engine paddle。"
@@ -1642,7 +1825,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lang", default="chi_sim+eng", help="OCR language string. Default: chi_sim+eng")
     parser.add_argument(
         "--engine",
-        choices=("auto", "tesseract", "paddle", "none"),
+        choices=("auto", "tesseract", "paddle", "rapidocr", "none"),
         default="auto",
         help="OCR engine. Default: auto (PaddleOCR first, then Tesseract). Use --engine paddle for real share-image OCR.",
     )

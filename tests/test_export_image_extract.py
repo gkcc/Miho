@@ -65,6 +65,11 @@ class ExportImageExtractTests(unittest.TestCase):
 
         self.assertTrue(args.write_crops)
 
+    def test_arg_parser_accepts_rapidocr_engine(self) -> None:
+        args = probe.build_arg_parser().parse_args(["--image", "example.png", "--engine", "rapidocr"])
+
+        self.assertEqual(args.engine, "rapidocr")
+
     def test_extract_zzz_agent_card_from_manual_ocr_blocks(self) -> None:
         blocks = [
             ocr_block("星见雅 LV.60 S", "character_card", 70, 260, 150, 30),
@@ -219,13 +224,26 @@ class ExportImageExtractTests(unittest.TestCase):
             crop_outputs = result["crop_outputs"]
             crop_names = {Path(item["path"]).name for item in crop_outputs}
             self.assertIn("character_name.png", crop_names)
+            self.assertIn("stat_hp.png", crop_names)
             self.assertIn("skill_1.png", crop_names)
             self.assertIn("equipment_name.png", crop_names)
             self.assertIn("drive_disc_1_main_stat.png", crop_names)
             self.assertTrue(list(crop_dir.rglob("character_name.png")))
+            self.assertTrue(list(crop_dir.rglob("stat_hp.png")))
             self.assertTrue(list(crop_dir.rglob("skill_1.png")))
             self.assertTrue(list(crop_dir.rglob("equipment_name.png")))
             self.assertTrue(list(crop_dir.rglob("drive_disc_1_main_stat.png")))
+
+    def test_paddle_preprocess_profiles_include_p0_8_variants(self) -> None:
+        image = Image.new("RGB", (80, 40), "white")
+
+        profiles = probe.preprocess_for_paddle_profiles(image)
+        names = {item[1]["profile"] for item in profiles}
+
+        self.assertIn("rgb_original", names)
+        self.assertIn("rgb_2x", names)
+        self.assertIn("rgb_3x", names)
+        self.assertIn("rgb_2x_sharp_contrast", names)
 
     def test_tesseract_eng_route_is_marked_numeric_debug_only(self) -> None:
         result = {

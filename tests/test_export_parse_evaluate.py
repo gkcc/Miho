@@ -7,10 +7,13 @@ import sys
 import tempfile
 import unittest
 
+from PIL import Image
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = PROJECT_ROOT / "tools" / "probes" / "evaluate_export_parse.py"
 TEMPLATE_SCRIPT_PATH = PROJECT_ROOT / "tools" / "probes" / "make_expected_template.py"
+MATRIX_SCRIPT_PATH = PROJECT_ROOT / "tools" / "probes" / "run_export_ocr_matrix.py"
 
 spec = importlib.util.spec_from_file_location("evaluate_export_parse", SCRIPT_PATH)
 assert spec is not None
@@ -26,6 +29,13 @@ assert template_spec.loader is not None
 sys.modules[template_spec.name] = template_tool
 template_spec.loader.exec_module(template_tool)
 
+matrix_spec = importlib.util.spec_from_file_location("run_export_ocr_matrix", MATRIX_SCRIPT_PATH)
+assert matrix_spec is not None
+matrix_tool = importlib.util.module_from_spec(matrix_spec)
+assert matrix_spec.loader is not None
+sys.modules[matrix_spec.name] = matrix_tool
+matrix_spec.loader.exec_module(matrix_tool)
+
 
 def field(value):
     return {"value": value, "uncertain": value is None, "evidence": [], "source_region": "mock"}
@@ -39,8 +49,14 @@ def parsed_json(name: str = None, skill_5: str = "9") -> dict:
                 "hp": field("17398"),
                 "atk": field("2194"),
                 "def": field("870"),
+                "impact": field("95"),
                 "crit_rate": field("45.8%"),
                 "crit_dmg": field("85.2%"),
+                "anomaly_mastery": field("90"),
+                "anomaly_proficiency": field("152"),
+                "pen": field("2397"),
+                "energy_regen": field("2.00"),
+                "physical_dmg_bonus": field("30.0%"),
             },
             "skill_levels": [
                 {"slot": 1, "level": field("10")},
@@ -124,8 +140,45 @@ class ExportParseEvaluateTests(unittest.TestCase):
             self.assertNotIn("layout_regions", template)
             draft = template["extracted_draft"]
             self.assertEqual(draft["character"]["name"], "")
+            self.assertEqual(set(draft["stats"]), {
+                "hp",
+                "atk",
+                "def",
+                "impact",
+                "crit_rate",
+                "crit_dmg",
+                "anomaly_mastery",
+                "anomaly_proficiency",
+                "pen",
+                "energy_regen",
+                "physical_dmg_bonus",
+            })
             self.assertEqual(draft["skill_levels"][0], {"slot": 1, "level": ""})
             self.assertEqual(draft["drive_discs"][0], {"slot": 1, "level": "", "main_stat": "", "sub_stats": []})
+
+    def test_matrix_runner_outputs_summary_for_vision_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "share.png"
+            expected_path = root / "expected.json"
+            output_root = root / "matrix"
+            Image.new("RGB", (1000, 1400), "white").save(image_path)
+            expected_path.write_text(json.dumps(expected_json(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+            result = matrix_tool.run_matrix(
+                image_path=image_path,
+                expected_path=expected_path,
+                output_root=output_root,
+                engines=["vision_baseline"],
+                game="zzz",
+                layout="zzz-agent-card",
+                write_crops=False,
+            )
+
+            self.assertTrue(Path(result["summary_json"]).exists())
+            self.assertTrue(Path(result["summary_md"]).exists())
+            self.assertEqual(result["experiments"][0]["engine"], "vision-baseline")
+            self.assertIn("failed_groups", result["experiments"][0])
 
 
 if __name__ == "__main__":

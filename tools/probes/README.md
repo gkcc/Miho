@@ -99,15 +99,16 @@ python tools/probes/click_relative_probe.py --window-title 米游社 --x 640 --y
 ```powershell
 python tools/probes/export_image_parse_probe.py --image "data/probes/exported_images/example.png" --game zzz --layout zzz-agent-card --engine auto
 python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --engine paddle --lang chi_sim+eng --write-crops
+python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --engine rapidocr --write-crops
 python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --engine tesseract --lang eng
 python tools/probes/export_image_parse_probe.py --image "data/probes/exported_images/example.png" --game zzz --layout zzz-agent-card --engine none
 ```
 
-真实中文分享图优先显式使用 `--engine paddle`。默认 `--engine auto` 会先尝试 PaddleOCR，再降级到 Tesseract；如果 PaddleOCR 不可用，工具会提示安装。`--engine tesseract --lang eng` 只适合固定区域数字调试，不可作为可导入解析结果。`--engine none` 可用于只验证图片加载、布局区域和 JSON/Markdown 输出结构。
+真实中文分享图优先显式使用 `--engine paddle`。默认 `--engine auto` 会先尝试 PaddleOCR，再降级到 Tesseract；如果 PaddleOCR 不可用，工具会提示安装。`--engine rapidocr` 是 Paddle 不达标后的可选本地 OCR fallback。`--engine tesseract --lang eng` 只适合固定区域数字调试，不可作为可导入解析结果。`--engine none` 可用于只验证图片加载、布局区域和 JSON/Markdown 输出结构。
 
 新增参数：
 
-* `--engine auto|tesseract|paddle|none`：默认 `auto`；`auto` 优先 PaddleOCR，失败后尝试 Tesseract。
+* `--engine auto|tesseract|paddle|rapidocr|none`：默认 `auto`；`auto` 优先 PaddleOCR，失败后尝试 Tesseract。
 * `--game zzz|hsr`：当前固定区域解析只支持 `zzz`。
 * `--layout full|zzz-agent-card`：默认 `full`；`--game zzz --layout zzz-agent-card` 会按绝区零分享图固定区域裁剪并分别 OCR。
 * `--write-crops`：把关键验收字段的裁剪图写到 `data/probes/crops/`，用于肉眼确认字段框是否准确。
@@ -133,6 +134,7 @@ data/probes/parsed/
 
 ```powershell
 python -m pip install paddleocr
+python -m pip install rapidocr-onnxruntime
 python -m pip install pillow pytesseract
 ```
 
@@ -234,10 +236,34 @@ python tools/probes/evaluate_export_parse.py --parsed "data/probes/parsed/xxx.js
 至少比较：
 
 * `character.name` / `character.level` / `character.rank`
-* 核心属性：`hp` / `atk` / `def` / `crit_rate` / `crit_dmg`
+* 核心属性：`hp` / `atk` / `def` / `impact` / `crit_rate` / `crit_dmg` / `anomaly_mastery` / `anomaly_proficiency` / `pen` / `energy_regen` / `physical_dmg_bonus`
 * 六个技能等级
 * 音擎名称、等级、评级
 * 六个驱动盘等级、主词条、副词条
+
+### P0.8 OCR 实验矩阵
+
+真实识别率提升必须以 expected diff 的 `pass_rate` 为硬验收，`coverage_summary` 只能辅助定位。
+
+```powershell
+python tools/probes/run_export_ocr_matrix.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --expected "data/probes/expected/1782409396884_expected.json" --write-crops
+```
+
+默认矩阵会依次运行：
+
+* `tesseract_eng`：数字 baseline，只能调试固定区域；
+* `tesseract_chi_sim_eng`：Tesseract 中文对照；
+* `paddle`：P0.8 主线；
+* `rapidocr`：Paddle 不达标后的本地 OCR fallback；
+* `vision_baseline`：local-only 视觉模型占位，不上传图片，未配置模型时输出 unavailable。
+
+输出目录：
+
+```text
+data/probes/experiments/<image_stem>/
+```
+
+矩阵 summary 会写出每个 engine 的 parsed JSON、review HTML、expected diff、`pass_rate`、`failed_groups` 和 `next_action`。不要提交 `data/probes/experiments/`、`data/probes/crops/` 或真实图片。
 
 ## Visible UI Probe
 

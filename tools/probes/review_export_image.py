@@ -109,7 +109,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--image", required=True, help="Local official export/share image path.")
     parser.add_argument("--output-dir", default=str(parse_probe.DEFAULT_OUTPUT_DIR), help="Output directory. Default: data/probes/parsed")
-    parser.add_argument("--engine", choices=("auto", "tesseract", "paddle", "none"), default="auto", help="OCR engine. Default: auto")
+    parser.add_argument(
+        "--engine",
+        choices=("auto", "tesseract", "paddle", "rapidocr", "none"),
+        default="auto",
+        help="OCR engine. Default: auto",
+    )
     parser.add_argument("--lang", default="chi_sim+eng", help="OCR language string. Default: chi_sim+eng")
     parser.add_argument("--game", choices=("zzz", "hsr"), default="zzz", help="Game layout hint. Default: zzz")
     parser.add_argument(
