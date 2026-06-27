@@ -243,8 +243,8 @@ def load_paddle_dependency() -> tuple[Any, Any]:
         from paddleocr import PaddleOCR  # type: ignore[import-not-found]
     except ImportError as exc:
         raise ProbeError(
-            "Missing optional PaddleOCR dependencies. Install them only if you want --engine paddle: "
-            "python -m pip install paddleocr paddlepaddle"
+            "Missing optional PaddleOCR dependencies. Install them if you want --engine paddle or --engine auto: "
+            "python -m pip install paddleocr"
         ) from exc
     return np, PaddleOCR
 
@@ -373,9 +373,16 @@ def run_tesseract_on_region(
     try:
         data = pytesseract.image_to_data(processed, lang=lang, config=config, output_type=pytesseract.Output.DICT)
     except Exception as exc:
+        details = redact_text(exc)
+        language_hint = ""
+        if "chi_sim" in lang or "Error opening data file" in details or "Failed loading language" in details:
+            language_hint = (
+                " If Chinese OCR is failing, install the Tesseract chi_sim language data or rerun with --lang eng "
+                "to validate numeric fixed-region extraction first."
+            )
         raise ProbeError(
             "OCR failed. Ensure the Tesseract binary is installed and the requested language data exists. "
-            f"Details: {redact_text(exc)}"
+            f"{language_hint}Details: {details}"
         ) from exc
     blocks = parse_tesseract_blocks(
         data,
@@ -469,6 +476,33 @@ def ocr_region(
     region_box: dict[str, int],
     config: str = "--psm 6",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if engine == "auto":
+        errors = []
+        for candidate in ("paddle", "tesseract"):
+            try:
+                blocks, preprocess_info = ocr_region(
+                    image,
+                    engine=candidate,
+                    lang=lang,
+                    region_name=region_name,
+                    region_box=region_box,
+                    config=config,
+                )
+                preprocess_info = dict(preprocess_info)
+                preprocess_info["engine_used"] = candidate
+                if errors:
+                    preprocess_info["auto_fallback_errors"] = errors
+                return blocks, preprocess_info
+            except ProbeError as exc:
+                errors.append(f"{candidate}: {exc}")
+        joined_errors = " | ".join(errors)
+        raise ProbeError(
+            "No OCR engine is available for --engine auto. Tried PaddleOCR first, then Tesseract. "
+            "Install PaddleOCR with: python -m pip install paddleocr. "
+            "Or install Pillow/pytesseract plus the Tesseract desktop binary and language data, then rerun with "
+            "--engine tesseract. You can also use --engine none to test layout output without OCR. "
+            f"Details: {joined_errors}"
+        )
     if engine == "none":
         return [], {"scale": 1, "grayscale": False, "contrast": None, "ocr_skipped": True}
     if engine == "tesseract":
@@ -564,6 +598,7 @@ def field(value: Any = None, *, uncertain: bool = True, evidence: list[str] | No
 def empty_draft(game: str | None) -> dict[str, Any]:
     return {
         "game": game,
+        "source_type": "official_export_image",
         "character": {
             "name": field(),
             "level": field(),
@@ -586,6 +621,8 @@ def empty_draft(game: str | None) -> dict[str, Any]:
             }
             for index in range(1, 7)
         ],
+        "warnings": [],
+        "uncertain": True,
     }
 
 
@@ -910,9 +947,49 @@ def walk_fields(value: Any, prefix: str = "") -> Iterable[tuple[str, dict[str, A
             yield from walk_fields(item, next_prefix)
 
 
+def extracted_value(item: Any) -> Any:
+    if isinstance(item, dict) and {"value", "uncertain", "evidence", "source_region"}.issubset(item.keys()):
+        return item.get("value")
+    return None
+
+
+def present_values(values: Iterable[Any]) -> list[Any]:
+    return [value for value in values if value not in (None, "", [])]
+
+
+def target_coverage_values(draft: dict[str, Any]) -> list[tuple[str, list[Any]]]:
+    character = draft.get("character", {})
+    stats = draft.get("stats", {})
+    equipment = draft.get("equipment", {})
+    skill_levels = draft.get("skill_levels", [])
+    drive_discs = draft.get("drive_discs", [])
+
+    return [
+        ("character_name", [extracted_value(character.get("name"))]),
+        ("character_level", [extracted_value(character.get("level"))]),
+        ("rank", [extracted_value(character.get("rank"))]),
+        ("hp", [extracted_value(stats.get("hp"))]),
+        ("atk", [extracted_value(stats.get("atk"))]),
+        ("def", [extracted_value(stats.get("def"))]),
+        ("impact", [extracted_value(stats.get("impact"))]),
+        ("crit_rate", [extracted_value(stats.get("crit_rate"))]),
+        ("crit_dmg", [extracted_value(stats.get("crit_dmg"))]),
+        ("anomaly_mastery", [extracted_value(stats.get("anomaly_mastery"))]),
+        ("anomaly_proficiency", [extracted_value(stats.get("anomaly_proficiency"))]),
+        ("skill_levels", [extracted_value(item.get("level")) for item in skill_levels if isinstance(item, dict)]),
+        ("equipment_name", [extracted_value(equipment.get("name"))]),
+        ("equipment_level", [extracted_value(equipment.get("level"))]),
+        ("drive_disc_sets", [extracted_value(item.get("set_name")) for item in drive_discs if isinstance(item, dict)]),
+        ("drive_disc_main_stats", [extracted_value(item.get("main_stat")) for item in drive_discs if isinstance(item, dict)]),
+        ("drive_disc_sub_stats", [extracted_value(item.get("sub_stats")) for item in drive_discs if isinstance(item, dict)]),
+    ]
+
+
 def summarize_coverage(draft: dict[str, Any], blocks: list[dict[str, Any]]) -> dict[str, Any]:
     matched_fields: list[str] = []
     missing_fields: list[str] = []
+    detailed_matched_fields: list[str] = []
+    detailed_missing_fields: list[str] = []
     numeric_fields_detected: list[dict[str, Any]] = []
     chinese_fields_detected: list[dict[str, Any]] = []
 
@@ -920,14 +997,22 @@ def summarize_coverage(draft: dict[str, Any], blocks: list[dict[str, Any]]) -> d
         value = item.get("value")
         has_value = value not in (None, "", [])
         if has_value:
-            matched_fields.append(path)
+            detailed_matched_fields.append(path)
+        else:
+            detailed_missing_fields.append(path)
+
+    for target_name, values in target_coverage_values(draft):
+        values_present = present_values(values)
+        if values_present:
+            matched_fields.append(target_name)
+            value: Any = values_present[0] if len(values_present) == 1 else values_present
             value_text = json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else str(value)
             if NUMERIC_RE.search(value_text):
-                numeric_fields_detected.append({"field": path, "value": value})
+                numeric_fields_detected.append({"field": target_name, "value": value})
             if CJK_RE.search(value_text):
-                chinese_fields_detected.append({"field": path, "value": value})
+                chinese_fields_detected.append({"field": target_name, "value": value})
         else:
-            missing_fields.append(path)
+            missing_fields.append(target_name)
 
     total_fields = len(matched_fields) + len(missing_fields)
     matched_ratio = len(matched_fields) / total_fields if total_fields else 0
@@ -949,6 +1034,8 @@ def summarize_coverage(draft: dict[str, Any], blocks: list[dict[str, Any]]) -> d
         "missing_fields": missing_fields,
         "numeric_fields_detected": numeric_fields_detected,
         "chinese_fields_detected": chinese_fields_detected,
+        "detailed_matched_fields": detailed_matched_fields,
+        "detailed_missing_fields": detailed_missing_fields,
         "raw_numeric_text_block_count": numeric_raw_count,
         "raw_chinese_text_block_count": chinese_raw_count,
         "coverage_level": coverage_level,
@@ -1053,6 +1140,8 @@ def render_markdown(result: dict[str, Any]) -> str:
                 f"- missing_fields: {len(coverage.get('missing_fields', []))}",
                 f"- numeric_fields_detected: {len(coverage.get('numeric_fields_detected', []))}",
                 f"- chinese_fields_detected: {len(coverage.get('chinese_fields_detected', []))}",
+                f"- matched: {markdown_cell(', '.join(coverage.get('matched_fields', [])), 240)}",
+                f"- missing: {markdown_cell(', '.join(coverage.get('missing_fields', [])), 240)}",
                 "",
             ]
         )
@@ -1081,17 +1170,29 @@ def render_markdown(result: dict[str, Any]) -> str:
         lines.append("")
 
     if regions:
-        lines.extend(["## Layout Regions", "", "| name | box | text blocks | text sample |", "|---|---|---:|---|"])
+        lines.extend(["## Layout Regions", "", "| name | engine | box | text blocks | text sample |", "|---|---|---|---:|---|"])
         for region in regions:
             box = region.get("box", {})
+            preprocess = region.get("preprocess", {})
             box_text = f"{box.get('left')},{box.get('top')},{box.get('width')},{box.get('height')}"
             lines.append(
                 "| "
                 f"{markdown_cell(region.get('name'))} | "
+                f"{markdown_cell(preprocess.get('engine_used') or meta.get('ocr_engine'))} | "
                 f"{markdown_cell(box_text)} | "
                 f"{region.get('text_block_count', 0)} | "
                 f"{markdown_cell(region.get('text'), 160)} |"
             )
+        lines.append("")
+
+    if coverage:
+        lines.extend(["## 缺失字段", ""])
+        missing_fields = coverage.get("missing_fields", [])
+        if missing_fields:
+            for item in missing_fields:
+                lines.append(f"- {markdown_cell(item, 120)}")
+        else:
+            lines.append("- 无")
         lines.append("")
 
     if errors:
@@ -1123,6 +1224,18 @@ def render_markdown(result: dict[str, Any]) -> str:
     if len(blocks) > 300:
         lines.append(f"| ... | ... | ... | ... | ... | 还有 {len(blocks) - 300} 个文本块 |")
     lines.append("")
+
+    lines.extend(
+        [
+            "## 下一步建议",
+            "",
+            f"- {markdown_cell(coverage.get('recommendation'), 220)}",
+            "- 所有字段仍需人工确认后才能进入任何正式数据库。",
+            "- 若中文字段缺失但数字字段较稳定，优先尝试 PaddleOCR 或安装 Tesseract chi_sim 语言包。",
+            "- 若固定区域连续错位，先用同一张图校准 zzz-agent-card 裁剪比例，再考虑批量解析。",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -1198,9 +1311,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lang", default="chi_sim+eng", help="OCR language string. Default: chi_sim+eng")
     parser.add_argument(
         "--engine",
-        choices=("tesseract", "paddle", "none"),
-        default="tesseract",
-        help="OCR engine. Default: tesseract",
+        choices=("auto", "tesseract", "paddle", "none"),
+        default="auto",
+        help="OCR engine. Default: auto (PaddleOCR first, then Tesseract).",
     )
     parser.add_argument("--game", choices=("zzz", "hsr"), default=None, help="Game layout hint: zzz or hsr.")
     parser.add_argument(

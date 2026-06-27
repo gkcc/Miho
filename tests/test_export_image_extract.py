@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+import sys
+import unittest
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_PATH = PROJECT_ROOT / "tools" / "probes" / "export_image_parse_probe.py"
+
+spec = importlib.util.spec_from_file_location("export_image_parse_probe", SCRIPT_PATH)
+assert spec is not None
+probe = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = probe
+spec.loader.exec_module(probe)
+
+
+IMAGE_WIDTH = 1000
+IMAGE_HEIGHT = 2000
+
+
+def ocr_block(text: str, region: str, left: int, top: int, width: int = 48, height: int = 24) -> dict:
+    return {
+        "text": text,
+        "region": region,
+        "box": {
+            "left": left,
+            "top": top,
+            "width": width,
+            "height": height,
+        },
+        "confidence": 0.95,
+        "candidate_entities": ["unknown"],
+        "uncertain": False,
+    }
+
+
+def zzz_layout_regions() -> list[dict]:
+    return [
+        {
+            "name": spec.name,
+            "description": spec.description,
+            "box": probe.ratio_box_to_pixels(spec.box_ratio, IMAGE_WIDTH, IMAGE_HEIGHT),
+            "preprocess": {"engine_used": "mock"},
+            "text": "",
+            "text_block_count": 0,
+        }
+        for spec in probe.ZZZ_AGENT_CARD_REGIONS
+    ]
+
+
+class ExportImageExtractTests(unittest.TestCase):
+    def test_arg_parser_defaults_to_auto_engine(self) -> None:
+        args = probe.build_arg_parser().parse_args(["--image", "example.png"])
+
+        self.assertEqual(args.engine, "auto")
+
+    def test_extract_zzz_agent_card_from_manual_ocr_blocks(self) -> None:
+        blocks = [
+            ocr_block("星见雅 LV.60 S", "character_card", 70, 260, 150, 30),
+            ocr_block("17398", "stat_hp", 600, 220),
+            ocr_block("2194", "stat_atk", 930, 220),
+            ocr_block("870", "stat_def", 610, 285),
+            ocr_block("116", "stat_impact", 930, 285),
+            ocr_block("45.8%", "stat_crit_rate", 590, 350),
+            ocr_block("85.2%", "stat_crit_dmg", 910, 350),
+            ocr_block("120", "stat_anomaly_mastery", 610, 415),
+            ocr_block("118", "stat_anomaly_proficiency", 910, 415),
+            ocr_block("0", "stat_pen", 590, 480),
+            ocr_block("1.2", "stat_energy_regen", 910, 480),
+            ocr_block("30%", "stat_physical_dmg_bonus", 590, 550),
+            ocr_block("10", "skill_level_1", 370, 650),
+            ocr_block("08", "skill_level_2", 460, 650),
+            ocr_block("06", "skill_level_3", 545, 650),
+            ocr_block("11", "skill_level_4", 635, 650),
+            ocr_block("10", "skill_level_5", 720, 650),
+            ocr_block("07", "skill_level_6", 810, 650),
+            ocr_block("幻变魔方", "equipment", 140, 800, 110, 28),
+            ocr_block("LV.60", "equipment_level", 140, 850, 80, 28),
+            ocr_block("S", "equipment_rank", 900, 800, 30, 28),
+            ocr_block("啄木鸟电音 [1]", "drive_disc_1", 40, 960, 160, 28),
+            ocr_block("LV.15", "drive_disc_1", 250, 960, 70, 28),
+            ocr_block("暴击率", "drive_disc_1", 50, 1060, 80, 28),
+            ocr_block("24%", "drive_disc_1", 250, 1060, 60, 28),
+            ocr_block("攻击力", "drive_disc_1", 50, 1150, 80, 28),
+            ocr_block("219", "drive_disc_1", 250, 1150, 60, 28),
+        ]
+
+        draft = probe.build_extracted_draft(
+            game="zzz",
+            layout="zzz-agent-card",
+            blocks=blocks,
+            layout_regions=zzz_layout_regions(),
+            image_info={"width": IMAGE_WIDTH, "height": IMAGE_HEIGHT},
+        )
+
+        self.assertEqual(draft["source_type"], "official_export_image")
+        self.assertEqual(draft["character"]["name"]["value"], "星见雅")
+        self.assertEqual(draft["character"]["level"]["value"], "60")
+        self.assertEqual(draft["character"]["rank"]["value"], "S")
+        self.assertEqual(draft["stats"]["hp"]["value"], "17398")
+        self.assertEqual(draft["stats"]["atk"]["value"], "2194")
+        self.assertEqual(draft["stats"]["def"]["value"], "870")
+        self.assertEqual(draft["stats"]["crit_rate"]["value"], "45.8%")
+        self.assertEqual(draft["stats"]["crit_dmg"]["value"], "85.2%")
+        self.assertEqual([item["level"]["value"] for item in draft["skill_levels"]], ["10", "08", "06", "11", "10", "07"])
+        self.assertEqual(draft["equipment"]["name"]["value"], "幻变魔方")
+        self.assertEqual(draft["equipment"]["level"]["value"], "60")
+        self.assertEqual(draft["drive_discs"][0]["set_name"]["value"], "啄木鸟电音")
+        self.assertEqual(draft["drive_discs"][0]["main_stat"]["value"], "暴击率 24%")
+        self.assertEqual(draft["drive_discs"][0]["sub_stats"]["value"][0]["stat"], "攻击力")
+
+        coverage = probe.summarize_coverage(draft, blocks)
+        self.assertIn("character_level", coverage["matched_fields"])
+        self.assertIn("hp", coverage["matched_fields"])
+        self.assertIn("equipment_name", coverage["matched_fields"])
+        self.assertIn("drive_disc_sub_stats", coverage["matched_fields"])
+        self.assertIn(coverage["coverage_level"], {"medium", "high"})
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -6,13 +6,18 @@
 
 ## 推荐验证顺序
 
-1. 用户手动打开米游社 APP，进入某个角色详情页。
-2. 运行 UIA dump，确认窗口和分享 / 导出按钮能否被读到。
-3. 运行 export image probe，尝试点击官方分享 / 导出按钮。
-4. 找到导出图片后，运行 parse probe。
-5. 检查 JSON / Markdown 中是否能识别角色名、等级、装备、技能、遗器 / 驱动盘。
-6. 如果分享图覆盖字段足够，下一步做字段抽取 prototype。
-7. 如果分享图字段不足，再研究 UIA 翻页、详情页逐项读取或底层 API。
+1. 用户手动导出一张米游社官方分享图。
+2. 将图片保存到 `data/probes/exported_images/`。
+3. 运行 parse probe：
+
+```powershell
+python tools/probes/export_image_parse_probe.py --image "data/probes/exported_images/xxx.jpg" --game zzz --layout zzz-agent-card --engine auto
+```
+
+4. 查看 `data/probes/parsed/*.md` 和同名 JSON。
+5. 如果 `coverage_level` 为 `high` 或 `medium`，继续做字段抽取 prototype。
+6. 如果 OCR 质量差，优先尝试 PaddleOCR，或安装 Tesseract `chi_sim` 语言包。
+7. 如果分享图字段不足，再研究多图组合、截图 RPA 或另开 ADR 评估底层 API。
 
 ## 官方导出/分享图路线
 
@@ -69,21 +74,40 @@ python tools/probes/miyoushe_export_image_probe.py --game hsr --mode assisted-rp
 data/probes/exported_images/
 ```
 
+### RPA 坐标准备 probe
+
+如果官方分享按钮无法通过 UIA 直接定位，可以先用窗口截图和相对坐标 dry-run 做标定。截图可能包含账号可见信息，只能保存在 `data/probes/`，不得提交。
+
+```powershell
+python tools/probes/window_screenshot_probe.py --window-title 米游社 --dry-run
+python tools/probes/window_screenshot_probe.py --window-title 米游社 --grid-size 100
+python tools/probes/click_relative_probe.py --window-title 米游社 --x 640 --y 360
+```
+
+`click_relative_probe.py` 默认只输出窗口相对坐标和绝对坐标，不点击。真实点击只用于 P0.6 官方 UI 探针，且必须显式加：
+
+```powershell
+python tools/probes/click_relative_probe.py --window-title 米游社 --x 640 --y 360 --execute --confirm-official-ui
+```
+
+禁止用该 probe 自动登录、处理验证码、读取 cookie/token、抓包或控制游戏客户端。
+
 ### Parse probe
 
 对官方导出 / 分享图做 OCR 和字段分类草案。
 
 ```powershell
-python tools/probes/export_image_parse_probe.py --image "data/probes/exported_images/example.png"
-python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --lang chi_sim+eng
-python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --lang eng
+python tools/probes/export_image_parse_probe.py --image "data/probes/exported_images/example.png" --game zzz --layout zzz-agent-card --engine auto
+python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --engine auto --lang chi_sim+eng
+python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --engine tesseract --lang eng
+python tools/probes/export_image_parse_probe.py --image "data/probes/exported_images/example.png" --game zzz --layout zzz-agent-card --engine none
 ```
 
-如果本机已安装 Tesseract 中文语言包，优先使用 `--lang chi_sim+eng`。如果没有 `chi_sim`，先用 `--lang eng` 跑通固定区域解析，确认数字字段覆盖率。
+默认 `--engine auto` 会先尝试 PaddleOCR，再降级到 Tesseract。PaddleOCR 未安装时不会影响 Tesseract 路线；Tesseract 缺少 `chi_sim` 时，先用 `--lang eng` 跑通固定区域解析，确认数字字段覆盖率。`--engine none` 可用于只验证图片加载、布局区域和 JSON/Markdown 输出结构。
 
 新增参数：
 
-* `--engine tesseract|paddle|none`：默认 `tesseract`；`paddle` 是可选分支，未安装依赖时只会给出提示。
+* `--engine auto|tesseract|paddle|none`：默认 `auto`；`auto` 优先 PaddleOCR，失败后尝试 Tesseract。
 * `--game zzz|hsr`：当前固定区域解析只支持 `zzz`。
 * `--layout full|zzz-agent-card`：默认 `full`；`--game zzz --layout zzz-agent-card` 会按绝区零分享图固定区域裁剪并分别 OCR。
 
@@ -106,6 +130,7 @@ data/probes/parsed/
 如果本地没有 OCR 依赖，工具会输出清晰提示。可选依赖：
 
 ```powershell
+python -m pip install paddleocr
 python -m pip install pillow pytesseract
 ```
 
