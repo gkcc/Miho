@@ -136,6 +136,57 @@ python -m pip install pillow pytesseract
 
 Tesseract 程序本体和中文语言包需要单独安装到本机。
 
+### P0.7 HTML 验收页
+
+P0.7 的目标是让用户肉眼验收分享图解析结果是否可靠。先解析官方分享图：
+
+```powershell
+python tools/probes/export_image_parse_probe.py --image "C:\Users\zy958\Downloads\1782409396884.jpg" --game zzz --layout zzz-agent-card --engine auto
+```
+
+再用解析 JSON 生成本地 HTML 验收页和 overlay 图片：
+
+```powershell
+python tools/probes/render_export_review.py --json "data/probes/parsed/xxx.json"
+```
+
+打开验收页：
+
+```powershell
+start data/probes/parsed/xxx_review.html
+```
+
+输出：
+
+* `data/probes/parsed/xxx_review.html`
+* `data/probes/parsed/xxx_overlay.png`
+
+HTML 验收页包含：
+
+* 原始分享图；
+* 解析区域 overlay；
+* `extracted_draft` 字段卡片；
+* `coverage_summary`；
+* 缺失字段和不确定字段；
+* 下一步建议。
+
+验收标准：
+
+* `coverage_level` 至少为 `medium`；
+* 角色等级正确；
+* 核心属性至少 4 个正确；
+* 六个技能等级至少 5 个正确；
+* 音擎等级正确；
+* 6 个驱动盘区域框基本对齐。
+
+如果 JSON 里的 `metadata.input_image` 已移动或被脱敏，可以显式指定原图：
+
+```powershell
+python tools/probes/render_export_review.py --json "data/probes/parsed/xxx.json" --image "C:\Users\zy958\Downloads\1782409396884.jpg"
+```
+
+验收页仍是 probe 输出，不是正式采集结果。不要提交 `data/probes/`、真实图片或 HTML/overlay 输出。
+
 ## Visible UI Probe
 
 用途：只读当前米游社窗口的 Windows UI Automation 控件树和可见文本，判断角色名、等级、装备、技能、遗器 / 驱动盘，以及分享 / 导出按钮是否出现在可访问文本里。
