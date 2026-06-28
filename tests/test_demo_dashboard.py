@@ -49,7 +49,7 @@ def field(value, *, uncertain: bool = False, status: str = "ok") -> dict:
     }
 
 
-def parsed_json(name: str = "星见雅", image: str = "figs/mock.jpg") -> dict:
+def parsed_json(name: str = "星见雅", image: str = "figs/mock.jpg", atk: str = "200") -> dict:
     return {
         "metadata": {
             "input_image": image,
@@ -68,7 +68,7 @@ def parsed_json(name: str = "星见雅", image: str = "figs/mock.jpg") -> dict:
             },
             "stats": {
                 "hp": field("100"),
-                "atk": field("200"),
+                "atk": field(atk),
                 "def": field("300"),
                 "impact": field("90"),
                 "crit_rate": field("10%"),
@@ -143,6 +143,7 @@ class DemoDashboardTests(unittest.TestCase):
                     "manifest": None,
                     "latest_only": False,
                     "clean_demo": False,
+                    "history_dir": str(root / "snapshot_history"),
                 },
                 "warnings": ["当前包含历史 parsed 结果，平均通过率不代表 P0.9 replay batch"],
                 "training_plan": {
@@ -165,6 +166,27 @@ class DemoDashboardTests(unittest.TestCase):
                     "error": None,
                 },
                 "pipeline_steps": [{"name": "Normalized Snapshot", "status": "needs_review"}],
+                "snapshot_history": {
+                    "history_dir": str(root / "snapshot_history"),
+                    "index_json": str(root / "snapshot_history" / "index.json"),
+                    "snapshot_count": 1,
+                    "diff_count": 1,
+                    "changed_character_count": 1,
+                    "no_previous_count": 0,
+                    "diff_failed_count": 0,
+                    "items": [
+                        {
+                            "character": "星见雅",
+                            "case_name": "case_a",
+                            "current_snapshot": str(root / "snapshot_history" / "current.json"),
+                            "previous_snapshot": str(root / "snapshot_history" / "previous.json"),
+                            "diff_md": str(root / "snapshot_history" / "diff.md"),
+                            "change_count": 2,
+                            "requires_review_change_count": 0,
+                            "status": "diffed",
+                        }
+                    ],
+                },
                 "cases": [
                     {
                         "name": "case_a",
@@ -203,6 +225,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("review_html", html)
             self.assertIn("case_expected.json", html)
             self.assertIn("培养优先级候选", html)
+            self.assertIn("快照历史", html)
+            self.assertIn("snapshot_diff_md", html)
             self.assertIn("先人工确认解析结果", html)
             self.assertIn("training_priority_report.json", html)
             self.assertIn("当前包含历史 parsed 结果", html)
@@ -240,6 +264,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["overall"]["average_pass_rate"], None)
             self.assertEqual(summary["input"]["source_mode"], "parsed replay mode")
             self.assertIn("parsed-dir 模式会扫描历史 parsed JSON", summary["warnings"][0])
+            self.assertEqual(summary["snapshot_history"]["snapshot_count"], 1)
+            self.assertEqual(summary["snapshot_history"]["no_previous_count"], 1)
             self.assertTrue(Path(summary["dashboard_html"]).exists())
             self.assertTrue(Path(summary["cases"][0]["normalized_json"]).exists())
             self.assertEqual(summary["cases"][0]["review_html"], str(parsed_path.with_name("case_a_review.html").resolve()))
@@ -296,6 +322,54 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("培养优先级候选", dashboard_html)
             self.assertIn("先人工确认解析结果", dashboard_html)
+
+    def test_run_demo_pipeline_records_snapshot_history_and_diffs_previous_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first_parsed_dir = root / "parsed_first"
+            second_parsed_dir = root / "parsed_second"
+            first_output_dir = root / "demo_first"
+            second_output_dir = root / "demo_second"
+            history_dir = root / "history"
+            first_parsed_dir.mkdir()
+            second_parsed_dir.mkdir()
+            first_path = first_parsed_dir / "case_first.json"
+            second_path = second_parsed_dir / "case_second.json"
+            first_path.write_text(json.dumps(parsed_json(atk="200"), ensure_ascii=False), encoding="utf-8")
+            second_path.write_text(json.dumps(parsed_json(atk="260"), ensure_ascii=False), encoding="utf-8")
+
+            first = pipeline_tool.run_pipeline(
+                images_dir=None,
+                parsed_dir=first_parsed_dir,
+                manifest=None,
+                output_dir=first_output_dir,
+                history_dir=history_dir,
+                open_dashboard=False,
+            )
+            second = pipeline_tool.run_pipeline(
+                images_dir=None,
+                parsed_dir=second_parsed_dir,
+                manifest=None,
+                output_dir=second_output_dir,
+                history_dir=history_dir,
+                open_dashboard=False,
+            )
+
+            self.assertEqual(first["snapshot_history"]["snapshot_count"], 1)
+            self.assertEqual(first["snapshot_history"]["diff_count"], 0)
+            self.assertEqual(first["snapshot_history"]["no_previous_count"], 1)
+            self.assertEqual(second["snapshot_history"]["snapshot_count"], 1)
+            self.assertEqual(second["snapshot_history"]["diff_count"], 1)
+            self.assertEqual(second["snapshot_history"]["changed_character_count"], 1)
+            item = second["snapshot_history"]["items"][0]
+            self.assertGreater(item["change_count"], 0)
+            self.assertTrue(Path(item["current_snapshot"]).exists())
+            self.assertTrue(Path(item["previous_snapshot"]).exists())
+            self.assertTrue(Path(item["diff_md"]).exists())
+            self.assertTrue((history_dir / "index.json").exists())
+            dashboard_html = Path(second["dashboard_html"]).read_text(encoding="utf-8")
+            self.assertIn("快照历史", dashboard_html)
+            self.assertIn("snapshot_diff_md", dashboard_html)
 
     def test_run_demo_pipeline_image_mode_writes_update_state_and_new_only_skips_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -390,6 +464,7 @@ class DemoDashboardTests(unittest.TestCase):
                     clean_demo=False,
                     state_file=None,
                     targets=None,
+                    history_dir=None,
                 )
             )
         finally:
@@ -403,6 +478,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertFalse(calls[0]["new_only"])
         self.assertIsNone(calls[0]["state_file"])
         self.assertIsNone(calls[0]["targets"])
+        self.assertIsNone(calls[0]["history_dir"])
 
 
 if __name__ == "__main__":

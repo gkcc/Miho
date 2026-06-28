@@ -35,6 +35,7 @@ def run_demo(args: argparse.Namespace) -> int:
         targets=demo_tool.resolve_path(args.targets) if args.targets else None,
         new_only=args.new_only,
         state_file=demo_tool.resolve_path(args.state_file) if args.state_file else None,
+        history_dir=demo_tool.resolve_path(args.history_dir) if args.history_dir else None,
     )
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
@@ -123,6 +124,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     demo.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
     demo.add_argument("--state-file", default=None, help="Image update state JSON. Default: <output-dir>/update_state.json.")
     demo.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report.")
+    demo.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
     demo.set_defaults(handler=run_demo)
 
     normalize = subparsers.add_parser("normalize", help="Normalize one parsed JSON.")

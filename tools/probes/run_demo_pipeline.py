@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -31,11 +32,13 @@ DEFAULT_IMAGES_DIR = PROJECT_ROOT / "figs"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 UPDATE_STATE_FILENAME = "update_state.json"
+SNAPSHOT_HISTORY_DIRNAME = "snapshot_history"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 PARSED_DIR_HISTORY_WARNING_CASES = 5
 MODE_OCR_FRESH_IMAGE = "OCR fresh image mode"
 MODE_PARSED_REPLAY = "parsed replay mode"
 MODE_MANIFEST_CONTROLLED = "manifest controlled mode"
+SNAPSHOT_HISTORY_SCHEMA = "p1.1-snapshot-history-draft"
 
 
 class DemoPipelineError(RuntimeError):
@@ -214,6 +217,129 @@ def write_update_state(path: Path, state: dict[str, Any], records: list[dict[str
     state["images"] = images
     state["updated_at"] = normalizer.now_iso()
     write_json(path, state)
+
+
+def safe_history_key(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", text)
+    text = re.sub(r"\s+", "_", text)
+    text = text.strip("._")
+    return (text[:80] or "unknown_character")
+
+
+def safe_timestamp() -> str:
+    return re.sub(r"[^0-9A-Za-z_.-]+", "_", normalizer.now_iso()).strip("_")
+
+
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    counter = 2
+    while True:
+        candidate = path.with_name(f"{path.stem}_{counter}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def load_snapshot_history_index(history_dir: Path) -> dict[str, Any]:
+    index_path = history_dir / "index.json"
+    if not index_path.exists():
+        return {"schema_version": SNAPSHOT_HISTORY_SCHEMA, "characters": {}}
+    try:
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise DemoPipelineError(f"Invalid snapshot history index JSON: {index_path}. Details: {exc}") from exc
+    if not isinstance(data, dict):
+        raise DemoPipelineError(f"Snapshot history index must be an object: {index_path}")
+    if not isinstance(data.get("characters"), dict):
+        data["characters"] = {}
+    data.setdefault("schema_version", SNAPSHOT_HISTORY_SCHEMA)
+    return data
+
+
+def case_history_identity(case: dict[str, Any]) -> tuple[str, str]:
+    character = case.get("character", {}) if isinstance(case.get("character"), dict) else {}
+    name = character.get("name") or case.get("name") or "unknown_character"
+    return str(name), safe_history_key(name)
+
+
+def build_snapshot_history(cases: list[dict[str, Any]], history_dir: Path) -> dict[str, Any]:
+    history_dir.mkdir(parents=True, exist_ok=True)
+    index = load_snapshot_history_index(history_dir)
+    characters = index.get("characters", {}) if isinstance(index.get("characters"), dict) else {}
+    items: list[dict[str, Any]] = []
+    timestamp = safe_timestamp()
+    for case in cases:
+        if not case.get("normalized_json"):
+            continue
+        source_path = Path(str(case["normalized_json"]))
+        if not source_path.exists():
+            continue
+        character_name, key = case_history_identity(case)
+        character_dir = history_dir / "characters" / key
+        character_dir.mkdir(parents=True, exist_ok=True)
+        current_path = unique_path(character_dir / f"{timestamp}_{safe_history_key(source_path.stem)}.json")
+        shutil.copy2(source_path, current_path)
+        previous_entry = characters.get(key) if isinstance(characters.get(key), dict) else {}
+        previous_snapshot = previous_entry.get("latest_snapshot") if isinstance(previous_entry, dict) else None
+        previous_path = Path(str(previous_snapshot)) if previous_snapshot else None
+        item: dict[str, Any] = {
+            "character": character_name,
+            "key": key,
+            "case_name": case.get("name"),
+            "current_snapshot": str(current_path),
+            "previous_snapshot": str(previous_path) if previous_path and previous_path.exists() else None,
+            "diff_json": None,
+            "diff_md": None,
+            "change_count": 0,
+            "requires_review_change_count": 0,
+            "status": "first_snapshot",
+            "error": None,
+        }
+        if previous_path and previous_path.exists():
+            try:
+                diff = normalized_diff.diff_files(previous_path, current_path, history_dir / "diffs" / key)
+                item.update(
+                    {
+                        "diff_json": diff.get("output_json"),
+                        "diff_md": diff.get("output_md"),
+                        "change_count": diff.get("summary", {}).get("change_count", 0),
+                        "requires_review_change_count": diff.get("summary", {}).get("requires_review_change_count", 0),
+                        "status": "diffed",
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                item["status"] = "diff_failed"
+                item["error"] = str(exc)
+        case["snapshot_history"] = item
+        items.append(item)
+        characters[key] = {
+            "character": character_name,
+            "latest_snapshot": str(current_path),
+            "last_seen_at": normalizer.now_iso(),
+            "case_name": case.get("name"),
+            "source_image": case.get("image"),
+            "review_status": case.get("review_status"),
+            "coverage_level": case.get("coverage_level"),
+            "normalized_json": case.get("normalized_json"),
+        }
+    index["schema_version"] = SNAPSHOT_HISTORY_SCHEMA
+    index["updated_at"] = normalizer.now_iso()
+    index["characters"] = characters
+    index_path = history_dir / "index.json"
+    write_json(index_path, index)
+    return {
+        "schema_version": SNAPSHOT_HISTORY_SCHEMA,
+        "history_dir": str(history_dir),
+        "index_json": str(index_path),
+        "snapshot_count": len(items),
+        "diff_count": sum(1 for item in items if item.get("diff_md")),
+        "changed_character_count": sum(1 for item in items if int(item.get("change_count") or 0) > 0),
+        "no_previous_count": sum(1 for item in items if item.get("status") == "first_snapshot"),
+        "diff_failed_count": sum(1 for item in items if item.get("status") == "diff_failed"),
+        "items": items,
+    }
 
 
 def build_update_summary(path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -514,12 +640,17 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     expected_count = summary["overall"].get("expected_available_count", 0)
     needs_review = summary["overall"].get("requires_manual_review_count", 0)
     plan_info = summary.get("training_plan", {}) if isinstance(summary.get("training_plan"), dict) else {}
+    history_info = summary.get("snapshot_history", {}) if isinstance(summary.get("snapshot_history"), dict) else {}
     return [
         {"name": "官方分享图", "status": "done" if input_info.get("images_dir") or any(case.get("image") for case in cases) else "skipped"},
         {"name": "OCR Review", "status": "failed" if errors and input_info.get("images_dir") else "done" if any(case.get("review_html") for case in cases) else "skipped"},
         {"name": "Expected Diff", "status": "done" if expected_count else "skipped"},
         {"name": "Normalized Snapshot", "status": "needs_review" if normalized_count and needs_review else "done" if normalized_count else "failed"},
         {"name": "Snapshot Diff", "status": "done" if summary.get("snapshot_diff_md") else "skipped"},
+        {
+            "name": "Snapshot History",
+            "status": "failed" if history_info.get("diff_failed_count") else "done" if history_info.get("snapshot_count") else "skipped",
+        },
         {"name": "Training Plan", "status": "failed" if plan_info.get("error") else "done" if plan_info.get("output_json") else "skipped"},
     ]
 
@@ -547,7 +678,7 @@ def build_warnings(cases: list[dict[str, Any]], input_info: dict[str, Any]) -> l
     return warnings
 
 
-def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[str, Any]) -> dict[str, Any]:
+def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[str, Any], snapshot_history: dict[str, Any] | None = None) -> dict[str, Any]:
     parse_success_count = sum(1 for case in cases if case.get("parsed_json"))
     review_counts: dict[str, int] = {}
     pass_rates = []
@@ -589,6 +720,8 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
         },
         "cases": cases,
     }
+    if snapshot_history is not None:
+        summary["snapshot_history"] = snapshot_history
     if len(normalized_paths) >= 2:
         try:
             diff = normalized_diff.diff_files(normalized_paths[0], normalized_paths[1], output_dir / "diff")
@@ -662,6 +795,7 @@ def run_pipeline(
     targets: Path | None = None,
     new_only: bool = False,
     state_file: Path | None = None,
+    history_dir: Path | None = None,
 ) -> dict[str, Any]:
     if clean_demo:
         clean_demo_output_dir(output_dir)
@@ -677,6 +811,7 @@ def run_pipeline(
         "targets": str(targets) if targets else None,
         "new_only": bool(new_only),
         "state_file": str(state_file) if state_file else None,
+        "history_dir": str(history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME)),
     }
     if manifest:
         for raw in manifest_cases(manifest):
@@ -729,7 +864,8 @@ def run_pipeline(
             )
         write_update_state(active_state_file, state, update_records, cases)
 
-    summary = summarize(cases, output_dir, input_info)
+    snapshot_history = build_snapshot_history(cases, history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME))
+    summary = summarize(cases, output_dir, input_info, snapshot_history)
     if isinstance(input_info.get("update_state"), dict):
         summary["update_state"] = input_info["update_state"]
     training_plan = build_training_plan(cases, targets, output_dir)
@@ -769,6 +905,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
     parser.add_argument("--state-file", default=None, help="Image update state JSON. Default: <output-dir>/update_state.json.")
     parser.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report from normalized snapshots.")
+    parser.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
     return parser
 
 
@@ -790,6 +927,7 @@ def main() -> int:
             targets=resolve_path(args.targets) if args.targets else None,
             new_only=args.new_only,
             state_file=resolve_path(args.state_file) if args.state_file else None,
+            history_dir=resolve_path(args.history_dir) if args.history_dir else None,
         )
     except (DemoPipelineError, normalizer.NormalizeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -807,6 +945,10 @@ def main() -> int:
         print(f"skipped_unchanged_count: {summary['update_state'].get('skipped_unchanged_count', 0)}")
     if isinstance(summary.get("training_plan"), dict):
         print(f"plan_item_count: {summary['training_plan'].get('plan_item_count', 0)}")
+    if isinstance(summary.get("snapshot_history"), dict):
+        print(f"history_snapshot_count: {summary['snapshot_history'].get('snapshot_count', 0)}")
+        print(f"history_diff_count: {summary['snapshot_history'].get('diff_count', 0)}")
+        print(f"history_changed_character_count: {summary['snapshot_history'].get('changed_character_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0

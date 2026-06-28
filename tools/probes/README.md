@@ -319,6 +319,7 @@ python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --lates
 python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
+python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --history-dir data/probes/demo/snapshot_history --open
 ```
 
 默认输入目录是本地 `figs/`，该目录只放用户手动保存的官方分享图，不提交 Git。默认输出：
@@ -326,6 +327,7 @@ python tools/probes/run_demo_pipeline.py --images-dir figs --new-only --state-fi
 ```text
 data/probes/demo/demo_summary.json
 data/probes/demo/index.html
+data/probes/demo/snapshot_history/index.json
 ```
 
 `index.html` 是单文件静态 Dashboard，可以直接双击打开。Dashboard 会展示：
@@ -340,11 +342,14 @@ data/probes/demo/index.html
 * 如果提供 `--targets`，还会展示培养优先级候选和 planner 报告链接。
 * image mode 会维护本地 `update_state.json`，记录分享图 sha256 和上次处理结果。
 * 如果提供 `--new-only`，只处理新增或内容变更的分享图，未变化图片会跳过。
+* demo 会维护本地 `snapshot_history/index.json`，保存每个角色最近一次 normalized snapshot，并在下次同角色出现时生成相邻快照 diff。
+* `snapshot_history` 仍是 probe 输出，不是正式数据库；它只用于观察“这次相对上次练度变化了什么”。
 
 输入隔离：
 
 * 成品体验用 `scripts/run_miho_demo.bat`，它走 `figs/` 的 fresh OCR image mode。
 * 增量体验用 `--new-only --state-file data/probes/demo/update_state.json`，用于模拟“用户新增导出图后自动进入解析链路”。
+* 长期演进体验用 `--history-dir data/probes/demo/snapshot_history` 固定历史目录；如果配合 `--clean-demo` 清空同一输出目录，默认历史也会被清空。
 * `--parsed-dir` 是 replay 调试入口，会扫描目录中的历史 parsed JSON，可能包含旧失败结果。
 * parsed replay 只想看每张源图最新结果时加 `--latest-only`。
 * 想清空 demo 输出再跑时加 `--clean-demo`，该开关只允许清理 `data/probes/` 下的输出目录。
@@ -368,6 +373,7 @@ CLI 壳：
 python tools/probes/miho_probe_cli.py demo --images-dir figs --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
+python tools/probes/miho_probe_cli.py demo --parsed-dir data/probes/parsed --latest-only --history-dir data/probes/demo/snapshot_history --open
 python tools/probes/miho_probe_cli.py normalize --parsed data/probes/parsed/xxx.json
 python tools/probes/miho_probe_cli.py diff --old old_normalized.json --new new_normalized.json
 ```

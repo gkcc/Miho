@@ -180,6 +180,7 @@ def render_input_panel(summary: dict[str, Any]) -> str:
         <div><span>parsed_dir</span><strong>{e(rel_label(input_info.get("parsed_dir")) or "N/A")}</strong></div>
         <div><span>manifest</span><strong>{e(rel_label(input_info.get("manifest")) or "N/A")}</strong></div>
         <div><span>targets</span><strong>{e(rel_label(input_info.get("targets")) or "N/A")}</strong></div>
+        <div><span>history_dir</span><strong>{e(rel_label(input_info.get("history_dir")) or "N/A")}</strong></div>
         <div><span>latest_only</span><strong>{e(input_info.get("latest_only"))}</strong></div>
         <div><span>new_only</span><strong>{e(input_info.get("new_only"))}</strong></div>
         <div><span>clean_demo</span><strong>{e(input_info.get("clean_demo"))}</strong></div>
@@ -252,6 +253,43 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     """
 
 
+def render_snapshot_history(summary: dict[str, Any]) -> str:
+    history = summary.get("snapshot_history")
+    if not isinstance(history, dict) or not history.get("snapshot_count"):
+        return ""
+    items = history.get("items") if isinstance(history.get("items"), list) else []
+    rows = []
+    for item in items:
+        status = item.get("status") or "unknown"
+        rows.append(
+            '<article class="history-item">'
+            f'<div><strong>{e(item.get("character") or item.get("case_name"))}</strong><span>{e(status)}</span></div>'
+            f'<div><span>changes</span><strong>{e(item.get("change_count", 0))}</strong></div>'
+            f'<div><span>review</span><strong>{e(item.get("requires_review_change_count", 0))}</strong></div>'
+            '<div class="links">'
+            f'{link("current_snapshot", item.get("current_snapshot"))}'
+            f'{link("previous_snapshot", item.get("previous_snapshot"))}'
+            f'{link("snapshot_diff_md", item.get("diff_md"))}'
+            "</div>"
+            "</article>"
+        )
+    return f"""
+    <section class="panel">
+      <h2>快照历史</h2>
+      <div class="input-grid">
+        <div><span>history_dir</span><strong>{e(rel_label(history.get("history_dir")) or "N/A")}</strong></div>
+        <div><span>snapshots</span><strong>{e(history.get("snapshot_count", 0))}</strong></div>
+        <div><span>diffs</span><strong>{e(history.get("diff_count", 0))}</strong></div>
+        <div><span>changed characters</span><strong>{e(history.get("changed_character_count", 0))}</strong></div>
+        <div><span>first snapshots</span><strong>{e(history.get("no_previous_count", 0))}</strong></div>
+        <div><span>diff failed</span><strong>{e(history.get("diff_failed_count", 0))}</strong></div>
+      </div>
+      <div class="links">{link("history_index", history.get("index_json"))}</div>
+      <div class="history-list">{''.join(rows)}</div>
+    </section>
+    """
+
+
 def render_html(summary: dict[str, Any]) -> str:
     overall = summary.get("overall", {}) if isinstance(summary.get("overall"), dict) else {}
     cases = summary.get("cases", []) if isinstance(summary.get("cases"), list) else []
@@ -262,6 +300,7 @@ def render_html(summary: dict[str, Any]) -> str:
     input_info = summary.get("input", {}) if isinstance(summary.get("input"), dict) else {}
     plan_info = summary.get("training_plan", {}) if isinstance(summary.get("training_plan"), dict) else {}
     update_info = summary.get("update_state", {}) if isinstance(summary.get("update_state"), dict) else {}
+    history_info = summary.get("snapshot_history", {}) if isinstance(summary.get("snapshot_history"), dict) else {}
     metrics = [
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
@@ -273,12 +312,14 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("Normalized", overall.get("normalized_count", 0), "ok"),
         metric_card("需人工确认", overall.get("requires_manual_review_count", 0), "warn"),
         metric_card("本轮处理图片", update_info.get("processed_image_count", "N/A") if update_info else "N/A", "ok" if update_info.get("processed_image_count") else "muted"),
+        metric_card("历史变化", history_info.get("changed_character_count", "N/A") if history_info else "N/A", "warn" if history_info.get("changed_character_count") else "muted"),
         metric_card("Plan Items", plan_info.get("plan_item_count", 0) if plan_info else "N/A", "warn" if plan_info.get("error") else "ok" if plan_info else "muted"),
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
     input_panel = render_input_panel(summary)
     update_panel = render_update_state(summary)
+    snapshot_history = render_snapshot_history(summary)
     training_plan = render_training_plan(summary)
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -351,6 +392,10 @@ def render_html(summary: dict[str, Any]) -> str:
     .plan-item p {{ margin: 0 0 4px; color: var(--text); }}
     .plan-item span {{ color: var(--muted); font-size: 12px; }}
     .plan-item > strong {{ color: var(--warn); text-align: right; }}
+    .history-list {{ display: grid; gap: 10px; margin-top: 12px; }}
+    .history-item {{ display: grid; grid-template-columns: minmax(120px, 1fr) 90px 90px minmax(220px, 2fr); gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
+    .history-item span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .history-item strong {{ overflow-wrap: anywhere; }}
     .empty {{ padding: 24px; color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }}
     @media (max-width: 900px) {{
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
@@ -360,6 +405,7 @@ def render_html(summary: dict[str, Any]) -> str:
       .case-card {{ grid-template-columns: 1fr; }}
       .facts {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .plan-item {{ grid-template-columns: 1fr; }}
+      .history-item {{ grid-template-columns: 1fr; }}
       .plan-item > strong {{ text-align: left; }}
     }}
   </style>
@@ -374,6 +420,7 @@ def render_html(summary: dict[str, Any]) -> str:
     {input_panel}
     {update_panel}
     {steps}
+    {snapshot_history}
     {training_plan}
     <section class="panel"><h2>Case 卡片</h2><div class="case-grid">{cards}</div></section>
   </main>
