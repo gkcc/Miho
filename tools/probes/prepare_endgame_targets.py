@@ -21,6 +21,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parents[1]
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "targets"
 SCHEMA_VERSION = "p1.3-target-intake-draft"
+DEFAULT_MAX_SOURCE_AGE_HOURS = 168
 
 ACTIVITY_ALIASES = {
     "zzz": ["式舆防卫战", "危局强袭战", "零号空洞", "断层之谜"],
@@ -59,6 +60,10 @@ class TargetIntakeError(RuntimeError):
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def now_dt() -> datetime:
+    return datetime.now().astimezone()
 
 
 def resolve_path(value: str) -> Path:
@@ -132,8 +137,50 @@ def fetch_url(url: str, timeout: int = 20) -> tuple[str, dict[str, Any]]:
 def read_text_file(path: Path) -> tuple[str, dict[str, Any]]:
     if not path.exists():
         raise TargetIntakeError(f"Input file does not exist: {path}")
+    stat = path.stat()
+    mtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
     text = path.read_text(encoding="utf-8", errors="replace")
-    return text, {"kind": "file", "path": str(path), "read_at": now_iso(), "byte_count": path.stat().st_size}
+    return text, {
+        "kind": "file",
+        "path": str(path),
+        "read_at": now_iso(),
+        "source_mtime": mtime.isoformat(timespec="seconds"),
+        "byte_count": stat.st_size,
+    }
+
+
+def as_positive_float(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def source_age_hours(metadata: dict[str, Any]) -> float:
+    if metadata.get("kind") == "url":
+        return 0.0
+    mtime = metadata.get("source_mtime")
+    if not mtime:
+        return 0.0
+    try:
+        source_dt = datetime.fromisoformat(str(mtime))
+    except ValueError:
+        return 0.0
+    return max(0.0, (now_dt() - source_dt).total_seconds() / 3600)
+
+
+def annotate_freshness(metadata: dict[str, Any], max_age_hours: float) -> dict[str, Any]:
+    age_hours = source_age_hours(metadata)
+    status = "fresh" if age_hours <= max_age_hours else "stale"
+    freshness = {
+        "status": status,
+        "age_hours": round(age_hours, 2),
+        "max_age_hours": round(max_age_hours, 2),
+        "checked_at": now_iso(),
+    }
+    metadata["freshness"] = freshness
+    return freshness
 
 
 def strip_html_markup(text: str) -> str:
@@ -245,7 +292,7 @@ def source_cases_from_args(args: argparse.Namespace) -> tuple[str, str, list[dic
                 "minimums": default_minimums(args),
             }
         )
-    return args.game, args.source_type, sources, {}
+    return args.game, args.source_type, sources, {"max_source_age_hours": args.max_source_age_hours}
 
 
 def load_source_text(source: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -260,8 +307,10 @@ def evidence_excerpt(text: str, max_length: int = 240) -> str:
     return text[:max_length].strip()
 
 
-def build_target_from_source(game: str, source: dict[str, Any], index: int) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+def build_target_from_source(game: str, source: dict[str, Any], index: int, *, default_max_age_hours: float) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     raw_text, metadata = load_source_text(source)
+    max_age_hours = as_positive_float(source.get("max_source_age_hours"), default_max_age_hours)
+    freshness = annotate_freshness(metadata, max_age_hours)
     plain_text = strip_html_markup(raw_text)
     title = extract_title(raw_text, plain_text)
     metadata["title"] = title
@@ -293,6 +342,14 @@ def build_target_from_source(game: str, source: dict[str, Any], index: int) -> t
         warnings.append(f"source #{index} 未识别出已知高难活动名，需要人工确认 activity_name。")
     if not preferred_characters:
         warnings.append(f"source #{index} 未配置 preferred_characters，planner 只能使用默认长期练度目标。")
+    if freshness["status"] == "stale":
+        warnings.append(
+            "source #{index} 已过期：age_hours={age} > max_source_age_hours={max_age}，不能当作当前高难事实。".format(
+                index=index,
+                age=freshness["age_hours"],
+                max_age=freshness["max_age_hours"],
+            )
+        )
     return target, metadata, warnings
 
 
@@ -305,6 +362,7 @@ def prepare_targets(
     manifest_defaults: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     manifest_defaults = manifest_defaults or {}
+    max_source_age_hours = as_positive_float(manifest_defaults.get("max_source_age_hours"), DEFAULT_MAX_SOURCE_AGE_HOURS)
     default_minimum_config = manifest_defaults.get("default_minimums")
     if not isinstance(default_minimum_config, dict):
         default_minimum_config = default_minimums(manifest_defaults) if manifest_defaults else {
@@ -317,12 +375,18 @@ def prepare_targets(
     source_refs = []
     warnings = []
     for index, source in enumerate(sources, start=1):
-        target, metadata, source_warnings = build_target_from_source(game, source, index)
+        target, metadata, source_warnings = build_target_from_source(game, source, index, default_max_age_hours=max_source_age_hours)
         target_items.append(target)
         source_refs.append(metadata)
         warnings.extend(source_warnings)
     if source_type not in {"official_current", "official_snapshot"}:
         warnings.append("目标来源不是 official_current / official_snapshot，不能当作当前线上高难事实。")
+    stale_count = sum(
+        1
+        for source in source_refs
+        if isinstance(source.get("freshness"), dict) and source["freshness"].get("status") == "stale"
+    )
+    freshness_level = "stale" if stale_count else "fresh"
     targets = {
         "schema_version": SCHEMA_VERSION,
         "game": game,
@@ -331,6 +395,11 @@ def prepare_targets(
             "type": source_type,
             "note": "public endgame target intake; no login, no cookies, no session reuse",
             "source_count": len(source_refs),
+        },
+        "freshness": {
+            "level": freshness_level,
+            "stale_source_count": stale_count,
+            "max_source_age_hours": round(max_source_age_hours, 2),
         },
         "sources": source_refs,
         "default_minimums": default_minimum_config,
@@ -368,6 +437,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skill-level", default=8)
     parser.add_argument("--drive-disc-level", default=12)
     parser.add_argument("--stat", action="append", default=[], help="Minimum stat in key=value form, e.g. atk=2000.")
+    parser.add_argument("--max-source-age-hours", type=float, default=DEFAULT_MAX_SOURCE_AGE_HOURS, help="Freshness threshold for saved local sources. Default: 168.")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Output directory. Default: data/probes/targets.")
     return parser
 
@@ -393,6 +463,9 @@ def main() -> int:
         return 1
     print(f"target_count: {len(targets['targets'])}")
     print(f"source_count: {len(targets['sources'])}")
+    freshness = targets.get("freshness", {}) if isinstance(targets.get("freshness"), dict) else {}
+    print(f"freshness_level: {freshness.get('level', 'unknown')}")
+    print(f"stale_source_count: {freshness.get('stale_source_count', 0)}")
     for warning in targets.get("warnings", []):
         print(f"warning: {warning}")
     print(f"output_json: {targets['output_json']}")

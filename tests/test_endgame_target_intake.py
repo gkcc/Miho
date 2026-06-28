@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -57,6 +59,8 @@ class EndgameTargetIntakeTests(unittest.TestCase):
 
             self.assertTrue(Path(result["output_json"]).exists())
             self.assertEqual(result["schema_version"], "p1.3-target-intake-draft")
+            self.assertEqual(result["freshness"]["level"], "fresh")
+            self.assertEqual(result["freshness"]["stale_source_count"], 0)
             self.assertEqual(result["targets"][0]["activity_name"], "危局强袭战")
             self.assertIn("fire", result["targets"][0]["weakness_tags"])
             self.assertIn("anomaly", result["targets"][0]["mechanic_tags"])
@@ -115,13 +119,41 @@ class EndgameTargetIntakeTests(unittest.TestCase):
             self.assertIn("quantum", result["targets"][0]["weakness_tags"])
             self.assertIn("follow_up", result["targets"][0]["mechanic_tags"])
 
+    def test_prepare_targets_marks_stale_local_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "stale_source.txt"
+            source.write_text("危局强袭战 本期敌人弱冰，适合异常队。", encoding="utf-8")
+            old_time = time.time() - (4 * 3600)
+            os.utime(source, (old_time, old_time))
+
+            result = target_tool.prepare_targets(
+                game="zzz",
+                source_type="official_current",
+                sources=[
+                    {
+                        "input": str(source),
+                        "target_tier": "稳定通关",
+                        "preferred_characters": ["星见雅"],
+                    }
+                ],
+                output_dir=root / "out",
+                manifest_defaults={"max_source_age_hours": 1},
+            )
+
+            self.assertEqual(result["freshness"]["level"], "stale")
+            self.assertEqual(result["freshness"]["stale_source_count"], 1)
+            self.assertEqual(result["sources"][0]["freshness"]["status"], "stale")
+            self.assertTrue(any("已过期" in warning for warning in result["warnings"]))
+
     def test_cli_targets_command_is_registered(self) -> None:
         parser = cli_tool.build_arg_parser()
-        args = parser.parse_args(["targets", "--input", "source.html", "--preferred-character", "星见雅"])
+        args = parser.parse_args(["targets", "--input", "source.html", "--preferred-character", "星见雅", "--max-source-age-hours", "24"])
 
         self.assertEqual(args.handler, cli_tool.run_targets)
         self.assertEqual(args.input, ["source.html"])
         self.assertEqual(args.preferred_character, ["星见雅"])
+        self.assertEqual(args.max_source_age_hours, 24)
 
 
 if __name__ == "__main__":

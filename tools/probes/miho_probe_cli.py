@@ -104,6 +104,9 @@ def run_targets(args: argparse.Namespace) -> int:
         return 1
     print(f"target_count: {len(targets['targets'])}")
     print(f"source_count: {len(targets['sources'])}")
+    freshness = targets.get("freshness", {}) if isinstance(targets.get("freshness"), dict) else {}
+    print(f"freshness_level: {freshness.get('level', 'unknown')}")
+    print(f"stale_source_count: {freshness.get('stale_source_count', 0)}")
     for warning in targets.get("warnings", []):
         print(f"warning: {warning}")
     print(f"output_json: {targets['output_json']}")
@@ -178,6 +181,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     targets.add_argument("--skill-level", default=8)
     targets.add_argument("--drive-disc-level", default=12)
     targets.add_argument("--stat", action="append", default=[], help="Minimum stat in key=value form, e.g. atk=2000.")
+    targets.add_argument("--max-source-age-hours", type=float, default=target_tool.DEFAULT_MAX_SOURCE_AGE_HOURS)
     targets.add_argument("--output-dir", default=str(target_tool.DEFAULT_OUTPUT_DIR), help="Output directory.")
     targets.set_defaults(handler=run_targets)
     return parser

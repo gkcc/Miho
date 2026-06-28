@@ -179,6 +179,8 @@ def render_input_panel(summary: dict[str, Any]) -> str:
         <div><span>images_dir</span><strong>{e(rel_label(input_info.get("images_dir")) or "N/A")}</strong></div>
         <div><span>parsed_dir</span><strong>{e(rel_label(input_info.get("parsed_dir")) or "N/A")}</strong></div>
         <div><span>manifest</span><strong>{e(rel_label(input_info.get("manifest")) or "N/A")}</strong></div>
+        <div><span>parsed found</span><strong>{e(input_info.get("parsed_dir_discovered_count") if input_info.get("parsed_dir_discovered_count") is not None else "N/A")}</strong></div>
+        <div><span>parsed used</span><strong>{e(input_info.get("parsed_dir_selected_count") if input_info.get("parsed_dir_selected_count") is not None else "N/A")}</strong></div>
         <div><span>targets</span><strong>{e(rel_label(input_info.get("targets")) or "N/A")}</strong></div>
         <div><span>target_source_manifest</span><strong>{e(rel_label(input_info.get("target_source_manifest")) or "N/A")}</strong></div>
         <div><span>history_dir</span><strong>{e(rel_label(input_info.get("history_dir")) or "N/A")}</strong></div>
@@ -330,6 +332,7 @@ def render_target_refresh(summary: dict[str, Any]) -> str:
     error_block = ""
     if error:
         error_block = f'<div class="errors"><strong>Target refresh failed</strong><ul><li>{e(error)}</li></ul></div>'
+    freshness = refresh.get("freshness") if isinstance(refresh.get("freshness"), dict) else {}
     return f"""
     <section class="panel">
       <h2>终局目标刷新</h2>
@@ -339,6 +342,8 @@ def render_target_refresh(summary: dict[str, Any]) -> str:
         <div><span>game</span><strong>{e(refresh.get("game") or "N/A")}</strong></div>
         <div><span>sources</span><strong>{e(refresh.get("source_count", 0))}</strong></div>
         <div><span>targets</span><strong>{e(refresh.get("target_count", 0))}</strong></div>
+        <div><span>freshness</span><strong>{e(freshness.get("level", "N/A"))}</strong></div>
+        <div><span>stale sources</span><strong>{e(freshness.get("stale_source_count", "N/A"))}</strong></div>
         <div><span>status</span><strong>{e("failed" if error else "ok")}</strong></div>
       </div>
       <div class="links">{link("endgame_targets.json", refresh.get("output_json"))}</div>

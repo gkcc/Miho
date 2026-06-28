@@ -397,8 +397,12 @@ def parsed_sort_key(path: Path) -> tuple[str, float, str]:
 
 
 def latest_parsed_files(parsed_dir: Path) -> list[Path]:
+    return latest_parsed_paths(parsed_files(parsed_dir))
+
+
+def latest_parsed_paths(paths: list[Path]) -> list[Path]:
     grouped: dict[str, Path] = {}
-    for path in parsed_files(parsed_dir):
+    for path in paths:
         try:
             parsed = load_json(path)
         except normalizer.NormalizeError:
@@ -440,6 +444,9 @@ def manifest_cases(manifest: Path) -> list[dict[str, Any]]:
             case["image"] = str(resolve_path(str(case["image"])))
         if "parsed" in case:
             case["parsed"] = str(resolve_path(str(case["parsed"])))
+        expected = case.get("expected") or case.get("expected_json")
+        if expected:
+            case["expected"] = str(resolve_path(str(expected)))
         if "image" not in case and "parsed" not in case:
             raise DemoPipelineError(f"Manifest case #{index} must include image or parsed")
         case.setdefault("name", Path(str(case.get("image") or case.get("parsed"))).stem)
@@ -547,6 +554,7 @@ def process_image_case(
     engine: str,
     game: str,
     layout: str,
+    expected_path: Path | None = None,
 ) -> dict[str, Any]:
     case = case_template(name)
     case["image"] = str(image_path)
@@ -600,7 +608,12 @@ def process_image_case(
     except normalizer.NormalizeError as exc:
         case["errors"].append(f"parsed JSON read failed: {exc}")
         return case
-    evaluate_case(parsed_path, find_expected(image_path=image_path, parsed_path=parsed_path, parsed=parsed, expected_dir=expected_dir), case_dir, case)
+    evaluate_case(
+        parsed_path,
+        expected_path or find_expected(image_path=image_path, parsed_path=parsed_path, parsed=parsed, expected_dir=expected_dir),
+        case_dir,
+        case,
+    )
     normalize_case(parsed_path, output_dir, case)
     return case
 
@@ -611,6 +624,7 @@ def process_parsed_case(
     name: str,
     output_dir: Path,
     expected_dir: Path,
+    expected_path: Path | None = None,
 ) -> dict[str, Any]:
     case = case_template(name)
     case["parsed_json"] = str(parsed_path)
@@ -629,7 +643,12 @@ def process_parsed_case(
     review_status, coverage_level = review_status_from_parsed(parsed)
     case["review_status"] = review_status
     case["coverage_level"] = coverage_level
-    evaluate_case(parsed_path, find_expected(image_path=Path(image) if image else None, parsed_path=parsed_path, parsed=parsed, expected_dir=expected_dir), case_dir, case)
+    evaluate_case(
+        parsed_path,
+        expected_path or find_expected(image_path=Path(image) if image else None, parsed_path=parsed_path, parsed=parsed, expected_dir=expected_dir),
+        case_dir,
+        case,
+    )
     normalize_case(parsed_path, output_dir, case)
     return case
 
@@ -819,6 +838,7 @@ def build_target_refresh(target_source_manifest: Path | None, output_dir: Path) 
             "warnings": targets.get("warnings", []) if isinstance(targets.get("warnings"), list) else [],
             "source_type": targets.get("source", {}).get("type") if isinstance(targets.get("source"), dict) else None,
             "game": targets.get("game"),
+            "freshness": targets.get("freshness", {}) if isinstance(targets.get("freshness"), dict) else {},
         }
     )
     return info
@@ -888,6 +908,7 @@ def run_pipeline(
                         name=str(raw.get("name") or image_path.stem),
                         output_dir=output_dir,
                         expected_dir=expected_dir,
+                        expected_path=Path(str(raw["expected"])) if raw.get("expected") else None,
                         engine=engine,
                         game=game,
                         layout=layout,
@@ -901,10 +922,14 @@ def run_pipeline(
                         name=str(raw.get("name") or parsed_path.stem),
                         output_dir=output_dir,
                         expected_dir=expected_dir,
+                        expected_path=Path(str(raw["expected"])) if raw.get("expected") else None,
                     )
                 )
     elif parsed_dir:
-        active_parsed_files = latest_parsed_files(parsed_dir) if latest_only else parsed_files(parsed_dir)
+        discovered_parsed_files = parsed_files(parsed_dir)
+        active_parsed_files = latest_parsed_paths(discovered_parsed_files) if latest_only else discovered_parsed_files
+        input_info["parsed_dir_discovered_count"] = len(discovered_parsed_files)
+        input_info["parsed_dir_selected_count"] = len(active_parsed_files)
         for parsed_path in active_parsed_files:
             cases.append(process_parsed_case(parsed_path, name=parsed_path.stem, output_dir=output_dir, expected_dir=expected_dir))
     else:

@@ -188,6 +188,7 @@ class DemoDashboardTests(unittest.TestCase):
                     "error": None,
                     "source_type": "public_web_snapshot",
                     "game": "zzz",
+                    "freshness": {"level": "fresh", "stale_source_count": 0, "max_source_age_hours": 168},
                 },
                 "snapshot_history": {
                     "history_dir": str(root / "snapshot_history"),
@@ -251,6 +252,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("今日投入建议", html)
             self.assertIn("终局目标刷新", html)
             self.assertIn("endgame_targets.json", html)
+            self.assertIn("fresh", html)
             self.assertIn("快照历史", html)
             self.assertIn("snapshot_diff_md", html)
             self.assertIn("先人工确认解析结果", html)
@@ -289,10 +291,15 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["overall"]["case_count"], 1)
             self.assertEqual(summary["overall"]["average_pass_rate"], None)
             self.assertEqual(summary["input"]["source_mode"], "parsed replay mode")
+            self.assertEqual(summary["input"]["parsed_dir_discovered_count"], 1)
+            self.assertEqual(summary["input"]["parsed_dir_selected_count"], 1)
             self.assertIn("parsed-dir 模式会扫描历史 parsed JSON", summary["warnings"][0])
             self.assertEqual(summary["snapshot_history"]["snapshot_count"], 1)
             self.assertEqual(summary["snapshot_history"]["no_previous_count"], 1)
             self.assertTrue(Path(summary["dashboard_html"]).exists())
+            dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
+            self.assertIn("parsed found", dashboard_html)
+            self.assertIn("parsed used", dashboard_html)
             self.assertTrue(Path(summary["cases"][0]["normalized_json"]).exists())
             self.assertEqual(summary["cases"][0]["review_html"], str(parsed_path.with_name("case_a_review.html").resolve()))
 
@@ -318,7 +325,48 @@ class DemoDashboardTests(unittest.TestCase):
 
             self.assertEqual(summary["overall"]["case_count"], 1)
             self.assertEqual(summary["cases"][0]["character"]["name"], "新结果")
+            self.assertEqual(summary["input"]["parsed_dir_discovered_count"], 2)
+            self.assertEqual(summary["input"]["parsed_dir_selected_count"], 1)
             self.assertIn("latest-only", summary["warnings"][0])
+
+    def test_run_demo_pipeline_manifest_uses_explicit_expected_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            parsed_path = root / "parsed_case.json"
+            expected_path = root / "custom_expected.json"
+            manifest_path = root / "demo_manifest.json"
+            output_dir = root / "demo"
+            data = parsed_json()
+            parsed_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            expected_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "cases": [
+                            {
+                                "name": "manifest_case",
+                                "parsed": str(parsed_path),
+                                "expected": str(expected_path),
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            summary = pipeline_tool.run_pipeline(
+                images_dir=None,
+                parsed_dir=None,
+                manifest=manifest_path,
+                output_dir=output_dir,
+                open_dashboard=False,
+            )
+
+            self.assertEqual(summary["input"]["source_mode"], "manifest controlled mode")
+            self.assertEqual(summary["overall"]["expected_available_count"], 1)
+            self.assertEqual(summary["cases"][0]["expected_json_name"], "custom_expected.json")
+            self.assertEqual(summary["cases"][0]["pass_rate"], 1.0)
 
     def test_run_demo_pipeline_with_targets_generates_training_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -401,6 +449,7 @@ class DemoDashboardTests(unittest.TestCase):
 
             self.assertEqual(summary["target_refresh"]["target_count"], 1)
             self.assertEqual(summary["target_refresh"]["source_count"], 1)
+            self.assertEqual(summary["target_refresh"]["freshness"]["level"], "fresh")
             self.assertTrue(Path(summary["target_refresh"]["output_json"]).exists())
             self.assertIn("training_plan", summary)
             self.assertEqual(summary["training_plan"]["targets_json"], summary["target_refresh"]["output_json"])
