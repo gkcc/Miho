@@ -295,6 +295,68 @@ diff 只把字段 `value` 的变化当作养成值变化，同时会记录 `stat
 * `quality.blockers` 会列出角色名、音擎、驱动盘、`invalid_candidate`、低 coverage 或 `review_status=FAIL` 等阻断项；
 * normalized JSON 可以作为后续 importer prototype 的输入候选，但不是正式采集结果。
 
+### P1.1 本地一键体验台
+
+P1.1 提供一个本地 demo 入口，把官方分享图解析、expected diff、normalized snapshot 和总览 Dashboard 串起来。它不是正式 App，不初始化 Tauri，不写 SQLite，不自动导入，不提交真实图片或 `data/probes/` 输出。
+
+双击体验：
+
+```powershell
+scripts/run_miho_demo.bat
+```
+
+PowerShell 方式：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_miho_demo.ps1
+```
+
+Python 方式：
+
+```powershell
+python tools/probes/run_demo_pipeline.py --images-dir figs --open
+python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --open
+python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.json --open
+```
+
+默认输入目录是本地 `figs/`，该目录只放用户手动保存的官方分享图，不提交 Git。默认输出：
+
+```text
+data/probes/demo/demo_summary.json
+data/probes/demo/index.html
+```
+
+`index.html` 是单文件静态 Dashboard，可以直接双击打开。Dashboard 会展示：
+
+* 图片 / parsed case 数；
+* review 状态；
+* expected diff 平均 pass_rate；
+* normalized snapshot 数；
+* 需要人工确认的 case 数；
+* 每张图的角色、音擎、review HTML、parsed JSON、normalized JSON/MD、expected diff 和 blockers。
+
+expected JSON 缺失时不会报错，Dashboard 会显示 `expected: missing` / `N/A`，并继续生成 normalized snapshot。要补 expected，可以先运行：
+
+```powershell
+python tools/probes/make_expected_template.py --parsed "data/probes/parsed/xxx.json" --output "data/probes/expected/xxx_expected.json"
+```
+
+CLI 壳：
+
+```powershell
+python tools/probes/miho_probe_cli.py demo --images-dir figs --open
+python tools/probes/miho_probe_cli.py normalize --parsed data/probes/parsed/xxx.json
+python tools/probes/miho_probe_cli.py diff --old old_normalized.json --new new_normalized.json
+```
+
+可选 EXE 壳：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_miho_probe_exe.ps1
+```
+
+该脚本使用 PyInstaller 构建 `MihoProbe.exe` 命令壳。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
+
 ### P0.8 OCR 实验矩阵
 
 真实识别率提升必须以 expected diff 的 `pass_rate` 为硬验收，`coverage_summary` 只能辅助定位。
