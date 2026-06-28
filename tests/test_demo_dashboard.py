@@ -170,6 +170,14 @@ class DemoDashboardTests(unittest.TestCase):
                         "current_endgame_ready": False,
                         "planning_confidence": "low",
                     },
+                    "target_coverage": [
+                        {
+                            "target": "危局强袭战 稳定通关",
+                            "coverage_status": "covered",
+                            "match_count": 1,
+                            "matched_characters": [{"character": "星见雅", "match_type": "tag_overlap", "score": 65}],
+                        }
+                    ],
                     "resource_plan": {
                         "budget": {"daily_stamina": 240.0, "horizon_days": 7, "total_stamina": 1680.0},
                         "today": [
@@ -257,6 +265,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("培养优先级候选", html)
             self.assertIn("source status", html)
             self.assertIn("local_draft", html)
+            self.assertIn("目标覆盖", html)
+            self.assertIn("covered", html)
             self.assertIn("今日投入建议", html)
             self.assertIn("终局目标刷新", html)
             self.assertIn("endgame_targets.json", html)
@@ -462,6 +472,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("training_plan", summary)
             self.assertEqual(summary["training_plan"]["targets_json"], summary["target_refresh"]["output_json"])
             self.assertEqual(summary["training_plan"]["target_source_status"]["status"], "current")
+            self.assertTrue(summary["training_plan"]["target_coverage"])
             self.assertGreater(summary["training_plan"]["plan_item_count"], 0)
             self.assertIn("Target Refresh", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("终局目标刷新", dashboard_html)

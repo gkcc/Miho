@@ -368,24 +368,23 @@ def target_priority(targets: list[dict[str, Any]]) -> int:
     return max(priority_map.get(str(target.get("priority") or "medium"), 2) for target in targets)
 
 
+def target_label(target: dict[str, Any]) -> str:
+    activity = target.get("activity_name") or target.get("goal_id") or "unknown_goal"
+    tier = target.get("target_tier")
+    return f"{activity} {tier}".strip()
+
+
 def target_names(targets: list[dict[str, Any]]) -> list[str]:
-    names = []
-    for target in targets:
-        activity = target.get("activity_name") or target.get("goal_id") or "unknown_goal"
-        tier = target.get("target_tier")
-        names.append(f"{activity} {tier}".strip())
-    return names
+    return [target_label(target) for target in targets]
 
 
 def target_match_summaries(details: list[dict[str, Any]]) -> list[dict[str, Any]]:
     summaries = []
     for detail in details:
         target = detail.get("target") if isinstance(detail.get("target"), dict) else {}
-        activity = target.get("activity_name") or target.get("goal_id") or "unknown_goal"
-        tier = target.get("target_tier")
         summaries.append(
             {
-                "target": f"{activity} {tier}".strip(),
+                "target": target_label(target),
                 "match_type": detail.get("match_type"),
                 "score": detail.get("score"),
                 "matched_tags": detail.get("matched_tags", []),
@@ -393,6 +392,44 @@ def target_match_summaries(details: list[dict[str, Any]]) -> list[dict[str, Any]
             }
         )
     return summaries
+
+
+def target_coverage_summary(targets: dict[str, Any], character_reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    coverage = []
+    raw_targets = targets.get("targets") if isinstance(targets.get("targets"), list) else []
+    for target in raw_targets:
+        if not isinstance(target, dict):
+            continue
+        label = target_label(target)
+        matches = []
+        for report in character_reports:
+            for match in report.get("target_matches", []):
+                if isinstance(match, dict) and match.get("target") == label:
+                    matches.append(
+                        {
+                            "character": report.get("character"),
+                            "match_type": match.get("match_type"),
+                            "score": match.get("score"),
+                            "matched_tags": match.get("matched_tags", []),
+                            "reason": match.get("reason"),
+                        }
+                    )
+        matches.sort(key=lambda item: (-int(item.get("score") or 0), str(item.get("character") or "")))
+        coverage.append(
+            {
+                "target": label,
+                "goal_id": target.get("goal_id"),
+                "activity_name": target.get("activity_name"),
+                "target_tier": target.get("target_tier"),
+                "priority": target.get("priority"),
+                "weakness_tags": normalize_list(target.get("weakness_tags")),
+                "mechanic_tags": normalize_list(target.get("mechanic_tags")),
+                "coverage_status": "covered" if matches else "unmatched",
+                "match_count": len(matches),
+                "matched_characters": matches,
+            }
+        )
+    return coverage
 
 
 def minimums_for_targets(targets: list[dict[str, Any]], defaults: dict[str, Any]) -> dict[str, Any]:
@@ -734,11 +771,22 @@ def plan_items(character_reports: list[dict[str, Any]], source_status: dict[str,
     return items
 
 
-def build_warnings(targets: dict[str, Any], snapshots: list[dict[str, Any]]) -> list[str]:
+def build_warnings(
+    targets: dict[str, Any],
+    snapshots: list[dict[str, Any]],
+    target_coverage: list[dict[str, Any]] | None = None,
+) -> list[str]:
     warnings = []
     source_status = target_source_status(targets)
     if not source_status.get("current_endgame_ready"):
         warnings.append(str(source_status["reason"]))
+    unmatched = [
+        str(item.get("target"))
+        for item in (target_coverage or [])
+        if item.get("coverage_status") == "unmatched"
+    ]
+    if unmatched and source_status.get("current_endgame_ready"):
+        warnings.append("当前高难目标暂无当前 box 匹配角色：" + "、".join(unmatched))
     if any(snapshot.get("quality", {}).get("requires_manual_review") for snapshot in snapshots if isinstance(snapshot.get("quality"), dict)):
         warnings.append("存在 requires_manual_review 的 normalized snapshot，规划建议只能作为人工确认前的候选。")
     return warnings
@@ -852,6 +900,20 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.extend(["## Warnings", ""])
         lines.extend(f"- {item}" for item in warnings)
         lines.append("")
+    coverage = report.get("target_coverage") if isinstance(report.get("target_coverage"), list) else []
+    if coverage:
+        lines.extend(["## 目标覆盖", "", "| target | status | matched characters | tags |", "|---|---|---|---|"])
+        for item in coverage:
+            characters = "、".join(
+                str(match.get("character"))
+                for match in item.get("matched_characters", [])
+                if isinstance(match, dict) and match.get("character")
+            )
+            tags = "、".join((item.get("weakness_tags") or []) + (item.get("mechanic_tags") or []))
+            lines.append(
+                f"| {item.get('target')} | {item.get('coverage_status')} | {characters or 'none'} | {tags} |"
+            )
+        lines.append("")
     lines.extend(["## 优先级", "", "| rank | character | target | action | reason | days | confidence |", "|---|---|---|---|---|---:|---|"])
     for item in report.get("plan_items", []):
         lines.append(
@@ -959,6 +1021,7 @@ def generate_report(
         for snapshot in snapshots
     ]
     source_status = target_source_status(targets)
+    target_coverage = target_coverage_summary(targets, characters)
     items = plan_items(characters, source_status)
     budget = resource_budget(targets, daily_stamina, horizon_days)
     report = {
@@ -986,6 +1049,7 @@ def generate_report(
             }
             for snapshot in snapshots
         ],
+        "target_coverage": target_coverage,
         "characters": characters,
         "plan_items": items,
         "resource_plan": build_resource_plan(items, budget),
@@ -993,7 +1057,7 @@ def generate_report(
             "available": bool(history_context or loaded_history_index),
             "character_count": sum(1 for item in characters if item.get("history", {}).get("tracked")),
         },
-        "warnings": build_warnings(targets, snapshots),
+        "warnings": build_warnings(targets, snapshots, target_coverage),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "training_priority_report.json"

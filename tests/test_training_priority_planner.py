@@ -199,8 +199,11 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertEqual(character["matched_targets"], ["式舆防卫战 稳定通关"])
             self.assertEqual(character["target_matches"][0]["match_type"], "tag_overlap")
             self.assertEqual(character["target_matches"][0]["matched_tags"], ["anomaly", "ice"])
+            self.assertEqual(report["target_coverage"][0]["coverage_status"], "covered")
+            self.assertEqual(report["target_coverage"][0]["matched_characters"][0]["character"], "星见雅")
             self.assertTrue(any("角色标签命中目标弱点/机制" in item["target_match_reasons"][0] for item in report["plan_items"]))
             markdown = Path(report["output_md"]).read_text(encoding="utf-8")
+            self.assertIn("目标覆盖", markdown)
             self.assertIn("target_matches", markdown)
             self.assertIn("tag_overlap", markdown)
 
@@ -234,6 +237,26 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertEqual(character["catalog_match"]["catalog_name"], "星见雅")
             self.assertEqual(character["target_matches"][0]["match_type"], "tag_overlap")
             self.assertEqual(character["target_matches"][0]["matched_tags"], ["anomaly", "ice"])
+
+    def test_generate_report_warns_for_uncovered_current_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_path = root / "snapshot.json"
+            targets_path = root / "targets.json"
+            targets = targets_json()
+            targets["source"] = {"type": "official_snapshot"}
+            targets["freshness"] = {"level": "fresh", "stale_source_count": 0}
+            targets["targets"][0].pop("preferred_characters")
+            targets["targets"][0]["weakness_tags"] = ["fire"]
+            targets["targets"][0]["mechanic_tags"] = ["stun"]
+            snapshot_path.write_text(json.dumps(normalized_snapshot(combat_tags=["ice", "anomaly"]), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+            report = planner_tool.generate_report([snapshot_path], targets_path, root / "planner")
+
+            self.assertEqual(report["target_coverage"][0]["coverage_status"], "unmatched")
+            self.assertEqual(report["target_coverage"][0]["match_count"], 0)
+            self.assertTrue(any("暂无当前 box 匹配角色" in warning for warning in report["warnings"]))
 
     def test_generate_report_warns_on_stale_target_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

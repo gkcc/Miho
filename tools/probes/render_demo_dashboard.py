@@ -227,6 +227,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     resource = plan.get("resource_plan") if isinstance(plan.get("resource_plan"), dict) else {}
     source_status = plan.get("target_source_status") if isinstance(plan.get("target_source_status"), dict) else {}
     catalog_summary = plan.get("character_catalog_summary") if isinstance(plan.get("character_catalog_summary"), dict) else {}
+    coverage = plan.get("target_coverage") if isinstance(plan.get("target_coverage"), list) else []
     source_status_block = ""
     if source_status:
         source_status_block = f"""
@@ -236,6 +237,25 @@ def render_training_plan(summary: dict[str, Any]) -> str:
           <div><span>current ready</span><strong>{e(source_status.get("current_endgame_ready", "N/A"))}</strong></div>
           <div><span>plan confidence</span><strong>{e(source_status.get("planning_confidence", "N/A"))}</strong></div>
           <div><span>catalog entries</span><strong>{e(catalog_summary.get("entry_count", "N/A"))}</strong></div>
+        </div>
+        """
+    coverage_block = ""
+    if coverage:
+        rows = []
+        for item in coverage[:6]:
+            matched = item.get("matched_characters") if isinstance(item.get("matched_characters"), list) else []
+            names = "、".join(str(match.get("character")) for match in matched if isinstance(match, dict) and match.get("character"))
+            rows.append(
+                "<article class=\"resource-item\">"
+                f"<strong>{e(item.get('target'))}</strong>"
+                f"<span>{e(item.get('coverage_status'))}: {e(names or 'none')}</span>"
+                f"<em>{e(item.get('match_count', 0))}</em>"
+                "</article>"
+            )
+        coverage_block = f"""
+        <div class="resource-plan">
+          <h3>目标覆盖</h3>
+          <div class="resource-list">{''.join(rows)}</div>
         </div>
         """
     resource_block = ""
@@ -296,6 +316,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
       </div>
       {source_status_block}
       {warning_block}
+      {coverage_block}
       {resource_block}
       {body}
     </section>

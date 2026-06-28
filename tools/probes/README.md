@@ -457,6 +457,14 @@ data/probes/planner/training_priority_report.md
 * `no_stamina_actions`：不消耗体力但应先做的人工确认或整理项；
 * `overflow`：规划窗口内排不进去的候选项。
 
+报告中的 `target_coverage` 会按当前 targets 反向汇总：
+
+* `covered`：当前 normalized snapshots 中至少有一个角色命中该目标；
+* `unmatched`：当前 box 暂无角色命中该目标的 preferred character、队伍模板或标签；
+* `matched_characters`：命中的角色、匹配类型、匹配标签和分数。
+
+如果 targets 来源是 fresh 的当前高难来源，且存在 `unmatched` 目标，planner 会给出 warning，提示当前 box 对该高难目标暂无匹配角色。
+
 报告中的 `target_source_status` 会把目标来源分成：
 
 * `current`：fresh 的官方 / 公开高难来源，可作为当前高难候选输入；

@@ -806,6 +806,7 @@ def build_training_plan(
             "history_context": report.get("history_context", {}) if isinstance(report.get("history_context"), dict) else {},
             "resource_plan": report.get("resource_plan", {}) if isinstance(report.get("resource_plan"), dict) else {},
             "target_source_status": report.get("target_source_status", {}) if isinstance(report.get("target_source_status"), dict) else {},
+            "target_coverage": report.get("target_coverage", []) if isinstance(report.get("target_coverage"), list) else [],
             "character_catalog_summary": report.get("character_catalog", {}) if isinstance(report.get("character_catalog"), dict) else {},
         }
     )
