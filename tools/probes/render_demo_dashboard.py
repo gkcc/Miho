@@ -630,6 +630,72 @@ def render_review_inbox(summary: dict[str, Any]) -> str:
     """
 
 
+def render_final_brief(summary: dict[str, Any]) -> str:
+    brief = summary.get("final_brief")
+    if not isinstance(brief, dict):
+        return ""
+    brief_summary = brief.get("summary") if isinstance(brief.get("summary"), dict) else {}
+    top_cards = brief.get("top_cards") if isinstance(brief.get("top_cards"), list) else []
+    warnings = brief.get("warnings") if isinstance(brief.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Brief Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if brief.get("error"):
+        body = f'<div class="errors"><strong>Final brief failed</strong><ul><li>{e(brief.get("error"))}</li></ul></div>'
+    elif not top_cards:
+        body = '<div class="empty">暂无可执行事项；先补齐本地确认数据。</div>'
+    else:
+        rows = []
+        for item in top_cards:
+            if not isinstance(item, dict):
+                continue
+            evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+            item_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
+            warning_text = "；".join(str(warning) for warning in item_warnings if warning)
+            evidence_text = " · ".join(
+                str(part)
+                for part in (
+                    rel_label(evidence.get("source")) or evidence.get("source"),
+                    evidence.get("hash"),
+                    rel_label(evidence.get("artifact")) or evidence.get("artifact"),
+                )
+                if part
+            )
+            rows.append(
+                "<article class=\"brief-card\">"
+                f"<div class=\"plan-rank\">#{e(item.get('rank'))}</div>"
+                "<div>"
+                f"<h3>{e(item.get('title'))}</h3>"
+                f"<p>{e(item.get('reason'))}</p>"
+                f"<span>{e(item.get('card_type'))} · target: {e(item.get('target') or 'N/A')} · character: {e(item.get('character') or 'N/A')}</span>"
+                f"<span>evidence: {e(evidence_text or 'N/A')}</span>"
+                f"<span>{e(warning_text or '无额外警告')}</span>"
+                "</div>"
+                f"<strong>{e(item.get('command_hint') or '查看详情')}</strong>"
+                "</article>"
+            )
+        body = '<div class="brief-list">' + "".join(rows) + "</div>"
+    return f"""
+    <section class="panel final-brief">
+      <h2>今日作战简报</h2>
+      <p class="muted-line">今天先做什么。这里是 demo 的第一阅读层，只使用本地已生成产物，不代表抽卡建议或自动通关保证。</p>
+      <div class="links">
+        {link("final_brief.md", brief.get("output_md"))}
+        {link("final_brief.json", brief.get("output_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>brief status</span><strong>{e(brief.get("brief_status") or "N/A")}</strong></div>
+        <div><span>trusted ready</span><strong>{e(brief_summary.get("trusted_plan_count", "N/A"))}</strong></div>
+        <div><span>pending review</span><strong>{e(brief_summary.get("pending_review_count", "N/A"))}</strong></div>
+        <div><span>ready targets</span><strong>{e(brief_summary.get("ready_now_target_count", "N/A"))}</strong></div>
+        <div><span>needs recording</span><strong>{e(brief_summary.get("needs_recording_target_count", "N/A"))}</strong></div>
+        <div><span>watch only</span><strong>{e(brief_summary.get("watch_only_target_count", "N/A"))}</strong></div>
+      </div>
+      {warning_block}
+      {body}
+    </section>
+    """
+
+
 def render_roster_delta(summary: dict[str, Any]) -> str:
     delta = summary.get("roster_delta")
     if not isinstance(delta, dict):
@@ -994,8 +1060,10 @@ def render_html(summary: dict[str, Any]) -> str:
     run_status = run_info.get("artifact_status", {}) if isinstance(run_info.get("artifact_status"), dict) else {}
     endgame_info = summary.get("endgame_plan", {}) if isinstance(summary.get("endgame_plan"), dict) else {}
     endgame_summary = endgame_info.get("summary", {}) if isinstance(endgame_info.get("summary"), dict) else {}
+    final_info = summary.get("final_brief", {}) if isinstance(summary.get("final_brief"), dict) else {}
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
+        metric_card("简报状态", final_info.get("brief_status", "N/A") if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
         metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),
@@ -1043,6 +1111,7 @@ def render_html(summary: dict[str, Any]) -> str:
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
+    final_brief = render_final_brief(summary)
     input_panel = render_input_panel(summary)
     update_panel = render_update_state(summary)
     snapshot_history = render_snapshot_history(summary)
@@ -1120,7 +1189,13 @@ def render_html(summary: dict[str, Any]) -> str:
     summary {{ cursor: pointer; font-weight: 800; }}
     .errors {{ border: 1px solid #ffc0ba; background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px; }}
     .plan-list {{ display: grid; gap: 10px; margin-top: 12px; }}
+    .brief-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .plan-item {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) 72px; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
+    .brief-card {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) minmax(120px, 220px); gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; }}
+    .brief-card h3 {{ margin: 0 0 4px; font-size: 16px; }}
+    .brief-card p {{ margin: 0 0 4px; color: var(--text); }}
+    .brief-card span {{ display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }}
+    .brief-card > strong {{ color: var(--warn); text-align: right; overflow-wrap: anywhere; }}
     .plan-rank {{ display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #e9f8ef; color: var(--ok); font-weight: 900; }}
     .plan-item h3 {{ margin: 0 0 4px; font-size: 16px; }}
     .plan-item p {{ margin: 0 0 4px; color: var(--text); }}
@@ -1146,9 +1221,11 @@ def render_html(summary: dict[str, Any]) -> str:
       .case-card {{ grid-template-columns: 1fr; }}
       .facts {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .plan-item {{ grid-template-columns: 1fr; }}
+      .brief-card {{ grid-template-columns: 1fr; }}
       .resource-item {{ grid-template-columns: 1fr; }}
       .history-item {{ grid-template-columns: 1fr; }}
       .plan-item > strong {{ text-align: left; }}
+      .brief-card > strong {{ text-align: left; }}
     }}
   </style>
 </head>
@@ -1160,6 +1237,7 @@ def render_html(summary: dict[str, Any]) -> str:
   </header>
   <main>
     <section class="metrics">{''.join(metrics)}</section>
+    {final_brief}
     {input_panel}
     {update_panel}
     {steps}

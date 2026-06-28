@@ -154,6 +154,61 @@ def tier_snapshot_json() -> dict:
 
 
 class DemoDashboardTests(unittest.TestCase):
+    def test_dashboard_shows_final_brief_before_details(self) -> None:
+        summary = {
+            "overall": {
+                "case_count": 0,
+                "parse_success_count": 0,
+                "review_status_counts": {},
+                "parse_status_counts": {},
+                "expected_status_counts": {},
+                "normalized_status_counts": {},
+                "import_status_counts": {},
+                "demo_status": "READY",
+                "average_pass_rate": None,
+                "normalized_count": 0,
+                "requires_manual_review_count": 0,
+                "conclusion": "demo",
+            },
+            "input": {"source_mode": "manifest controlled mode"},
+            "cases": [],
+            "final_brief": {
+                "schema_version": "p2.1-lite-final-brief",
+                "brief_status": "ready",
+                "output_json": "data/probes/demo/final_brief/final_brief.json",
+                "output_md": "data/probes/demo/final_brief/final_brief.md",
+                "summary": {
+                    "trusted_plan_count": 1,
+                    "pending_review_count": 0,
+                    "ready_now_target_count": 1,
+                    "needs_recording_target_count": 0,
+                    "watch_only_target_count": 0,
+                },
+                "top_cards": [
+                    {
+                        "rank": 1,
+                        "card_type": "try_now",
+                        "title": "可先尝试：危局强袭战",
+                        "reason": "全员来自 accepted roster。",
+                        "target": "危局强袭战",
+                        "character": "星见雅、苍角",
+                        "evidence": {"source": "local", "hash": "abcdef123456", "artifact": "data/probes/demo/endgame_plan/endgame_plan.json"},
+                        "command_hint": "打开 Dashboard 的本期高难方案。",
+                        "warnings": [],
+                    }
+                ],
+                "warnings": [],
+            },
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("今日作战简报", html)
+        self.assertIn("今天先做什么", html)
+        self.assertIn("final_brief.md", html)
+        self.assertIn("可先尝试：危局强袭战", html)
+        self.assertLess(html.index("今日作战简报"), html.index("输入模式"))
+
     def test_dashboard_html_contains_case_links_and_quality(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1121,8 +1176,15 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("Review Inbox", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("Tier Watchlist", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("Team Cards", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("Final Brief", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("final_brief", summary)
+            self.assertTrue(Path(summary["final_brief"]["output_json"]).exists())
+            self.assertTrue(Path(summary["final_brief"]["output_md"]).exists())
+            self.assertNotEqual(summary["final_brief"]["brief_status"], "ready")
             self.assertEqual(summary["review_inbox"]["pending_count"], 1)
             self.assertEqual(summary["team_cards"]["summary"]["pending_snapshot_count"], 1)
+            self.assertIn("今日作战简报", dashboard_html)
+            self.assertIn("今天先做什么", dashboard_html)
             self.assertIn("培养优先级候选", dashboard_html)
             self.assertIn("下一步行动", dashboard_html)
             self.assertIn("高难配队候选", dashboard_html)

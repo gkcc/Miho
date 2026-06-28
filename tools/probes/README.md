@@ -374,7 +374,7 @@ data/probes/demo/snapshot_history/index.json
 * Dashboard 会显示“练度更新收件箱”：demo normalized snapshot 是 OCR/解析候选，只有进入 accepted roster 的 snapshot 才能作为已确认 box。
 * Team card 里的 `pending_snapshot` 只是待确认解析候选，`catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 accepted roster 中的 `owned_snapshot` 才能作为可用练度证据。
 * Tier watchlist 会标记 `verified` / `stale` / `unverified` / `low_trust`。只有 verified 且属于 accepted roster 的高保值信号能辅助队伍排序；stale/unverified/low_trust 只能作为弱参考。
-* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`，并在 Dashboard 显示“运行一致性”和“本期高难方案”。方案包只聚合本地证据，用于区分 `ready_now` / `needs_review` / `needs_recording` / `watch_only`，不是抽卡建议，也不是自动通关保证。
+* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md` 和 `final_brief.json/md`，并在 Dashboard 顶部显示“今日作战简报”。简报是 demo 的第一阅读层，用于回答“今天先做什么”；如果 run manifest 缺失或错批，会先显示数据警告。方案包和简报只聚合本地证据，用于区分 `try_now` / `review_snapshot` / `record_character` / `watch_only` / `data_warning`，不是抽卡建议，也不是自动通关保证。
 
 P0.9 replay batch 验收命令：
 
@@ -454,6 +454,34 @@ python tools/probes/build_endgame_plan.py `
 * verified 且属于 accepted roster 的高保值本地证据可以提升 `ready_now` 队伍排序；
 * `stale` / `unverified` / `low_trust` tier 只显示 warning，不提升排序；
 * 方案包不输出“必抽 / 建议抽 / 跳过”，也不把 tier watchlist 说成官方实时榜。
+
+P2.1-lite 今日作战简报单独生成命令：
+
+```powershell
+python tools/probes/build_final_brief.py `
+  --run-manifest data/probes/demo/run_manifest.json `
+  --roster-index data/probes/roster/roster_index.json `
+  --review-inbox data/probes/demo/review_inbox.json `
+  --roster-delta data/probes/demo/roster_delta/roster_delta.json `
+  --endgame-plan data/probes/demo/endgame_plan/endgame_plan.json `
+  --tier-watchlist data/probes/demo/tier_watchlist/tier_watchlist.json `
+  --output-dir data/probes/demo/final_brief
+```
+
+简报输出：
+
+```text
+data/probes/demo/final_brief/final_brief.json
+data/probes/demo/final_brief/final_brief.md
+```
+
+简报规则：
+
+* run manifest 缺失、缺输入或错批时，第一张卡必须是 `data_warning`，状态不能是 `ready`；
+* 只有 `plan_status=ready_now` 且 `plan_trust_level=trusted`，并且队伍成员全部来自 accepted roster / `owned_snapshot`，才会进入 `try_now`；
+* pending snapshot 只能生成 `review_snapshot`；
+* 缺少已确认快照的已拥有角色只能生成 `record_character`；
+* catalog candidate / watch only 只能生成 `watch_only`，并必须显示“不是抽卡建议”。
 
 P1.4-lite 练度更新收件箱与已确认 Box Index：
 

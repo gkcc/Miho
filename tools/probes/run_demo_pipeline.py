@@ -24,6 +24,7 @@ import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import build_action_cards as action_cards  # noqa: E402
 import build_endgame_plan as endgame_plan  # noqa: E402
+import build_final_brief as final_brief  # noqa: E402
 import build_run_manifest as run_manifest  # noqa: E402
 import build_roster_delta as roster_delta  # noqa: E402
 import build_team_cards as team_cards  # noqa: E402
@@ -774,6 +775,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     delta_info = summary.get("roster_delta", {}) if isinstance(summary.get("roster_delta"), dict) else {}
     endgame_info = summary.get("endgame_plan", {}) if isinstance(summary.get("endgame_plan"), dict) else {}
     manifest_info = summary.get("run_manifest", {}) if isinstance(summary.get("run_manifest"), dict) else {}
+    final_info = summary.get("final_brief", {}) if isinstance(summary.get("final_brief"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -840,6 +842,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(endgame_info, dict) and endgame_info.get("error")
             else "done"
             if isinstance(endgame_info, dict) and endgame_info.get("output_json")
+            else "skipped",
+        },
+        {
+            "name": "Final Brief",
+            "status": "failed"
+            if isinstance(final_info, dict) and final_info.get("error")
+            else "done"
+            if isinstance(final_info, dict) and final_info.get("output_json")
             else "skipped",
         },
     ]
@@ -1259,6 +1269,43 @@ def build_demo_endgame_plan(
         }
 
 
+def build_demo_final_brief(
+    *,
+    output_dir: Path,
+    review_inbox_path: Path,
+    run_manifest_path: Path | None = None,
+    roster_index: Path | None = None,
+    roster_delta_path: Path | None = None,
+    endgame_plan_path: Path | None = None,
+    tier_watchlist_path: Path | None = None,
+) -> dict[str, Any] | None:
+    if not review_inbox_path.exists():
+        return None
+    try:
+        return final_brief.build_final_brief(
+            output_dir=output_dir / "final_brief",
+            run_manifest=run_manifest_path if run_manifest_path and run_manifest_path.exists() else None,
+            roster_index=roster_index if roster_index and roster_index.exists() else None,
+            review_inbox=review_inbox_path,
+            roster_delta=roster_delta_path if roster_delta_path and roster_delta_path.exists() else None,
+            endgame_plan=endgame_plan_path if endgame_plan_path and endgame_plan_path.exists() else None,
+            tier_watchlist=tier_watchlist_path if tier_watchlist_path and tier_watchlist_path.exists() else None,
+        )
+    except final_brief.FinalBriefError as exc:
+        return {
+            "schema_version": final_brief.SCHEMA_VERSION,
+            "input": {
+                "run_manifest": str(run_manifest_path) if run_manifest_path else None,
+                "roster_index": str(roster_index) if roster_index else None,
+                "review_inbox": str(review_inbox_path),
+                "roster_delta": str(roster_delta_path) if roster_delta_path else None,
+                "endgame_plan": str(endgame_plan_path) if endgame_plan_path else None,
+                "tier_watchlist": str(tier_watchlist_path) if tier_watchlist_path else None,
+            },
+            "error": str(exc),
+        }
+
+
 def review_decision_source(path: Path) -> str | None:
     try:
         data = load_json(path)
@@ -1531,6 +1578,9 @@ def run_pipeline(
     active_roster_dir = roster_dir or DEFAULT_ROSTER_DIR
     active_roster_index = active_roster_dir / "roster_index.json"
     review_inbox = build_review_inbox(cases, active_roster_dir)
+    review_inbox_path = output_dir / "review_inbox.json"
+    review_inbox["output_json"] = str(review_inbox_path)
+    write_json(review_inbox_path, review_inbox)
     summary["review_inbox"] = review_inbox
     summary["pipeline_steps"] = pipeline_steps(summary)
     roster_index_for_replay = Path(str(review_inbox["roster_index_json"])) if review_inbox.get("roster_index_json") else active_roster_index
@@ -1637,6 +1687,27 @@ def run_pipeline(
             summary.setdefault("warnings", []).extend(endgame_plan_info["warnings"])
         if endgame_plan_info.get("error"):
             summary.setdefault("warnings", []).append(f"Endgame plan failed: {endgame_plan_info['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
+    endgame_plan_path = (
+        Path(str(endgame_plan_info["output_json"]))
+        if isinstance(endgame_plan_info, dict) and endgame_plan_info.get("output_json")
+        else None
+    )
+    final_brief_info = build_demo_final_brief(
+        output_dir=output_dir,
+        review_inbox_path=review_inbox_path,
+        run_manifest_path=run_manifest_path,
+        roster_index=roster_index_for_replay if roster_index_for_replay.exists() else None,
+        roster_delta_path=roster_delta_path,
+        endgame_plan_path=endgame_plan_path,
+        tier_watchlist_path=tier_watchlist_path,
+    )
+    if final_brief_info is not None:
+        summary["final_brief"] = final_brief_info
+        if final_brief_info.get("warnings"):
+            summary.setdefault("warnings", []).extend(final_brief_info["warnings"])
+        if final_brief_info.get("error"):
+            summary.setdefault("warnings", []).append(f"Final brief failed: {final_brief_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
     summary_path = output_dir / "demo_summary.json"
     write_json(summary_path, summary)
@@ -1765,6 +1836,9 @@ def main() -> int:
             print(f"endgame_plan_needs_review_count: {plan_summary.get('needs_review_count', 0)}")
             print(f"endgame_plan_needs_recording_count: {plan_summary.get('needs_recording_count', 0)}")
             print(f"endgame_plan_watch_only_count: {plan_summary.get('watch_only_count', 0)}")
+    if isinstance(summary.get("final_brief"), dict):
+        print(f"final_brief_status: {summary['final_brief'].get('brief_status')}")
+        print(f"final_brief_top_card_count: {len(summary['final_brief'].get('top_cards', []))}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0
