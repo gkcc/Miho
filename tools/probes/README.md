@@ -317,6 +317,7 @@ Python 方式：
 python tools/probes/run_demo_pipeline.py --images-dir figs --open
 python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --open
 python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.json --open
+python tools/probes/run_demo_pipeline.py --images-dir figs --targets data/probes/targets/endgame_targets.json --open
 ```
 
 默认输入目录是本地 `figs/`，该目录只放用户手动保存的官方分享图，不提交 Git。默认输出：
@@ -335,6 +336,7 @@ data/probes/demo/index.html
 * normalized snapshot 数；
 * 需要人工确认的 case 数；
 * 每张图的角色、音擎、expected JSON 文件名、review HTML、parsed JSON、normalized JSON/MD、expected diff 和 blockers。
+* 如果提供 `--targets`，还会展示培养优先级候选和 planner 报告链接。
 
 输入隔离：
 
@@ -360,6 +362,7 @@ CLI 壳：
 
 ```powershell
 python tools/probes/miho_probe_cli.py demo --images-dir figs --open
+python tools/probes/miho_probe_cli.py demo --images-dir figs --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/miho_probe_cli.py normalize --parsed data/probes/parsed/xxx.json
 python tools/probes/miho_probe_cli.py diff --old old_normalized.json --new new_normalized.json
 ```

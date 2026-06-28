@@ -21,6 +21,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import normalize_export_parse as normalizer  # noqa: E402
+import plan_training_priorities as planner  # noqa: E402
 import render_demo_dashboard as dashboard  # noqa: E402
 import render_export_review as review_render  # noqa: E402
 
@@ -394,12 +395,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     normalized_count = summary["overall"].get("normalized_count", 0)
     expected_count = summary["overall"].get("expected_available_count", 0)
     needs_review = summary["overall"].get("requires_manual_review_count", 0)
+    plan_info = summary.get("training_plan", {}) if isinstance(summary.get("training_plan"), dict) else {}
     return [
         {"name": "官方分享图", "status": "done" if input_info.get("images_dir") or any(case.get("image") for case in cases) else "skipped"},
         {"name": "OCR Review", "status": "failed" if errors and input_info.get("images_dir") else "done" if any(case.get("review_html") for case in cases) else "skipped"},
         {"name": "Expected Diff", "status": "done" if expected_count else "skipped"},
         {"name": "Normalized Snapshot", "status": "needs_review" if normalized_count and needs_review else "done" if normalized_count else "failed"},
         {"name": "Snapshot Diff", "status": "done" if summary.get("snapshot_diff_md") else "skipped"},
+        {"name": "Training Plan", "status": "failed" if plan_info.get("error") else "done" if plan_info.get("output_json") else "skipped"},
     ]
 
 
@@ -476,6 +479,40 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
     return summary
 
 
+def build_training_plan(cases: list[dict[str, Any]], targets_path: Path | None, output_dir: Path) -> dict[str, Any] | None:
+    if targets_path is None:
+        return None
+    normalized_paths = [Path(str(case["normalized_json"])) for case in cases if case.get("normalized_json")]
+    plan_info: dict[str, Any] = {
+        "targets_json": str(targets_path),
+        "snapshot_count": len(normalized_paths),
+        "output_json": None,
+        "output_md": None,
+        "plan_item_count": 0,
+        "top_plan_items": [],
+        "warnings": [],
+        "error": None,
+    }
+    if not normalized_paths:
+        plan_info["error"] = "No normalized snapshots available for planner."
+        return plan_info
+    try:
+        report = planner.generate_report(normalized_paths, targets_path, output_dir / "planner")
+    except planner.PlannerError as exc:
+        plan_info["error"] = str(exc)
+        return plan_info
+    plan_info.update(
+        {
+            "output_json": report.get("output_json"),
+            "output_md": report.get("output_md"),
+            "plan_item_count": len(report.get("plan_items", [])) if isinstance(report.get("plan_items"), list) else 0,
+            "top_plan_items": report.get("plan_items", [])[:5] if isinstance(report.get("plan_items"), list) else [],
+            "warnings": report.get("warnings", []) if isinstance(report.get("warnings"), list) else [],
+        }
+    )
+    return plan_info
+
+
 def clean_demo_output_dir(output_dir: Path) -> None:
     resolved = output_dir.resolve()
     allowed_root = (PROJECT_ROOT / "data" / "probes").resolve()
@@ -501,6 +538,7 @@ def run_pipeline(
     open_dashboard: bool = False,
     latest_only: bool = False,
     clean_demo: bool = False,
+    targets: Path | None = None,
 ) -> dict[str, Any]:
     if clean_demo:
         clean_demo_output_dir(output_dir)
@@ -513,6 +551,7 @@ def run_pipeline(
         "source_mode": source_mode(images_dir=images_dir, parsed_dir=parsed_dir, manifest=manifest),
         "latest_only": bool(latest_only),
         "clean_demo": bool(clean_demo),
+        "targets": str(targets) if targets else None,
     }
     if manifest:
         for raw in manifest_cases(manifest):
@@ -560,6 +599,14 @@ def run_pipeline(
             )
 
     summary = summarize(cases, output_dir, input_info)
+    training_plan = build_training_plan(cases, targets, output_dir)
+    if training_plan is not None:
+        summary["training_plan"] = training_plan
+        if training_plan.get("warnings"):
+            summary.setdefault("warnings", []).extend(training_plan["warnings"])
+        if training_plan.get("error"):
+            summary.setdefault("warnings", []).append(f"Training plan failed: {training_plan['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
     summary_path = output_dir / "demo_summary.json"
     write_json(summary_path, summary)
     dashboard_path = output_dir / "index.html"
@@ -586,6 +633,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--open", action="store_true", help="Open generated dashboard in the default browser.")
     parser.add_argument("--latest-only", action="store_true", help="In parsed-dir mode, keep only the newest parsed JSON for each source image.")
     parser.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
+    parser.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report from normalized snapshots.")
     return parser
 
 
@@ -604,6 +652,7 @@ def main() -> int:
             open_dashboard=args.open,
             latest_only=args.latest_only,
             clean_demo=args.clean_demo,
+            targets=resolve_path(args.targets) if args.targets else None,
         )
     except (DemoPipelineError, normalizer.NormalizeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -616,6 +665,8 @@ def main() -> int:
     print(f"parse_success_count: {overall['parse_success_count']}")
     print(f"normalized_count: {overall['normalized_count']}")
     print(f"requires_manual_review_count: {overall['requires_manual_review_count']}")
+    if isinstance(summary.get("training_plan"), dict):
+        print(f"plan_item_count: {summary['training_plan'].get('plan_item_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0

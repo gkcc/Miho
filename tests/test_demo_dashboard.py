@@ -97,6 +97,30 @@ def parsed_json(name: str = "星见雅", image: str = "figs/mock.jpg") -> dict:
     }
 
 
+def targets_json() -> dict:
+    return {
+        "game": "zzz",
+        "source": {"type": "manual", "note": "unit test fixture"},
+        "default_minimums": {
+            "character_level": 60,
+            "equipment_level": 60,
+            "skill_level": 8,
+            "drive_disc_level": 12,
+            "stats": {"atk": 250, "crit_rate": 20},
+        },
+        "targets": [
+            {
+                "goal_id": "zzz_mock_crisis",
+                "activity_name": "危局强袭战",
+                "target_tier": "稳定通关",
+                "priority": "high",
+                "preferred_characters": ["星见雅"],
+                "minimums": {"skill_level": 8},
+            }
+        ],
+    }
+
+
 class DemoDashboardTests(unittest.TestCase):
     def test_dashboard_html_contains_case_links_and_quality(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -121,6 +145,25 @@ class DemoDashboardTests(unittest.TestCase):
                     "clean_demo": False,
                 },
                 "warnings": ["当前包含历史 parsed 结果，平均通过率不代表 P0.9 replay batch"],
+                "training_plan": {
+                    "targets_json": str(root / "targets.json"),
+                    "output_json": str(root / "training_priority_report.json"),
+                    "output_md": str(root / "training_priority_report.md"),
+                    "plan_item_count": 1,
+                    "top_plan_items": [
+                        {
+                            "priority_rank": 1,
+                            "character": "星见雅",
+                            "target": "危局强袭战 稳定通关",
+                            "action": "先人工确认解析结果",
+                            "reason": "mock reason",
+                            "estimated_days": 0.0,
+                            "confidence": "high",
+                        }
+                    ],
+                    "warnings": ["终局目标来自本地配置或 mock"],
+                    "error": None,
+                },
                 "pipeline_steps": [{"name": "Normalized Snapshot", "status": "needs_review"}],
                 "cases": [
                     {
@@ -159,6 +202,9 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("normalized_json", html)
             self.assertIn("review_html", html)
             self.assertIn("case_expected.json", html)
+            self.assertIn("培养优先级候选", html)
+            self.assertIn("先人工确认解析结果", html)
+            self.assertIn("training_priority_report.json", html)
             self.assertIn("当前包含历史 parsed 结果", html)
             self.assertIn("character.name 缺失或 uncertain", html)
             self.assertIn("N/A", html)
@@ -222,6 +268,35 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["cases"][0]["character"]["name"], "新结果")
             self.assertIn("latest-only", summary["warnings"][0])
 
+    def test_run_demo_pipeline_with_targets_generates_training_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            parsed_dir = root / "parsed"
+            output_dir = root / "demo"
+            targets_path = root / "targets.json"
+            parsed_dir.mkdir()
+            parsed_path = parsed_dir / "case_a.json"
+            parsed_path.write_text(json.dumps(parsed_json(), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets_json(), ensure_ascii=False), encoding="utf-8")
+
+            summary = pipeline_tool.run_pipeline(
+                images_dir=None,
+                parsed_dir=parsed_dir,
+                manifest=None,
+                output_dir=output_dir,
+                open_dashboard=False,
+                targets=targets_path,
+            )
+            dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
+
+            self.assertIn("training_plan", summary)
+            self.assertGreater(summary["training_plan"]["plan_item_count"], 0)
+            self.assertTrue(Path(summary["training_plan"]["output_json"]).exists())
+            self.assertTrue(Path(summary["training_plan"]["output_md"]).exists())
+            self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("培养优先级候选", dashboard_html)
+            self.assertIn("先人工确认解析结果", dashboard_html)
+
     def test_cli_demo_command_calls_pipeline_core(self) -> None:
         calls = []
         original_run_pipeline = cli_tool.demo_tool.run_pipeline
@@ -245,6 +320,7 @@ class DemoDashboardTests(unittest.TestCase):
                     open=False,
                     latest_only=False,
                     clean_demo=False,
+                    targets=None,
                 )
             )
         finally:
@@ -255,6 +331,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertEqual(calls[0]["engine"], "paddle")
         self.assertIsNotNone(calls[0]["images_dir"])
         self.assertFalse(calls[0]["latest_only"])
+        self.assertIsNone(calls[0]["targets"])
 
 
 if __name__ == "__main__":

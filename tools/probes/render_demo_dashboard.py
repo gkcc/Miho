@@ -179,10 +179,53 @@ def render_input_panel(summary: dict[str, Any]) -> str:
         <div><span>images_dir</span><strong>{e(rel_label(input_info.get("images_dir")) or "N/A")}</strong></div>
         <div><span>parsed_dir</span><strong>{e(rel_label(input_info.get("parsed_dir")) or "N/A")}</strong></div>
         <div><span>manifest</span><strong>{e(rel_label(input_info.get("manifest")) or "N/A")}</strong></div>
+        <div><span>targets</span><strong>{e(rel_label(input_info.get("targets")) or "N/A")}</strong></div>
         <div><span>latest_only</span><strong>{e(input_info.get("latest_only"))}</strong></div>
         <div><span>clean_demo</span><strong>{e(input_info.get("clean_demo"))}</strong></div>
       </div>
       {warnings_block}
+    </section>
+    """
+
+
+def render_training_plan(summary: dict[str, Any]) -> str:
+    plan = summary.get("training_plan")
+    if not isinstance(plan, dict):
+        return ""
+    error = plan.get("error")
+    items = plan.get("top_plan_items") if isinstance(plan.get("top_plan_items"), list) else []
+    warnings = plan.get("warnings") if isinstance(plan.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Planner Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if error:
+        body = f'<div class="errors"><strong>Training plan failed</strong><ul><li>{e(error)}</li></ul></div>'
+    elif not items:
+        body = '<div class="empty">没有生成培养优先级条目。</div>'
+    else:
+        rows = []
+        for item in items:
+            rows.append(
+                "<article class=\"plan-item\">"
+                f"<div class=\"plan-rank\">#{e(item.get('priority_rank'))}</div>"
+                "<div>"
+                f"<h3>{e(item.get('character'))} · {e(item.get('action'))}</h3>"
+                f"<p>{e(item.get('reason'))}</p>"
+                f"<span>{e(item.get('target'))}</span>"
+                "</div>"
+                f"<strong>{e(item.get('estimated_days'))} 天</strong>"
+                "</article>"
+            )
+        body = '<div class="plan-list">' + "".join(rows) + "</div>"
+    return f"""
+    <section class="panel">
+      <h2>培养优先级候选</h2>
+      <div class="links">
+        {link("training_priority_report.md", plan.get("output_md"))}
+        {link("training_priority_report.json", plan.get("output_json"))}
+        {link("targets_json", plan.get("targets_json"))}
+      </div>
+      {warning_block}
+      {body}
     </section>
     """
 
@@ -195,6 +238,7 @@ def render_html(summary: dict[str, Any]) -> str:
     average_pass_rate = "N/A" if avg is None else f"{round(float(avg) * 100, 2)}%"
     conclusion = overall.get("conclusion") or ""
     input_info = summary.get("input", {}) if isinstance(summary.get("input"), dict) else {}
+    plan_info = summary.get("training_plan", {}) if isinstance(summary.get("training_plan"), dict) else {}
     metrics = [
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
@@ -205,10 +249,12 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("Expected 平均", average_pass_rate, "muted"),
         metric_card("Normalized", overall.get("normalized_count", 0), "ok"),
         metric_card("需人工确认", overall.get("requires_manual_review_count", 0), "warn"),
+        metric_card("Plan Items", plan_info.get("plan_item_count", 0) if plan_info else "N/A", "warn" if plan_info.get("error") else "ok" if plan_info else "muted"),
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
     input_panel = render_input_panel(summary)
+    training_plan = render_training_plan(summary)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -243,7 +289,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .metric.ok strong {{ color: var(--ok); }} .metric.warn strong {{ color: var(--warn); }} .metric.bad strong {{ color: var(--bad); }}
     .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); }}
     .panel h2 {{ margin: 0 0 12px; font-size: 18px; }}
-    .steps {{ display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }}
+    .steps {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }}
     .input-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }}
     .input-grid div {{ border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }}
     .input-grid span {{ display: block; color: var(--muted); font-size: 12px; }}
@@ -273,6 +319,13 @@ def render_html(summary: dict[str, Any]) -> str:
     details {{ border-top: 1px solid var(--line); padding-top: 10px; }}
     summary {{ cursor: pointer; font-weight: 800; }}
     .errors {{ border: 1px solid #ffc0ba; background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px; }}
+    .plan-list {{ display: grid; gap: 10px; margin-top: 12px; }}
+    .plan-item {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) 72px; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
+    .plan-rank {{ display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #e9f8ef; color: var(--ok); font-weight: 900; }}
+    .plan-item h3 {{ margin: 0 0 4px; font-size: 16px; }}
+    .plan-item p {{ margin: 0 0 4px; color: var(--text); }}
+    .plan-item span {{ color: var(--muted); font-size: 12px; }}
+    .plan-item > strong {{ color: var(--warn); text-align: right; }}
     .empty {{ padding: 24px; color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }}
     @media (max-width: 900px) {{
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
@@ -281,6 +334,8 @@ def render_html(summary: dict[str, Any]) -> str:
       .case-grid {{ grid-template-columns: 1fr; }}
       .case-card {{ grid-template-columns: 1fr; }}
       .facts {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .plan-item {{ grid-template-columns: 1fr; }}
+      .plan-item > strong {{ text-align: left; }}
     }}
   </style>
 </head>
@@ -293,6 +348,7 @@ def render_html(summary: dict[str, Any]) -> str:
     <section class="metrics">{''.join(metrics)}</section>
     {input_panel}
     {steps}
+    {training_plan}
     <section class="panel"><h2>Case 卡片</h2><div class="case-grid">{cards}</div></section>
   </main>
 </body>
