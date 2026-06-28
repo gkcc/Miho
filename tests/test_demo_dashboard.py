@@ -186,6 +186,16 @@ class DemoDashboardTests(unittest.TestCase):
                             "catalog_candidates": [{"character": "珂蕾妲", "matched_tags": ["fire", "stun"], "score": 60}],
                         }
                     ],
+                    "coverage_gap_actions": [
+                        {
+                            "rank": 1,
+                            "target": "式舆防卫战 满星尝试",
+                            "character": "珂蕾妲",
+                            "action": "先确认是否拥有，拥有后补录官方分享图",
+                            "confidence": "low",
+                            "uses_stamina": False,
+                        }
+                    ],
                     "resource_plan": {
                         "budget": {"daily_stamina": 240.0, "horizon_days": 7, "total_stamina": 1680.0},
                         "today": [
@@ -276,6 +286,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("目标覆盖", html)
             self.assertIn("covered", html)
             self.assertIn("候选：珂蕾妲", html)
+            self.assertIn("长期补洞候选", html)
+            self.assertIn("先确认是否拥有", html)
             self.assertIn("今日投入建议", html)
             self.assertIn("终局目标刷新", html)
             self.assertIn("endgame_targets.json", html)

@@ -873,6 +873,64 @@ def build_warnings(
     return warnings
 
 
+def build_coverage_gap_actions(target_coverage: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    actions = []
+    for coverage in target_coverage:
+        if coverage.get("coverage_status") != "unmatched":
+            continue
+        target = str(coverage.get("target") or "unknown_target")
+        priority = str(coverage.get("priority") or "medium")
+        candidates = coverage.get("catalog_candidates") if isinstance(coverage.get("catalog_candidates"), list) else []
+        for candidate in candidates[:3]:
+            if not isinstance(candidate, dict) or not candidate.get("character"):
+                continue
+            owned = candidate.get("owned")
+            if owned is True:
+                action_type = "record_owned_snapshot"
+                action = "补录或更新该角色官方分享图"
+                reason = "catalog 标记已拥有，但当前 snapshots 没有可用于该目标的练度快照。"
+                confidence = "medium"
+            elif owned is False:
+                action_type = "long_term_candidate"
+                action = "作为长期抽取或培养候选观察"
+                reason = "catalog 标记未拥有；不能进入当前体力预算，只能作为长期补洞方向。"
+                confidence = "low"
+            else:
+                action_type = "confirm_ownership"
+                action = "先确认是否拥有，拥有后补录官方分享图"
+                reason = "catalog 候选命中目标缺口，但 owned 状态未知，不能直接规划体力。"
+                confidence = "low"
+            actions.append(
+                {
+                    "target": target,
+                    "target_priority": priority,
+                    "character": candidate.get("character"),
+                    "action_type": action_type,
+                    "action": action,
+                    "reason": reason,
+                    "candidate_reason": candidate.get("reason"),
+                    "matched_tags": candidate.get("matched_tags", []),
+                    "match_types": candidate.get("match_types", []),
+                    "candidate_score": candidate.get("score"),
+                    "owned": owned,
+                    "uses_stamina": False,
+                    "confidence": confidence,
+                }
+            )
+    priority_weight = {"high": 3, "medium": 2, "low": 1}
+    actions.sort(
+        key=lambda item: (
+            -priority_weight.get(str(item.get("target_priority") or "medium"), 2),
+            -int(item.get("candidate_score") or 0),
+            str(item.get("target") or ""),
+            str(item.get("character") or ""),
+        )
+    )
+    for index, item in enumerate(actions, start=1):
+        item["rank"] = index
+    return actions
+
+
 def resource_budget(targets: dict[str, Any], daily_stamina: float | None, horizon_days: float | None) -> dict[str, Any]:
     config = targets.get("resource_budget") if isinstance(targets.get("resource_budget"), dict) else {}
     daily = daily_stamina if daily_stamina is not None else positive_number(config.get("daily_stamina"), DEFAULT_DAILY_STAMINA)
@@ -1000,6 +1058,29 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"| {item.get('target')} | {item.get('coverage_status')} | {characters or 'none'} | {candidates or 'none'} | {tags} |"
             )
         lines.append("")
+    gap_actions = report.get("coverage_gap_actions") if isinstance(report.get("coverage_gap_actions"), list) else []
+    if gap_actions:
+        lines.extend(
+            [
+                "## 长期补洞候选",
+                "",
+                "| rank | target | character | action | reason | stamina | confidence |",
+                "|---:|---|---|---|---|---|---|",
+            ]
+        )
+        for item in gap_actions:
+            lines.append(
+                "| {rank} | {target} | {character} | {action} | {reason} | {stamina} | {confidence} |".format(
+                    rank=item.get("rank"),
+                    target=item.get("target"),
+                    character=item.get("character"),
+                    action=item.get("action"),
+                    reason=item.get("reason"),
+                    stamina="no" if item.get("uses_stamina") is False else "yes",
+                    confidence=item.get("confidence"),
+                )
+            )
+        lines.append("")
     lines.extend(["## 优先级", "", "| rank | character | target | action | reason | days | confidence |", "|---|---|---|---|---|---:|---|"])
     for item in report.get("plan_items", []):
         lines.append(
@@ -1108,6 +1189,7 @@ def generate_report(
     ]
     source_status = target_source_status(targets)
     target_coverage = target_coverage_summary(targets, characters, loaded_character_catalog)
+    coverage_gap_actions = build_coverage_gap_actions(target_coverage)
     items = plan_items(characters, source_status)
     budget = resource_budget(targets, daily_stamina, horizon_days)
     report = {
@@ -1136,6 +1218,7 @@ def generate_report(
             for snapshot in snapshots
         ],
         "target_coverage": target_coverage,
+        "coverage_gap_actions": coverage_gap_actions,
         "characters": characters,
         "plan_items": items,
         "resource_plan": build_resource_plan(items, budget),

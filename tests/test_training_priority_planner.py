@@ -291,9 +291,13 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertEqual(coverage["coverage_status"], "unmatched")
             self.assertEqual(coverage["catalog_candidates"][0]["character"], "珂蕾妲")
             self.assertEqual(coverage["catalog_candidates"][0]["matched_tags"], ["fire", "stun"])
+            self.assertEqual(report["coverage_gap_actions"][0]["character"], "珂蕾妲")
+            self.assertEqual(report["coverage_gap_actions"][0]["action_type"], "confirm_ownership")
+            self.assertFalse(report["coverage_gap_actions"][0]["uses_stamina"])
             self.assertTrue(any("catalog 候选" in warning for warning in report["warnings"]))
             markdown = Path(report["output_md"]).read_text(encoding="utf-8")
             self.assertIn("珂蕾妲", markdown)
+            self.assertIn("长期补洞候选", markdown)
 
     def test_catalog_candidates_include_preferred_characters_not_in_current_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -306,7 +310,7 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             targets["freshness"] = {"level": "fresh", "stale_source_count": 0}
             targets["targets"][0]["preferred_characters"] = ["莱特"]
             catalog_path.write_text(
-                json.dumps({"characters": [{"name": "莱特", "element": "fire", "combat_tags": ["stun"]}]}, ensure_ascii=False),
+                json.dumps({"characters": [{"name": "莱特", "owned": True, "element": "fire", "combat_tags": ["stun"]}]}, ensure_ascii=False),
                 encoding="utf-8",
             )
             snapshot_path.write_text(json.dumps(normalized_snapshot(name="星见雅"), ensure_ascii=False), encoding="utf-8")
@@ -318,6 +322,8 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertEqual(candidate["character"], "莱特")
             self.assertIn("preferred_character", candidate["match_types"])
             self.assertEqual(candidate["score"], 95)
+            self.assertEqual(report["coverage_gap_actions"][0]["action_type"], "record_owned_snapshot")
+            self.assertEqual(report["coverage_gap_actions"][0]["action"], "补录或更新该角色官方分享图")
 
     def test_generate_report_warns_on_stale_target_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

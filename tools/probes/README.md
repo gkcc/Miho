@@ -467,6 +467,14 @@ data/probes/planner/training_priority_report.md
 如果 targets 来源是 fresh 的当前高难来源，且存在 `unmatched` 目标，planner 会给出 warning，提示当前 box 对该高难目标暂无匹配角色。
 如果 `unmatched` 目标存在 catalog 候选，planner 会额外提示应先确认是否拥有或补录分享图。
 
+报告中的 `coverage_gap_actions` 会把这类未覆盖目标转换成长期补洞动作：
+
+* `confirm_ownership`：catalog 命中目标缺口，但 owned 状态未知，先确认是否拥有；
+* `record_owned_snapshot`：catalog 标记已拥有，但当前 snapshots 没有可用练度快照，先补录官方分享图；
+* `long_term_candidate`：catalog 标记未拥有，只能作为长期抽取或培养观察项。
+
+这些动作默认 `uses_stamina=false`，不会进入 `resource_plan` 的体力分配；只有补录快照并进入当前 box 后，具体培养项才会被纳入体力预算。
+
 报告中的 `target_source_status` 会把目标来源分成：
 
 * `current`：fresh 的官方 / 公开高难来源，可作为当前高难候选输入；

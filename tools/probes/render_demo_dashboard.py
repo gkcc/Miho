@@ -228,6 +228,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     source_status = plan.get("target_source_status") if isinstance(plan.get("target_source_status"), dict) else {}
     catalog_summary = plan.get("character_catalog_summary") if isinstance(plan.get("character_catalog_summary"), dict) else {}
     coverage = plan.get("target_coverage") if isinstance(plan.get("target_coverage"), list) else []
+    gap_actions = plan.get("coverage_gap_actions") if isinstance(plan.get("coverage_gap_actions"), list) else []
     source_status_block = ""
     if source_status:
         source_status_block = f"""
@@ -260,6 +261,23 @@ def render_training_plan(summary: dict[str, Any]) -> str:
         coverage_block = f"""
         <div class="resource-plan">
           <h3>目标覆盖</h3>
+          <div class="resource-list">{''.join(rows)}</div>
+        </div>
+        """
+    gap_action_block = ""
+    if gap_actions:
+        rows = []
+        for item in gap_actions[:6]:
+            rows.append(
+                "<article class=\"resource-item\">"
+                f"<strong>#{e(item.get('rank'))} {e(item.get('character'))}</strong>"
+                f"<span>{e(item.get('target'))} · {e(item.get('action'))}</span>"
+                f"<em>{e(item.get('confidence'))}</em>"
+                "</article>"
+            )
+        gap_action_block = f"""
+        <div class="resource-plan">
+          <h3>长期补洞候选</h3>
           <div class="resource-list">{''.join(rows)}</div>
         </div>
         """
@@ -322,6 +340,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
       {source_status_block}
       {warning_block}
       {coverage_block}
+      {gap_action_block}
       {resource_block}
       {body}
     </section>
