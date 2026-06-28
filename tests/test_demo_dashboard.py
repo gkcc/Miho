@@ -220,9 +220,57 @@ class DemoDashboardTests(unittest.TestCase):
                     },
                     "error": None,
                 },
+                "action_cards": {
+                    "output_json": str(root / "action_cards.json"),
+                    "output_md": str(root / "action_cards.md"),
+                    "summary": {
+                        "owned_character_count": 1,
+                        "snapshot_file_count": 1,
+                        "target_count": 2,
+                        "covered_target_count": 1,
+                        "uncovered_target_count": 1,
+                        "needs_recording_count": 1,
+                        "high_priority_action_count": 1,
+                    },
+                    "warnings": ["候选 ≠ 已拥有；catalog candidate 需要补录分享图或人工确认。"],
+                    "cards": [
+                        {
+                            "rank": 1,
+                            "action_type": "train_owned_character",
+                            "priority": "high",
+                            "title": "星见雅: 补关键技能到 8 左右",
+                            "character": "星见雅",
+                            "target": "危局强袭战 稳定通关",
+                            "reason": "mock reason",
+                            "source_class": "owned",
+                            "status": "actionable",
+                            "evidence": {
+                                "target_source": str(root / "target_source.html"),
+                                "target_hash": "abcdef123456",
+                                "snapshot_source": str(root / "case.jpg"),
+                            },
+                            "links": {},
+                        },
+                        {
+                            "rank": 2,
+                            "action_type": "review_candidate",
+                            "priority": "medium",
+                            "title": "确认是否拥有 珂蕾妲",
+                            "character": "珂蕾妲",
+                            "target": "式舆防卫战 满星尝试",
+                            "reason": "catalog 候选命中目标缺口。",
+                            "source_class": "catalog_candidate",
+                            "status": "needs_review",
+                            "evidence": {"target_hash": "222222222222"},
+                            "links": {},
+                        },
+                    ],
+                    "error": None,
+                },
                 "pipeline_steps": [
                     {"name": "Normalized Snapshot", "status": "GENERATED"},
                     {"name": "Manual Review Gate", "status": "REQUIRES_REVIEW"},
+                    {"name": "Action Cards", "status": "done"},
                 ],
                 "target_refresh": {
                     "manifest": str(root / "target_sources.json"),
@@ -307,6 +355,12 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("Manual Review Gate", html)
             self.assertIn("REQUIRES_REVIEW", html)
             self.assertIn("requires_review 不代表解析失败", html)
+            self.assertIn("下一步行动", html)
+            self.assertIn("候选 ≠ 已拥有", html)
+            self.assertIn("高优先级行动", html)
+            self.assertIn("需补录/确认", html)
+            self.assertIn("action_cards.json", html)
+            self.assertIn("确认是否拥有 珂蕾妲", html)
             self.assertIn("培养优先级候选", html)
             self.assertIn("source status", html)
             self.assertIn("local_draft", html)
@@ -367,6 +421,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["cases"][0]["expected_status"], "N/A")
             self.assertEqual(summary["cases"][0]["normalized_status"], "GENERATED")
             self.assertEqual(summary["cases"][0]["import_status"], "REQUIRES_REVIEW")
+            self.assertNotIn("action_cards", summary)
             steps = {item["name"]: item["status"] for item in summary["pipeline_steps"]}
             self.assertEqual(steps["Normalized Snapshot"], "GENERATED")
             self.assertEqual(steps["Manual Review Gate"], "REQUIRES_REVIEW")
@@ -490,10 +545,16 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["training_plan"]["history_context"]["character_count"], 1)
             self.assertEqual(summary["training_plan"]["resource_plan"]["budget"]["daily_stamina"], 240.0)
             self.assertTrue(summary["training_plan"]["resource_plan"]["today"])
+            self.assertIn("action_cards", summary)
+            self.assertTrue(Path(summary["action_cards"]["output_json"]).exists())
+            self.assertTrue(Path(summary["action_cards"]["output_md"]).exists())
+            self.assertGreater(summary["action_cards"]["summary"]["high_priority_action_count"], 0)
             self.assertTrue(Path(summary["training_plan"]["output_json"]).exists())
             self.assertTrue(Path(summary["training_plan"]["output_md"]).exists())
             self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("Action Cards", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("培养优先级候选", dashboard_html)
+            self.assertIn("下一步行动", dashboard_html)
             self.assertIn("今日投入建议", dashboard_html)
             self.assertIn("先人工确认解析结果", dashboard_html)
 

@@ -1,0 +1,174 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ACTION_SCRIPT_PATH = PROJECT_ROOT / "tools" / "probes" / "build_action_cards.py"
+
+action_spec = importlib.util.spec_from_file_location("build_action_cards", ACTION_SCRIPT_PATH)
+assert action_spec is not None
+action_tool = importlib.util.module_from_spec(action_spec)
+assert action_spec.loader is not None
+sys.modules[action_spec.name] = action_tool
+action_spec.loader.exec_module(action_tool)
+
+
+def planner_report() -> dict:
+    return {
+        "schema_version": "p1.2-planner-draft",
+        "game": "zzz",
+        "input": {"targets": "targets.json"},
+        "snapshots": [{"character": "星见雅", "source_image": "figs/miyabi.jpg"}],
+        "target_coverage": [
+            {
+                "target": "式舆防卫战 稳定通关",
+                "coverage_status": "covered",
+                "priority": "high",
+                "matched_characters": [{"character": "星见雅"}],
+                "catalog_candidates": [],
+                "evidence": {
+                    "source_ref": "data/probes/targets/mock_source.html",
+                    "content_sha256_short": "abcdef123456",
+                    "matched_aliases": {"weakness_tags": {"ice": ["冰"]}},
+                },
+            },
+            {
+                "target": "危局强袭战 稳定通关",
+                "coverage_status": "unmatched",
+                "priority": "high",
+                "matched_characters": [],
+                "catalog_candidates": [{"character": "珂蕾妲", "owned": None, "matched_tags": ["fire", "stun"]}],
+                "evidence": {
+                    "source_ref": "data/probes/targets/crisis.html",
+                    "content_sha256_short": "123456abcdef",
+                    "matched_aliases": {"mechanic_tags": {"stun": ["击破"]}},
+                },
+            },
+            {
+                "target": "零号空洞 高压",
+                "coverage_status": "unmatched",
+                "priority": "medium",
+                "matched_characters": [],
+                "catalog_candidates": [{"character": "莱特", "owned": True, "matched_tags": ["fire", "stun"]}],
+                "evidence": {
+                    "source_ref": "data/probes/targets/hollow.html",
+                    "content_sha256_short": "fedcba654321",
+                },
+            },
+        ],
+        "coverage_gap_actions": [
+            {
+                "rank": 1,
+                "target": "危局强袭战 稳定通关",
+                "target_priority": "high",
+                "character": "珂蕾妲",
+                "action_type": "confirm_ownership",
+                "action": "先确认是否拥有，拥有后补录官方分享图",
+                "reason": "catalog 候选命中目标缺口，但 owned 状态未知，不能直接规划体力。",
+                "matched_tags": ["fire", "stun"],
+                "match_types": ["tag_overlap"],
+                "owned": None,
+                "confidence": "low",
+            },
+            {
+                "rank": 2,
+                "target": "零号空洞 高压",
+                "target_priority": "medium",
+                "character": "莱特",
+                "action_type": "record_owned_snapshot",
+                "action": "补录或更新该角色官方分享图",
+                "reason": "catalog 标记已拥有，但当前 snapshots 没有可用于该目标的练度快照。",
+                "matched_tags": ["fire", "stun"],
+                "match_types": ["preferred_character"],
+                "owned": True,
+                "confidence": "medium",
+            },
+        ],
+        "plan_items": [
+            {
+                "priority_rank": 1,
+                "priority_score": 48,
+                "character": "星见雅",
+                "target": "式舆防卫战 稳定通关",
+                "gap_type": "skill_level",
+                "action": "补关键技能到 9 左右",
+                "reason": "高难目标命中，但技能等级不足。",
+                "estimated_days": 2.0,
+                "confidence": "high",
+                "target_match_reasons": ["角色标签命中目标弱点/机制"],
+            }
+        ],
+    }
+
+
+class ActionCardTests(unittest.TestCase):
+    def test_build_action_cards_keeps_owned_and_catalog_candidates_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report_path = root / "training_priority_report.json"
+            targets_path = root / "targets.json"
+            snapshots_dir = root / "normalized"
+            output_dir = root / "actions"
+            snapshots_dir.mkdir()
+            (snapshots_dir / "miyabi.json").write_text("{}", encoding="utf-8")
+            report_path.write_text(json.dumps(planner_report(), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps({"game": "zzz"}, ensure_ascii=False), encoding="utf-8")
+
+            result = action_tool.build_action_cards(
+                planner_report=report_path,
+                targets=targets_path,
+                snapshots_dir=snapshots_dir,
+                output_dir=output_dir,
+            )
+
+            self.assertEqual(result["schema_version"], "p1.2-lite-action-cards")
+            self.assertTrue(Path(result["output_json"]).exists())
+            self.assertTrue(Path(result["output_md"]).exists())
+            self.assertEqual(result["summary"]["owned_character_count"], 1)
+            self.assertEqual(result["summary"]["target_count"], 3)
+            self.assertEqual(result["summary"]["covered_target_count"], 1)
+            self.assertEqual(result["summary"]["uncovered_target_count"], 2)
+            self.assertGreaterEqual(result["summary"]["needs_recording_count"], 2)
+
+            train = next(item for item in result["cards"] if item["action_type"] == "train_owned_character")
+            self.assertEqual(train["character"], "星见雅")
+            self.assertEqual(train["source_class"], "owned")
+            self.assertEqual(train["status"], "actionable")
+            self.assertEqual(train["evidence"]["target_hash"], "abcdef123456")
+            self.assertEqual(train["evidence"]["snapshot_source"], "figs/miyabi.jpg")
+
+            review = next(item for item in result["cards"] if item["character"] == "珂蕾妲")
+            self.assertEqual(review["action_type"], "review_candidate")
+            self.assertEqual(review["source_class"], "catalog_candidate")
+            self.assertIsNone(review["candidate_owned"])
+            self.assertEqual(review["status"], "needs_review")
+            self.assertIn("stun", review["evidence"]["matched_tags"])
+            self.assertEqual(review["evidence"]["target_hash"], "123456abcdef")
+
+            record = next(item for item in result["cards"] if item["character"] == "莱特")
+            self.assertEqual(record["action_type"], "record_missing_character")
+            self.assertEqual(record["source_class"], "catalog_owned_missing_snapshot")
+            self.assertTrue(record["candidate_owned"])
+
+            markdown = Path(result["output_md"]).read_text(encoding="utf-8")
+            self.assertIn("候选 ≠ 已拥有", markdown)
+            self.assertIn("珂蕾妲", markdown)
+
+    def test_missing_planner_report_fails_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with self.assertRaises(action_tool.ActionCardError):
+                action_tool.build_action_cards(
+                    planner_report=root / "missing.json",
+                    output_dir=root / "actions",
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()

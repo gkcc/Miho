@@ -1,0 +1,341 @@
+#!/usr/bin/env python
+"""Build user-facing next-action cards from a local planner report."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCHEMA_VERSION = "p1.2-lite-action-cards"
+
+
+class ActionCardError(RuntimeError):
+    pass
+
+
+def resolve_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path.resolve()
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise ActionCardError(f"JSON does not exist: {path}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ActionCardError(f"Invalid JSON: {path}. Details: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ActionCardError(f"Expected JSON object: {path}")
+    return data
+
+
+def write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def short_hash(value: Any) -> str | None:
+    if not value:
+        return None
+    text = str(value)
+    return text[:12] if len(text) > 12 else text
+
+
+def priority_from_rank(rank: Any) -> str:
+    try:
+        value = int(rank)
+    except (TypeError, ValueError):
+        return "medium"
+    if value <= 3:
+        return "high"
+    if value <= 8:
+        return "medium"
+    return "low"
+
+
+def priority_from_target(value: Any) -> str:
+    text = str(value or "medium").lower()
+    if text in {"high", "medium", "low"}:
+        return text
+    return "medium"
+
+
+def target_evidence_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for item in report.get("target_coverage", []) if isinstance(report.get("target_coverage"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        target = str(item.get("target") or "")
+        evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+        result[target] = evidence
+    return result
+
+
+def coverage_by_target(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for item in report.get("target_coverage", []) if isinstance(report.get("target_coverage"), list) else []:
+        if isinstance(item, dict) and item.get("target"):
+            result[str(item["target"])] = item
+    return result
+
+
+def snapshot_sources(report: dict[str, Any]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for item in report.get("snapshots", []) if isinstance(report.get("snapshots"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        character = item.get("character")
+        if character:
+            result[str(character)] = str(item.get("source_image") or "")
+    return result
+
+
+def first_target_label(value: Any) -> str:
+    text = str(value or "")
+    if "、" in text:
+        return text.split("、", 1)[0]
+    return text
+
+
+def evidence_for(target: str, character: str, report: dict[str, Any]) -> dict[str, Any]:
+    evidence = target_evidence_map(report).get(first_target_label(target), {})
+    return {
+        "target_source": evidence.get("source_ref") or evidence.get("title"),
+        "target_hash": evidence.get("content_sha256_short") or short_hash(evidence.get("content_sha256")),
+        "matched_aliases": evidence.get("matched_aliases", {}) if isinstance(evidence.get("matched_aliases"), dict) else {},
+        "snapshot_source": snapshot_sources(report).get(character),
+    }
+
+
+def card_links(planner_report: Path, target_source: Any | None = None, snapshot_source: Any | None = None) -> dict[str, Any]:
+    return {
+        "planner_report": str(planner_report),
+        "target_source": target_source,
+        "normalized_json": snapshot_source,
+    }
+
+
+def plan_item_card(item: dict[str, Any], report: dict[str, Any], planner_report: Path) -> dict[str, Any]:
+    character = str(item.get("character") or "unknown_character")
+    target = str(item.get("target") or "长期通用练度")
+    action = str(item.get("action") or "补练度")
+    gap_type = str(item.get("gap_type") or "")
+    action_type = "review_candidate" if gap_type == "data_review" else "train_owned_character"
+    status = "needs_review" if gap_type == "data_review" else "actionable"
+    evidence = evidence_for(target, character, report)
+    return {
+        "action_type": action_type,
+        "priority": priority_from_rank(item.get("priority_rank")),
+        "title": f"{character}: {action}",
+        "character": character,
+        "target": target,
+        "reason": item.get("reason"),
+        "evidence": {
+            **evidence,
+            "target_match_reasons": item.get("target_match_reasons", []) if isinstance(item.get("target_match_reasons"), list) else [],
+        },
+        "source_class": "owned",
+        "status": status,
+        "links": card_links(planner_report, evidence.get("target_source"), evidence.get("snapshot_source")),
+    }
+
+
+def gap_action_card(item: dict[str, Any], report: dict[str, Any], planner_report: Path) -> dict[str, Any]:
+    character = str(item.get("character") or "unknown_character")
+    target = str(item.get("target") or "unknown_target")
+    action_type = str(item.get("action_type") or "confirm_ownership")
+    if action_type == "record_owned_snapshot":
+        card_type = "record_missing_character"
+        title = f"补录 {character} 的官方分享图"
+        source_class = "catalog_owned_missing_snapshot"
+        status = "needs_review"
+    elif action_type == "long_term_candidate":
+        card_type = "target_gap"
+        title = f"长期观察 {character}"
+        source_class = "catalog_candidate"
+        status = "blocked"
+    else:
+        card_type = "review_candidate"
+        title = f"确认是否拥有 {character}"
+        source_class = "catalog_candidate"
+        status = "needs_review"
+    evidence = evidence_for(target, character, report)
+    evidence["matched_aliases"] = evidence.get("matched_aliases") or {}
+    evidence["matched_tags"] = item.get("matched_tags", []) if isinstance(item.get("matched_tags"), list) else []
+    evidence["match_types"] = item.get("match_types", []) if isinstance(item.get("match_types"), list) else []
+    return {
+        "action_type": card_type,
+        "priority": priority_from_target(item.get("target_priority")),
+        "title": title,
+        "character": character,
+        "target": target,
+        "reason": item.get("reason"),
+        "evidence": evidence,
+        "source_class": source_class,
+        "candidate_owned": item.get("owned"),
+        "status": status,
+        "links": card_links(planner_report, evidence.get("target_source"), None),
+    }
+
+
+def card_sort_key(item: dict[str, Any]) -> tuple[int, int, str, str]:
+    priority_weight = {"high": 0, "medium": 1, "low": 2}
+    type_weight = {
+        "train_owned_character": 0,
+        "record_missing_character": 1,
+        "review_candidate": 2,
+        "target_gap": 3,
+    }
+    return (
+        priority_weight.get(str(item.get("priority") or "medium"), 1),
+        type_weight.get(str(item.get("action_type") or ""), 9),
+        str(item.get("target") or ""),
+        str(item.get("character") or ""),
+    )
+
+
+def build_cards(report: dict[str, Any], planner_report: Path) -> list[dict[str, Any]]:
+    cards = []
+    for item in report.get("plan_items", []) if isinstance(report.get("plan_items"), list) else []:
+        if isinstance(item, dict):
+            cards.append(plan_item_card(item, report, planner_report))
+    for item in report.get("coverage_gap_actions", []) if isinstance(report.get("coverage_gap_actions"), list) else []:
+        if isinstance(item, dict):
+            cards.append(gap_action_card(item, report, planner_report))
+    cards.sort(key=card_sort_key)
+    for index, item in enumerate(cards, start=1):
+        item["rank"] = index
+    return cards
+
+
+def snapshot_count_from_dir(path: Path | None) -> int:
+    if path is None or not path.exists() or not path.is_dir():
+        return 0
+    return sum(1 for item in path.glob("*.json") if item.is_file())
+
+
+def summary_for(report: dict[str, Any], cards: list[dict[str, Any]], snapshots_dir: Path | None) -> dict[str, Any]:
+    coverage = report.get("target_coverage") if isinstance(report.get("target_coverage"), list) else []
+    owned = {str(item.get("character")) for item in report.get("snapshots", []) if isinstance(item, dict) and item.get("character")}
+    return {
+        "owned_character_count": len(owned),
+        "snapshot_file_count": snapshot_count_from_dir(snapshots_dir),
+        "target_count": len(coverage),
+        "covered_target_count": sum(1 for item in coverage if isinstance(item, dict) and item.get("coverage_status") == "covered"),
+        "uncovered_target_count": sum(1 for item in coverage if isinstance(item, dict) and item.get("coverage_status") == "unmatched"),
+        "needs_recording_count": sum(1 for item in cards if item.get("action_type") in {"record_missing_character", "review_candidate"}),
+        "high_priority_action_count": sum(1 for item in cards if item.get("priority") == "high"),
+    }
+
+
+def render_markdown(action_report: dict[str, Any]) -> str:
+    lines = [
+        "# 下一步行动卡",
+        "",
+        "候选 ≠ 已拥有；catalog candidate 必须先确认拥有状态或补录官方分享图。",
+        "",
+        "## Summary",
+        "",
+    ]
+    for key, value in action_report.get("summary", {}).items():
+        lines.append(f"- {key}: {value}")
+    lines.extend(["", "## Cards", ""])
+    for item in action_report.get("cards", []):
+        evidence = item.get("evidence", {}) if isinstance(item.get("evidence"), dict) else {}
+        lines.extend(
+            [
+                f"### #{item.get('rank')} {item.get('title')}",
+                f"- action_type: {item.get('action_type')}",
+                f"- priority: {item.get('priority')}",
+                f"- status: {item.get('status')}",
+                f"- source_class: {item.get('source_class')}",
+                f"- target: {item.get('target')}",
+                f"- reason: {item.get('reason')}",
+                f"- target_source: {evidence.get('target_source') or 'N/A'}",
+                f"- target_hash: {evidence.get('target_hash') or 'N/A'}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def build_action_cards(
+    *,
+    planner_report: Path,
+    output_dir: Path,
+    targets: Path | None = None,
+    snapshots_dir: Path | None = None,
+) -> dict[str, Any]:
+    report = load_json(planner_report)
+    if targets is not None and not targets.exists():
+        raise ActionCardError(f"Targets JSON does not exist: {targets}")
+    cards = build_cards(report, planner_report)
+    result = {
+        "schema_version": SCHEMA_VERSION,
+        "created_at": now_iso(),
+        "input": {
+            "planner_report": str(planner_report),
+            "targets": str(targets) if targets else report.get("input", {}).get("targets") if isinstance(report.get("input"), dict) else None,
+            "snapshots_dir": str(snapshots_dir) if snapshots_dir else None,
+        },
+        "summary": summary_for(report, cards, snapshots_dir),
+        "cards": cards,
+        "warnings": [
+            "候选 ≠ 已拥有；catalog candidate 需要补录分享图或人工确认。"
+        ],
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / "action_cards.json"
+    md_path = output_dir / "action_cards.md"
+    write_json(json_path, result)
+    md_path.write_text(render_markdown(result), encoding="utf-8")
+    result["output_json"] = str(json_path)
+    result["output_md"] = str(md_path)
+    write_json(json_path, result)
+    return result
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Build next-action cards from a local planner report.")
+    parser.add_argument("--planner-report", required=True, help="training_priority_report.json from plan_training_priorities.py.")
+    parser.add_argument("--targets", default=None, help="Optional endgame targets JSON used by the planner.")
+    parser.add_argument("--snapshots-dir", default=None, help="Optional normalized snapshot directory for summary counts.")
+    parser.add_argument("--output-dir", required=True, help="Output directory for action_cards.json/md.")
+    return parser
+
+
+def main() -> int:
+    args = build_arg_parser().parse_args()
+    try:
+        result = build_action_cards(
+            planner_report=resolve_path(args.planner_report),
+            targets=resolve_path(args.targets) if args.targets else None,
+            snapshots_dir=resolve_path(args.snapshots_dir) if args.snapshots_dir else None,
+            output_dir=resolve_path(args.output_dir),
+        )
+    except ActionCardError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"card_count: {len(result['cards'])}")
+    print(f"high_priority_action_count: {result['summary']['high_priority_action_count']}")
+    print(f"needs_recording_count: {result['summary']['needs_recording_count']}")
+    print(f"output_json: {result['output_json']}")
+    print(f"output_md: {result['output_md']}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

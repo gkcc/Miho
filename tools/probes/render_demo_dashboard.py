@@ -423,6 +423,65 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     """
 
 
+def render_action_cards(summary: dict[str, Any]) -> str:
+    actions = summary.get("action_cards")
+    if not isinstance(actions, dict):
+        return ""
+    error = actions.get("error")
+    cards = actions.get("cards") if isinstance(actions.get("cards"), list) else []
+    card_summary = actions.get("summary") if isinstance(actions.get("summary"), dict) else {}
+    warnings = actions.get("warnings") if isinstance(actions.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Action Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if error:
+        body = f'<div class="errors"><strong>Action cards failed</strong><ul><li>{e(error)}</li></ul></div>'
+    elif not cards:
+        body = '<div class="empty">没有生成下一步行动卡。</div>'
+    else:
+        rows = []
+        for item in cards[:8]:
+            evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+            evidence_bits = []
+            if evidence.get("target_source"):
+                evidence_bits.append(str(evidence.get("target_source")))
+            if evidence.get("target_hash"):
+                evidence_bits.append(str(evidence.get("target_hash")))
+            source_note = "候选 ≠ 已拥有" if item.get("source_class") in {"catalog_candidate", "catalog_owned_missing_snapshot"} else "owned snapshot"
+            rows.append(
+                "<article class=\"plan-item\">"
+                f"<div class=\"plan-rank\">#{e(item.get('rank'))}</div>"
+                "<div>"
+                f"<h3>{e(item.get('title'))}</h3>"
+                f"<p>{e(item.get('reason'))}</p>"
+                f"<span>{e(item.get('target'))}</span>"
+                f"<span>{e(source_note)} · evidence: {e(' · '.join(evidence_bits) or 'N/A')}</span>"
+                "</div>"
+                f"<strong>{e(item.get('priority'))}<br>{e(item.get('status'))}</strong>"
+                "</article>"
+            )
+        body = '<div class="plan-list">' + "".join(rows) + "</div>"
+    return f"""
+    <section class="panel">
+      <h2>下一步行动</h2>
+      <p class="muted-line">候选 ≠ 已拥有；catalog candidate 必须先确认拥有状态或补录官方分享图。</p>
+      <div class="links">
+        {link("action_cards.md", actions.get("output_md"))}
+        {link("action_cards.json", actions.get("output_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>covered targets</span><strong>{e(card_summary.get("covered_target_count", "N/A"))}</strong></div>
+        <div><span>uncovered targets</span><strong>{e(card_summary.get("uncovered_target_count", "N/A"))}</strong></div>
+        <div><span>high priority</span><strong>{e(card_summary.get("high_priority_action_count", "N/A"))}</strong></div>
+        <div><span>needs recording</span><strong>{e(card_summary.get("needs_recording_count", "N/A"))}</strong></div>
+        <div><span>owned chars</span><strong>{e(card_summary.get("owned_character_count", "N/A"))}</strong></div>
+        <div><span>snapshot files</span><strong>{e(card_summary.get("snapshot_file_count", "N/A"))}</strong></div>
+      </div>
+      {warning_block}
+      {body}
+    </section>
+    """
+
+
 def render_snapshot_history(summary: dict[str, Any]) -> str:
     history = summary.get("snapshot_history")
     if not isinstance(history, dict) or not history.get("snapshot_count"):
@@ -508,6 +567,8 @@ def render_html(summary: dict[str, Any]) -> str:
     update_info = summary.get("update_state", {}) if isinstance(summary.get("update_state"), dict) else {}
     history_info = summary.get("snapshot_history", {}) if isinstance(summary.get("snapshot_history"), dict) else {}
     target_info = summary.get("target_refresh", {}) if isinstance(summary.get("target_refresh"), dict) else {}
+    action_info = summary.get("action_cards", {}) if isinstance(summary.get("action_cards"), dict) else {}
+    action_summary = action_info.get("summary", {}) if isinstance(action_info.get("summary"), dict) else {}
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
@@ -531,6 +592,8 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("历史变化", history_info.get("changed_character_count", "N/A") if history_info else "N/A", "warn" if history_info.get("changed_character_count") else "muted"),
         metric_card("终局目标", target_info.get("target_count", "N/A") if target_info else "N/A", "warn" if target_info.get("error") else "ok" if target_info else "muted"),
         metric_card("Plan Items", plan_info.get("plan_item_count", 0) if plan_info else "N/A", "warn" if plan_info.get("error") else "ok" if plan_info else "muted"),
+        metric_card("高优先级行动", action_summary.get("high_priority_action_count", "N/A") if action_summary else "N/A", "ok" if action_summary.get("high_priority_action_count") else "muted"),
+        metric_card("需补录/确认", action_summary.get("needs_recording_count", "N/A") if action_summary else "N/A", "warn" if action_summary.get("needs_recording_count") else "muted"),
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
@@ -539,6 +602,7 @@ def render_html(summary: dict[str, Any]) -> str:
     snapshot_history = render_snapshot_history(summary)
     target_refresh = render_target_refresh(summary)
     training_plan = render_training_plan(summary)
+    action_cards = render_action_cards(summary)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -649,6 +713,7 @@ def render_html(summary: dict[str, Any]) -> str:
     {steps}
     {target_refresh}
     {snapshot_history}
+    {action_cards}
     {training_plan}
     <section class="panel"><h2>Case 卡片</h2><div class="case-grid">{cards}</div></section>
   </main>
