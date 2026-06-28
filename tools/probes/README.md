@@ -451,6 +451,7 @@ python tools/probes/build_roster_index.py `
 * `review_status=FAIL` 不能 accept；
 * 含 `invalid_candidate` 或 invalid 字段的结果不能 accept；
 * rejected snapshot 只保留本地复核日志，不进入 roster index；
+* 同一角色如果存在多份 accepted snapshot，`roster_index` 只保留 `accepted_at` 最新的一份作为当前 box，旧版本会进入 `duplicates` / `superseded_snapshots` 方便追溯；
 * `data/probes/roster/` 仍是本地 probe 输出，不提交 Git。
 
 CLI 壳：

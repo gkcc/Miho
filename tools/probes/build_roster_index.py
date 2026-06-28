@@ -59,6 +59,22 @@ def character_name(snapshot: dict[str, Any]) -> str:
     return str(value or "unknown_character")
 
 
+def character_key(name: Any) -> str:
+    return "".join(str(name or "").split()).casefold()
+
+
+def parse_time(value: Any) -> float:
+    if not value:
+        return 0.0
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return 0.0
+
+
 def snapshot_entry(path: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
     character = snapshot.get("character") if isinstance(snapshot.get("character"), dict) else {}
     build = snapshot.get("build_snapshot") if isinstance(snapshot.get("build_snapshot"), dict) else {}
@@ -84,27 +100,95 @@ def snapshot_entry(path: Path, snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def entry_rank(entry: dict[str, Any]) -> tuple[float, float, str]:
+    snapshot_json = str(entry.get("snapshot_json") or "")
+    try:
+        mtime = Path(snapshot_json).stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    return (parse_time(entry.get("accepted_at")), mtime, snapshot_json)
+
+
+def superseded_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": entry.get("name"),
+        "snapshot_json": entry.get("snapshot_json"),
+        "source_normalized_json": entry.get("source_normalized_json"),
+        "accepted_at": entry.get("accepted_at"),
+        "quality": entry.get("quality"),
+    }
+
+
+def dedupe_characters(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        key = character_key(entry.get("name"))
+        if not key or key == "unknown_character":
+            key = f"{key}:{entry.get('snapshot_json')}"
+        grouped.setdefault(key, []).append(entry)
+
+    characters: list[dict[str, Any]] = []
+    duplicates: list[dict[str, Any]] = []
+    for key, group in grouped.items():
+        ordered = sorted(group, key=entry_rank, reverse=True)
+        kept = dict(ordered[0])
+        kept["roster_key"] = key
+        kept["latest_for_character"] = True
+        superseded = [superseded_entry(item) for item in ordered[1:]]
+        if superseded:
+            kept["superseded_snapshot_count"] = len(superseded)
+            kept["superseded_snapshots"] = superseded
+            duplicates.append(
+                {
+                    "character": kept.get("name"),
+                    "roster_key": key,
+                    "kept_snapshot_json": kept.get("snapshot_json"),
+                    "kept_accepted_at": kept.get("accepted_at"),
+                    "superseded_snapshot_count": len(superseded),
+                    "superseded_snapshots": superseded,
+                    "selection_rule": "latest accepted_at wins; file mtime and path are deterministic fallbacks",
+                }
+            )
+        characters.append(kept)
+
+    characters.sort(key=lambda item: str(item.get("name") or ""))
+    duplicates.sort(key=lambda item: str(item.get("character") or ""))
+    return characters, duplicates
+
+
 def build_roster_index(*, accepted_dir: Path, output_dir: Path) -> dict[str, Any]:
     if not accepted_dir.exists():
         raise RosterIndexError(f"Accepted directory does not exist: {accepted_dir}")
     if not accepted_dir.is_dir():
         raise RosterIndexError(f"Accepted path is not a directory: {accepted_dir}")
-    characters = []
+    entries = []
     for path in sorted(accepted_dir.glob("*.json")):
         snapshot = load_json(path)
         if snapshot.get("review_decision", {}).get("decision") != "accept":
             continue
-        characters.append(snapshot_entry(path, snapshot))
-    characters.sort(key=lambda item: str(item.get("name") or ""))
+        entries.append(snapshot_entry(path, snapshot))
+    characters, duplicates = dedupe_characters(entries)
+    superseded_count = sum(int(item.get("superseded_snapshot_count") or 0) for item in duplicates)
+    warnings = [
+        "只有 accepted roster 可以作为已确认拥有练度；demo normalized snapshot 仍需人工确认。"
+    ]
+    if duplicates:
+        warnings.append("同一角色存在多份 accepted snapshot；roster_index 只保留最新 accepted_at 版本。")
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": now_iso(),
         "accepted_dir": str(accepted_dir),
+        "accepted_snapshot_count": len(entries),
         "character_count": len(characters),
+        "summary": {
+            "accepted_snapshot_count": len(entries),
+            "character_count": len(characters),
+            "duplicate_character_count": len(duplicates),
+            "superseded_snapshot_count": superseded_count,
+        },
         "characters": characters,
-        "warnings": [
-            "只有 accepted roster 可以作为已确认拥有练度；demo normalized snapshot 仍需人工确认。"
-        ],
+        "duplicates": duplicates,
+        "warnings": warnings,
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "roster_index.json"
@@ -124,6 +208,9 @@ def render_markdown(index: dict[str, Any]) -> str:
         "只有 accepted roster 可以作为“已拥有练度”。",
         "",
         f"- character_count: {index.get('character_count', 0)}",
+        f"- accepted_snapshot_count: {index.get('accepted_snapshot_count', 0)}",
+        f"- duplicate_character_count: {(index.get('summary') or {}).get('duplicate_character_count', 0)}",
+        f"- superseded_snapshot_count: {(index.get('summary') or {}).get('superseded_snapshot_count', 0)}",
         "",
         "## Characters",
         "",
@@ -138,9 +225,33 @@ def render_markdown(index: dict[str, Any]) -> str:
                 f"- snapshot_json: {item.get('snapshot_json')}",
                 f"- source_image: {item.get('source_image') or 'N/A'}",
                 f"- accepted_at: {item.get('accepted_at') or 'N/A'}",
+                f"- superseded_snapshot_count: {item.get('superseded_snapshot_count', 0)}",
                 "",
             ]
         )
+    duplicates = index.get("duplicates") if isinstance(index.get("duplicates"), list) else []
+    if duplicates:
+        lines.extend(["## Superseded snapshots", ""])
+        for item in duplicates:
+            lines.extend(
+                [
+                    f"### {item.get('character')}",
+                    f"- kept_snapshot_json: {item.get('kept_snapshot_json')}",
+                    f"- kept_accepted_at: {item.get('kept_accepted_at') or 'N/A'}",
+                    f"- superseded_snapshot_count: {item.get('superseded_snapshot_count', 0)}",
+                    "",
+                ]
+            )
+            for superseded in item.get("superseded_snapshots", []):
+                if not isinstance(superseded, dict):
+                    continue
+                lines.extend(
+                    [
+                        f"  - snapshot_json: {superseded.get('snapshot_json')}",
+                        f"    accepted_at: {superseded.get('accepted_at') or 'N/A'}",
+                    ]
+                )
+            lines.append("")
     return "\n".join(lines)
 
 

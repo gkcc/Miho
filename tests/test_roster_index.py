@@ -46,6 +46,20 @@ def normalized_snapshot(name: str, *, review_status: str = "PASS", invalid_count
     }
 
 
+def accepted_snapshot(name: str, *, level: str, accepted_at: str, source_name: str) -> dict:
+    snapshot = normalized_snapshot(name)
+    snapshot["character"]["level"]["value"] = level
+    snapshot["review_decision"] = {
+        "schema_version": "p1.4-lite-review-decisions",
+        "decision": "accept",
+        "note": "人工确认通过",
+        "decided_at": accepted_at,
+        "accepted_at": accepted_at,
+        "source_normalized_json": source_name,
+    }
+    return snapshot
+
+
 class RosterIndexTests(unittest.TestCase):
     def test_apply_review_decisions_accepts_rejects_and_blocks_unsafe_accepts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -118,6 +132,70 @@ class RosterIndexTests(unittest.TestCase):
             root = Path(temp_dir)
             with self.assertRaises(roster_tool.RosterIndexError):
                 roster_tool.build_roster_index(accepted_dir=root / "missing", output_dir=root / "roster")
+
+    def test_build_roster_index_keeps_latest_duplicate_character(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            accepted_dir = root / "accepted"
+            output_dir = root / "roster"
+            accepted_dir.mkdir()
+            older = accepted_dir / "miyabi_old.json"
+            newer = accepted_dir / "miyabi_new.json"
+            other = accepted_dir / "nicole.json"
+            older.write_text(
+                json.dumps(
+                    accepted_snapshot(
+                        "星见雅",
+                        level="50",
+                        accepted_at="2026-06-01T00:00:00+08:00",
+                        source_name="old_normalized.json",
+                    ),
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            newer.write_text(
+                json.dumps(
+                    accepted_snapshot(
+                        "星见雅",
+                        level="60",
+                        accepted_at="2026-06-02T00:00:00+08:00",
+                        source_name="new_normalized.json",
+                    ),
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            other.write_text(
+                json.dumps(
+                    accepted_snapshot(
+                        "妮可",
+                        level="55",
+                        accepted_at="2026-06-01T12:00:00+08:00",
+                        source_name="nicole_normalized.json",
+                    ),
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = roster_tool.build_roster_index(accepted_dir=accepted_dir, output_dir=output_dir)
+
+            self.assertEqual(result["accepted_snapshot_count"], 3)
+            self.assertEqual(result["character_count"], 2)
+            self.assertEqual(result["summary"]["duplicate_character_count"], 1)
+            self.assertEqual(result["summary"]["superseded_snapshot_count"], 1)
+            miyabi = next(item for item in result["characters"] if item["name"] == "星见雅")
+            self.assertEqual(miyabi["level"], "60")
+            self.assertEqual(miyabi["snapshot_json"], str(newer))
+            self.assertEqual(miyabi["superseded_snapshot_count"], 1)
+            self.assertEqual(miyabi["superseded_snapshots"][0]["snapshot_json"], str(older))
+            self.assertIn("同一角色存在多份 accepted snapshot", " ".join(result["warnings"]))
+            self.assertEqual(result["duplicates"][0]["kept_snapshot_json"], str(newer))
+
+            markdown = Path(result["output_md"]).read_text(encoding="utf-8")
+            self.assertIn("duplicate_character_count: 1", markdown)
+            self.assertIn("Superseded snapshots", markdown)
 
 
 if __name__ == "__main__":
