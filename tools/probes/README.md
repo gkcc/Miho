@@ -452,7 +452,22 @@ python tools/probes/build_roster_index.py `
 * 含 `invalid_candidate` 或 invalid 字段的结果不能 accept；
 * rejected snapshot 只保留本地复核日志，不进入 roster index；
 * 同一角色如果存在多份 accepted snapshot，`roster_index` 只保留 `accepted_at` 最新的一份作为当前 box，旧版本会进入 `duplicates` / `superseded_snapshots` 方便追溯；
+* `apply_review_decisions.py` 重建 `roster_index.json` 前会把旧 index 备份到 `data/probes/roster/history/`；
 * `data/probes/roster/` 仍是本地 probe 输出，不提交 Git。
+
+如需单独生成 accepted box 变化影响报告：
+
+```powershell
+python tools/probes/build_roster_delta.py `
+  --old-roster-index data/probes/roster/history/roster_index_previous.json `
+  --new-roster-index data/probes/roster/roster_index.json `
+  --action-cards data/probes/demo/actions/action_cards.json `
+  --team-cards data/probes/demo/teams/team_cards.json `
+  --tier-watchlist data/probes/demo/tier_watchlist/tier_watchlist.json `
+  --output-dir data/probes/demo/roster_delta
+```
+
+`roster_delta` 只比较 accepted roster 的当前 `roster_index.characters`，用于展示新增/更新角色、受影响队伍和 tier / 保值命中；pending snapshot、rejected snapshot、catalog candidate 不参与“已拥有 box 变化”。
 
 CLI 壳：
 

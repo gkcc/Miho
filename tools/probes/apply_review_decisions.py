@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -156,6 +157,20 @@ def decision_items(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in raw if isinstance(item, dict)]
 
 
+def backup_existing_roster_index(roster_dir: Path) -> str | None:
+    current = roster_dir / "roster_index.json"
+    if not current.exists():
+        return None
+    history_dir = roster_dir / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = roster_index.now_iso().replace(":", "").replace("+", "_").replace("-", "")
+    target = history_dir / f"roster_index_{timestamp}.json"
+    shutil.copy2(current, target)
+    latest = history_dir / "roster_index_previous.json"
+    shutil.copy2(current, latest)
+    return str(target)
+
+
 def apply_review_decisions(*, normalized_dir: Path, decision_manifest: Path, roster_dir: Path) -> dict[str, Any]:
     if not normalized_dir.exists():
         raise ReviewDecisionError(f"Normalized directory does not exist: {normalized_dir}")
@@ -163,8 +178,10 @@ def apply_review_decisions(*, normalized_dir: Path, decision_manifest: Path, ros
     records = [apply_decision_item(item, normalized_dir, roster_dir) for item in decision_items(manifest)]
     accepted_dir = roster_dir / "accepted"
     index_result = None
+    previous_roster_index = None
     if accepted_dir.exists():
         try:
+            previous_roster_index = backup_existing_roster_index(roster_dir)
             index_result = roster_index.build_roster_index(accepted_dir=accepted_dir, output_dir=roster_dir)
         except roster_index.RosterIndexError as exc:
             records.append(
@@ -194,6 +211,7 @@ def apply_review_decisions(*, normalized_dir: Path, decision_manifest: Path, ros
             "error_count": sum(1 for item in records if item.get("status") == "error"),
         },
         "records": records,
+        "previous_roster_index": previous_roster_index,
         "roster_index": index_result.get("output_json") if isinstance(index_result, dict) else None,
     }
     roster_dir.mkdir(parents=True, exist_ok=True)
@@ -232,6 +250,8 @@ def main() -> int:
     print(f"review_log: {result['output_json']}")
     if result.get("roster_index"):
         print(f"roster_index: {result['roster_index']}")
+    if result.get("previous_roster_index"):
+        print(f"previous_roster_index: {result['previous_roster_index']}")
     return 0
 
 

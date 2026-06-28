@@ -28,6 +28,8 @@ python tools/probes/run_demo_pipeline.py `
 
 `--tier-snapshot` 只读取本地 JSON，不联网抓取，不生成最终抽取建议。只有 `data/probes/roster/roster_index.json` 中的 accepted roster 才会被标记为已确认拥有练度；demo normalized snapshot 仍然需要人工确认。同一角色多次人工确认时，roster index 只保留 `accepted_at` 最新的一份作为当前 box，旧快照会写入 `duplicates` / `superseded_snapshots` 供追溯。若同时生成 action cards / team cards，tier / 保值信号只用于解释、降级本地行动优先级，或辅助已确认队伍排序，避免为了短期奖励继续加码低保值角色。`stale` / `unverified` tier 只能作为弱参考，不会提升队伍排序。
 
+人工确认后可生成本次 box 变化影响报告。`apply_review_decisions.py` 会在重建当前 `roster_index.json` 前，把旧 index 备份到 `data/probes/roster/history/`；demo pipeline 检测到 previous/current roster index 时，会生成 `roster_delta.json/md` 并在 Dashboard 展示“本次练度更新影响”。该 delta 只比较 accepted roster 当前保留版本，不包含 pending snapshot、rejected snapshot 或 catalog candidate。
+
 ## Tier Snapshot 草案
 
 本地 tier snapshot 可以使用如下结构：

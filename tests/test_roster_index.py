@@ -197,6 +197,49 @@ class RosterIndexTests(unittest.TestCase):
             self.assertIn("duplicate_character_count: 1", markdown)
             self.assertIn("Superseded snapshots", markdown)
 
+    def test_apply_review_decisions_backs_up_previous_roster_index(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            normalized_dir = root / "normalized"
+            roster_dir = root / "roster"
+            normalized_dir.mkdir()
+            roster_dir.mkdir()
+            previous = roster_dir / "roster_index.json"
+            previous.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p1.4-lite-roster-index",
+                        "characters": [{"name": "旧角色"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            accept_path = normalized_dir / "miyabi.json"
+            accept_path.write_text(json.dumps(normalized_snapshot("星见雅"), ensure_ascii=False), encoding="utf-8")
+            manifest_path = root / "review_decisions.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {"decisions": [{"normalized_json": str(accept_path), "decision": "accept", "note": "人工确认通过"}]},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = decision_tool.apply_review_decisions(
+                normalized_dir=normalized_dir,
+                decision_manifest=manifest_path,
+                roster_dir=roster_dir,
+            )
+
+            self.assertIsNotNone(result["previous_roster_index"])
+            self.assertTrue(Path(result["previous_roster_index"]).exists())
+            self.assertTrue((roster_dir / "history" / "roster_index_previous.json").exists())
+            previous_backup = json.loads((roster_dir / "history" / "roster_index_previous.json").read_text(encoding="utf-8"))
+            self.assertEqual(previous_backup["characters"][0]["name"], "旧角色")
+            current = json.loads((roster_dir / "roster_index.json").read_text(encoding="utf-8"))
+            self.assertEqual(current["characters"][0]["name"], "星见雅")
+
 
 if __name__ == "__main__":
     unittest.main()

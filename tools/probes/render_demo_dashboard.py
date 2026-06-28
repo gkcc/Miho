@@ -630,6 +630,67 @@ def render_review_inbox(summary: dict[str, Any]) -> str:
     """
 
 
+def render_roster_delta(summary: dict[str, Any]) -> str:
+    delta = summary.get("roster_delta")
+    if not isinstance(delta, dict):
+        return ""
+    error = delta.get("error")
+    delta_summary = delta.get("summary") if isinstance(delta.get("summary"), dict) else {}
+    changes = delta.get("character_changes") if isinstance(delta.get("character_changes"), list) else []
+    warnings = delta.get("warnings") if isinstance(delta.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Delta Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if error:
+        body = f'<div class="errors"><strong>Roster delta failed</strong><ul><li>{e(error)}</li></ul></div>'
+    elif not changes:
+        body = '<div class="empty">没有可展示的 accepted roster 变化。</div>'
+    else:
+        rows = []
+        visible_changes = [item for item in changes if isinstance(item, dict) and item.get("change_type") != "unchanged"]
+        for item in (visible_changes or changes)[:8]:
+            tier = item.get("tier_observation") if isinstance(item.get("tier_observation"), dict) else {}
+            field_changes = item.get("field_changes") if isinstance(item.get("field_changes"), list) else []
+            fields = "、".join(
+                str(change.get("field")) for change in field_changes[:4] if isinstance(change, dict) and change.get("field")
+            )
+            impacted_targets = "、".join(str(target) for target in item.get("impacted_targets", []) if target)
+            warnings_text = "；".join(str(warning) for warning in item.get("warnings", []) if warning)
+            rows.append(
+                "<article class=\"plan-item\">"
+                f"<div class=\"plan-rank\">{e(item.get('change_type'))}</div>"
+                "<div>"
+                f"<h3>{e(item.get('character'))}</h3>"
+                f"<p>{e(fields or '字段未变化')}</p>"
+                f"<span>受影响目标/队伍：{e(impacted_targets or 'none')}</span>"
+                f"<span>tier / 保值观察：{e(tier.get('tier') or 'N/A')} · {e(tier.get('status') or 'missing')} · {e(tier.get('trend') or 'trend?')}</span>"
+                f"<span>{e(warnings_text or 'delta 只基于 accepted roster，不包含 pending snapshot')}</span>"
+                "</div>"
+                f"<strong>{e(item.get('new_snapshot_json') or item.get('old_snapshot_json') or 'N/A')}</strong>"
+                "</article>"
+            )
+        body = '<div class="plan-list">' + "".join(rows) + "</div>"
+    return f"""
+    <section class="panel">
+      <h2>本次练度更新影响</h2>
+      <p class="muted-line">delta 只基于 accepted roster，不包含 pending snapshot、rejected snapshot 或 catalog candidate。</p>
+      <div class="links">
+        {link("roster_delta.md", delta.get("output_md"))}
+        {link("roster_delta.json", delta.get("output_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>新增角色</span><strong>{e(delta_summary.get("new_character_count", "N/A"))}</strong></div>
+        <div><span>更新角色</span><strong>{e(delta_summary.get("updated_character_count", "N/A"))}</strong></div>
+        <div><span>移除提示</span><strong>{e(delta_summary.get("removed_character_count", "N/A"))}</strong></div>
+        <div><span>未变化角色</span><strong>{e(delta_summary.get("unchanged_character_count", "N/A"))}</strong></div>
+        <div><span>队伍影响</span><strong>{e(delta_summary.get("team_impact_count", "N/A"))}</strong></div>
+        <div><span>Tier 命中</span><strong>{e(delta_summary.get("tier_impact_count", "N/A"))}</strong></div>
+      </div>
+      {warning_block}
+      {body}
+    </section>
+    """
+
+
 def percent_label(value: Any) -> str:
     if isinstance(value, (int, float)):
         return f"{round(float(value) * 100, 1)}%"
@@ -790,6 +851,8 @@ def render_html(summary: dict[str, Any]) -> str:
     inbox_info = summary.get("review_inbox", {}) if isinstance(summary.get("review_inbox"), dict) else {}
     tier_info = summary.get("tier_watchlist", {}) if isinstance(summary.get("tier_watchlist"), dict) else {}
     tier_summary = tier_info.get("summary", {}) if isinstance(tier_info.get("summary"), dict) else {}
+    delta_info = summary.get("roster_delta", {}) if isinstance(summary.get("roster_delta"), dict) else {}
+    delta_summary = delta_info.get("summary", {}) if isinstance(delta_info.get("summary"), dict) else {}
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
@@ -821,6 +884,9 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("Tier 观察候选", tier_summary.get("watch_candidate_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("watch_candidate_count") else "muted"),
         metric_card("stale tier", tier_summary.get("stale_entry_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("stale_entry_count") else "muted"),
         metric_card("unverified tier", tier_summary.get("unverified_entry_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("unverified_entry_count") else "muted"),
+        metric_card("本次新增", delta_summary.get("new_character_count", "N/A") if delta_summary else "N/A", "ok" if delta_summary.get("new_character_count") else "muted"),
+        metric_card("本次更新", delta_summary.get("updated_character_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("updated_character_count") else "muted"),
+        metric_card("更新影响队伍", delta_summary.get("team_impact_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("team_impact_count") else "muted"),
         metric_card("可用队伍", team_summary.get("playable_now_count", "N/A") if team_summary else "N/A", "ok" if team_summary.get("playable_now_count") else "muted"),
         metric_card("高保值可用队伍", team_summary.get("high_value_playable_team_count", "N/A") if team_summary else "N/A", "ok" if team_summary.get("high_value_playable_team_count") else "muted"),
         metric_card("需补录队伍", team_summary.get("needs_recording_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("needs_recording_count") else "muted"),
@@ -833,6 +899,7 @@ def render_html(summary: dict[str, Any]) -> str:
     snapshot_history = render_snapshot_history(summary)
     target_refresh = render_target_refresh(summary)
     review_inbox = render_review_inbox(summary)
+    roster_delta = render_roster_delta(summary)
     tier_watchlist = render_tier_watchlist(summary)
     training_plan = render_training_plan(summary)
     action_cards = render_action_cards(summary)
@@ -948,6 +1015,7 @@ def render_html(summary: dict[str, Any]) -> str:
     {target_refresh}
     {snapshot_history}
     {review_inbox}
+    {roster_delta}
     {tier_watchlist}
     {action_cards}
     {team_cards}

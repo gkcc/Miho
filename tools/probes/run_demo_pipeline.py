@@ -23,6 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import build_action_cards as action_cards  # noqa: E402
+import build_roster_delta as roster_delta  # noqa: E402
 import build_team_cards as team_cards  # noqa: E402
 import build_tier_watchlist as tier_watchlist  # noqa: E402
 import normalize_export_parse as normalizer  # noqa: E402
@@ -768,6 +769,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     target_info = summary.get("target_refresh", {}) if isinstance(summary.get("target_refresh"), dict) else {}
     inbox_info = summary.get("review_inbox", {}) if isinstance(summary.get("review_inbox"), dict) else {}
     tier_info = summary.get("tier_watchlist", {}) if isinstance(summary.get("tier_watchlist"), dict) else {}
+    delta_info = summary.get("roster_delta", {}) if isinstance(summary.get("roster_delta"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -810,6 +812,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(summary.get("team_cards"), dict) and summary["team_cards"].get("error")
             else "done"
             if isinstance(summary.get("team_cards"), dict) and summary["team_cards"].get("output_json")
+            else "skipped",
+        },
+        {
+            "name": "Roster Delta",
+            "status": "failed"
+            if isinstance(delta_info, dict) and delta_info.get("error")
+            else "done"
+            if isinstance(delta_info, dict) and delta_info.get("output_json")
             else "skipped",
         },
     ]
@@ -1109,6 +1119,47 @@ def build_demo_tier_watchlist(
         }
     )
     return info
+
+
+def latest_previous_roster_index(roster_dir: Path) -> Path | None:
+    history_dir = roster_dir / "history"
+    previous = history_dir / "roster_index_previous.json"
+    if previous.exists():
+        return previous
+    candidates = sorted(history_dir.glob("roster_index_*.json")) if history_dir.exists() else []
+    return candidates[-1] if candidates else None
+
+
+def build_demo_roster_delta(
+    *,
+    roster_dir: Path,
+    output_dir: Path,
+    new_roster_index: Path,
+    action_cards_path: Path | None = None,
+    team_cards_path: Path | None = None,
+    tier_watchlist_path: Path | None = None,
+) -> dict[str, Any] | None:
+    old_roster_index = latest_previous_roster_index(roster_dir)
+    if not old_roster_index or not old_roster_index.exists() or not new_roster_index.exists():
+        return None
+    try:
+        return roster_delta.build_roster_delta(
+            old_roster_index=old_roster_index,
+            new_roster_index=new_roster_index,
+            action_cards=action_cards_path if action_cards_path and action_cards_path.exists() else None,
+            team_cards=team_cards_path if team_cards_path and team_cards_path.exists() else None,
+            tier_watchlist=tier_watchlist_path if tier_watchlist_path and tier_watchlist_path.exists() else None,
+            output_dir=output_dir / "roster_delta",
+        )
+    except roster_delta.RosterDeltaError as exc:
+        return {
+            "schema_version": roster_delta.SCHEMA_VERSION,
+            "input": {
+                "old_roster_index": str(old_roster_index),
+                "new_roster_index": str(new_roster_index),
+            },
+            "error": str(exc),
+        }
 
 
 def review_decision_source(path: Path) -> str | None:
@@ -1429,6 +1480,23 @@ def run_pipeline(
         if team_card_info.get("error"):
             summary.setdefault("warnings", []).append(f"Team cards failed: {team_card_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
+    action_cards_path = Path(str(action_card_info["output_json"])) if isinstance(action_card_info, dict) and action_card_info.get("output_json") else None
+    team_cards_path = Path(str(team_card_info["output_json"])) if isinstance(team_card_info, dict) and team_card_info.get("output_json") else None
+    roster_delta_info = build_demo_roster_delta(
+        roster_dir=active_roster_dir,
+        output_dir=output_dir,
+        new_roster_index=roster_index_for_replay,
+        action_cards_path=action_cards_path,
+        team_cards_path=team_cards_path,
+        tier_watchlist_path=tier_watchlist_path,
+    )
+    if roster_delta_info is not None:
+        summary["roster_delta"] = roster_delta_info
+        if roster_delta_info.get("warnings"):
+            summary.setdefault("warnings", []).extend(roster_delta_info["warnings"])
+        if roster_delta_info.get("error"):
+            summary.setdefault("warnings", []).append(f"Roster delta failed: {roster_delta_info['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
     summary_path = output_dir / "demo_summary.json"
     write_json(summary_path, summary)
     dashboard_path = output_dir / "index.html"
@@ -1536,6 +1604,12 @@ def main() -> int:
             print(f"tier_watch_candidate_count: {tier_summary.get('watch_candidate_count', 0)}")
             print(f"tier_stale_entry_count: {tier_summary.get('stale_entry_count', 0)}")
             print(f"tier_unverified_entry_count: {tier_summary.get('unverified_entry_count', 0)}")
+    if isinstance(summary.get("roster_delta"), dict):
+        delta_summary = summary["roster_delta"].get("summary", {})
+        if isinstance(delta_summary, dict):
+            print(f"roster_delta_new_count: {delta_summary.get('new_character_count', 0)}")
+            print(f"roster_delta_updated_count: {delta_summary.get('updated_character_count', 0)}")
+            print(f"roster_delta_team_impact_count: {delta_summary.get('team_impact_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0

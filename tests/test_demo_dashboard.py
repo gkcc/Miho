@@ -455,6 +455,48 @@ class DemoDashboardTests(unittest.TestCase):
                     ],
                     "error": None,
                 },
+                "roster_delta": {
+                    "schema_version": "p1.8-lite-roster-delta",
+                    "output_json": str(root / "roster_delta.json"),
+                    "output_md": str(root / "roster_delta.md"),
+                    "summary": {
+                        "new_character_count": 0,
+                        "updated_character_count": 1,
+                        "removed_character_count": 0,
+                        "unchanged_character_count": 0,
+                        "team_impact_count": 1,
+                        "tier_impact_count": 1,
+                    },
+                    "warnings": [
+                        "roster_delta 只基于 accepted roster 的当前 roster_index；pending snapshot、rejected snapshot 和 catalog candidate 不参与已拥有 box 变化。"
+                    ],
+                    "character_changes": [
+                        {
+                            "character": "星见雅",
+                            "change_type": "updated",
+                            "old_snapshot_json": str(root / "accepted" / "miyabi_old.json"),
+                            "new_snapshot_json": str(root / "accepted" / "miyabi_new.json"),
+                            "field_changes": [{"field": "level", "old": "50", "new": "60"}],
+                            "impacted_targets": ["危局强袭战 稳定通关"],
+                            "impacted_teams": [
+                                {
+                                    "target": "危局强袭战 稳定通关",
+                                    "team_title": "星见雅 核心队",
+                                    "team_status": "playable_now",
+                                    "source_class": "owned_snapshot",
+                                }
+                            ],
+                            "tier_observation": {
+                                "tier": "S",
+                                "status": "verified",
+                                "trend": "stable",
+                                "retention_score": 0.9,
+                            },
+                            "warnings": ["该角色有 superseded accepted snapshot；delta 只比较 roster_index 当前保留版本。"],
+                        }
+                    ],
+                    "error": None,
+                },
                 "pipeline_steps": [
                     {"name": "Normalized Snapshot", "status": "GENERATED"},
                     {"name": "Manual Review Gate", "status": "REQUIRES_REVIEW"},
@@ -462,6 +504,7 @@ class DemoDashboardTests(unittest.TestCase):
                     {"name": "Review Inbox", "status": "done"},
                     {"name": "Tier Watchlist", "status": "done"},
                     {"name": "Team Cards", "status": "done"},
+                    {"name": "Roster Delta", "status": "done"},
                 ],
                 "target_refresh": {
                     "manifest": str(root / "target_sources.json"),
@@ -606,6 +649,11 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("catalog_candidate", html)
             self.assertIn("pending snapshot 尚未进入 accepted roster", html)
             self.assertIn("catalog candidate 不代表已拥有", html)
+            self.assertIn("本次练度更新影响", html)
+            self.assertIn("roster_delta.json", html)
+            self.assertIn("delta 只基于 accepted roster", html)
+            self.assertIn("更新角色", html)
+            self.assertIn("Tier 命中", html)
             self.assertIn("培养优先级候选", html)
             self.assertIn("source status", html)
             self.assertIn("local_draft", html)
