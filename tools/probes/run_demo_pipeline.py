@@ -802,6 +802,7 @@ def build_training_plan(
             "warnings": report.get("warnings", []) if isinstance(report.get("warnings"), list) else [],
             "history_context": report.get("history_context", {}) if isinstance(report.get("history_context"), dict) else {},
             "resource_plan": report.get("resource_plan", {}) if isinstance(report.get("resource_plan"), dict) else {},
+            "target_source_status": report.get("target_source_status", {}) if isinstance(report.get("target_source_status"), dict) else {},
         }
     )
     return plan_info

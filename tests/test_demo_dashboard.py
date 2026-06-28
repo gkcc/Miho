@@ -164,6 +164,12 @@ class DemoDashboardTests(unittest.TestCase):
                         }
                     ],
                     "warnings": ["终局目标来自本地配置或 mock"],
+                    "target_source_status": {
+                        "status": "local_draft",
+                        "freshness_level": "unknown",
+                        "current_endgame_ready": False,
+                        "planning_confidence": "low",
+                    },
                     "resource_plan": {
                         "budget": {"daily_stamina": 240.0, "horizon_days": 7, "total_stamina": 1680.0},
                         "today": [
@@ -249,6 +255,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("review_html", html)
             self.assertIn("case_expected.json", html)
             self.assertIn("培养优先级候选", html)
+            self.assertIn("source status", html)
+            self.assertIn("local_draft", html)
             self.assertIn("今日投入建议", html)
             self.assertIn("终局目标刷新", html)
             self.assertIn("endgame_targets.json", html)
@@ -453,9 +461,12 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["target_refresh"]["output_json"]).exists())
             self.assertIn("training_plan", summary)
             self.assertEqual(summary["training_plan"]["targets_json"], summary["target_refresh"]["output_json"])
+            self.assertEqual(summary["training_plan"]["target_source_status"]["status"], "current")
             self.assertGreater(summary["training_plan"]["plan_item_count"], 0)
             self.assertIn("Target Refresh", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("终局目标刷新", dashboard_html)
+            self.assertIn("source status", dashboard_html)
+            self.assertIn("current", dashboard_html)
             self.assertIn("endgame_targets.json", dashboard_html)
 
     def test_run_demo_pipeline_rejects_static_targets_and_target_source_manifest_together(self) -> None:

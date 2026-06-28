@@ -16,6 +16,9 @@ PROJECT_ROOT = SCRIPT_DIR.parents[1]
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "planner"
 DEFAULT_DAILY_STAMINA = 240
 DEFAULT_HORIZON_DAYS = 7
+CURRENT_TARGET_SOURCE_TYPES = {"official_current", "official_snapshot", "public_web_snapshot"}
+LOCAL_DRAFT_SOURCE_TYPES = {"manual", "mock", "local_mock", "draft"}
+CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
 
 
 class PlannerError(RuntimeError):
@@ -241,6 +244,67 @@ def minimums_for_targets(targets: list[dict[str, Any]], defaults: dict[str, Any]
     return minimums
 
 
+def target_source_status(targets: dict[str, Any]) -> dict[str, Any]:
+    source = targets.get("source") if isinstance(targets.get("source"), dict) else {}
+    freshness = targets.get("freshness") if isinstance(targets.get("freshness"), dict) else {}
+    source_type = str(source.get("type") or "unknown")
+    freshness_level = str(freshness.get("level") or "unknown")
+    stale_count = int(freshness.get("stale_source_count") or 0) if freshness else 0
+
+    if source_type in LOCAL_DRAFT_SOURCE_TYPES:
+        status = "local_draft"
+        confidence = "low"
+        current_ready = False
+        reason = "终局目标来自本地配置或 mock，不能代表当前线上高难。"
+    elif freshness_level == "stale" or stale_count:
+        status = "stale"
+        confidence = "low"
+        current_ready = False
+        reason = "终局目标来源已过期，当前高难配队建议需要先刷新来源。"
+    elif source_type in CURRENT_TARGET_SOURCE_TYPES and freshness_level == "fresh":
+        status = "current"
+        confidence = "high"
+        current_ready = True
+        reason = "终局目标来源新鲜，可作为当前高难候选输入。"
+    elif source_type in CURRENT_TARGET_SOURCE_TYPES:
+        status = "needs_freshness"
+        confidence = "medium"
+        current_ready = False
+        reason = "终局目标来源类型可用，但缺少 freshness 证明，不能直接当作当前高难事实。"
+    else:
+        status = "unverified"
+        confidence = "low"
+        current_ready = False
+        reason = "终局目标来源类型未验证，建议只能作为本地草案。"
+
+    return {
+        "source_type": source_type,
+        "status": status,
+        "freshness_level": freshness_level,
+        "stale_source_count": stale_count,
+        "current_endgame_ready": current_ready,
+        "planning_confidence": confidence,
+        "reason": reason,
+    }
+
+
+def cap_confidence(value: str, cap: str) -> str:
+    current_rank = CONFIDENCE_ORDER.get(str(value), 1)
+    cap_rank = CONFIDENCE_ORDER.get(str(cap), 1)
+    for name, rank in CONFIDENCE_ORDER.items():
+        if rank == min(current_rank, cap_rank):
+            return name
+    return "low"
+
+
+def source_confidence_note(source_status: dict[str, Any]) -> str:
+    status = source_status.get("status")
+    if status == "current":
+        return ""
+    reason = source_status.get("reason")
+    return str(reason) if reason else "目标来源未达到当前高难可用标准。"
+
+
 def add_gap(gaps: list[dict[str, Any]], *, kind: str, severity: int, action: str, reason: str, estimated_days: float, confidence: str) -> None:
     gaps.append(
         {
@@ -445,8 +509,11 @@ def character_gaps(
     }
 
 
-def plan_items(character_reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def plan_items(character_reports: list[dict[str, Any]], source_status: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     items = []
+    active_source_status = source_status or {}
+    source_confidence = str(active_source_status.get("planning_confidence") or "medium")
+    source_note = source_confidence_note(active_source_status)
     for report in character_reports:
         character = report["character"]
         matched_targets = report.get("matched_targets", [])
@@ -466,6 +533,9 @@ def plan_items(character_reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 reason = gap["reason"]
                 if item_bonus:
                     reason = f"{reason} 历史快照显示近期已有 {recent_change_count} 项变化，适合延续投入。"
+                if source_note:
+                    reason = f"{reason} {source_note}"
+            confidence = gap["confidence"] if gap["gap_type"] == "data_review" else cap_confidence(gap["confidence"], source_confidence)
             items.append(
                 {
                     "priority_score": score,
@@ -475,7 +545,9 @@ def plan_items(character_reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "action": gap["action"],
                     "reason": reason,
                     "estimated_days": gap["estimated_days"],
-                    "confidence": gap["confidence"],
+                    "confidence": confidence,
+                    "source_confidence": source_confidence,
+                    "target_source_status": active_source_status.get("status"),
                     "continuity_bonus": item_bonus,
                     "recent_change_count": recent_change_count,
                     "recent_diff_md": history.get("diff_md"),
@@ -489,10 +561,9 @@ def plan_items(character_reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def build_warnings(targets: dict[str, Any], snapshots: list[dict[str, Any]]) -> list[str]:
     warnings = []
-    source = targets.get("source") if isinstance(targets.get("source"), dict) else {}
-    source_type = source.get("type")
-    if source_type not in {"official_current", "official_snapshot"}:
-        warnings.append("终局目标来自本地配置或 mock，不代表当前线上高难；后续需要接官方公告/活动数据源。")
+    source_status = target_source_status(targets)
+    if not source_status.get("current_endgame_ready"):
+        warnings.append(str(source_status["reason"]))
     if any(snapshot.get("quality", {}).get("requires_manual_review") for snapshot in snapshots if isinstance(snapshot.get("quality"), dict)):
         warnings.append("存在 requires_manual_review 的 normalized snapshot，规划建议只能作为人工确认前的候选。")
     return warnings
@@ -587,6 +658,20 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- target_source: {report.get('target_source', {}).get('type') or ''}",
         "",
     ]
+    source_status = report.get("target_source_status", {}) if isinstance(report.get("target_source_status"), dict) else {}
+    if source_status:
+        lines.extend(
+            [
+                "## 目标来源状态",
+                "",
+                f"- status: {source_status.get('status')}",
+                f"- freshness: {source_status.get('freshness_level')}",
+                f"- current_endgame_ready: {source_status.get('current_endgame_ready')}",
+                f"- planning_confidence: {source_status.get('planning_confidence')}",
+                f"- reason: {source_status.get('reason')}",
+                "",
+            ]
+        )
     warnings = report.get("warnings", [])
     if warnings:
         lines.extend(["## Warnings", ""])
@@ -676,7 +761,8 @@ def generate_report(
         character_gaps(snapshot, targets, history_context=history_context, history_index=loaded_history_index)
         for snapshot in snapshots
     ]
-    items = plan_items(characters)
+    source_status = target_source_status(targets)
+    items = plan_items(characters, source_status)
     budget = resource_budget(targets, daily_stamina, horizon_days)
     report = {
         "schema_version": "p1.2-planner-draft",
@@ -688,6 +774,7 @@ def generate_report(
             "history_index": str(history_index) if history_index else None,
         },
         "target_source": targets.get("source", {}),
+        "target_source_status": source_status,
         "snapshots": [
             {
                 "character": character_name(snapshot),
@@ -746,7 +833,10 @@ def main() -> int:
     except PlannerError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    source_status = report.get("target_source_status", {}) if isinstance(report.get("target_source_status"), dict) else {}
     print(f"plan_item_count: {len(report['plan_items'])}")
+    print(f"target_source_status: {source_status.get('status')}")
+    print(f"planning_confidence: {source_status.get('planning_confidence')}")
     print(f"output_json: {report['output_json']}")
     print(f"output_md: {report['output_md']}")
     return 0

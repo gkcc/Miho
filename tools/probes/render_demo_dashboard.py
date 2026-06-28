@@ -224,6 +224,17 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>Planner Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     resource = plan.get("resource_plan") if isinstance(plan.get("resource_plan"), dict) else {}
+    source_status = plan.get("target_source_status") if isinstance(plan.get("target_source_status"), dict) else {}
+    source_status_block = ""
+    if source_status:
+        source_status_block = f"""
+        <div class="input-grid">
+          <div><span>source status</span><strong>{e(source_status.get("status", "N/A"))}</strong></div>
+          <div><span>source freshness</span><strong>{e(source_status.get("freshness_level", "N/A"))}</strong></div>
+          <div><span>current ready</span><strong>{e(source_status.get("current_endgame_ready", "N/A"))}</strong></div>
+          <div><span>plan confidence</span><strong>{e(source_status.get("planning_confidence", "N/A"))}</strong></div>
+        </div>
+        """
     resource_block = ""
     if resource:
         budget = resource.get("budget") if isinstance(resource.get("budget"), dict) else {}
@@ -277,6 +288,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
         {link("training_priority_report.json", plan.get("output_json"))}
         {link("targets_json", plan.get("targets_json"))}
       </div>
+      {source_status_block}
       {warning_block}
       {resource_block}
       {body}

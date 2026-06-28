@@ -452,6 +452,15 @@ data/probes/planner/training_priority_report.md
 * `no_stamina_actions`：不消耗体力但应先做的人工确认或整理项；
 * `overflow`：规划窗口内排不进去的候选项。
 
+报告中的 `target_source_status` 会把目标来源分成：
+
+* `current`：fresh 的官方 / 公开高难来源，可作为当前高难候选输入；
+* `stale`：来源已过期，训练动作会被降为低置信度；
+* `local_draft`：本地 mock / 人工配置，只能用于体验链路和规则调试；
+* `needs_freshness` / `unverified`：来源类型或 freshness 不足，不能当作当前高难事实。
+
+只要 `current_endgame_ready=false`，planner 仍会输出候选项，但非数据确认类训练动作会被来源置信度限制，报告和 Dashboard 都会显示 warning。
+
 targets JSON 是本地配置，后续可以由官方公告 / 官方活动页解析器生成。当前建议结构：
 
 ```json

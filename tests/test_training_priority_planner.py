@@ -138,17 +138,61 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertTrue(Path(report["output_json"]).exists())
             self.assertTrue(Path(report["output_md"]).exists())
             self.assertEqual(report["schema_version"], "p1.2-planner-draft")
+            self.assertEqual(report["target_source_status"]["status"], "local_draft")
+            self.assertEqual(report["target_source_status"]["planning_confidence"], "low")
             self.assertIn("终局目标来自本地配置", report["warnings"][0])
             actions = {item["action"] for item in report["plan_items"]}
             self.assertIn("先人工确认解析结果", actions)
             self.assertIn("角色等级提升到 60", actions)
             self.assertIn("音擎等级提升到 60", actions)
             self.assertTrue(any(item["gap_type"] == "drive_disc_quality" for item in report["plan_items"]))
+            training_items = [item for item in report["plan_items"] if item["gap_type"] != "data_review"]
+            self.assertTrue(training_items)
+            self.assertTrue(all(item["confidence"] == "low" for item in training_items))
+            self.assertTrue(any("不能代表当前线上高难" in item["reason"] for item in training_items))
             self.assertEqual(report["plan_items"][0]["priority_rank"], 1)
             self.assertEqual(report["resource_plan"]["budget"]["daily_stamina"], 240.0)
             self.assertEqual(report["resource_plan"]["budget"]["horizon_days"], 7)
             self.assertTrue(report["resource_plan"]["today"])
             self.assertTrue(report["resource_plan"]["no_stamina_actions"])
+
+    def test_generate_report_marks_fresh_official_targets_current_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_path = root / "snapshot.json"
+            targets_path = root / "targets.json"
+            targets = targets_json()
+            targets["source"] = {"type": "official_snapshot", "note": "fresh saved public official page"}
+            targets["freshness"] = {"level": "fresh", "stale_source_count": 0, "max_source_age_hours": 168}
+            snapshot_path.write_text(json.dumps(normalized_snapshot(), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+            report = planner_tool.generate_report([snapshot_path], targets_path, root / "planner")
+
+            self.assertEqual(report["target_source_status"]["status"], "current")
+            self.assertTrue(report["target_source_status"]["current_endgame_ready"])
+            self.assertFalse(any("本地配置或 mock" in warning for warning in report["warnings"]))
+            training_items = [item for item in report["plan_items"] if item["gap_type"] != "data_review"]
+            self.assertTrue(training_items)
+            self.assertTrue(all(item["source_confidence"] == "high" for item in training_items))
+
+    def test_generate_report_warns_on_stale_target_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_path = root / "snapshot.json"
+            targets_path = root / "targets.json"
+            targets = targets_json()
+            targets["source"] = {"type": "official_current"}
+            targets["freshness"] = {"level": "stale", "stale_source_count": 1, "max_source_age_hours": 24}
+            snapshot_path.write_text(json.dumps(normalized_snapshot(), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+            report = planner_tool.generate_report([snapshot_path], targets_path, root / "planner")
+
+            self.assertEqual(report["target_source_status"]["status"], "stale")
+            self.assertFalse(report["target_source_status"]["current_endgame_ready"])
+            self.assertTrue(any("来源已过期" in warning for warning in report["warnings"]))
+            self.assertTrue(any("先刷新来源" in item["reason"] for item in report["plan_items"] if item["gap_type"] != "data_review"))
 
     def test_snapshot_manifest_input_loads_multiple_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
