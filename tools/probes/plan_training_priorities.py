@@ -403,6 +403,36 @@ def target_match_summaries(details: list[dict[str, Any]]) -> list[dict[str, Any]
     return summaries
 
 
+def target_evidence_summary(target: dict[str, Any]) -> dict[str, Any]:
+    evidence = target.get("evidence") if isinstance(target.get("evidence"), dict) else {}
+    content_hash = str(evidence.get("content_sha256") or "")
+    return {
+        "source_index": evidence.get("source_index"),
+        "source_kind": evidence.get("source_kind"),
+        "source_ref": evidence.get("source_ref"),
+        "title": evidence.get("title"),
+        "content_sha256": content_hash or None,
+        "content_sha256_short": content_hash[:12] if content_hash else None,
+        "excerpt": evidence.get("excerpt"),
+        "matched_aliases": evidence.get("matched_aliases") if isinstance(evidence.get("matched_aliases"), dict) else {},
+    }
+
+
+def alias_evidence_text(matched_aliases: dict[str, Any]) -> str:
+    parts = []
+    activity = matched_aliases.get("activity")
+    if isinstance(activity, list) and activity:
+        parts.append("activity=" + "、".join(str(item) for item in activity))
+    for group_name in ("weakness_tags", "mechanic_tags"):
+        group = matched_aliases.get(group_name)
+        if not isinstance(group, dict):
+            continue
+        for tag, aliases in group.items():
+            if isinstance(aliases, list) and aliases:
+                parts.append(f"{tag}=" + "、".join(str(item) for item in aliases))
+    return "；".join(parts)
+
+
 def catalog_candidates_for_target(
     target: dict[str, Any],
     character_catalog: dict[str, Any] | None,
@@ -499,6 +529,7 @@ def target_coverage_summary(
                 "match_count": len(matches),
                 "matched_characters": matches,
                 "catalog_candidates": catalog_candidates,
+                "evidence": target_evidence_summary(target),
             }
         )
     return coverage
@@ -1058,6 +1089,26 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"| {item.get('target')} | {item.get('coverage_status')} | {characters or 'none'} | {candidates or 'none'} | {tags} |"
             )
         lines.append("")
+        evidence_rows = []
+        for item in coverage:
+            evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+            if not evidence:
+                continue
+            alias_text = alias_evidence_text(evidence.get("matched_aliases", {})) if isinstance(evidence.get("matched_aliases"), dict) else ""
+            if evidence.get("source_ref") or evidence.get("content_sha256_short") or alias_text:
+                evidence_rows.append(
+                    {
+                        "target": item.get("target"),
+                        "source": evidence.get("source_ref") or evidence.get("title") or "N/A",
+                        "hash": evidence.get("content_sha256_short") or "N/A",
+                        "aliases": alias_text or "N/A",
+                    }
+                )
+        if evidence_rows:
+            lines.extend(["## 目标来源证据", "", "| target | source | hash | matched aliases |", "|---|---|---|---|"])
+            for row in evidence_rows:
+                lines.append(f"| {row['target']} | {row['source']} | {row['hash']} | {row['aliases']} |")
+            lines.append("")
     gap_actions = report.get("coverage_gap_actions") if isinstance(report.get("coverage_gap_actions"), list) else []
     if gap_actions:
         lines.extend(

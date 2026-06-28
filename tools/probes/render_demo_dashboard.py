@@ -94,6 +94,21 @@ def basename(value: Any) -> str:
     return Path(str(value)).name
 
 
+def evidence_hint(evidence: Any) -> str:
+    if not isinstance(evidence, dict):
+        return ""
+    source = evidence.get("title") or evidence.get("source_ref") or ""
+    source_label = basename(source) if source and not str(source).startswith(("http://", "https://")) else str(source)
+    content_hash = evidence.get("content_sha256_short") or ""
+    if source_label and content_hash:
+        return f"证据：{source_label} · {content_hash}"
+    if source_label:
+        return f"证据：{source_label}"
+    if content_hash:
+        return f"证据 hash：{content_hash}"
+    return ""
+
+
 def render_steps(steps: list[dict[str, Any]]) -> str:
     if not steps:
         return ""
@@ -251,10 +266,12 @@ def render_training_plan(summary: dict[str, Any]) -> str:
                 str(candidate.get("character")) for candidate in candidates[:3] if isinstance(candidate, dict) and candidate.get("character")
             )
             detail = names or (f"候选：{candidate_names}" if candidate_names else "none")
+            source_hint = evidence_hint(item.get("evidence"))
+            detail_text = detail if not source_hint else f"{detail} · {source_hint}"
             rows.append(
                 "<article class=\"resource-item\">"
                 f"<strong>{e(item.get('target'))}</strong>"
-                f"<span>{e(item.get('coverage_status'))}: {e(detail)}</span>"
+                f"<span>{e(item.get('coverage_status'))}: {e(detail_text)}</span>"
                 f"<em>{e(item.get('match_count', 0))}</em>"
                 "</article>"
             )

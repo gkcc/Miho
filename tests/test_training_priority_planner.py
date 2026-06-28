@@ -121,6 +121,19 @@ def targets_json() -> dict:
                 "priority": "high",
                 "preferred_characters": ["星见雅"],
                 "minimums": {"skill_level": 9},
+                "evidence": {
+                    "source_index": 1,
+                    "source_kind": "file",
+                    "source_ref": "data/probes/targets/mock_source.html",
+                    "content_sha256": "abcdef1234567890",
+                    "title": "式舆防卫战 本期目标",
+                    "excerpt": "本期式舆防卫战弱冰，适合异常队。",
+                    "matched_aliases": {
+                        "activity": ["式舆防卫战"],
+                        "weakness_tags": {"ice": ["冰"]},
+                        "mechanic_tags": {"anomaly": ["异常"]},
+                    },
+                },
             }
         ],
     }
@@ -201,9 +214,14 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertEqual(character["target_matches"][0]["matched_tags"], ["anomaly", "ice"])
             self.assertEqual(report["target_coverage"][0]["coverage_status"], "covered")
             self.assertEqual(report["target_coverage"][0]["matched_characters"][0]["character"], "星见雅")
+            self.assertEqual(report["target_coverage"][0]["evidence"]["content_sha256_short"], "abcdef123456")
+            self.assertIn("异常", report["target_coverage"][0]["evidence"]["matched_aliases"]["mechanic_tags"]["anomaly"])
             self.assertTrue(any("角色标签命中目标弱点/机制" in item["target_match_reasons"][0] for item in report["plan_items"]))
             markdown = Path(report["output_md"]).read_text(encoding="utf-8")
             self.assertIn("目标覆盖", markdown)
+            self.assertIn("目标来源证据", markdown)
+            self.assertIn("abcdef123456", markdown)
+            self.assertIn("anomaly=异常", markdown)
             self.assertIn("target_matches", markdown)
             self.assertIn("tag_overlap", markdown)
 

@@ -177,6 +177,11 @@ class DemoDashboardTests(unittest.TestCase):
                             "match_count": 1,
                             "matched_characters": [{"character": "星见雅", "match_type": "tag_overlap", "score": 65}],
                             "catalog_candidates": [],
+                            "evidence": {
+                                "source_ref": str(root / "target_source.html"),
+                                "content_sha256_short": "abcdef123456",
+                                "title": "危局强袭战 本期目标",
+                            },
                         },
                         {
                             "target": "式舆防卫战 满星尝试",
@@ -285,6 +290,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("local_draft", html)
             self.assertIn("目标覆盖", html)
             self.assertIn("covered", html)
+            self.assertIn("abcdef123456", html)
             self.assertIn("候选：珂蕾妲", html)
             self.assertIn("长期补洞候选", html)
             self.assertIn("先确认是否拥有", html)
