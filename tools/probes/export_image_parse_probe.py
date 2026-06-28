@@ -70,8 +70,14 @@ STAT_ALIASES = [
     "异常掌控",
     "异常精通",
     "贯穿力",
+    "穿透率",
     "能量自动累积",
+    "能量自动回复",
     "物理伤害加成",
+    "火属性伤害加成",
+    "冰属性伤害加成",
+    "电属性伤害加成",
+    "以太属性伤害加成",
     "穿透值",
 ]
 
@@ -89,18 +95,45 @@ STAT_ALIAS_CANONICAL = {
     "泩命值": "生命值",
     "暴击仿害": "暴击伤害",
     "暴击伤書": "暴击伤害",
+    "暴击伤善": "暴击伤害",
     "暴去率": "暴击率",
     "暴去伤害": "暴击伤害",
+    "恭击率": "暴击率",
     "异吊精通": "异常精通",
     "异吊掌控": "异常掌控",
     "异吊精涌": "异常精通",
     "异常精涌": "异常精通",
     "贯穿值": "贯穿力",
     "闪能自动累积": "能量自动累积",
+    "闪能自动回复": "能量自动回复",
     "物理伤書加成": "物理伤害加成",
 }
 
 STAT_ALIASES = list(dict.fromkeys(STAT_ALIASES + list(STAT_ALIAS_CANONICAL)))
+
+CORE_STAT_LABEL_TO_FIELD = {
+    "生命值": "hp",
+    "攻击力": "atk",
+    "防御力": "def",
+    "冲击力": "impact",
+    "暴击率": "crit_rate",
+    "暴击伤害": "crit_dmg",
+    "异常掌控": "anomaly_mastery",
+    "异常精通": "anomaly_proficiency",
+    "贯穿力": "pen",
+    "穿透值": "pen",
+    "能量自动累积": "energy_regen",
+    "能量自动回复": "energy_regen",
+    "物理伤害加成": "physical_dmg_bonus",
+    "火属性伤害加成": "physical_dmg_bonus",
+    "冰属性伤害加成": "physical_dmg_bonus",
+    "电属性伤害加成": "physical_dmg_bonus",
+    "以太属性伤害加成": "physical_dmg_bonus",
+}
+
+EQUIPMENT_NAME_REPLACEMENTS = (
+    ("刀姐", "刀俎"),
+)
 
 STAT_TEXT_REPLACEMENTS = (
     ("攻去", "攻击"),
@@ -1064,6 +1097,43 @@ def best_cjk_name(text: str) -> str | None:
     return candidates[0]
 
 
+def normalize_equipment_name(text: str) -> str:
+    normalized = text.replace(" ", "").replace("\u3000", "")
+    normalized = normalized.replace("－", "-").replace("—", "-").replace("–", "-")
+    for source, target in EQUIPMENT_NAME_REPLACEMENTS:
+        normalized = normalized.replace(source, target)
+    return normalized.strip("-")
+
+
+def equipment_name_from_blocks(blocks: list[dict[str, Any]]) -> str | None:
+    pieces: list[str] = []
+    for block in sorted(blocks, key=lambda item: (block_center(item)[1], block_center(item)[0])):
+        text = normalize_equipment_name(str(block.get("text", "")))
+        if not text or not CJK_RE.search(text):
+            continue
+        if any(phrase in text for phrase in TEXT_FILTER_PHRASES | INVALID_CANDIDATE_VALUES):
+            continue
+        if re.search(r"[攻防生暴穿异物火冰电以太].*(百分比|伤害|属性|加成|精通|击率)", text):
+            continue
+        pieces.append(text)
+    if not pieces:
+        return None
+    joined = normalize_equipment_name("".join(pieces))
+    if joined:
+        return joined
+    return None
+
+
+def rank_from_block_text(text: str, *, rank_region: bool = False) -> str | None:
+    possible = first_rank(text)
+    if possible:
+        return possible
+    stripped = text.strip().upper()
+    if rank_region and stripped in {"5", "$"}:
+        return "S"
+    return None
+
+
 def value_from_fixed_zone(
     blocks: list[dict[str, Any]],
     image_width: int,
@@ -1074,6 +1144,82 @@ def value_from_fixed_zone(
 ) -> tuple[str | None, list[str]]:
     box = ratio_box_to_pixels(zone, image_width, image_height)
     return best_numeric_in_box(blocks, box, expect_percent=expect_percent)
+
+
+def numeric_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value.rstrip("%"))
+    except ValueError:
+        return None
+
+
+def suspicious_stat_value(field_name: str, value: str | None) -> bool:
+    number = numeric_float(value)
+    if number is None:
+        return False
+    if field_name == "impact" and number > 300:
+        return True
+    if field_name == "energy_regen" and number > 10:
+        return True
+    if field_name in {"crit_rate", "crit_dmg", "physical_dmg_bonus"} and value and value.endswith("%") and number > 300:
+        return True
+    return False
+
+
+def core_stat_field_for_label(label: str) -> str | None:
+    if label == "穿透率":
+        return None
+    return CORE_STAT_LABEL_TO_FIELD.get(label)
+
+
+def row_numeric_candidates_for_label(
+    blocks: list[dict[str, Any]],
+    label_block: dict[str, Any],
+    image_width: int,
+) -> list[tuple[float, str, str]]:
+    label_x, label_y = block_center(label_block)
+    left_column = label_x < image_width * 0.5
+    right_limit = image_width * 0.69 if left_column else image_width
+    candidates: list[tuple[float, str, str]] = []
+    for block in blocks:
+        text = str(block.get("text", ""))
+        tokens = [token for token in numeric_tokens(text) if not token.startswith("+")]
+        if not tokens:
+            continue
+        center_x, center_y = block_center(block)
+        if abs(center_y - label_y) > 72:
+            continue
+        if block is not label_block and center_x <= label_x + 64:
+            continue
+        if center_x > right_limit:
+            continue
+        for token in tokens:
+            candidates.append((center_x, token, text))
+    candidates.sort(key=lambda item: item[0])
+    return candidates
+
+
+def core_stat_label_value_pairs(blocks: list[dict[str, Any]], image_width: int) -> dict[str, tuple[str, list[str]]]:
+    core_blocks = [block for block in blocks if block.get("region") == "core_stats"]
+    pairs: dict[str, tuple[str, list[str]]] = {}
+    for block in core_blocks:
+        text = str(block.get("text", ""))
+        if not CJK_RE.search(text):
+            continue
+        label = canonical_stat_label(text)
+        if not label:
+            continue
+        field_name = core_stat_field_for_label(label)
+        if not field_name:
+            continue
+        candidates = row_numeric_candidates_for_label(core_blocks, block, image_width)
+        if not candidates:
+            continue
+        value = candidates[-1][1]
+        pairs[field_name] = (value, [text, candidates[-1][2]])
+    return pairs
 
 
 def extract_character(blocks: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1090,6 +1236,7 @@ def extract_character(blocks: list[dict[str, Any]]) -> dict[str, Any]:
 
 def extract_stats(blocks: list[dict[str, Any]], image_width: int, image_height: int) -> dict[str, Any]:
     stats = {name: field() for name in ZZZ_STAT_LABELS}
+    paired_values = core_stat_label_value_pairs(blocks, image_width)
     for zone in ZZZ_CORE_STAT_ZONES:
         value, evidence = value_from_fixed_zone(
             blocks,
@@ -1098,9 +1245,12 @@ def extract_stats(blocks: list[dict[str, Any]], image_width: int, image_height: 
             zone.box_ratio,
             expect_percent=zone.value_type == "percent",
         )
+        if zone.field in paired_values:
+            value, evidence = paired_values[zone.field]
+        suspicious = suspicious_stat_value(zone.field, value)
         stats[zone.field] = field(
             value,
-            uncertain=value is None,
+            uncertain=value is None or suspicious,
             evidence=evidence,
             source_region="core_stats",
         )
@@ -1125,19 +1275,23 @@ def extract_equipment(blocks: list[dict[str, Any]], image_width: int, image_heig
     text = render_region_text(equipment_blocks)
     level = first_lv(text)
     rank_value, rank_evidence = None, []
-    rank_box = ratio_box_to_pixels((0.860, 0.380, 0.965, 0.455), image_width, image_height)
+    rank_box = ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), image_width, image_height)
     for block in equipment_blocks:
         if not block_in_box(block, rank_box):
             continue
-        possible_rank = first_rank(str(block.get("text", "")))
+        possible_rank = rank_from_block_text(str(block.get("text", "")), rank_region=True)
         if possible_rank:
             rank_value = possible_rank
             rank_evidence = [block.get("text", "")]
             break
 
-    name_box = ratio_box_to_pixels((0.115, 0.380, 0.320, 0.435), image_width, image_height)
-    name_text = render_region_text([block for block in equipment_blocks if block_in_box(block, name_box)])
-    name = best_cjk_name(name_text) or best_cjk_name(text)
+    name_box = ratio_box_to_pixels((0.115, 0.380, 0.380, 0.455), image_width, image_height)
+    name_blocks = [block for block in equipment_blocks if block_in_box(block, name_box)]
+    name_text = render_region_text(name_blocks)
+    name = equipment_name_from_blocks(name_blocks)
+    if not name:
+        fallback = best_cjk_name(name_text) or best_cjk_name(text)
+        name = normalize_equipment_name(fallback) if fallback else None
     return {
         "name": field(name, uncertain=name is None, evidence=[name] if name else [], source_region="equipment"),
         "level": field(level, uncertain=level is None, evidence=[level] if level else [], source_region="equipment"),
@@ -1204,9 +1358,9 @@ def crop_specs(
     for index, zone in enumerate(ZZZ_SKILL_ZONES, start=1):
         add(f"skill_levels[{index}].level", f"skill_{index}.png", ratio_box_to_pixels(zone, width, height))
 
-    add("equipment.name", "equipment_name.png", ratio_box_to_pixels((0.115, 0.380, 0.320, 0.435), width, height))
+    add("equipment.name", "equipment_name.png", ratio_box_to_pixels((0.115, 0.380, 0.380, 0.455), width, height))
     add("equipment.level", "equipment_level.png", ratio_box_to_pixels((0.120, 0.415, 0.230, 0.455), width, height))
-    add("equipment.rank", "equipment_rank.png", ratio_box_to_pixels((0.860, 0.380, 0.965, 0.455), width, height))
+    add("equipment.rank", "equipment_rank.png", ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), width, height))
 
     for slot in range(1, 7):
         region = region_by_name.get(f"drive_disc_{slot}", {})
@@ -1294,8 +1448,11 @@ def enhancement_value(text: str) -> int | None:
 
 
 def parse_main_stat(label_text: str, value_text: str) -> str | None:
-    label = canonical_stat_label(label_text)
-    value_candidates = numeric_tokens(value_text)
+    combined_text = " ".join(item for item in [label_text, value_text] if item)
+    label = canonical_stat_label(combined_text)
+    value_candidates = [token for token in numeric_tokens(value_text) if not token.startswith("+")]
+    if not value_candidates:
+        value_candidates = [token for token in numeric_tokens(combined_text) if not token.startswith("+")]
     if label and value_candidates:
         return f"{label} {value_candidates[-1]}"
     if label:
@@ -1333,6 +1490,12 @@ def row_value_token(row: list[dict[str, Any]], value_zone: dict[str, int]) -> st
             if token.startswith("+"):
                 continue
             candidates.append((block_center(block)[0], token))
+    if not candidates:
+        for block in row:
+            for token in numeric_tokens(str(block.get("text", ""))):
+                if token.startswith("+"):
+                    continue
+                candidates.append((block_center(block)[0], token))
     if not candidates:
         return None
     candidates.sort(key=lambda item: item[0])

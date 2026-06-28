@@ -43,10 +43,20 @@ batch_tool = importlib.util.module_from_spec(batch_spec)
 assert batch_spec.loader is not None
 sys.modules[batch_spec.name] = batch_tool
 batch_spec.loader.exec_module(batch_tool)
+parse_tool = batch_tool.parse_probe
 
 
 def field(value):
     return {"value": value, "uncertain": value is None, "evidence": [], "source_region": "mock"}
+
+
+def block(text: str, left: int, top: int, width: int = 80, height: int = 30, region: str = "core_stats") -> dict:
+    return {
+        "text": text,
+        "confidence": 1.0,
+        "region": region,
+        "box": {"left": left, "top": top, "width": width, "height": height, "right": left + width, "bottom": top + height},
+    }
 
 
 def parsed_json(name: str = None, skill_5: str = "9") -> dict:
@@ -246,6 +256,88 @@ class ExportParseEvaluateTests(unittest.TestCase):
             self.assertEqual(result["p0_9"]["case_count"], 3)
             self.assertEqual(result["p0_9"]["average_pass_rate_percent"], 100.0)
             self.assertTrue(result["p0_9"]["meets_p0_9_batch_standard"])
+
+    def test_core_stats_use_label_value_pairs_before_fixed_zones(self) -> None:
+        blocks = [
+            block("生命值", 800, 403, 100, 37),
+            block("7683", 1118, 380, 77, 33),
+            block("11708", 1216, 388, 134, 42),
+            block("+4025", 1101, 418, 94, 32),
+            block("冲击力", 1491, 518, 98, 38),
+            block("134", 1881, 497, 61, 33),
+            block("166", 1959, 502, 84, 47),
+            block("+32", 1879, 534, 63, 33),
+            block("穿透值", 799, 983, 99, 37),
+            block("45", 1291, 966, 61, 47),
+            block("火属性伤害加成", 1495, 985, 217, 33),
+            block("30.0%", 1911, 968, 131, 44),
+            block("4166", 1922, 489, 128, 68, "stat_impact"),
+        ]
+
+        stats = parse_tool.extract_stats(blocks, 2136, 3566)
+
+        self.assertEqual(stats["hp"]["value"], "11708")
+        self.assertEqual(stats["impact"]["value"], "166")
+        self.assertEqual(stats["pen"]["value"], "45")
+        self.assertEqual(stats["physical_dmg_bonus"]["value"], "30.0%")
+        self.assertEqual(stats["impact"]["status"], "ok")
+
+    def test_equipment_name_joins_multiline_hyphen_name_and_rank_alias(self) -> None:
+        blocks = [
+            block("维序者-特化", 313, 1395, 244, 45, "equipment"),
+            block("型", 309, 1461, 49, 52, "equipment"),
+            block("LV.50", 324, 1561, 96, 34, "equipment"),
+            block("5", 1920, 1457, 42, 59, "equipment_rank"),
+        ]
+
+        equipment = parse_tool.extract_equipment(blocks, 2136, 3566)
+
+        self.assertEqual(equipment["name"]["value"], "维序者-特化型")
+        self.assertEqual(equipment["rank"]["value"], "S")
+        self.assertEqual(equipment["level"]["value"], "50")
+
+    def test_drive_disc_main_and_sub_stats_use_row_aliases(self) -> None:
+        region = {
+            "name": "drive_disc_5",
+            "box": {"left": 736, "top": 2406, "right": 1420, "bottom": 3173, "width": 684, "height": 767},
+        }
+        blocks = [
+            block("火属性伤害加成", 783, 2692, 266, 39, "drive_disc_5"),
+            block("30%", 1265, 2687, 91, 44, "drive_disc_5"),
+            block("暴击伤善", 843, 2805, 136, 26, "drive_disc_5"),
+            block("4.8%", 1269, 2791, 86, 37, "drive_disc_5"),
+            block("恭击率", 843, 2905, 136, 26, "drive_disc_5"),
+            block("+2", 1007, 2901, 40, 30, "drive_disc_5"),
+            block("2.4%", 1269, 2891, 86, 37, "drive_disc_5"),
+        ]
+
+        disc = parse_tool.extract_drive_discs(blocks, [region])[4]
+
+        self.assertEqual(disc["main_stat"]["value"], "火属性伤害加成 30%")
+        self.assertEqual(
+            disc["sub_stats"]["value"][:2],
+            [
+                {"stat": "暴击伤害", "value": "4.8%", "enhancement": None, "uncertain": False, "evidence": ["暴击伤善", "4.8%"]},
+                {"stat": "暴击率", "value": "2.4%", "enhancement": 2, "uncertain": False, "evidence": ["恭击率", "+2", "2.4%"]},
+            ],
+        )
+
+    def test_replay_batch_can_rebuild_from_text_blocks_without_ocr(self) -> None:
+        parsed = {
+            "metadata": {"game": "zzz", "layout": "zzz-agent-card"},
+            "image": {"width": 2136, "height": 3566},
+            "layout_regions": [],
+            "text_blocks": [
+                block("生命值", 800, 403, 100, 37),
+                block("11708", 1216, 388, 134, 42),
+            ],
+            "extracted_draft": {"stats": {"hp": field("wrong")}},
+        }
+
+        rebuilt, did_rebuild = batch_tool.rebuild_parsed_from_text_blocks(parsed)
+
+        self.assertTrue(did_rebuild)
+        self.assertEqual(rebuilt["extracted_draft"]["stats"]["hp"]["value"], "11708")
 
 
 if __name__ == "__main__":

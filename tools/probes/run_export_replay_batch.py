@@ -94,10 +94,31 @@ def build_cases(args: argparse.Namespace) -> list[dict[str, str]]:
     return cases
 
 
-def evaluate_case(case: dict[str, str], *, loose_numeric_text: bool) -> dict[str, Any]:
+def rebuild_parsed_from_text_blocks(parsed: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    blocks = parsed.get("text_blocks")
+    if not isinstance(blocks, list):
+        return parsed, False
+    metadata = parsed.get("metadata", {}) if isinstance(parsed.get("metadata"), dict) else {}
+    rebuilt = dict(parsed)
+    draft = parse_probe.build_extracted_draft(
+        game=metadata.get("game"),
+        layout=str(metadata.get("layout") or ""),
+        blocks=blocks,
+        layout_regions=parsed.get("layout_regions", []) if isinstance(parsed.get("layout_regions"), list) else [],
+        image_info=parsed.get("image", {}) if isinstance(parsed.get("image"), dict) else {},
+    )
+    rebuilt["extracted_draft"] = draft
+    rebuilt["coverage_summary"] = parse_probe.summarize_coverage(draft, blocks)
+    return rebuilt, True
+
+
+def evaluate_case(case: dict[str, str], *, loose_numeric_text: bool, rebuild: bool) -> dict[str, Any]:
     parsed_path = Path(case["parsed"])
     expected_path = Path(case["expected"])
     parsed = evaluator.load_json(parsed_path)
+    rebuilt_from_text_blocks = False
+    if rebuild:
+        parsed, rebuilt_from_text_blocks = rebuild_parsed_from_text_blocks(parsed)
     expected = evaluator.load_json(expected_path)
     result = evaluator.evaluate(parsed, expected, loose_numeric_text=loose_numeric_text)
     summary = result["summary"]
@@ -105,6 +126,7 @@ def evaluate_case(case: dict[str, str], *, loose_numeric_text: bool) -> dict[str
         "name": case["name"],
         "parsed": str(parsed_path),
         "expected": str(expected_path),
+        "rebuilt_from_text_blocks": rebuilt_from_text_blocks,
         "overall_status": result["overall_status"],
         "pass_rate": summary.get("pass_rate"),
         "pass_rate_percent": summary.get("pass_rate_percent"),
@@ -138,8 +160,8 @@ def batch_p0_9(cases: list[dict[str, Any]]) -> dict[str, Any]:
     blockers: list[str] = []
     if len(cases) < 3:
         blockers.append("fewer than 3 replay cases")
-    if average < 0.8:
-        blockers.append("average pass_rate below 80%")
+    if average < 0.85:
+        blockers.append("average pass_rate below 85%")
     failing_cases = [item["name"] for item in cases if not item.get("meets_p0_9_standard")]
     if failing_cases:
         blockers.append("case-level P0.9 blockers: " + ", ".join(failing_cases))
@@ -148,9 +170,9 @@ def batch_p0_9(cases: list[dict[str, Any]]) -> dict[str, Any]:
         "average_pass_rate": round(average, 4),
         "average_pass_rate_percent": round(average * 100, 2),
         "target_case_count": 3,
-        "target_average_pass_rate": 0.8,
+        "target_average_pass_rate": 0.85,
         "meets_case_count": len(cases) >= 3,
-        "meets_average_pass_rate": average >= 0.8,
+        "meets_average_pass_rate": average >= 0.85,
         "meets_p0_9_batch_standard": not blockers,
         "blockers": blockers,
     }
@@ -169,14 +191,15 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Cases",
         "",
-        "| case | pass_rate | P0.9 | failed | failed_groups | next_action |",
-        "|---|---:|---|---:|---|---|",
+        "| case | pass_rate | P0.9 | rebuilt | failed | failed_groups | next_action |",
+        "|---|---:|---|---|---:|---|---|",
     ]
     for case in summary["cases"]:
         failed_groups = ", ".join(f"{key}:{len(value)}" for key, value in case.get("failed_groups", {}).items()) or "none"
         next_action = str(case.get("next_action") or "").replace("|", "/")
         lines.append(
             f"| {case['name']} | {case.get('pass_rate_percent')}% | {case.get('meets_p0_9_standard')} | "
+            f"{case.get('rebuilt_from_text_blocks')} | "
             f"{case.get('failed')} | {failed_groups} | {next_action} |"
         )
     lines.extend(["", "## Top Failed Fields", ""])
@@ -204,12 +227,14 @@ def run_batch(
     *,
     output_dir: Path,
     loose_numeric_text: bool = True,
+    rebuild: bool = True,
 ) -> dict[str, Any]:
-    evaluated = [evaluate_case(case, loose_numeric_text=loose_numeric_text) for case in cases]
+    evaluated = [evaluate_case(case, loose_numeric_text=loose_numeric_text, rebuild=rebuild) for case in cases]
     p0_9 = batch_p0_9(evaluated)
     summary = {
         "created_at": parse_probe.now_iso(),
         "output_dir": str(output_dir),
+        "rebuild_from_text_blocks": rebuild,
         "p0_9": p0_9,
         "cases": evaluated,
         "top_failed_fields": aggregate_top_failed(evaluated),
@@ -232,6 +257,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Treat numeric text such as '08' and '8' as different. Default compares numeric text loosely.",
     )
+    parser.add_argument(
+        "--no-rebuild",
+        action="store_true",
+        help="Compare stored extracted_draft as-is. Default rebuilds it from stored text_blocks without OCR.",
+    )
     return parser
 
 
@@ -240,7 +270,12 @@ def main() -> int:
     try:
         cases = build_cases(args)
         output_dir = resolve_path(args.output_dir) if args.output_dir else default_output_dir()
-        summary = run_batch(cases, output_dir=output_dir, loose_numeric_text=not args.strict_leading_zero)
+        summary = run_batch(
+            cases,
+            output_dir=output_dir,
+            loose_numeric_text=not args.strict_leading_zero,
+            rebuild=not args.no_rebuild,
+        )
     except (ReplayBatchError, evaluator.EvaluateError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
