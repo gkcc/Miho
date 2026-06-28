@@ -15,6 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import diff_normalized_snapshots as diff_tool  # noqa: E402
 import normalize_export_parse as normalize_tool  # noqa: E402
 import plan_training_priorities as planner_tool  # noqa: E402
+import prepare_endgame_targets as target_tool  # noqa: E402
 import run_demo_pipeline as demo_tool  # noqa: E402
 
 
@@ -73,6 +74,32 @@ def run_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_targets(args: argparse.Namespace) -> int:
+    try:
+        if args.manifest and (args.url or args.input):
+            raise target_tool.TargetIntakeError("--manifest cannot be combined with --url or --input")
+        if args.manifest:
+            game, source_type, sources, defaults = target_tool.source_cases_from_manifest(target_tool.resolve_path(args.manifest))
+        else:
+            game, source_type, sources, defaults = target_tool.source_cases_from_args(args)
+        targets = target_tool.prepare_targets(
+            game=game,
+            source_type=source_type,
+            sources=sources,
+            output_dir=target_tool.resolve_path(args.output_dir),
+            manifest_defaults=defaults,
+        )
+    except target_tool.TargetIntakeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"target_count: {len(targets['targets'])}")
+    print(f"source_count: {len(targets['sources'])}")
+    for warning in targets.get("warnings", []):
+        print(f"warning: {warning}")
+    print(f"output_json: {targets['output_json']}")
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Local Miho probe command shell.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -109,6 +136,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
     plan.add_argument("--targets", required=True, help="Local endgame target configuration JSON.")
     plan.add_argument("--output-dir", default=str(planner_tool.DEFAULT_OUTPUT_DIR), help="Output directory.")
     plan.set_defaults(handler=run_plan)
+
+    targets = subparsers.add_parser("targets", help="Prepare local planner target JSON from public endgame sources.")
+    targets.add_argument("--manifest", default=None, help="JSON manifest containing game/source_type/sources.")
+    targets.add_argument("--url", action="append", default=[], help="Public http(s) source URL. Can be repeated.")
+    targets.add_argument("--input", action="append", default=[], help="Saved public text/HTML source file. Can be repeated.")
+    targets.add_argument("--game", choices=("zzz", "hsr"), default="zzz")
+    targets.add_argument(
+        "--source-type",
+        choices=("manual", "public_web_snapshot", "official_snapshot", "official_current", "mock"),
+        default="public_web_snapshot",
+    )
+    targets.add_argument("--activity-name", default=None)
+    targets.add_argument("--target-tier", default="待确认")
+    targets.add_argument("--priority", choices=("high", "medium", "low"), default="medium")
+    targets.add_argument("--preferred-character", action="append", default=[])
+    targets.add_argument("--mechanic-tag", action="append", default=[])
+    targets.add_argument("--weakness-tag", action="append", default=[])
+    targets.add_argument("--character-level", default=60)
+    targets.add_argument("--equipment-level", default=60)
+    targets.add_argument("--skill-level", default=8)
+    targets.add_argument("--drive-disc-level", default=12)
+    targets.add_argument("--stat", action="append", default=[], help="Minimum stat in key=value form, e.g. atk=2000.")
+    targets.add_argument("--output-dir", default=str(target_tool.DEFAULT_OUTPUT_DIR), help="Output directory.")
+    targets.set_defaults(handler=run_targets)
     return parser
 
 
