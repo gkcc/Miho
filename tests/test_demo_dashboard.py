@@ -497,6 +497,106 @@ class DemoDashboardTests(unittest.TestCase):
                     ],
                     "error": None,
                 },
+                "endgame_plan": {
+                    "schema_version": "p1.9-lite-endgame-plan",
+                    "output_json": str(root / "endgame_plan.json"),
+                    "output_md": str(root / "endgame_plan.md"),
+                    "summary": {
+                        "target_count": 4,
+                        "ready_now_count": 1,
+                        "needs_review_count": 1,
+                        "needs_recording_count": 1,
+                        "watch_only_count": 1,
+                        "blocked_count": 0,
+                        "stale_or_unverified_count": 1,
+                    },
+                    "warnings": ["本期高难方案只聚合本地 accepted roster；不是抽卡建议。"],
+                    "target_plans": [
+                        {
+                            "target": "危局强袭战 稳定通关",
+                            "target_priority": "high",
+                            "plan_status": "ready_now",
+                            "recommended_line": "可先尝试：星见雅 核心队。",
+                            "team_candidates": [
+                                {
+                                    "team_title": "星见雅 核心队",
+                                    "team_status": "ready_now",
+                                    "rank_reason": "全员来自 accepted roster，可作为本期高难候选。1 名成员有 verified 高保值本地证据。",
+                                    "verified_high_value_member_count": 1,
+                                    "weak_tier_count": 0,
+                                    "members": [
+                                        {
+                                            "character": "星见雅",
+                                            "source_class": "owned_snapshot",
+                                            "tier": "S",
+                                            "retention_score": 0.9,
+                                            "tier_entry_status": "verified",
+                                            "delta_change_type": "updated",
+                                        }
+                                    ],
+                                    "warnings": [],
+                                }
+                            ],
+                            "next_actions": [],
+                            "evidence": {
+                                "target_source": str(root / "target_source.html"),
+                                "target_hash": "abcdef123456",
+                                "input_artifact_hashes": {
+                                    "team_cards": {"path": str(root / "team_cards.json"), "sha256_short": "111111111111"}
+                                },
+                            },
+                            "warnings": [],
+                        },
+                        {
+                            "target": "待确认目标",
+                            "target_priority": "high",
+                            "plan_status": "needs_review",
+                            "recommended_line": "先复核 pending snapshot，确认后再作为可出战练度。",
+                            "team_candidates": [
+                                {
+                                    "team_title": "待确认快照队",
+                                    "team_status": "needs_review",
+                                    "rank_reason": "包含 pending snapshot，需要先人工复核解析快照。",
+                                    "members": [
+                                        {
+                                            "character": "莱特",
+                                            "source_class": "pending_snapshot",
+                                            "tier": None,
+                                            "retention_score": None,
+                                            "tier_entry_status": "missing",
+                                            "delta_change_type": "missing",
+                                        }
+                                    ],
+                                    "warnings": ["莱特 仍是 pending snapshot，不能当作 ready_now 战力。"],
+                                }
+                            ],
+                            "next_actions": [{"action_type": "review_pending_snapshot", "title": "复核 莱特 的解析快照"}],
+                            "evidence": {"target_source": None, "target_hash": None, "input_artifact_hashes": {}},
+                            "warnings": [],
+                        },
+                        {
+                            "target": "补录目标",
+                            "target_priority": "medium",
+                            "plan_status": "needs_recording",
+                            "recommended_line": "先补录官方分享图，避免只凭 catalog 拿来排队。",
+                            "team_candidates": [],
+                            "next_actions": [{"action_type": "record_missing_character", "title": "补录 珂蕾妲 的官方分享图"}],
+                            "evidence": {"input_artifact_hashes": {}},
+                            "warnings": [],
+                        },
+                        {
+                            "target": "观察目标",
+                            "target_priority": "low",
+                            "plan_status": "watch_only",
+                            "recommended_line": "仅观察候选或确认拥有状态；这里不生成抽卡建议。",
+                            "team_candidates": [],
+                            "next_actions": [],
+                            "evidence": {"input_artifact_hashes": {}},
+                            "warnings": ["watch_only 不是抽卡建议；catalog candidate 不能当作已拥有战力。"],
+                        },
+                    ],
+                    "error": None,
+                },
                 "pipeline_steps": [
                     {"name": "Normalized Snapshot", "status": "GENERATED"},
                     {"name": "Manual Review Gate", "status": "REQUIRES_REVIEW"},
@@ -505,6 +605,7 @@ class DemoDashboardTests(unittest.TestCase):
                     {"name": "Tier Watchlist", "status": "done"},
                     {"name": "Team Cards", "status": "done"},
                     {"name": "Roster Delta", "status": "done"},
+                    {"name": "Endgame Plan", "status": "done"},
                 ],
                 "target_refresh": {
                     "manifest": str(root / "target_sources.json"),
@@ -654,6 +755,18 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("delta 只基于 accepted roster", html)
             self.assertIn("更新角色", html)
             self.assertIn("Tier 命中", html)
+            self.assertIn("本期高难方案", html)
+            self.assertIn("endgame_plan.json", html)
+            self.assertIn("不是抽卡建议", html)
+            self.assertIn("可直接尝试", html)
+            self.assertIn("先复核", html)
+            self.assertIn("需补录", html)
+            self.assertIn("仅观察", html)
+            self.assertIn("ready_now", html)
+            self.assertIn("needs_review", html)
+            self.assertIn("needs_recording", html)
+            self.assertIn("watch_only", html)
+            self.assertIn("review_pending_snapshot", html)
             self.assertIn("培养优先级候选", html)
             self.assertIn("source status", html)
             self.assertIn("local_draft", html)
@@ -778,6 +891,46 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["input"]["parsed_dir_discovered_count"], 2)
             self.assertEqual(summary["input"]["parsed_dir_selected_count"], 1)
             self.assertIn("latest-only", summary["warnings"][0])
+
+    def test_run_demo_pipeline_builds_endgame_plan_from_roster_and_team_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            roster_path = root / "roster_index.json"
+            team_path = root / "team_cards.json"
+            roster_path.write_text(
+                json.dumps({"characters": [{"name": "星见雅"}]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            team_path.write_text(
+                json.dumps(
+                    {
+                        "cards": [
+                            {
+                                "target": "危局强袭战 稳定通关",
+                                "team_title": "星见雅 核心队",
+                                "team_status": "playable_now",
+                                "target_priority": "high",
+                                "members": [{"character": "星见雅", "source_class": "owned_snapshot"}],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = pipeline_tool.build_demo_endgame_plan(
+                roster_index=roster_path,
+                output_dir=root / "demo",
+                team_cards_path=team_path,
+            )
+
+            self.assertIsNotNone(result)
+            assert result is not None
+            self.assertEqual(result["schema_version"], "p1.9-lite-endgame-plan")
+            self.assertEqual(result["summary"]["ready_now_count"], 1)
+            self.assertTrue(Path(result["output_json"]).exists())
+            self.assertIn("缺少 targets JSON", " ".join(result["warnings"]))
 
     def test_run_demo_pipeline_manifest_uses_explicit_expected_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

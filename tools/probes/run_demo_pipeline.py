@@ -23,6 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import build_action_cards as action_cards  # noqa: E402
+import build_endgame_plan as endgame_plan  # noqa: E402
 import build_roster_delta as roster_delta  # noqa: E402
 import build_team_cards as team_cards  # noqa: E402
 import build_tier_watchlist as tier_watchlist  # noqa: E402
@@ -770,6 +771,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     inbox_info = summary.get("review_inbox", {}) if isinstance(summary.get("review_inbox"), dict) else {}
     tier_info = summary.get("tier_watchlist", {}) if isinstance(summary.get("tier_watchlist"), dict) else {}
     delta_info = summary.get("roster_delta", {}) if isinstance(summary.get("roster_delta"), dict) else {}
+    endgame_info = summary.get("endgame_plan", {}) if isinstance(summary.get("endgame_plan"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -820,6 +822,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(delta_info, dict) and delta_info.get("error")
             else "done"
             if isinstance(delta_info, dict) and delta_info.get("output_json")
+            else "skipped",
+        },
+        {
+            "name": "Endgame Plan",
+            "status": "failed"
+            if isinstance(endgame_info, dict) and endgame_info.get("error")
+            else "done"
+            if isinstance(endgame_info, dict) and endgame_info.get("output_json")
             else "skipped",
         },
     ]
@@ -1162,6 +1172,43 @@ def build_demo_roster_delta(
         }
 
 
+def build_demo_endgame_plan(
+    *,
+    roster_index: Path,
+    output_dir: Path,
+    team_cards_path: Path | None,
+    targets_path: Path | None = None,
+    action_cards_path: Path | None = None,
+    tier_watchlist_path: Path | None = None,
+    roster_delta_path: Path | None = None,
+) -> dict[str, Any] | None:
+    if not roster_index.exists() or not team_cards_path or not team_cards_path.exists():
+        return None
+    try:
+        return endgame_plan.build_endgame_plan(
+            roster_index=roster_index,
+            targets=targets_path if targets_path and targets_path.exists() else None,
+            team_cards=team_cards_path,
+            action_cards=action_cards_path if action_cards_path and action_cards_path.exists() else None,
+            tier_watchlist=tier_watchlist_path if tier_watchlist_path and tier_watchlist_path.exists() else None,
+            roster_delta=roster_delta_path if roster_delta_path and roster_delta_path.exists() else None,
+            output_dir=output_dir / "endgame_plan",
+        )
+    except endgame_plan.EndgamePlanError as exc:
+        return {
+            "schema_version": endgame_plan.SCHEMA_VERSION,
+            "input": {
+                "roster_index": str(roster_index),
+                "targets": str(targets_path) if targets_path else None,
+                "team_cards": str(team_cards_path) if team_cards_path else None,
+                "action_cards": str(action_cards_path) if action_cards_path else None,
+                "tier_watchlist": str(tier_watchlist_path) if tier_watchlist_path else None,
+                "roster_delta": str(roster_delta_path) if roster_delta_path else None,
+            },
+            "error": str(exc),
+        }
+
+
 def review_decision_source(path: Path) -> str | None:
     try:
         data = load_json(path)
@@ -1497,6 +1544,27 @@ def run_pipeline(
         if roster_delta_info.get("error"):
             summary.setdefault("warnings", []).append(f"Roster delta failed: {roster_delta_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
+    roster_delta_path = (
+        Path(str(roster_delta_info["output_json"]))
+        if isinstance(roster_delta_info, dict) and roster_delta_info.get("output_json")
+        else None
+    )
+    endgame_plan_info = build_demo_endgame_plan(
+        roster_index=roster_index_for_replay,
+        targets_path=active_targets,
+        output_dir=output_dir,
+        team_cards_path=team_cards_path,
+        action_cards_path=action_cards_path,
+        tier_watchlist_path=tier_watchlist_path,
+        roster_delta_path=roster_delta_path,
+    )
+    if endgame_plan_info is not None:
+        summary["endgame_plan"] = endgame_plan_info
+        if endgame_plan_info.get("warnings"):
+            summary.setdefault("warnings", []).extend(endgame_plan_info["warnings"])
+        if endgame_plan_info.get("error"):
+            summary.setdefault("warnings", []).append(f"Endgame plan failed: {endgame_plan_info['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
     summary_path = output_dir / "demo_summary.json"
     write_json(summary_path, summary)
     dashboard_path = output_dir / "index.html"
@@ -1610,6 +1678,14 @@ def main() -> int:
             print(f"roster_delta_new_count: {delta_summary.get('new_character_count', 0)}")
             print(f"roster_delta_updated_count: {delta_summary.get('updated_character_count', 0)}")
             print(f"roster_delta_team_impact_count: {delta_summary.get('team_impact_count', 0)}")
+    if isinstance(summary.get("endgame_plan"), dict):
+        plan_summary = summary["endgame_plan"].get("summary", {})
+        if isinstance(plan_summary, dict):
+            print(f"endgame_plan_target_count: {plan_summary.get('target_count', 0)}")
+            print(f"endgame_plan_ready_now_count: {plan_summary.get('ready_now_count', 0)}")
+            print(f"endgame_plan_needs_review_count: {plan_summary.get('needs_review_count', 0)}")
+            print(f"endgame_plan_needs_recording_count: {plan_summary.get('needs_recording_count', 0)}")
+            print(f"endgame_plan_watch_only_count: {plan_summary.get('watch_only_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0

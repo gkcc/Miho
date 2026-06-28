@@ -374,6 +374,7 @@ data/probes/demo/snapshot_history/index.json
 * Dashboard 会显示“练度更新收件箱”：demo normalized snapshot 是 OCR/解析候选，只有进入 accepted roster 的 snapshot 才能作为已确认 box。
 * Team card 里的 `pending_snapshot` 只是待确认解析候选，`catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 accepted roster 中的 `owned_snapshot` 才能作为可用练度证据。
 * Tier watchlist 会标记 `verified` / `stale` / `unverified` / `low_trust`。只有 verified 且属于 accepted roster 的高保值信号能辅助队伍排序；stale/unverified/low_trust 只能作为弱参考。
+* 如果 accepted roster 和 team cards 都存在，还会生成 `endgame_plan.json/md` 并在 Dashboard 显示“本期高难方案”。方案包只聚合本地证据，用于区分 `ready_now` / `needs_review` / `needs_recording` / `watch_only`，不是抽卡建议，也不是自动通关保证。
 
 P0.9 replay batch 验收命令：
 
@@ -412,6 +413,29 @@ python tools/probes/build_team_cards.py `
 ```
 
 Team cards 是本地证据驱动的队伍雏形视图，不做复杂战斗模拟、不生成正式抽卡建议、不把 pending snapshot 或 catalog candidate 当作 owned。缺少 accepted roster snapshot 的角色必须先补录官方分享图或人工确认。
+
+P1.9-lite 本期高难方案包单独生成命令：
+
+```powershell
+python tools/probes/build_endgame_plan.py `
+  --roster-index data/probes/roster/roster_index.json `
+  --targets data/probes/targets/endgame_targets.json `
+  --team-cards data/probes/demo/teams/team_cards.json `
+  --action-cards data/probes/demo/actions/action_cards.json `
+  --tier-watchlist data/probes/demo/tier_watchlist/tier_watchlist.json `
+  --roster-delta data/probes/demo/roster_delta/roster_delta.json `
+  --output-dir data/probes/demo/endgame_plan
+```
+
+状态约束：
+
+* 全员来自 accepted roster / `owned_snapshot` 的 `playable_now` 队伍才会进入 `ready_now`；
+* 含 `pending_snapshot` 的队伍只能进入 `needs_review`；
+* 含 `catalog_owned_missing_snapshot` 的队伍只能进入 `needs_recording`；
+* 含 `catalog_candidate` 的队伍只能进入 `watch_only`；
+* verified 且属于 accepted roster 的高保值本地证据可以提升 `ready_now` 队伍排序；
+* `stale` / `unverified` / `low_trust` tier 只显示 warning，不提升排序；
+* 方案包不输出“必抽 / 建议抽 / 跳过”，也不把 tier watchlist 说成官方实时榜。
 
 P1.4-lite 练度更新收件箱与已确认 Box Index：
 

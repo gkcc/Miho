@@ -691,6 +691,87 @@ def render_roster_delta(summary: dict[str, Any]) -> str:
     """
 
 
+def render_endgame_plan(summary: dict[str, Any]) -> str:
+    plan = summary.get("endgame_plan")
+    if not isinstance(plan, dict):
+        return ""
+    error = plan.get("error")
+    plan_summary = plan.get("summary") if isinstance(plan.get("summary"), dict) else {}
+    target_plans = plan.get("target_plans") if isinstance(plan.get("target_plans"), list) else []
+    warnings = plan.get("warnings") if isinstance(plan.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Plan Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if error:
+        body = f'<div class="errors"><strong>Endgame plan failed</strong><ul><li>{e(error)}</li></ul></div>'
+    elif not target_plans:
+        body = '<div class="empty">没有生成本期高难方案。</div>'
+    else:
+        rows = []
+        for item in target_plans[:8]:
+            teams = item.get("team_candidates") if isinstance(item.get("team_candidates"), list) else []
+            first_team = teams[0] if teams and isinstance(teams[0], dict) else {}
+            members = first_team.get("members") if isinstance(first_team.get("members"), list) else []
+            member_bits = []
+            for member in members:
+                if not isinstance(member, dict):
+                    continue
+                tier = member.get("tier") or "tier?"
+                source_class = member.get("source_class") or "unknown"
+                delta = member.get("delta_change_type") or "missing"
+                member_bits.append(
+                    f"{member.get('character')} [{source_class}] · {tier}/{member.get('tier_entry_status') or 'missing'} · delta {delta}"
+                )
+            actions = item.get("next_actions") if isinstance(item.get("next_actions"), list) else []
+            action_bits = "；".join(
+                f"{action.get('action_type')}: {action.get('title') or action.get('character') or ''}".strip()
+                for action in actions[:3]
+                if isinstance(action, dict)
+            )
+            evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+            artifact_hashes = evidence.get("input_artifact_hashes") if isinstance(evidence.get("input_artifact_hashes"), dict) else {}
+            hash_bits = []
+            for key, value in artifact_hashes.items():
+                if isinstance(value, dict) and value.get("sha256_short"):
+                    hash_bits.append(f"{key}:{value.get('sha256_short')}")
+            warnings_text = "；".join(str(warning) for warning in item.get("warnings", []) if warning)
+            rows.append(
+                "<article class=\"plan-item\">"
+                f"<div class=\"plan-rank\">{e(item.get('plan_status'))}</div>"
+                "<div>"
+                f"<h3>{e(item.get('target'))}</h3>"
+                f"<p>{e(item.get('recommended_line'))}</p>"
+                f"<span>队伍：{e(first_team.get('team_title') or '无')} · {e(first_team.get('rank_reason') or 'N/A')}</span>"
+                f"<span>成员：{e(' / '.join(member_bits) or '无')}</span>"
+                f"<span>下一步：{e(action_bits or 'none')}</span>"
+                f"<span>evidence: {e(evidence.get('target_source') or 'N/A')} · {e(evidence.get('target_hash') or 'hash?')} · {e(' / '.join(hash_bits) or 'artifact hash missing')}</span>"
+                f"<span>warning: {e(warnings_text or 'none')}</span>"
+                "</div>"
+                f"<strong>{e(item.get('target_priority'))}<br>{e(first_team.get('team_status') or item.get('plan_status'))}</strong>"
+                "</article>"
+            )
+        body = '<div class="plan-list">' + "".join(rows) + "</div>"
+    return f"""
+    <section class="panel">
+      <h2>本期高难方案</h2>
+      <p class="muted-line">这里只聚合 accepted roster、team/action cards、roster delta 和本地 Tier/保值观察；不是抽卡建议，也不是自动通关保证。</p>
+      <div class="links">
+        {link("endgame_plan.md", plan.get("output_md"))}
+        {link("endgame_plan.json", plan.get("output_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>targets</span><strong>{e(plan_summary.get("target_count", "N/A"))}</strong></div>
+        <div><span>ready now</span><strong>{e(plan_summary.get("ready_now_count", "N/A"))}</strong></div>
+        <div><span>needs review</span><strong>{e(plan_summary.get("needs_review_count", "N/A"))}</strong></div>
+        <div><span>needs recording</span><strong>{e(plan_summary.get("needs_recording_count", "N/A"))}</strong></div>
+        <div><span>watch only</span><strong>{e(plan_summary.get("watch_only_count", "N/A"))}</strong></div>
+        <div><span>stale/unverified</span><strong>{e(plan_summary.get("stale_or_unverified_count", "N/A"))}</strong></div>
+      </div>
+      {warning_block}
+      {body}
+    </section>
+    """
+
+
 def percent_label(value: Any) -> str:
     if isinstance(value, (int, float)):
         return f"{round(float(value) * 100, 1)}%"
@@ -853,6 +934,8 @@ def render_html(summary: dict[str, Any]) -> str:
     tier_summary = tier_info.get("summary", {}) if isinstance(tier_info.get("summary"), dict) else {}
     delta_info = summary.get("roster_delta", {}) if isinstance(summary.get("roster_delta"), dict) else {}
     delta_summary = delta_info.get("summary", {}) if isinstance(delta_info.get("summary"), dict) else {}
+    endgame_info = summary.get("endgame_plan", {}) if isinstance(summary.get("endgame_plan"), dict) else {}
+    endgame_summary = endgame_info.get("summary", {}) if isinstance(endgame_info.get("summary"), dict) else {}
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
@@ -887,6 +970,11 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("本次新增", delta_summary.get("new_character_count", "N/A") if delta_summary else "N/A", "ok" if delta_summary.get("new_character_count") else "muted"),
         metric_card("本次更新", delta_summary.get("updated_character_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("updated_character_count") else "muted"),
         metric_card("更新影响队伍", delta_summary.get("team_impact_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("team_impact_count") else "muted"),
+        metric_card("高难方案目标", endgame_summary.get("target_count", "N/A") if endgame_summary else "N/A", "ok" if endgame_summary.get("target_count") else "muted"),
+        metric_card("可直接尝试", endgame_summary.get("ready_now_count", "N/A") if endgame_summary else "N/A", "ok" if endgame_summary.get("ready_now_count") else "muted"),
+        metric_card("先复核", endgame_summary.get("needs_review_count", "N/A") if endgame_summary else "N/A", "warn" if endgame_summary.get("needs_review_count") else "muted"),
+        metric_card("需补录", endgame_summary.get("needs_recording_count", "N/A") if endgame_summary else "N/A", "warn" if endgame_summary.get("needs_recording_count") else "muted"),
+        metric_card("仅观察", endgame_summary.get("watch_only_count", "N/A") if endgame_summary else "N/A", "warn" if endgame_summary.get("watch_only_count") else "muted"),
         metric_card("可用队伍", team_summary.get("playable_now_count", "N/A") if team_summary else "N/A", "ok" if team_summary.get("playable_now_count") else "muted"),
         metric_card("高保值可用队伍", team_summary.get("high_value_playable_team_count", "N/A") if team_summary else "N/A", "ok" if team_summary.get("high_value_playable_team_count") else "muted"),
         metric_card("需补录队伍", team_summary.get("needs_recording_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("needs_recording_count") else "muted"),
@@ -899,6 +987,7 @@ def render_html(summary: dict[str, Any]) -> str:
     snapshot_history = render_snapshot_history(summary)
     target_refresh = render_target_refresh(summary)
     review_inbox = render_review_inbox(summary)
+    endgame_plan = render_endgame_plan(summary)
     roster_delta = render_roster_delta(summary)
     tier_watchlist = render_tier_watchlist(summary)
     training_plan = render_training_plan(summary)
@@ -1015,6 +1104,7 @@ def render_html(summary: dict[str, Any]) -> str:
     {target_refresh}
     {snapshot_history}
     {review_inbox}
+    {endgame_plan}
     {roster_delta}
     {tier_watchlist}
     {action_cards}
