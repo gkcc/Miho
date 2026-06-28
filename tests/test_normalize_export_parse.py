@@ -148,6 +148,19 @@ class NormalizeExportParseTests(unittest.TestCase):
             self.assertIn("invalid_candidate 字段存在", result["normalized"]["quality"]["blockers"])
             self.assertGreater(result["normalized"]["quality"]["invalid_field_count"], 0)
 
+    def test_missing_drive_disc_count_triggers_quality_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            parsed_path = root / "parsed.json"
+            parsed = parsed_json(character_name="星见雅")
+            parsed["extracted_draft"]["drive_discs"] = parsed["extracted_draft"]["drive_discs"][:5]
+            parsed_path.write_text(json.dumps(parsed, ensure_ascii=False), encoding="utf-8")
+
+            result = normalize_tool.normalize_file(parsed_path, root)
+
+            self.assertEqual(len(result["normalized"]["build_snapshot"]["drive_discs"]), 6)
+            self.assertIn("drive_discs 少于 6 个", result["normalized"]["quality"]["blockers"])
+
     def test_batch_normalize_outputs_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

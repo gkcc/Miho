@@ -218,6 +218,8 @@ def build_quality(normalized: dict[str, Any], parsed: dict[str, Any]) -> dict[st
     character = normalized["character"]
     equipment = normalized["build_snapshot"]["equipment"]
     drive_discs = normalized["build_snapshot"]["drive_discs"]
+    draft = parsed.get("extracted_draft", {}) if isinstance(parsed.get("extracted_draft"), dict) else {}
+    raw_drive_discs = draft.get("drive_discs") if isinstance(draft, dict) else None
     if character["name"]["status"] == "missing" or character["name"]["uncertain"]:
         blockers.append("character.name 缺失或 uncertain")
     if character["level"]["status"] == "missing":
@@ -226,7 +228,7 @@ def build_quality(normalized: dict[str, Any], parsed: dict[str, Any]) -> dict[st
         blockers.append("equipment.name 缺失或 uncertain")
     if equipment["level"]["status"] == "missing":
         blockers.append("equipment.level 缺失")
-    if len(drive_discs) < 6:
+    if not isinstance(raw_drive_discs, list) or len(raw_drive_discs) < 6:
         blockers.append("drive_discs 少于 6 个")
     missing_main = sum(1 for disc in drive_discs if disc["main_stat"]["status"] == "missing")
     if missing_main >= 3:
