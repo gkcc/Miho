@@ -318,6 +318,7 @@ python tools/probes/run_demo_pipeline.py --images-dir figs --open
 python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --open
 python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --targets data/probes/targets/endgame_targets.json --open
+python tools/probes/run_demo_pipeline.py --images-dir figs --target-source-manifest data/probes/targets/endgame_sources_manifest.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --history-dir data/probes/demo/snapshot_history --open
 ```
@@ -340,6 +341,7 @@ data/probes/demo/snapshot_history/index.json
 * 需要人工确认的 case 数；
 * 每张图的角色、音擎、expected JSON 文件名、review HTML、parsed JSON、normalized JSON/MD、expected diff 和 blockers。
 * 如果提供 `--targets`，还会展示培养优先级候选和 planner 报告链接。
+* 如果提供 `--target-source-manifest`，会先用公开 URL 或本地保存的公开页面刷新 `endgame_targets.json`，再交给 planner。
 * image mode 会维护本地 `update_state.json`，记录分享图 sha256 和上次处理结果。
 * 如果提供 `--new-only`，只处理新增或内容变更的分享图，未变化图片会跳过。
 * demo 会维护本地 `snapshot_history/index.json`，保存每个角色最近一次 normalized snapshot，并在下次同角色出现时生成相邻快照 diff。
@@ -349,6 +351,7 @@ data/probes/demo/snapshot_history/index.json
 
 * 成品体验用 `scripts/run_miho_demo.bat`，它走 `figs/` 的 fresh OCR image mode。
 * 增量体验用 `--new-only --state-file data/probes/demo/update_state.json`，用于模拟“用户新增导出图后自动进入解析链路”。
+* 终局目标刷新用 `--target-source-manifest data/probes/targets/endgame_sources_manifest.json`；manifest 只允许公开 http(s) URL 或本地保存的公开文本/HTML，不允许登录态、cookie、token 或私有地址。
 * 长期演进体验用 `--history-dir data/probes/demo/snapshot_history` 固定历史目录；如果配合 `--clean-demo` 清空同一输出目录，默认历史也会被清空。
 * `--parsed-dir` 是 replay 调试入口，会扫描目录中的历史 parsed JSON，可能包含旧失败结果。
 * parsed replay 只想看每张源图最新结果时加 `--latest-only`。
@@ -372,6 +375,7 @@ CLI 壳：
 ```powershell
 python tools/probes/miho_probe_cli.py demo --images-dir figs --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --targets data/probes/targets/endgame_targets.json --open
+python tools/probes/miho_probe_cli.py demo --images-dir figs --target-source-manifest data/probes/targets/endgame_sources_manifest.json --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/miho_probe_cli.py demo --parsed-dir data/probes/parsed --latest-only --history-dir data/probes/demo/snapshot_history --open
 python tools/probes/miho_probe_cli.py normalize --parsed data/probes/parsed/xxx.json

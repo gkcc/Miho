@@ -24,6 +24,7 @@ import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import normalize_export_parse as normalizer  # noqa: E402
 import plan_training_priorities as planner  # noqa: E402
+import prepare_endgame_targets as target_intake  # noqa: E402
 import render_demo_dashboard as dashboard  # noqa: E402
 import render_export_review as review_render  # noqa: E402
 
@@ -33,6 +34,7 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 UPDATE_STATE_FILENAME = "update_state.json"
 SNAPSHOT_HISTORY_DIRNAME = "snapshot_history"
+TARGET_REFRESH_DIRNAME = "targets"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 PARSED_DIR_HISTORY_WARNING_CASES = 5
 MODE_OCR_FRESH_IMAGE = "OCR fresh image mode"
@@ -641,6 +643,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     needs_review = summary["overall"].get("requires_manual_review_count", 0)
     plan_info = summary.get("training_plan", {}) if isinstance(summary.get("training_plan"), dict) else {}
     history_info = summary.get("snapshot_history", {}) if isinstance(summary.get("snapshot_history"), dict) else {}
+    target_info = summary.get("target_refresh", {}) if isinstance(summary.get("target_refresh"), dict) else {}
     return [
         {"name": "官方分享图", "status": "done" if input_info.get("images_dir") or any(case.get("image") for case in cases) else "skipped"},
         {"name": "OCR Review", "status": "failed" if errors and input_info.get("images_dir") else "done" if any(case.get("review_html") for case in cases) else "skipped"},
@@ -651,6 +654,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             "name": "Snapshot History",
             "status": "failed" if history_info.get("diff_failed_count") else "done" if history_info.get("snapshot_count") else "skipped",
         },
+        {"name": "Target Refresh", "status": "failed" if target_info.get("error") else "done" if target_info.get("output_json") else "skipped"},
         {"name": "Training Plan", "status": "failed" if plan_info.get("error") else "done" if plan_info.get("output_json") else "skipped"},
     ]
 
@@ -767,6 +771,42 @@ def build_training_plan(cases: list[dict[str, Any]], targets_path: Path | None, 
     return plan_info
 
 
+def build_target_refresh(target_source_manifest: Path | None, output_dir: Path) -> dict[str, Any] | None:
+    if target_source_manifest is None:
+        return None
+    info: dict[str, Any] = {
+        "manifest": str(target_source_manifest),
+        "output_json": None,
+        "source_count": 0,
+        "target_count": 0,
+        "warnings": [],
+        "error": None,
+    }
+    try:
+        game, source_type, sources, defaults = target_intake.source_cases_from_manifest(target_source_manifest)
+        targets = target_intake.prepare_targets(
+            game=game,
+            source_type=source_type,
+            sources=sources,
+            output_dir=output_dir / TARGET_REFRESH_DIRNAME,
+            manifest_defaults=defaults,
+        )
+    except target_intake.TargetIntakeError as exc:
+        info["error"] = str(exc)
+        return info
+    info.update(
+        {
+            "output_json": targets.get("output_json"),
+            "source_count": len(targets.get("sources", [])) if isinstance(targets.get("sources"), list) else 0,
+            "target_count": len(targets.get("targets", [])) if isinstance(targets.get("targets"), list) else 0,
+            "warnings": targets.get("warnings", []) if isinstance(targets.get("warnings"), list) else [],
+            "source_type": targets.get("source", {}).get("type") if isinstance(targets.get("source"), dict) else None,
+            "game": targets.get("game"),
+        }
+    )
+    return info
+
+
 def clean_demo_output_dir(output_dir: Path) -> None:
     resolved = output_dir.resolve()
     allowed_root = (PROJECT_ROOT / "data" / "probes").resolve()
@@ -796,7 +836,10 @@ def run_pipeline(
     new_only: bool = False,
     state_file: Path | None = None,
     history_dir: Path | None = None,
+    target_source_manifest: Path | None = None,
 ) -> dict[str, Any]:
+    if targets is not None and target_source_manifest is not None:
+        raise DemoPipelineError("--targets cannot be combined with --target-source-manifest")
     if clean_demo:
         clean_demo_output_dir(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -812,6 +855,7 @@ def run_pipeline(
         "new_only": bool(new_only),
         "state_file": str(state_file) if state_file else None,
         "history_dir": str(history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME)),
+        "target_source_manifest": str(target_source_manifest) if target_source_manifest else None,
     }
     if manifest:
         for raw in manifest_cases(manifest):
@@ -868,7 +912,16 @@ def run_pipeline(
     summary = summarize(cases, output_dir, input_info, snapshot_history)
     if isinstance(input_info.get("update_state"), dict):
         summary["update_state"] = input_info["update_state"]
-    training_plan = build_training_plan(cases, targets, output_dir)
+    target_refresh = build_target_refresh(target_source_manifest, output_dir)
+    active_targets = Path(str(target_refresh["output_json"])) if isinstance(target_refresh, dict) and target_refresh.get("output_json") else targets
+    if target_refresh is not None:
+        summary["target_refresh"] = target_refresh
+        if target_refresh.get("warnings"):
+            summary.setdefault("warnings", []).extend(target_refresh["warnings"])
+        if target_refresh.get("error"):
+            summary.setdefault("warnings", []).append(f"Target refresh failed: {target_refresh['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
+    training_plan = build_training_plan(cases, active_targets, output_dir)
     if training_plan is not None:
         summary["training_plan"] = training_plan
         if training_plan.get("warnings"):
@@ -905,6 +958,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
     parser.add_argument("--state-file", default=None, help="Image update state JSON. Default: <output-dir>/update_state.json.")
     parser.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report from normalized snapshots.")
+    parser.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
     parser.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
     return parser
 
@@ -928,6 +982,7 @@ def main() -> int:
             new_only=args.new_only,
             state_file=resolve_path(args.state_file) if args.state_file else None,
             history_dir=resolve_path(args.history_dir) if args.history_dir else None,
+            target_source_manifest=resolve_path(args.target_source_manifest) if args.target_source_manifest else None,
         )
     except (DemoPipelineError, normalizer.NormalizeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -945,6 +1000,9 @@ def main() -> int:
         print(f"skipped_unchanged_count: {summary['update_state'].get('skipped_unchanged_count', 0)}")
     if isinstance(summary.get("training_plan"), dict):
         print(f"plan_item_count: {summary['training_plan'].get('plan_item_count', 0)}")
+    if isinstance(summary.get("target_refresh"), dict):
+        print(f"target_refresh_target_count: {summary['target_refresh'].get('target_count', 0)}")
+        print(f"target_refresh_source_count: {summary['target_refresh'].get('source_count', 0)}")
     if isinstance(summary.get("snapshot_history"), dict):
         print(f"history_snapshot_count: {summary['snapshot_history'].get('snapshot_count', 0)}")
         print(f"history_diff_count: {summary['snapshot_history'].get('diff_count', 0)}")

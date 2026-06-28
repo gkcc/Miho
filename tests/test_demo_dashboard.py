@@ -143,6 +143,7 @@ class DemoDashboardTests(unittest.TestCase):
                     "manifest": None,
                     "latest_only": False,
                     "clean_demo": False,
+                    "target_source_manifest": str(root / "target_sources.json"),
                     "history_dir": str(root / "snapshot_history"),
                 },
                 "warnings": ["当前包含历史 parsed 结果，平均通过率不代表 P0.9 replay batch"],
@@ -166,6 +167,16 @@ class DemoDashboardTests(unittest.TestCase):
                     "error": None,
                 },
                 "pipeline_steps": [{"name": "Normalized Snapshot", "status": "needs_review"}],
+                "target_refresh": {
+                    "manifest": str(root / "target_sources.json"),
+                    "output_json": str(root / "targets" / "endgame_targets.json"),
+                    "source_count": 1,
+                    "target_count": 1,
+                    "warnings": ["目标来源不是 official_current / official_snapshot"],
+                    "error": None,
+                    "source_type": "public_web_snapshot",
+                    "game": "zzz",
+                },
                 "snapshot_history": {
                     "history_dir": str(root / "snapshot_history"),
                     "index_json": str(root / "snapshot_history" / "index.json"),
@@ -225,6 +236,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("review_html", html)
             self.assertIn("case_expected.json", html)
             self.assertIn("培养优先级候选", html)
+            self.assertIn("终局目标刷新", html)
+            self.assertIn("endgame_targets.json", html)
             self.assertIn("快照历史", html)
             self.assertIn("snapshot_diff_md", html)
             self.assertIn("先人工确认解析结果", html)
@@ -322,6 +335,75 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("培养优先级候选", dashboard_html)
             self.assertIn("先人工确认解析结果", dashboard_html)
+
+    def test_run_demo_pipeline_refreshes_targets_from_source_manifest_before_planning(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            parsed_dir = root / "parsed"
+            output_dir = root / "demo"
+            source_path = root / "endgame_source.html"
+            manifest_path = root / "target_sources.json"
+            parsed_dir.mkdir()
+            parsed_path = parsed_dir / "case_a.json"
+            parsed_path.write_text(json.dumps(parsed_json(), ensure_ascii=False), encoding="utf-8")
+            source_path.write_text(
+                "<html><title>危局强袭战 本期目标</title><body>危局强袭战 推荐冰属性与异常队伍。</body></html>",
+                encoding="utf-8",
+            )
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "game": "zzz",
+                        "source_type": "official_snapshot",
+                        "default_minimums": {"character_level": 60, "equipment_level": 60, "skill_level": 8},
+                        "sources": [
+                            {
+                                "input": str(source_path),
+                                "goal_id": "zzz_mock_refresh",
+                                "target_tier": "稳定通关",
+                                "priority": "high",
+                                "preferred_characters": ["星见雅"],
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            summary = pipeline_tool.run_pipeline(
+                images_dir=None,
+                parsed_dir=parsed_dir,
+                manifest=None,
+                output_dir=output_dir,
+                open_dashboard=False,
+                target_source_manifest=manifest_path,
+            )
+            dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
+
+            self.assertEqual(summary["target_refresh"]["target_count"], 1)
+            self.assertEqual(summary["target_refresh"]["source_count"], 1)
+            self.assertTrue(Path(summary["target_refresh"]["output_json"]).exists())
+            self.assertIn("training_plan", summary)
+            self.assertEqual(summary["training_plan"]["targets_json"], summary["target_refresh"]["output_json"])
+            self.assertGreater(summary["training_plan"]["plan_item_count"], 0)
+            self.assertIn("Target Refresh", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("终局目标刷新", dashboard_html)
+            self.assertIn("endgame_targets.json", dashboard_html)
+
+    def test_run_demo_pipeline_rejects_static_targets_and_target_source_manifest_together(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with self.assertRaises(pipeline_tool.DemoPipelineError):
+                pipeline_tool.run_pipeline(
+                    images_dir=None,
+                    parsed_dir=root,
+                    manifest=None,
+                    output_dir=root / "demo",
+                    open_dashboard=False,
+                    targets=root / "targets.json",
+                    target_source_manifest=root / "target_sources.json",
+                )
 
     def test_run_demo_pipeline_records_snapshot_history_and_diffs_previous_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -465,6 +547,7 @@ class DemoDashboardTests(unittest.TestCase):
                     state_file=None,
                     targets=None,
                     history_dir=None,
+                    target_source_manifest=None,
                 )
             )
         finally:
@@ -479,6 +562,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIsNone(calls[0]["state_file"])
         self.assertIsNone(calls[0]["targets"])
         self.assertIsNone(calls[0]["history_dir"])
+        self.assertIsNone(calls[0]["target_source_manifest"])
 
 
 if __name__ == "__main__":

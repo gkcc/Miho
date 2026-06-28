@@ -180,6 +180,7 @@ def render_input_panel(summary: dict[str, Any]) -> str:
         <div><span>parsed_dir</span><strong>{e(rel_label(input_info.get("parsed_dir")) or "N/A")}</strong></div>
         <div><span>manifest</span><strong>{e(rel_label(input_info.get("manifest")) or "N/A")}</strong></div>
         <div><span>targets</span><strong>{e(rel_label(input_info.get("targets")) or "N/A")}</strong></div>
+        <div><span>target_source_manifest</span><strong>{e(rel_label(input_info.get("target_source_manifest")) or "N/A")}</strong></div>
         <div><span>history_dir</span><strong>{e(rel_label(input_info.get("history_dir")) or "N/A")}</strong></div>
         <div><span>latest_only</span><strong>{e(input_info.get("latest_only"))}</strong></div>
         <div><span>new_only</span><strong>{e(input_info.get("new_only"))}</strong></div>
@@ -290,6 +291,35 @@ def render_snapshot_history(summary: dict[str, Any]) -> str:
     """
 
 
+def render_target_refresh(summary: dict[str, Any]) -> str:
+    refresh = summary.get("target_refresh")
+    if not isinstance(refresh, dict):
+        return ""
+    warnings = refresh.get("warnings") if isinstance(refresh.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Target Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    error = refresh.get("error")
+    error_block = ""
+    if error:
+        error_block = f'<div class="errors"><strong>Target refresh failed</strong><ul><li>{e(error)}</li></ul></div>'
+    return f"""
+    <section class="panel">
+      <h2>终局目标刷新</h2>
+      <div class="input-grid">
+        <div><span>manifest</span><strong>{e(rel_label(refresh.get("manifest")) or "N/A")}</strong></div>
+        <div><span>source type</span><strong>{e(refresh.get("source_type") or "N/A")}</strong></div>
+        <div><span>game</span><strong>{e(refresh.get("game") or "N/A")}</strong></div>
+        <div><span>sources</span><strong>{e(refresh.get("source_count", 0))}</strong></div>
+        <div><span>targets</span><strong>{e(refresh.get("target_count", 0))}</strong></div>
+        <div><span>status</span><strong>{e("failed" if error else "ok")}</strong></div>
+      </div>
+      <div class="links">{link("endgame_targets.json", refresh.get("output_json"))}</div>
+      {warning_block}
+      {error_block}
+    </section>
+    """
+
+
 def render_html(summary: dict[str, Any]) -> str:
     overall = summary.get("overall", {}) if isinstance(summary.get("overall"), dict) else {}
     cases = summary.get("cases", []) if isinstance(summary.get("cases"), list) else []
@@ -301,6 +331,7 @@ def render_html(summary: dict[str, Any]) -> str:
     plan_info = summary.get("training_plan", {}) if isinstance(summary.get("training_plan"), dict) else {}
     update_info = summary.get("update_state", {}) if isinstance(summary.get("update_state"), dict) else {}
     history_info = summary.get("snapshot_history", {}) if isinstance(summary.get("snapshot_history"), dict) else {}
+    target_info = summary.get("target_refresh", {}) if isinstance(summary.get("target_refresh"), dict) else {}
     metrics = [
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
@@ -313,6 +344,7 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("需人工确认", overall.get("requires_manual_review_count", 0), "warn"),
         metric_card("本轮处理图片", update_info.get("processed_image_count", "N/A") if update_info else "N/A", "ok" if update_info.get("processed_image_count") else "muted"),
         metric_card("历史变化", history_info.get("changed_character_count", "N/A") if history_info else "N/A", "warn" if history_info.get("changed_character_count") else "muted"),
+        metric_card("终局目标", target_info.get("target_count", "N/A") if target_info else "N/A", "warn" if target_info.get("error") else "ok" if target_info else "muted"),
         metric_card("Plan Items", plan_info.get("plan_item_count", 0) if plan_info else "N/A", "warn" if plan_info.get("error") else "ok" if plan_info else "muted"),
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
@@ -320,6 +352,7 @@ def render_html(summary: dict[str, Any]) -> str:
     input_panel = render_input_panel(summary)
     update_panel = render_update_state(summary)
     snapshot_history = render_snapshot_history(summary)
+    target_refresh = render_target_refresh(summary)
     training_plan = render_training_plan(summary)
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -420,6 +453,7 @@ def render_html(summary: dict[str, Any]) -> str:
     {input_panel}
     {update_panel}
     {steps}
+    {target_refresh}
     {snapshot_history}
     {training_plan}
     <section class="panel"><h2>Case 卡片</h2><div class="case-grid">{cards}</div></section>
