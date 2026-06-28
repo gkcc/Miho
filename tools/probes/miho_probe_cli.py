@@ -28,6 +28,8 @@ def run_demo(args: argparse.Namespace) -> int:
         game=args.game,
         layout=args.layout,
         open_dashboard=args.open,
+        latest_only=args.latest_only,
+        clean_demo=args.clean_demo,
     )
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
@@ -70,6 +72,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     demo.add_argument("--game", choices=("zzz", "hsr"), default="zzz")
     demo.add_argument("--layout", choices=("full", "zzz-agent-card"), default="zzz-agent-card")
     demo.add_argument("--open", action="store_true", help="Open generated dashboard.")
+    demo.add_argument("--latest-only", action="store_true", help="In parsed-dir mode, keep only the newest parsed JSON for each source image.")
+    demo.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
     demo.set_defaults(handler=run_demo)
 
     normalize = subparsers.add_parser("normalize", help="Normalize one parsed JSON.")

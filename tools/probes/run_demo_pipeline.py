@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import webbrowser
@@ -28,6 +29,10 @@ DEFAULT_IMAGES_DIR = PROJECT_ROOT / "figs"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+PARSED_DIR_HISTORY_WARNING_CASES = 5
+MODE_OCR_FRESH_IMAGE = "OCR fresh image mode"
+MODE_PARSED_REPLAY = "parsed replay mode"
+MODE_MANIFEST_CONTROLLED = "manifest controlled mode"
 
 
 class DemoPipelineError(RuntimeError):
@@ -123,6 +128,41 @@ def parsed_files(parsed_dir: Path) -> list[Path]:
     return paths
 
 
+def parsed_case_key(path: Path, parsed: dict[str, Any]) -> str:
+    image = source_image_from_parsed(parsed)
+    if image:
+        return Path(image).stem
+    stem = path.stem
+    if "_parsed_" in stem:
+        return stem.split("_parsed_", 1)[0]
+    return stem
+
+
+def parsed_sort_key(path: Path) -> tuple[str, float, str]:
+    timestamp = ""
+    if "_parsed_" in path.stem:
+        timestamp = path.stem.split("_parsed_", 1)[1]
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    return timestamp, mtime, path.name
+
+
+def latest_parsed_files(parsed_dir: Path) -> list[Path]:
+    grouped: dict[str, Path] = {}
+    for path in parsed_files(parsed_dir):
+        try:
+            parsed = load_json(path)
+        except normalizer.NormalizeError:
+            continue
+        key = parsed_case_key(path, parsed)
+        current = grouped.get(key)
+        if current is None or parsed_sort_key(path) > parsed_sort_key(current):
+            grouped[key] = path
+    return sorted(grouped.values())
+
+
 def manifest_cases(manifest: Path) -> list[dict[str, Any]]:
     if not manifest.exists():
         raise DemoPipelineError(f"Manifest does not exist: {manifest}")
@@ -202,6 +242,7 @@ def case_template(name: str) -> dict[str, Any]:
         "normalized_json": None,
         "normalized_md": None,
         "expected_json": None,
+        "expected_json_name": None,
         "expected_diff_json": None,
         "expected_diff_md": None,
         "review_status": None,
@@ -234,6 +275,7 @@ def evaluate_case(parsed_path: Path, expected_path: Path | None, case_dir: Path,
     if expected_path is None:
         return
     case["expected_json"] = str(expected_path)
+    case["expected_json_name"] = expected_path.name
     try:
         result = evaluator.evaluate_files(
             parsed_path,
@@ -361,6 +403,26 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def source_mode(*, images_dir: Path | None, parsed_dir: Path | None, manifest: Path | None) -> str:
+    if manifest:
+        return MODE_MANIFEST_CONTROLLED
+    if parsed_dir:
+        return MODE_PARSED_REPLAY
+    return MODE_OCR_FRESH_IMAGE
+
+
+def build_warnings(cases: list[dict[str, Any]], input_info: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    if input_info.get("source_mode") == MODE_PARSED_REPLAY:
+        if input_info.get("latest_only"):
+            warnings.append("parsed-dir 模式已启用 latest-only，仅展示每个源图最新 parsed JSON。")
+        else:
+            warnings.append("parsed-dir 模式会扫描历史 parsed JSON，可能包含旧失败结果；准确率验收请使用 manifest。")
+        if not input_info.get("latest_only") and len(cases) > PARSED_DIR_HISTORY_WARNING_CASES:
+            warnings.append("当前包含历史 parsed 结果，平均通过率不代表 P0.9 replay batch")
+    return warnings
+
+
 def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[str, Any]) -> dict[str, Any]:
     parse_success_count = sum(1 for case in cases if case.get("parsed_json"))
     review_counts: dict[str, int] = {}
@@ -385,10 +447,12 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
         conclusion = "已生成标准化快照；当前仍是本地 demo，需要人工确认后才能进入后续导入原型。"
     else:
         conclusion = "已生成标准化快照；当前阶段仍不会自动写入正式数据库。"
+    warnings = build_warnings(cases, input_info)
     summary: dict[str, Any] = {
         "created_at": normalizer.now_iso(),
         "input": input_info,
         "output_dir": str(output_dir),
+        "warnings": warnings,
         "overall": {
             "case_count": len(cases),
             "parse_success_count": parse_success_count,
@@ -412,6 +476,18 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
     return summary
 
 
+def clean_demo_output_dir(output_dir: Path) -> None:
+    resolved = output_dir.resolve()
+    allowed_root = (PROJECT_ROOT / "data" / "probes").resolve()
+    if not resolved.exists():
+        return
+    if not resolved.is_dir():
+        raise DemoPipelineError(f"Clean target is not a directory: {resolved}")
+    if resolved == allowed_root or allowed_root not in resolved.parents:
+        raise DemoPipelineError(f"--clean-demo only cleans subdirectories under {allowed_root}: {resolved}")
+    shutil.rmtree(resolved)
+
+
 def run_pipeline(
     *,
     images_dir: Path | None,
@@ -423,13 +499,20 @@ def run_pipeline(
     game: str = "zzz",
     layout: str = "zzz-agent-card",
     open_dashboard: bool = False,
+    latest_only: bool = False,
+    clean_demo: bool = False,
 ) -> dict[str, Any]:
+    if clean_demo:
+        clean_demo_output_dir(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     cases: list[dict[str, Any]] = []
     input_info = {
         "images_dir": str(images_dir) if images_dir else None,
         "parsed_dir": str(parsed_dir) if parsed_dir else None,
         "manifest": str(manifest) if manifest else None,
+        "source_mode": source_mode(images_dir=images_dir, parsed_dir=parsed_dir, manifest=manifest),
+        "latest_only": bool(latest_only),
+        "clean_demo": bool(clean_demo),
     }
     if manifest:
         for raw in manifest_cases(manifest):
@@ -457,7 +540,8 @@ def run_pipeline(
                     )
                 )
     elif parsed_dir:
-        for parsed_path in parsed_files(parsed_dir):
+        active_parsed_files = latest_parsed_files(parsed_dir) if latest_only else parsed_files(parsed_dir)
+        for parsed_path in active_parsed_files:
             cases.append(process_parsed_case(parsed_path, name=parsed_path.stem, output_dir=output_dir, expected_dir=expected_dir))
     else:
         active_images_dir = images_dir or DEFAULT_IMAGES_DIR
@@ -500,6 +584,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--game", choices=("zzz", "hsr"), default="zzz", help="Game hint. Default: zzz.")
     parser.add_argument("--layout", choices=("full", "zzz-agent-card"), default="zzz-agent-card", help="Layout hint. Default: zzz-agent-card.")
     parser.add_argument("--open", action="store_true", help="Open generated dashboard in the default browser.")
+    parser.add_argument("--latest-only", action="store_true", help="In parsed-dir mode, keep only the newest parsed JSON for each source image.")
+    parser.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
     return parser
 
 
@@ -516,11 +602,16 @@ def main() -> int:
             game=args.game,
             layout=args.layout,
             open_dashboard=args.open,
+            latest_only=args.latest_only,
+            clean_demo=args.clean_demo,
         )
     except (DemoPipelineError, normalizer.NormalizeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     overall = summary["overall"]
+    print(f"mode: {summary['input'].get('source_mode')}")
+    for warning in summary.get("warnings", []):
+        print(f"warning: {warning}")
     print(f"case_count: {overall['case_count']}")
     print(f"parse_success_count: {overall['parse_success_count']}")
     print(f"normalized_count: {overall['normalized_count']}")

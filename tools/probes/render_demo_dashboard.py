@@ -88,6 +88,12 @@ def metric_card(label: str, value: Any, tone: str = "muted") -> str:
     return f'<div class="metric {e(tone)}"><span>{e(label)}</span><strong>{e(value)}</strong></div>'
 
 
+def basename(value: Any) -> str:
+    if not value:
+        return ""
+    return Path(str(value)).name
+
+
 def render_steps(steps: list[dict[str, Any]]) -> str:
     if not steps:
         return ""
@@ -119,6 +125,7 @@ def render_case(case: dict[str, Any]) -> str:
     error_html = "".join(f"<li>{e(item)}</li>" for item in errors)
     if error_html:
         error_html = f'<div class="errors"><strong>Errors</strong><ul>{error_html}</ul></div>'
+    expected_name = case.get("expected_json_name") or basename(case.get("expected_json")) or "missing"
 
     return f"""
     <article class="case-card">
@@ -135,12 +142,14 @@ def render_case(case: dict[str, Any]) -> str:
           <div><span>音擎</span><strong>{e(equipment.get("name") or "")}</strong></div>
           <div><span>覆盖</span><strong>{e(case.get("coverage_level") or "")}</strong></div>
           <div><span>Expected</span><strong>{e(pass_rate)}</strong></div>
+          <div><span>Expected JSON</span><strong>{e(expected_name)}</strong></div>
           <div><span>可信字段</span><strong>{e(quality.get("trusted_field_count"))}/{e(quality.get("field_count"))}</strong></div>
           <div><span>人工确认</span><strong>{e(quality.get("requires_manual_review"))}</strong></div>
         </div>
         <div class="links">
           {link("review_html", case.get("review_html"))}
           {link("parsed_json", case.get("parsed_json"))}
+          {link("expected_json", case.get("expected_json"))}
           {link("normalized_md", case.get("normalized_md"))}
           {link("normalized_json", case.get("normalized_json"))}
           {link("expected_diff_md", case.get("expected_diff_md"))}
@@ -156,6 +165,28 @@ def render_case(case: dict[str, Any]) -> str:
     """
 
 
+def render_input_panel(summary: dict[str, Any]) -> str:
+    input_info = summary.get("input", {}) if isinstance(summary.get("input"), dict) else {}
+    warnings = summary.get("warnings", []) if isinstance(summary.get("warnings"), list) else []
+    source_mode = input_info.get("source_mode") or "unknown mode"
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warnings_block = f'<div class="warnings"><strong>Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    return f"""
+    <section class="panel input-panel">
+      <h2>输入模式</h2>
+      <div class="input-grid">
+        <div><span>Mode</span><strong>{e(source_mode)}</strong></div>
+        <div><span>images_dir</span><strong>{e(rel_label(input_info.get("images_dir")) or "N/A")}</strong></div>
+        <div><span>parsed_dir</span><strong>{e(rel_label(input_info.get("parsed_dir")) or "N/A")}</strong></div>
+        <div><span>manifest</span><strong>{e(rel_label(input_info.get("manifest")) or "N/A")}</strong></div>
+        <div><span>latest_only</span><strong>{e(input_info.get("latest_only"))}</strong></div>
+        <div><span>clean_demo</span><strong>{e(input_info.get("clean_demo"))}</strong></div>
+      </div>
+      {warnings_block}
+    </section>
+    """
+
+
 def render_html(summary: dict[str, Any]) -> str:
     overall = summary.get("overall", {}) if isinstance(summary.get("overall"), dict) else {}
     cases = summary.get("cases", []) if isinstance(summary.get("cases"), list) else []
@@ -163,8 +194,10 @@ def render_html(summary: dict[str, Any]) -> str:
     avg = overall.get("average_pass_rate")
     average_pass_rate = "N/A" if avg is None else f"{round(float(avg) * 100, 2)}%"
     conclusion = overall.get("conclusion") or ""
+    input_info = summary.get("input", {}) if isinstance(summary.get("input"), dict) else {}
     metrics = [
-        metric_card("图片数量", overall.get("case_count", 0), "muted"),
+        metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
+        metric_card("Case 数", overall.get("case_count", 0), "muted"),
         metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),
         metric_card("PASS", review_counts.get("PASS", 0), "ok"),
         metric_card("NEEDS_REVIEW", review_counts.get("NEEDS_REVIEW", 0), "warn"),
@@ -175,6 +208,7 @@ def render_html(summary: dict[str, Any]) -> str:
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
+    input_panel = render_input_panel(summary)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -210,6 +244,12 @@ def render_html(summary: dict[str, Any]) -> str:
     .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); }}
     .panel h2 {{ margin: 0 0 12px; font-size: 18px; }}
     .steps {{ display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }}
+    .input-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }}
+    .input-grid div {{ border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }}
+    .input-grid span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .input-grid strong {{ display: block; overflow-wrap: anywhere; }}
+    .warnings {{ margin-top: 12px; border: 1px solid #f6cf7c; background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 10px; }}
+    .warnings ul {{ margin: 6px 0 0; padding-left: 20px; }}
     .step {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 6px; min-width: 0; }}
     .step strong {{ font-size: 14px; }} .step em {{ font-style: normal; color: var(--muted); font-size: 12px; }}
     .dot {{ width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }}
@@ -237,6 +277,7 @@ def render_html(summary: dict[str, Any]) -> str:
     @media (max-width: 900px) {{
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .steps {{ grid-template-columns: 1fr; }}
+      .input-grid {{ grid-template-columns: 1fr; }}
       .case-grid {{ grid-template-columns: 1fr; }}
       .case-card {{ grid-template-columns: 1fr; }}
       .facts {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
@@ -250,6 +291,7 @@ def render_html(summary: dict[str, Any]) -> str:
   </header>
   <main>
     <section class="metrics">{''.join(metrics)}</section>
+    {input_panel}
     {steps}
     <section class="panel"><h2>Case 卡片</h2><div class="case-grid">{cards}</div></section>
   </main>

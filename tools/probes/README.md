@@ -299,7 +299,7 @@ diff 只把字段 `value` 的变化当作养成值变化，同时会记录 `stat
 
 P1.1 提供一个本地 demo 入口，把官方分享图解析、expected diff、normalized snapshot 和总览 Dashboard 串起来。它不是正式 App，不初始化 Tauri，不写 SQLite，不自动导入，不提交真实图片或 `data/probes/` 输出。
 
-双击体验：
+成品体验优先用双击脚本：
 
 ```powershell
 scripts/run_miho_demo.bat
@@ -315,7 +315,7 @@ Python 方式：
 
 ```powershell
 python tools/probes/run_demo_pipeline.py --images-dir figs --open
-python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --open
+python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --open
 python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.json --open
 ```
 
@@ -329,11 +329,26 @@ data/probes/demo/index.html
 `index.html` 是单文件静态 Dashboard，可以直接双击打开。Dashboard 会展示：
 
 * 图片 / parsed case 数；
+* 当前输入模式：`OCR fresh image mode`、`parsed replay mode` 或 `manifest controlled mode`；
 * review 状态；
 * expected diff 平均 pass_rate；
 * normalized snapshot 数；
 * 需要人工确认的 case 数；
-* 每张图的角色、音擎、review HTML、parsed JSON、normalized JSON/MD、expected diff 和 blockers。
+* 每张图的角色、音擎、expected JSON 文件名、review HTML、parsed JSON、normalized JSON/MD、expected diff 和 blockers。
+
+输入隔离：
+
+* 成品体验用 `scripts/run_miho_demo.bat`，它走 `figs/` 的 fresh OCR image mode。
+* `--parsed-dir` 是 replay 调试入口，会扫描目录中的历史 parsed JSON，可能包含旧失败结果。
+* parsed replay 只想看每张源图最新结果时加 `--latest-only`。
+* 想清空 demo 输出再跑时加 `--clean-demo`，该开关只允许清理 `data/probes/` 下的输出目录。
+* 准确率验收必须用 manifest，例如 `data/probes/replay_manifest.json`；不要扫描整个 `data/probes/parsed` 来判断 P0.9 通过率。
+
+P0.9 replay batch 验收命令：
+
+```powershell
+python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json
+```
 
 expected JSON 缺失时不会报错，Dashboard 会显示 `expected: missing` / `N/A`，并继续生成 normalized snapshot。要补 expected，可以先运行：
 

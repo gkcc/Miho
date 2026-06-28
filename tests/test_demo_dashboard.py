@@ -49,10 +49,10 @@ def field(value, *, uncertain: bool = False, status: str = "ok") -> dict:
     }
 
 
-def parsed_json(name: str = "星见雅") -> dict:
+def parsed_json(name: str = "星见雅", image: str = "figs/mock.jpg") -> dict:
     return {
         "metadata": {
-            "input_image": "figs/mock.jpg",
+            "input_image": image,
             "ocr_engine": "paddle",
             "game": "zzz",
             "layout": "zzz-agent-card",
@@ -112,6 +112,15 @@ class DemoDashboardTests(unittest.TestCase):
                     "requires_manual_review_count": 1,
                     "conclusion": "demo",
                 },
+                "input": {
+                    "source_mode": "parsed replay mode",
+                    "images_dir": None,
+                    "parsed_dir": "data/probes/parsed",
+                    "manifest": None,
+                    "latest_only": False,
+                    "clean_demo": False,
+                },
+                "warnings": ["当前包含历史 parsed 结果，平均通过率不代表 P0.9 replay batch"],
                 "pipeline_steps": [{"name": "Normalized Snapshot", "status": "needs_review"}],
                 "cases": [
                     {
@@ -121,6 +130,8 @@ class DemoDashboardTests(unittest.TestCase):
                         "parsed_json": str(root / "case.json"),
                         "normalized_md": str(root / "case_normalized.md"),
                         "normalized_json": str(root / "case_normalized.json"),
+                        "expected_json": str(root / "case_expected.json"),
+                        "expected_json_name": "case_expected.json",
                         "expected_diff_md": None,
                         "review_status": "NEEDS_REVIEW",
                         "coverage_level": "medium",
@@ -142,10 +153,13 @@ class DemoDashboardTests(unittest.TestCase):
             html = output.read_text(encoding="utf-8")
 
             self.assertIn("Miho 本地练度识别体验台", html)
+            self.assertIn("parsed replay mode", html)
             self.assertIn("case_a", html)
             self.assertIn("星见雅", html)
             self.assertIn("normalized_json", html)
             self.assertIn("review_html", html)
+            self.assertIn("case_expected.json", html)
+            self.assertIn("当前包含历史 parsed 结果", html)
             self.assertIn("character.name 缺失或 uncertain", html)
             self.assertIn("N/A", html)
 
@@ -178,9 +192,35 @@ class DemoDashboardTests(unittest.TestCase):
 
             self.assertEqual(summary["overall"]["case_count"], 1)
             self.assertEqual(summary["overall"]["average_pass_rate"], None)
+            self.assertEqual(summary["input"]["source_mode"], "parsed replay mode")
+            self.assertIn("parsed-dir 模式会扫描历史 parsed JSON", summary["warnings"][0])
             self.assertTrue(Path(summary["dashboard_html"]).exists())
             self.assertTrue(Path(summary["cases"][0]["normalized_json"]).exists())
             self.assertEqual(summary["cases"][0]["review_html"], str(parsed_path.with_name("case_a_review.html").resolve()))
+
+    def test_run_demo_pipeline_latest_only_keeps_newest_parsed_per_source_image(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            parsed_dir = root / "parsed"
+            output_dir = root / "demo"
+            parsed_dir.mkdir()
+            older = parsed_dir / "shared_parsed_20260627_100000.json"
+            newer = parsed_dir / "shared_parsed_20260628_100000.json"
+            older.write_text(json.dumps(parsed_json("旧结果", image="figs/shared.jpg"), ensure_ascii=False), encoding="utf-8")
+            newer.write_text(json.dumps(parsed_json("新结果", image="figs/shared.jpg"), ensure_ascii=False), encoding="utf-8")
+
+            summary = pipeline_tool.run_pipeline(
+                images_dir=None,
+                parsed_dir=parsed_dir,
+                manifest=None,
+                output_dir=output_dir,
+                open_dashboard=False,
+                latest_only=True,
+            )
+
+            self.assertEqual(summary["overall"]["case_count"], 1)
+            self.assertEqual(summary["cases"][0]["character"]["name"], "新结果")
+            self.assertIn("latest-only", summary["warnings"][0])
 
     def test_cli_demo_command_calls_pipeline_core(self) -> None:
         calls = []
@@ -203,6 +243,8 @@ class DemoDashboardTests(unittest.TestCase):
                     game="zzz",
                     layout="zzz-agent-card",
                     open=False,
+                    latest_only=False,
+                    clean_demo=False,
                 )
             )
         finally:
@@ -212,6 +254,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["engine"], "paddle")
         self.assertIsNotNone(calls[0]["images_dir"])
+        self.assertFalse(calls[0]["latest_only"])
 
 
 if __name__ == "__main__":
