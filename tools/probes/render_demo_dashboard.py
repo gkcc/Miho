@@ -245,10 +245,15 @@ def render_training_plan(summary: dict[str, Any]) -> str:
         for item in coverage[:6]:
             matched = item.get("matched_characters") if isinstance(item.get("matched_characters"), list) else []
             names = "、".join(str(match.get("character")) for match in matched if isinstance(match, dict) and match.get("character"))
+            candidates = item.get("catalog_candidates") if isinstance(item.get("catalog_candidates"), list) else []
+            candidate_names = "、".join(
+                str(candidate.get("character")) for candidate in candidates[:3] if isinstance(candidate, dict) and candidate.get("character")
+            )
+            detail = names or (f"候选：{candidate_names}" if candidate_names else "none")
             rows.append(
                 "<article class=\"resource-item\">"
                 f"<strong>{e(item.get('target'))}</strong>"
-                f"<span>{e(item.get('coverage_status'))}: {e(names or 'none')}</span>"
+                f"<span>{e(item.get('coverage_status'))}: {e(detail)}</span>"
                 f"<em>{e(item.get('match_count', 0))}</em>"
                 "</article>"
             )

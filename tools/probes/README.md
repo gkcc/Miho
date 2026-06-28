@@ -462,8 +462,10 @@ data/probes/planner/training_priority_report.md
 * `covered`：当前 normalized snapshots 中至少有一个角色命中该目标；
 * `unmatched`：当前 box 暂无角色命中该目标的 preferred character、队伍模板或标签；
 * `matched_characters`：命中的角色、匹配类型、匹配标签和分数。
+* `catalog_candidates`：当前 snapshots 未覆盖该目标时，角色 catalog 中命中 preferred character、推荐队伍模板或标签接近的候选；这只提示“确认是否拥有 / 是否需要补录分享图 / 长期候选”，不能直接当作已拥有角色。
 
 如果 targets 来源是 fresh 的当前高难来源，且存在 `unmatched` 目标，planner 会给出 warning，提示当前 box 对该高难目标暂无匹配角色。
+如果 `unmatched` 目标存在 catalog 候选，planner 会额外提示应先确认是否拥有或补录分享图。
 
 报告中的 `target_source_status` 会把目标来源分成：
 

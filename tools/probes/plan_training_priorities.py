@@ -142,6 +142,15 @@ def catalog_combat_tags(entry: dict[str, Any] | None) -> set[str]:
     return {tag.lower() for tag in tags}
 
 
+def catalog_entry_name(entry: dict[str, Any]) -> str:
+    names = normalize_list(entry.get("name"))
+    return names[0] if names else "unknown_character"
+
+
+def catalog_entry_names(entry: dict[str, Any]) -> list[str]:
+    return normalize_list(entry.get("name")) + normalize_list(entry.get("aliases"))
+
+
 def load_manifest_snapshots(manifest: Path) -> list[Path]:
     data = load_json(manifest)
     raw = data.get("snapshots")
@@ -394,9 +403,70 @@ def target_match_summaries(details: list[dict[str, Any]]) -> list[dict[str, Any]
     return summaries
 
 
-def target_coverage_summary(targets: dict[str, Any], character_reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def catalog_candidates_for_target(
+    target: dict[str, Any],
+    character_catalog: dict[str, Any] | None,
+    current_characters: set[str],
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    needed_tags = target_tags(target)
+    preferred = {str(item).strip().lower() for item in normalize_list(target.get("preferred_characters"))}
+    template_names: set[str] = set()
+    templates = target.get("recommended_team_templates")
+    if isinstance(templates, list):
+        for template in templates:
+            if isinstance(template, dict):
+                template_names.update(str(item).strip().lower() for item in normalize_list(template.get("preferred_characters")))
+    if not needed_tags and not preferred and not template_names:
+        return []
+    candidates = []
+    for entry in catalog_entries(character_catalog):
+        if not isinstance(entry, dict):
+            continue
+        name = catalog_entry_name(entry)
+        entry_names = {item.lower() for item in catalog_entry_names(entry)}
+        reasons = []
+        match_types = []
+        score = 0
+        if preferred & entry_names:
+            score = max(score, 95)
+            match_types.append("preferred_character")
+            reasons.append("角色在目标 preferred_characters 中")
+        if template_names & entry_names:
+            score = max(score, 90)
+            match_types.append("team_template")
+            reasons.append("角色在推荐队伍模板中")
+        tags = catalog_combat_tags(entry)
+        overlap = sorted(tags & needed_tags)
+        if overlap:
+            score = max(score, min(80, 30 + len(overlap) * 15))
+            match_types.append("tag_overlap")
+            reasons.append("catalog 标签命中目标弱点/机制：" + "、".join(overlap))
+        if not match_types:
+            continue
+        candidates.append(
+            {
+                "character": name,
+                "match_types": match_types,
+                "matched_tags": overlap,
+                "score": score,
+                "in_current_snapshots": name in current_characters,
+                "owned": bool(entry.get("owned")) if "owned" in entry else None,
+                "reason": "；".join(reasons),
+            }
+        )
+    candidates.sort(key=lambda item: (-int(item["score"]), str(item["character"])))
+    return candidates[:limit]
+
+
+def target_coverage_summary(
+    targets: dict[str, Any],
+    character_reports: list[dict[str, Any]],
+    character_catalog: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     coverage = []
     raw_targets = targets.get("targets") if isinstance(targets.get("targets"), list) else []
+    current_characters = {str(report.get("character")) for report in character_reports if report.get("character")}
     for target in raw_targets:
         if not isinstance(target, dict):
             continue
@@ -415,6 +485,7 @@ def target_coverage_summary(targets: dict[str, Any], character_reports: list[dic
                         }
                     )
         matches.sort(key=lambda item: (-int(item.get("score") or 0), str(item.get("character") or "")))
+        catalog_candidates = [] if matches else catalog_candidates_for_target(target, character_catalog, current_characters)
         coverage.append(
             {
                 "target": label,
@@ -427,6 +498,7 @@ def target_coverage_summary(targets: dict[str, Any], character_reports: list[dic
                 "coverage_status": "covered" if matches else "unmatched",
                 "match_count": len(matches),
                 "matched_characters": matches,
+                "catalog_candidates": catalog_candidates,
             }
         )
     return coverage
@@ -787,6 +859,15 @@ def build_warnings(
     ]
     if unmatched and source_status.get("current_endgame_ready"):
         warnings.append("当前高难目标暂无当前 box 匹配角色：" + "、".join(unmatched))
+    candidate_notes = []
+    for item in target_coverage or []:
+        candidates = item.get("catalog_candidates") if isinstance(item.get("catalog_candidates"), list) else []
+        if item.get("coverage_status") == "unmatched" and candidates:
+            names = "、".join(str(candidate.get("character")) for candidate in candidates[:3] if isinstance(candidate, dict))
+            if names:
+                candidate_notes.append(f"{item.get('target')} -> {names}")
+    if candidate_notes:
+        warnings.append("未覆盖目标存在 catalog 候选，请确认是否拥有或补录分享图：" + "；".join(candidate_notes))
     if any(snapshot.get("quality", {}).get("requires_manual_review") for snapshot in snapshots if isinstance(snapshot.get("quality"), dict)):
         warnings.append("存在 requires_manual_review 的 normalized snapshot，规划建议只能作为人工确认前的候选。")
     return warnings
@@ -902,16 +983,21 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append("")
     coverage = report.get("target_coverage") if isinstance(report.get("target_coverage"), list) else []
     if coverage:
-        lines.extend(["## 目标覆盖", "", "| target | status | matched characters | tags |", "|---|---|---|---|"])
+        lines.extend(["## 目标覆盖", "", "| target | status | matched characters | catalog candidates | tags |", "|---|---|---|---|---|"])
         for item in coverage:
             characters = "、".join(
                 str(match.get("character"))
                 for match in item.get("matched_characters", [])
                 if isinstance(match, dict) and match.get("character")
             )
+            candidates = "、".join(
+                str(candidate.get("character"))
+                for candidate in item.get("catalog_candidates", [])
+                if isinstance(candidate, dict) and candidate.get("character")
+            )
             tags = "、".join((item.get("weakness_tags") or []) + (item.get("mechanic_tags") or []))
             lines.append(
-                f"| {item.get('target')} | {item.get('coverage_status')} | {characters or 'none'} | {tags} |"
+                f"| {item.get('target')} | {item.get('coverage_status')} | {characters or 'none'} | {candidates or 'none'} | {tags} |"
             )
         lines.append("")
     lines.extend(["## 优先级", "", "| rank | character | target | action | reason | days | confidence |", "|---|---|---|---|---|---:|---|"])
@@ -1021,7 +1107,7 @@ def generate_report(
         for snapshot in snapshots
     ]
     source_status = target_source_status(targets)
-    target_coverage = target_coverage_summary(targets, characters)
+    target_coverage = target_coverage_summary(targets, characters, loaded_character_catalog)
     items = plan_items(characters, source_status)
     budget = resource_budget(targets, daily_stamina, horizon_days)
     report = {

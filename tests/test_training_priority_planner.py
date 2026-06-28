@@ -258,6 +258,67 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertEqual(report["target_coverage"][0]["match_count"], 0)
             self.assertTrue(any("暂无当前 box 匹配角色" in warning for warning in report["warnings"]))
 
+    def test_generate_report_lists_catalog_candidates_for_uncovered_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_path = root / "snapshot.json"
+            targets_path = root / "targets.json"
+            catalog_path = root / "catalog.json"
+            targets = targets_json()
+            targets["source"] = {"type": "official_snapshot"}
+            targets["freshness"] = {"level": "fresh", "stale_source_count": 0}
+            targets["targets"][0].pop("preferred_characters")
+            targets["targets"][0]["weakness_tags"] = ["fire"]
+            targets["targets"][0]["mechanic_tags"] = ["stun"]
+            catalog_path.write_text(
+                json.dumps(
+                    {
+                        "characters": [
+                            {"name": "珂蕾妲", "element": "fire", "combat_tags": ["stun"]},
+                            {"name": "星见雅", "element": "ice", "combat_tags": ["anomaly"]},
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            snapshot_path.write_text(json.dumps(normalized_snapshot(combat_tags=["ice", "anomaly"]), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+            report = planner_tool.generate_report([snapshot_path], targets_path, root / "planner", character_catalog=catalog_path)
+
+            coverage = report["target_coverage"][0]
+            self.assertEqual(coverage["coverage_status"], "unmatched")
+            self.assertEqual(coverage["catalog_candidates"][0]["character"], "珂蕾妲")
+            self.assertEqual(coverage["catalog_candidates"][0]["matched_tags"], ["fire", "stun"])
+            self.assertTrue(any("catalog 候选" in warning for warning in report["warnings"]))
+            markdown = Path(report["output_md"]).read_text(encoding="utf-8")
+            self.assertIn("珂蕾妲", markdown)
+
+    def test_catalog_candidates_include_preferred_characters_not_in_current_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_path = root / "snapshot.json"
+            targets_path = root / "targets.json"
+            catalog_path = root / "catalog.json"
+            targets = targets_json()
+            targets["source"] = {"type": "official_snapshot"}
+            targets["freshness"] = {"level": "fresh", "stale_source_count": 0}
+            targets["targets"][0]["preferred_characters"] = ["莱特"]
+            catalog_path.write_text(
+                json.dumps({"characters": [{"name": "莱特", "element": "fire", "combat_tags": ["stun"]}]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            snapshot_path.write_text(json.dumps(normalized_snapshot(name="星见雅"), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+            report = planner_tool.generate_report([snapshot_path], targets_path, root / "planner", character_catalog=catalog_path)
+
+            candidate = report["target_coverage"][0]["catalog_candidates"][0]
+            self.assertEqual(candidate["character"], "莱特")
+            self.assertIn("preferred_character", candidate["match_types"])
+            self.assertEqual(candidate["score"], 95)
+
     def test_generate_report_warns_on_stale_target_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

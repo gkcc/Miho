@@ -176,6 +176,14 @@ class DemoDashboardTests(unittest.TestCase):
                             "coverage_status": "covered",
                             "match_count": 1,
                             "matched_characters": [{"character": "星见雅", "match_type": "tag_overlap", "score": 65}],
+                            "catalog_candidates": [],
+                        },
+                        {
+                            "target": "式舆防卫战 满星尝试",
+                            "coverage_status": "unmatched",
+                            "match_count": 0,
+                            "matched_characters": [],
+                            "catalog_candidates": [{"character": "珂蕾妲", "matched_tags": ["fire", "stun"], "score": 60}],
                         }
                     ],
                     "resource_plan": {
@@ -267,6 +275,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("local_draft", html)
             self.assertIn("目标覆盖", html)
             self.assertIn("covered", html)
+            self.assertIn("候选：珂蕾妲", html)
             self.assertIn("今日投入建议", html)
             self.assertIn("终局目标刷新", html)
             self.assertIn("endgame_targets.json", html)
