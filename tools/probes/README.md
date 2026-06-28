@@ -241,6 +241,60 @@ python tools/probes/evaluate_export_parse.py --parsed "data/probes/parsed/xxx.js
 * 音擎名称、等级、评级
 * 六个驱动盘等级、主词条、副词条
 
+### P1.0 标准化导入原型
+
+P1.0 把 `export_image_parse_probe.py` 产出的 parsed JSON / `extracted_draft` 转换成项目内部标准化角色快照 JSON。该输出只是导入候选，不是正式数据库记录；当前阶段不写 SQLite，不自动导入，仍必须人工确认。
+
+单个 parsed JSON 标准化：
+
+```powershell
+python tools/probes/normalize_export_parse.py --parsed "data/probes/parsed/xxx.json"
+```
+
+输出默认写入：
+
+```text
+data/probes/normalized/<stem>_normalized.json
+data/probes/normalized/<stem>_normalized.md
+```
+
+也可以指定输出目录：
+
+```powershell
+python tools/probes/normalize_export_parse.py --parsed "data/probes/parsed/xxx.json" --output-dir "data/probes/normalized/manual_check"
+```
+
+标准化输出会保留每个字段的 `value`、`status`、`uncertain`、`evidence` 和 `source_region`。P0.9 阶段暂时归入 `physical_dmg_bonus` 的物理 / 元素伤害加成，在 P1.0 标准化中统一映射为 `build_snapshot.stats.damage_bonus`，后续再细分元素类型。
+
+批量标准化：
+
+```powershell
+python tools/probes/normalize_export_batch.py --parsed "data/probes/parsed/a.json" --parsed "data/probes/parsed/b.json"
+python tools/probes/normalize_export_batch.py --manifest "data/probes/normalized_manifest.json"
+```
+
+batch summary 默认写入：
+
+```text
+data/probes/normalized/batch_summary.json
+data/probes/normalized/batch_summary.md
+```
+
+比较两个标准化快照：
+
+```powershell
+python tools/probes/diff_normalized_snapshots.py --old "old_normalized.json" --new "new_normalized.json"
+```
+
+diff 只把字段 `value` 的变化当作养成值变化，同时会记录 `status` / `uncertain` 的变化。只要旧值或新值不可信，diff 项会标记 `requires_review=true`，不得当作正式养成变化直接入库。
+
+质量门禁：
+
+* `can_import_without_review` 当前始终为 `false`；
+* `requires_manual_review` 当前始终为 `true`；
+* `quality.blockers` 会列出角色名、音擎、驱动盘、`invalid_candidate`、低 coverage 或 `review_status=FAIL` 等阻断项；
+* normalized JSON 可以作为后续 importer prototype 的输入候选，但不是正式采集结果。
+
 ### P0.8 OCR 实验矩阵
 
 真实识别率提升必须以 expected diff 的 `pass_rate` 为硬验收，`coverage_summary` 只能辅助定位。
