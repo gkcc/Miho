@@ -349,6 +349,7 @@ data/probes/demo/snapshot_history/index.json
 * 如果提供 `--daily-stamina` / `--horizon-days`，planner 会把优先级转换成今日和规划窗口内的体力投入建议；默认按 240 / 7 天估算。
 * image mode 会维护本地 `update_state.json`，记录分享图 sha256 和上次处理结果。
 * 如果提供 `--new-only`，只处理新增或内容变更的分享图，未变化图片会跳过。
+* `update_state` summary 会展示本轮处理到的角色、对应图片、review 状态，以及被 `--new-only` 跳过的未变更图片。
 * demo 会维护本地 `snapshot_history/index.json`，保存每个角色最近一次 normalized snapshot，并在下次同角色出现时生成相邻快照 diff。
 * planner 会读取本轮 `snapshot_history` 上下文，给近期已有变化的角色一个小的连续投入提示，避免只看静态缺口。
 * `snapshot_history` 仍是 probe 输出，不是正式数据库；它只用于观察“这次相对上次练度变化了什么”。

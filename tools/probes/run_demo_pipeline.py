@@ -344,16 +344,54 @@ def build_snapshot_history(cases: list[dict[str, Any]], history_dir: Path) -> di
     }
 
 
-def build_update_summary(path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
+def build_character_update_summary(records: list[dict[str, Any]], cases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    case_by_image = {}
+    for case in cases:
+        if case.get("image"):
+            case_by_image[str(Path(str(case["image"])).resolve())] = case
+    updates = []
+    skipped = []
+    for record in records:
+        if not record.get("processed"):
+            if record.get("status") == "unchanged":
+                skipped.append(record.get("name") or record.get("image"))
+            continue
+        case = case_by_image.get(record.get("image"), {})
+        character = case.get("character", {}) if isinstance(case.get("character"), dict) else {}
+        quality = case.get("quality", {}) if isinstance(case.get("quality"), dict) else {}
+        updates.append(
+            {
+                "character": character.get("name") or case.get("name") or "unknown_character",
+                "image": record.get("image"),
+                "image_name": record.get("name"),
+                "update_status": record.get("status"),
+                "review_status": case.get("review_status"),
+                "coverage_level": case.get("coverage_level"),
+                "requires_manual_review": quality.get("requires_manual_review"),
+                "parsed_json": case.get("parsed_json"),
+                "normalized_json": case.get("normalized_json"),
+                "errors": case.get("errors", []),
+            }
+        )
+    updates.sort(key=lambda item: (str(item.get("character") or ""), str(item.get("image_name") or "")))
+    return updates, skipped
+
+
+def build_update_summary(path: Path, records: list[dict[str, Any]], cases: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     counts: dict[str, int] = {"new": 0, "changed": 0, "unchanged": 0}
     for record in records:
         status = str(record.get("status") or "unknown")
         counts[status] = counts.get(status, 0) + 1
+    character_updates, skipped_images = build_character_update_summary(records, cases or [])
     return {
         "state_file": str(path),
         "discovered_image_count": len(records),
         "processed_image_count": sum(1 for record in records if record.get("processed")),
         "skipped_unchanged_count": sum(1 for record in records if record.get("status") == "unchanged" and not record.get("processed")),
+        "processed_character_count": len({item.get("character") for item in character_updates if item.get("character")}),
+        "processed_characters": sorted({str(item.get("character")) for item in character_updates if item.get("character")}),
+        "character_updates": character_updates,
+        "skipped_images": skipped_images,
         "status_counts": counts,
         "records": records,
     }
@@ -962,6 +1000,7 @@ def run_pipeline(
                 )
             )
         write_update_state(active_state_file, state, update_records, cases)
+        input_info["update_state"] = build_update_summary(active_state_file, update_records, cases)
 
     snapshot_history = build_snapshot_history(cases, history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME))
     summary = summarize(cases, output_dir, input_info, snapshot_history)

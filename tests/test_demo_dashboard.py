@@ -587,7 +587,9 @@ class DemoDashboardTests(unittest.TestCase):
                 processed.append(Path(image_path).name)
                 case = pipeline_tool.case_template(name)
                 case["image"] = str(Path(image_path).resolve())
+                case["character"] = {"name": f"角色{name}", "level": "60", "rank": "S"}
                 case["review_status"] = "PASS"
+                case["quality"] = {"requires_manual_review": False}
                 return case
 
             pipeline_tool.process_image_case = fake_process_image_case
@@ -603,6 +605,8 @@ class DemoDashboardTests(unittest.TestCase):
                 self.assertEqual(processed, ["a.jpg", "b.jpg"])
                 self.assertTrue(state_file.exists())
                 self.assertEqual(first["update_state"]["processed_image_count"], 2)
+                self.assertEqual(first["update_state"]["processed_character_count"], 2)
+                self.assertEqual(first["update_state"]["processed_characters"], ["角色a", "角色b"])
 
                 processed.clear()
                 second = pipeline_tool.run_pipeline(
@@ -617,6 +621,7 @@ class DemoDashboardTests(unittest.TestCase):
                 self.assertEqual(processed, [])
                 self.assertEqual(second["overall"]["case_count"], 0)
                 self.assertEqual(second["update_state"]["skipped_unchanged_count"], 2)
+                self.assertEqual(second["update_state"]["skipped_images"], ["a.jpg", "b.jpg"])
                 self.assertIn("new-only 模式没有发现新增或变更图片", second["warnings"][0])
 
                 image_b.write_bytes(b"image-b-v2")
@@ -633,6 +638,11 @@ class DemoDashboardTests(unittest.TestCase):
                 self.assertEqual(processed, ["b.jpg"])
                 self.assertEqual(third["update_state"]["status_counts"]["changed"], 1)
                 self.assertEqual(third["update_state"]["processed_image_count"], 1)
+                self.assertEqual(third["update_state"]["processed_characters"], ["角色b"])
+                dashboard_html = Path(third["dashboard_html"]).read_text(encoding="utf-8")
+                self.assertIn("本轮角色更新", dashboard_html)
+                self.assertIn("角色b", dashboard_html)
+                self.assertIn("跳过未变更图片", dashboard_html)
             finally:
                 pipeline_tool.process_image_case = original_process
 

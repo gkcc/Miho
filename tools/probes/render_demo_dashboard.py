@@ -215,6 +215,29 @@ def render_update_state(summary: dict[str, Any]) -> str:
     if not isinstance(update, dict):
         return ""
     counts = update.get("status_counts") if isinstance(update.get("status_counts"), dict) else {}
+    character_updates = update.get("character_updates") if isinstance(update.get("character_updates"), list) else []
+    update_rows = []
+    for item in character_updates[:8]:
+        if not isinstance(item, dict):
+            continue
+        update_rows.append(
+            '<article class="resource-item">'
+            f'<strong>{e(item.get("character"))}</strong>'
+            f'<span>{e(item.get("image_name"))} · {e(item.get("update_status"))} · {e(item.get("review_status") or "N/A")}</span>'
+            f'<em>{e("review" if item.get("requires_manual_review") else "ok")}</em>'
+            '</article>'
+        )
+    skipped = update.get("skipped_images") if isinstance(update.get("skipped_images"), list) else []
+    skipped_text = "、".join(str(item) for item in skipped[:6])
+    updates_block = ""
+    if update_rows or skipped_text:
+        update_list = "".join(update_rows) or '<div class="empty small">本轮没有处理角色。</div>'
+        updates_block = (
+            '<div class="resource-plan"><h3>本轮角色更新</h3>'
+            f'<div class="resource-list">{update_list}</div>'
+            f'<p class="muted-line">跳过未变更图片：{e(skipped_text or "none")}</p>'
+            '</div>'
+        )
     return f"""
     <section class="panel">
       <h2>本地更新扫描</h2>
@@ -222,10 +245,12 @@ def render_update_state(summary: dict[str, Any]) -> str:
         <div><span>state_file</span><strong>{e(rel_label(update.get("state_file")) or "N/A")}</strong></div>
         <div><span>discovered</span><strong>{e(update.get("discovered_image_count", 0))}</strong></div>
         <div><span>processed</span><strong>{e(update.get("processed_image_count", 0))}</strong></div>
+        <div><span>characters</span><strong>{e(update.get("processed_character_count", 0))}</strong></div>
         <div><span>skipped unchanged</span><strong>{e(update.get("skipped_unchanged_count", 0))}</strong></div>
         <div><span>new</span><strong>{e(counts.get("new", 0))}</strong></div>
         <div><span>changed</span><strong>{e(counts.get("changed", 0))}</strong></div>
       </div>
+      {updates_block}
     </section>
     """
 
@@ -541,6 +566,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .resource-plan {{ margin-top: 12px; display: grid; gap: 10px; }}
     .resource-plan h3 {{ margin: 0; font-size: 15px; }}
     .resource-list {{ display: grid; gap: 8px; }}
+    .muted-line {{ margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }}
     .resource-item {{ display: grid; grid-template-columns: 150px minmax(0, 1fr) 64px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }}
     .resource-item span {{ color: var(--muted); overflow-wrap: anywhere; }}
     .resource-item em {{ font-style: normal; color: var(--warn); font-weight: 900; text-align: right; }}
