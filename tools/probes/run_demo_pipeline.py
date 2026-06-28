@@ -743,6 +743,8 @@ def build_training_plan(
     output_dir: Path,
     *,
     snapshot_history: dict[str, Any] | None = None,
+    daily_stamina: float | None = None,
+    horizon_days: float | None = None,
 ) -> dict[str, Any] | None:
     if targets_path is None:
         return None
@@ -761,7 +763,14 @@ def build_training_plan(
         plan_info["error"] = "No normalized snapshots available for planner."
         return plan_info
     try:
-        report = planner.generate_report(normalized_paths, targets_path, output_dir / "planner", history_context=snapshot_history)
+        report = planner.generate_report(
+            normalized_paths,
+            targets_path,
+            output_dir / "planner",
+            history_context=snapshot_history,
+            daily_stamina=daily_stamina,
+            horizon_days=horizon_days,
+        )
     except planner.PlannerError as exc:
         plan_info["error"] = str(exc)
         return plan_info
@@ -773,6 +782,7 @@ def build_training_plan(
             "top_plan_items": report.get("plan_items", [])[:5] if isinstance(report.get("plan_items"), list) else [],
             "warnings": report.get("warnings", []) if isinstance(report.get("warnings"), list) else [],
             "history_context": report.get("history_context", {}) if isinstance(report.get("history_context"), dict) else {},
+            "resource_plan": report.get("resource_plan", {}) if isinstance(report.get("resource_plan"), dict) else {},
         }
     )
     return plan_info
@@ -844,6 +854,8 @@ def run_pipeline(
     state_file: Path | None = None,
     history_dir: Path | None = None,
     target_source_manifest: Path | None = None,
+    daily_stamina: float | None = None,
+    horizon_days: float | None = None,
 ) -> dict[str, Any]:
     if targets is not None and target_source_manifest is not None:
         raise DemoPipelineError("--targets cannot be combined with --target-source-manifest")
@@ -863,6 +875,8 @@ def run_pipeline(
         "state_file": str(state_file) if state_file else None,
         "history_dir": str(history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME)),
         "target_source_manifest": str(target_source_manifest) if target_source_manifest else None,
+        "daily_stamina": daily_stamina,
+        "horizon_days": horizon_days,
     }
     if manifest:
         for raw in manifest_cases(manifest):
@@ -928,7 +942,14 @@ def run_pipeline(
         if target_refresh.get("error"):
             summary.setdefault("warnings", []).append(f"Target refresh failed: {target_refresh['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
-    training_plan = build_training_plan(cases, active_targets, output_dir, snapshot_history=snapshot_history)
+    training_plan = build_training_plan(
+        cases,
+        active_targets,
+        output_dir,
+        snapshot_history=snapshot_history,
+        daily_stamina=daily_stamina,
+        horizon_days=horizon_days,
+    )
     if training_plan is not None:
         summary["training_plan"] = training_plan
         if training_plan.get("warnings"):
@@ -967,6 +988,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report from normalized snapshots.")
     parser.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
     parser.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
+    parser.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
+    parser.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
     return parser
 
 
@@ -990,6 +1013,8 @@ def main() -> int:
             state_file=resolve_path(args.state_file) if args.state_file else None,
             history_dir=resolve_path(args.history_dir) if args.history_dir else None,
             target_source_manifest=resolve_path(args.target_source_manifest) if args.target_source_manifest else None,
+            daily_stamina=args.daily_stamina,
+            horizon_days=args.horizon_days,
         )
     except (DemoPipelineError, normalizer.NormalizeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -1007,6 +1032,11 @@ def main() -> int:
         print(f"skipped_unchanged_count: {summary['update_state'].get('skipped_unchanged_count', 0)}")
     if isinstance(summary.get("training_plan"), dict):
         print(f"plan_item_count: {summary['training_plan'].get('plan_item_count', 0)}")
+        resource_plan = summary["training_plan"].get("resource_plan")
+        if isinstance(resource_plan, dict):
+            budget = resource_plan.get("budget", {}) if isinstance(resource_plan.get("budget"), dict) else {}
+            print(f"daily_stamina: {budget.get('daily_stamina')}")
+            print(f"horizon_days: {budget.get('horizon_days')}")
     if isinstance(summary.get("target_refresh"), dict):
         print(f"target_refresh_target_count: {summary['target_refresh'].get('target_count', 0)}")
         print(f"target_refresh_source_count: {summary['target_refresh'].get('source_count', 0)}")

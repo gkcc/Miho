@@ -37,6 +37,8 @@ def run_demo(args: argparse.Namespace) -> int:
         state_file=demo_tool.resolve_path(args.state_file) if args.state_file else None,
         history_dir=demo_tool.resolve_path(args.history_dir) if args.history_dir else None,
         target_source_manifest=demo_tool.resolve_path(args.target_source_manifest) if args.target_source_manifest else None,
+        daily_stamina=args.daily_stamina,
+        horizon_days=args.horizon_days,
     )
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
@@ -73,6 +75,8 @@ def run_plan(args: argparse.Namespace) -> int:
         planner_tool.resolve_path(args.targets),
         planner_tool.resolve_path(args.output_dir),
         history_index=planner_tool.resolve_path(args.history_index) if args.history_index else None,
+        daily_stamina=args.daily_stamina,
+        horizon_days=args.horizon_days,
     )
     print(f"plan_item_count: {len(report['plan_items'])}")
     print(f"output_json: {report['output_json']}")
@@ -128,6 +132,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     demo.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report.")
     demo.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
     demo.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
+    demo.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
+    demo.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
     demo.set_defaults(handler=run_demo)
 
     normalize = subparsers.add_parser("normalize", help="Normalize one parsed JSON.")
@@ -146,6 +152,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     plan.add_argument("--snapshot-manifest", default=None, help="JSON manifest containing a snapshots list.")
     plan.add_argument("--targets", required=True, help="Local endgame target configuration JSON.")
     plan.add_argument("--history-index", default=None, help="Optional snapshot_history/index.json for long-term continuity context.")
+    plan.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget. Default: 240.")
+    plan.add_argument("--horizon-days", type=float, default=None, help="Planning horizon in days. Default: 7.")
     plan.add_argument("--output-dir", default=str(planner_tool.DEFAULT_OUTPUT_DIR), help="Output directory.")
     plan.set_defaults(handler=run_plan)
 

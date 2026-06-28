@@ -319,6 +319,7 @@ python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --lates
 python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --target-source-manifest data/probes/targets/endgame_sources_manifest.json --open
+python tools/probes/run_demo_pipeline.py --images-dir figs --targets data/probes/targets/endgame_targets.json --daily-stamina 240 --horizon-days 7 --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --history-dir data/probes/demo/snapshot_history --open
 ```
@@ -342,6 +343,7 @@ data/probes/demo/snapshot_history/index.json
 * 每张图的角色、音擎、expected JSON 文件名、review HTML、parsed JSON、normalized JSON/MD、expected diff 和 blockers。
 * 如果提供 `--targets`，还会展示培养优先级候选和 planner 报告链接。
 * 如果提供 `--target-source-manifest`，会先用公开 URL 或本地保存的公开页面刷新 `endgame_targets.json`，再交给 planner。
+* 如果提供 `--daily-stamina` / `--horizon-days`，planner 会把优先级转换成今日和规划窗口内的体力投入建议；默认按 240 / 7 天估算。
 * image mode 会维护本地 `update_state.json`，记录分享图 sha256 和上次处理结果。
 * 如果提供 `--new-only`，只处理新增或内容变更的分享图，未变化图片会跳过。
 * demo 会维护本地 `snapshot_history/index.json`，保存每个角色最近一次 normalized snapshot，并在下次同角色出现时生成相邻快照 diff。
@@ -417,7 +419,9 @@ python tools/probes/plan_training_priorities.py `
 python tools/probes/plan_training_priorities.py `
   --snapshot "data/probes/normalized/xxx_normalized.json" `
   --targets "data/probes/targets/zzz_endgame_targets.json" `
-  --history-index "data/probes/demo/snapshot_history/index.json"
+  --history-index "data/probes/demo/snapshot_history/index.json" `
+  --daily-stamina 240 `
+  --horizon-days 7
 ```
 
 CLI 壳：
@@ -426,7 +430,9 @@ CLI 壳：
 python tools/probes/miho_probe_cli.py plan `
   --snapshot "data/probes/normalized/xxx_normalized.json" `
   --targets "data/probes/targets/zzz_endgame_targets.json" `
-  --history-index "data/probes/demo/snapshot_history/index.json"
+  --history-index "data/probes/demo/snapshot_history/index.json" `
+  --daily-stamina 240 `
+  --horizon-days 7
 ```
 
 输出：
@@ -435,6 +441,14 @@ python tools/probes/miho_probe_cli.py plan `
 data/probes/planner/training_priority_report.json
 data/probes/planner/training_priority_report.md
 ```
+
+报告中的 `resource_plan` 会包含：
+
+* `budget`：每日体力、规划天数、总可用体力；
+* `today`：今日优先投入项；
+* `horizon`：规划窗口内可覆盖的投入项；
+* `no_stamina_actions`：不消耗体力但应先做的人工确认或整理项；
+* `overflow`：规划窗口内排不进去的候选项。
 
 targets JSON 是本地配置，后续可以由官方公告 / 官方活动页解析器生成。当前建议结构：
 

@@ -145,6 +145,10 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertIn("音擎等级提升到 60", actions)
             self.assertTrue(any(item["gap_type"] == "drive_disc_quality" for item in report["plan_items"]))
             self.assertEqual(report["plan_items"][0]["priority_rank"], 1)
+            self.assertEqual(report["resource_plan"]["budget"]["daily_stamina"], 240.0)
+            self.assertEqual(report["resource_plan"]["budget"]["horizon_days"], 7)
+            self.assertTrue(report["resource_plan"]["today"])
+            self.assertTrue(report["resource_plan"]["no_stamina_actions"])
 
     def test_snapshot_manifest_input_loads_multiple_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -197,14 +201,51 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertTrue(boosted_items)
             self.assertTrue(any("历史快照显示近期已有 4 项变化" in item["reason"] for item in boosted_items))
 
+    def test_generate_report_accepts_resource_budget_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_path = root / "snapshot.json"
+            targets_path = root / "targets.json"
+            snapshot_path.write_text(json.dumps(normalized_snapshot(), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets_json(), ensure_ascii=False), encoding="utf-8")
+
+            report = planner_tool.generate_report(
+                [snapshot_path],
+                targets_path,
+                root / "planner",
+                daily_stamina=120,
+                horizon_days=3,
+            )
+
+            self.assertEqual(report["resource_plan"]["budget"]["daily_stamina"], 120.0)
+            self.assertEqual(report["resource_plan"]["budget"]["horizon_days"], 3)
+            self.assertEqual(report["resource_plan"]["budget"]["total_stamina"], 360.0)
+            self.assertTrue(report["resource_plan"]["horizon"])
+
     def test_cli_plan_command_is_registered(self) -> None:
         parser = cli_tool.build_arg_parser()
-        args = parser.parse_args(["plan", "--snapshot", "a.json", "--targets", "targets.json", "--history-index", "history/index.json"])
+        args = parser.parse_args(
+            [
+                "plan",
+                "--snapshot",
+                "a.json",
+                "--targets",
+                "targets.json",
+                "--history-index",
+                "history/index.json",
+                "--daily-stamina",
+                "180",
+                "--horizon-days",
+                "5",
+            ]
+        )
 
         self.assertEqual(args.handler, cli_tool.run_plan)
         self.assertEqual(args.snapshot, ["a.json"])
         self.assertEqual(args.targets, "targets.json")
         self.assertEqual(args.history_index, "history/index.json")
+        self.assertEqual(args.daily_stamina, 180)
+        self.assertEqual(args.horizon_days, 5)
 
 
 if __name__ == "__main__":

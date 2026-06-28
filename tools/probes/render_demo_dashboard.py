@@ -221,6 +221,33 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     warnings = plan.get("warnings") if isinstance(plan.get("warnings"), list) else []
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>Planner Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    resource = plan.get("resource_plan") if isinstance(plan.get("resource_plan"), dict) else {}
+    resource_block = ""
+    if resource:
+        budget = resource.get("budget") if isinstance(resource.get("budget"), dict) else {}
+        today = resource.get("today") if isinstance(resource.get("today"), list) else []
+        today_rows = []
+        for item in today[:5]:
+            today_rows.append(
+                "<article class=\"resource-item\">"
+                f"<strong>#{e(item.get('rank'))} {e(item.get('character'))}</strong>"
+                f"<span>{e(item.get('action'))}</span>"
+                f"<em>{e(item.get('allocated_stamina'))}</em>"
+                "</article>"
+            )
+        if not today_rows:
+            today_rows.append('<div class="empty small">今日没有需要消耗体力的候选项。</div>')
+        resource_block = f"""
+        <div class="resource-plan">
+          <div class="input-grid">
+            <div><span>daily stamina</span><strong>{e(budget.get("daily_stamina", "N/A"))}</strong></div>
+            <div><span>horizon days</span><strong>{e(budget.get("horizon_days", "N/A"))}</strong></div>
+            <div><span>remaining</span><strong>{e(resource.get("remaining_stamina", "N/A"))}</strong></div>
+          </div>
+          <h3>今日投入建议</h3>
+          <div class="resource-list">{''.join(today_rows)}</div>
+        </div>
+        """
     if error:
         body = f'<div class="errors"><strong>Training plan failed</strong><ul><li>{e(error)}</li></ul></div>'
     elif not items:
@@ -249,6 +276,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
         {link("targets_json", plan.get("targets_json"))}
       </div>
       {warning_block}
+      {resource_block}
       {body}
     </section>
     """
@@ -425,6 +453,12 @@ def render_html(summary: dict[str, Any]) -> str:
     .plan-item p {{ margin: 0 0 4px; color: var(--text); }}
     .plan-item span {{ color: var(--muted); font-size: 12px; }}
     .plan-item > strong {{ color: var(--warn); text-align: right; }}
+    .resource-plan {{ margin-top: 12px; display: grid; gap: 10px; }}
+    .resource-plan h3 {{ margin: 0; font-size: 15px; }}
+    .resource-list {{ display: grid; gap: 8px; }}
+    .resource-item {{ display: grid; grid-template-columns: 150px minmax(0, 1fr) 64px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }}
+    .resource-item span {{ color: var(--muted); overflow-wrap: anywhere; }}
+    .resource-item em {{ font-style: normal; color: var(--warn); font-weight: 900; text-align: right; }}
     .history-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .history-item {{ display: grid; grid-template-columns: minmax(120px, 1fr) 90px 90px minmax(220px, 2fr); gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
     .history-item span {{ display: block; color: var(--muted); font-size: 12px; }}
@@ -438,6 +472,7 @@ def render_html(summary: dict[str, Any]) -> str:
       .case-card {{ grid-template-columns: 1fr; }}
       .facts {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .plan-item {{ grid-template-columns: 1fr; }}
+      .resource-item {{ grid-template-columns: 1fr; }}
       .history-item {{ grid-template-columns: 1fr; }}
       .plan-item > strong {{ text-align: left; }}
     }}

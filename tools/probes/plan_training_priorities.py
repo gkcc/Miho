@@ -14,6 +14,8 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parents[1]
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "planner"
+DEFAULT_DAILY_STAMINA = 240
+DEFAULT_HORIZON_DAYS = 7
 
 
 class PlannerError(RuntimeError):
@@ -73,6 +75,13 @@ def as_number(value: Any) -> float | None:
         return float(text)
     except ValueError:
         return None
+
+
+def positive_number(value: Any, default: float) -> float:
+    parsed = as_number(value)
+    if parsed is None:
+        return default
+    return parsed if parsed > 0 else default
 
 
 def field_trusted(value: Any) -> bool:
@@ -489,6 +498,85 @@ def build_warnings(targets: dict[str, Any], snapshots: list[dict[str, Any]]) -> 
     return warnings
 
 
+def resource_budget(targets: dict[str, Any], daily_stamina: float | None, horizon_days: float | None) -> dict[str, Any]:
+    config = targets.get("resource_budget") if isinstance(targets.get("resource_budget"), dict) else {}
+    daily = daily_stamina if daily_stamina is not None else positive_number(config.get("daily_stamina"), DEFAULT_DAILY_STAMINA)
+    horizon = horizon_days if horizon_days is not None else positive_number(config.get("horizon_days"), DEFAULT_HORIZON_DAYS)
+    if daily <= 0:
+        raise PlannerError("daily_stamina must be positive")
+    if horizon <= 0:
+        raise PlannerError("horizon_days must be positive")
+    horizon_int = max(1, int(round(horizon)))
+    return {
+        "daily_stamina": round(float(daily), 2),
+        "horizon_days": horizon_int,
+        "total_stamina": round(float(daily) * horizon_int, 2),
+    }
+
+
+def item_stamina_cost(item: dict[str, Any], daily_stamina: float) -> float:
+    days = as_number(item.get("estimated_days")) or 0.0
+    return round(max(0.0, days) * daily_stamina, 2)
+
+
+def build_resource_plan(items: list[dict[str, Any]], budget: dict[str, Any]) -> dict[str, Any]:
+    daily = float(budget["daily_stamina"])
+    total = float(budget["total_stamina"])
+    remaining = total
+    today_remaining = daily
+    today: list[dict[str, Any]] = []
+    horizon: list[dict[str, Any]] = []
+    no_stamina_actions: list[dict[str, Any]] = []
+    overflow: list[dict[str, Any]] = []
+    for item in items:
+        cost = item_stamina_cost(item, daily)
+        base = {
+            "rank": item.get("priority_rank"),
+            "character": item.get("character"),
+            "action": item.get("action"),
+            "gap_type": item.get("gap_type"),
+            "priority_score": item.get("priority_score"),
+            "estimated_days": item.get("estimated_days"),
+            "estimated_stamina": cost,
+        }
+        if cost <= 0:
+            no_stamina_actions.append({**base, "note": "不消耗体力，但需要人工确认或整理。"})
+            continue
+        allocated = min(cost, remaining)
+        status = "planned" if allocated >= cost else "partial" if allocated > 0 else "overflow"
+        entry = {
+            **base,
+            "allocated_stamina": round(allocated, 2),
+            "planned_days": round(allocated / daily, 2) if daily else 0,
+            "status": status,
+        }
+        if allocated > 0:
+            horizon.append(entry)
+            remaining -= allocated
+        else:
+            overflow.append(entry)
+        today_allocated = min(cost, today_remaining)
+        if today_allocated > 0:
+            today.append(
+                {
+                    **base,
+                    "allocated_stamina": round(today_allocated, 2),
+                    "planned_days": round(today_allocated / daily, 2) if daily else 0,
+                    "status": "today" if today_allocated >= cost else "today_partial",
+                }
+            )
+            today_remaining -= today_allocated
+    return {
+        "budget": budget,
+        "today": today,
+        "horizon": horizon,
+        "no_stamina_actions": no_stamina_actions,
+        "overflow": overflow,
+        "remaining_stamina": round(max(0.0, remaining), 2),
+        "today_remaining_stamina": round(max(0.0, today_remaining), 2),
+    }
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     lines = [
         "# 本地培养优先级报告",
@@ -517,6 +605,35 @@ def render_markdown(report: dict[str, Any]) -> str:
                 confidence=item["confidence"],
             )
         )
+    resource = report.get("resource_plan", {}) if isinstance(report.get("resource_plan"), dict) else {}
+    budget = resource.get("budget", {}) if isinstance(resource.get("budget"), dict) else {}
+    if resource:
+        lines.extend(
+            [
+                "",
+                "## 体力投入计划",
+                "",
+                f"- daily_stamina: {budget.get('daily_stamina')}",
+                f"- horizon_days: {budget.get('horizon_days')}",
+                f"- total_stamina: {budget.get('total_stamina')}",
+                "",
+                "### 今日建议",
+                "",
+            ]
+        )
+        today = resource.get("today") if isinstance(resource.get("today"), list) else []
+        if today:
+            for item in today:
+                lines.append(
+                    f"- #{item.get('rank')} {item.get('character')}：{item.get('action')}，投入约 {item.get('allocated_stamina')}。"
+                )
+        else:
+            lines.append("- 今日没有需要消耗体力的候选项。")
+        no_stamina = resource.get("no_stamina_actions") if isinstance(resource.get("no_stamina_actions"), list) else []
+        if no_stamina:
+            lines.extend(["", "### 不消耗体力但应先做", ""])
+            for item in no_stamina[:5]:
+                lines.append(f"- #{item.get('rank')} {item.get('character')}：{item.get('action')}")
     lines.extend(["", "## 角色缺口", ""])
     for character in report.get("characters", []):
         lines.append(f"### {character['character']}")
@@ -547,6 +664,8 @@ def generate_report(
     *,
     history_context: dict[str, Any] | None = None,
     history_index: Path | None = None,
+    daily_stamina: float | None = None,
+    horizon_days: float | None = None,
 ) -> dict[str, Any]:
     if not snapshot_paths:
         raise PlannerError("At least one normalized snapshot is required")
@@ -557,6 +676,8 @@ def generate_report(
         character_gaps(snapshot, targets, history_context=history_context, history_index=loaded_history_index)
         for snapshot in snapshots
     ]
+    items = plan_items(characters)
+    budget = resource_budget(targets, daily_stamina, horizon_days)
     report = {
         "schema_version": "p1.2-planner-draft",
         "created_at": now_iso(),
@@ -577,7 +698,8 @@ def generate_report(
             for snapshot in snapshots
         ],
         "characters": characters,
-        "plan_items": plan_items(characters),
+        "plan_items": items,
+        "resource_plan": build_resource_plan(items, budget),
         "history_context": {
             "available": bool(history_context or loaded_history_index),
             "character_count": sum(1 for item in characters if item.get("history", {}).get("tracked")),
@@ -601,6 +723,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--snapshot-manifest", default=None, help="JSON manifest containing a snapshots list.")
     parser.add_argument("--targets", required=True, help="Local endgame target configuration JSON.")
     parser.add_argument("--history-index", default=None, help="Optional snapshot_history/index.json for long-term continuity context.")
+    parser.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget. Default: targets.resource_budget.daily_stamina or 240.")
+    parser.add_argument("--horizon-days", type=float, default=None, help="Planning horizon in days. Default: targets.resource_budget.horizon_days or 7.")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Output directory. Default: data/probes/planner.")
     return parser
 
@@ -616,6 +740,8 @@ def main() -> int:
             resolve_path(args.targets),
             resolve_path(args.output_dir),
             history_index=resolve_path(args.history_index) if args.history_index else None,
+            daily_stamina=args.daily_stamina,
+            horizon_days=args.horizon_days,
         )
     except PlannerError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

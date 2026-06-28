@@ -164,6 +164,18 @@ class DemoDashboardTests(unittest.TestCase):
                         }
                     ],
                     "warnings": ["终局目标来自本地配置或 mock"],
+                    "resource_plan": {
+                        "budget": {"daily_stamina": 240.0, "horizon_days": 7, "total_stamina": 1680.0},
+                        "today": [
+                            {
+                                "rank": 1,
+                                "character": "星见雅",
+                                "action": "补关键技能到 8 左右",
+                                "allocated_stamina": 120.0,
+                            }
+                        ],
+                        "remaining_stamina": 1560.0,
+                    },
                     "error": None,
                 },
                 "pipeline_steps": [{"name": "Normalized Snapshot", "status": "needs_review"}],
@@ -236,6 +248,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("review_html", html)
             self.assertIn("case_expected.json", html)
             self.assertIn("培养优先级候选", html)
+            self.assertIn("今日投入建议", html)
             self.assertIn("终局目标刷新", html)
             self.assertIn("endgame_targets.json", html)
             self.assertIn("快照历史", html)
@@ -332,10 +345,13 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertGreater(summary["training_plan"]["plan_item_count"], 0)
             self.assertTrue(summary["training_plan"]["history_context"]["available"])
             self.assertEqual(summary["training_plan"]["history_context"]["character_count"], 1)
+            self.assertEqual(summary["training_plan"]["resource_plan"]["budget"]["daily_stamina"], 240.0)
+            self.assertTrue(summary["training_plan"]["resource_plan"]["today"])
             self.assertTrue(Path(summary["training_plan"]["output_json"]).exists())
             self.assertTrue(Path(summary["training_plan"]["output_md"]).exists())
             self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("培养优先级候选", dashboard_html)
+            self.assertIn("今日投入建议", dashboard_html)
             self.assertIn("先人工确认解析结果", dashboard_html)
 
     def test_run_demo_pipeline_refreshes_targets_from_source_manifest_before_planning(self) -> None:
@@ -550,6 +566,8 @@ class DemoDashboardTests(unittest.TestCase):
                     targets=None,
                     history_dir=None,
                     target_source_manifest=None,
+                    daily_stamina=None,
+                    horizon_days=None,
                 )
             )
         finally:
@@ -565,6 +583,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIsNone(calls[0]["targets"])
         self.assertIsNone(calls[0]["history_dir"])
         self.assertIsNone(calls[0]["target_source_manifest"])
+        self.assertIsNone(calls[0]["daily_stamina"])
+        self.assertIsNone(calls[0]["horizon_days"])
 
 
 if __name__ == "__main__":
