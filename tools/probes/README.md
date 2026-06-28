@@ -369,9 +369,10 @@ data/probes/demo/snapshot_history/index.json
 * Dashboard 的 `requires_review` 是人工确认安全门禁，不代表解析失败；真正失败看 `Parse FAIL`、`Expected FAIL`、`Normalized FAILED` 或 `Import BLOCKED`。
 * 当前阶段始终不会自动导入正式数据库，即使 `Parse PASS` / `Normalized GENERATED` 也只表示可以进入人工复核。
 * 如果 demo 已生成 planner report，还会生成 `action_cards.json/md` 并在 Dashboard 显示“下一步行动”；这些行动卡只收敛已有 planner/evidence 结论，不重新联网、不自动导入、不代表正式抽卡建议。
-* 行动卡中的 catalog candidate 必须按“候选 ≠ 已拥有”处理，只有 normalized snapshot 中出现的角色才算当前 box 已记录角色。
+* 行动卡中的 pending snapshot / catalog candidate 必须按“候选 ≠ 已拥有”处理，只有 accepted roster 中出现的角色才算当前 box 已确认角色。
 * 如果 action cards 和 planner report 都存在，还会生成 `team_cards.json/md` 并在 Dashboard 显示“高难配队候选”；队伍候选只基于本地 snapshot、planner evidence 和本地 catalog 候选，不是正式 tier list。
-* Team card 里的 `catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 `owned_snapshot` 才来自本地 normalized snapshot。
+* Dashboard 会显示“练度更新收件箱”：demo normalized snapshot 是 OCR/解析候选，只有进入 accepted roster 的 snapshot 才能作为已确认 box。
+* Team card 里的 `pending_snapshot` 只是待确认解析候选，`catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 accepted roster 中的 `owned_snapshot` 才能作为可用练度证据。
 
 P0.9 replay batch 验收命令：
 
@@ -392,6 +393,7 @@ python tools/probes/build_action_cards.py `
   --planner-report data/probes/demo/planner/training_priority_report.json `
   --targets data/probes/targets/endgame_targets.json `
   --snapshots-dir data/probes/demo/normalized `
+  --roster-index data/probes/roster/roster_index.json `
   --output-dir data/probes/demo/actions
 ```
 
@@ -403,10 +405,51 @@ python tools/probes/build_team_cards.py `
   --planner-report data/probes/demo/planner/training_priority_report.json `
   --character-catalog data/probes/catalog/zzz_characters.json `
   --snapshots-dir data/probes/demo/normalized `
+  --roster-index data/probes/roster/roster_index.json `
   --output-dir data/probes/demo/teams
 ```
 
-Team cards 是本地证据驱动的队伍雏形视图，不做复杂战斗模拟、不生成正式抽卡建议、不把 catalog candidate 当作 owned。缺少 normalized snapshot 的角色必须先补录官方分享图或人工确认。
+Team cards 是本地证据驱动的队伍雏形视图，不做复杂战斗模拟、不生成正式抽卡建议、不把 pending snapshot 或 catalog candidate 当作 owned。缺少 accepted roster snapshot 的角色必须先补录官方分享图或人工确认。
+
+P1.4-lite 练度更新收件箱与已确认 Box Index：
+
+```powershell
+python tools/probes/apply_review_decisions.py `
+  --normalized-dir data/probes/demo/normalized `
+  --decision-manifest data/probes/review_decisions.json `
+  --roster-dir data/probes/roster
+
+python tools/probes/build_roster_index.py `
+  --accepted-dir data/probes/roster/accepted `
+  --output-dir data/probes/roster
+```
+
+`data/probes/review_decisions.json` 是本地人工验收清单，不提交。建议格式：
+
+```json
+{
+  "decisions": [
+    {
+      "normalized_json": "data/probes/demo/normalized/example_normalized.json",
+      "decision": "accept",
+      "note": "人工确认角色、音擎和驱动盘关键字段可用"
+    }
+  ]
+}
+```
+
+三层数据要分开看：
+
+* demo normalized：OCR/解析候选，只能进入“练度更新收件箱”，默认 `pending_snapshot`；
+* accepted roster：人工确认后的本地 box index，可作为 `owned_snapshot`；
+* character catalog：本地角色知识和候选提示，不代表当前账号拥有或练度可用。
+
+安全门禁：
+
+* `review_status=FAIL` 不能 accept；
+* 含 `invalid_candidate` 或 invalid 字段的结果不能 accept；
+* rejected snapshot 只保留本地复核日志，不进入 roster index；
+* `data/probes/roster/` 仍是本地 probe 输出，不提交 Git。
 
 CLI 壳：
 

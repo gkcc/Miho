@@ -34,6 +34,7 @@ import render_export_review as review_render  # noqa: E402
 DEFAULT_IMAGES_DIR = PROJECT_ROOT / "figs"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
+DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 UPDATE_STATE_FILENAME = "update_state.json"
 SNAPSHOT_HISTORY_DIRNAME = "snapshot_history"
 TARGET_REFRESH_DIRNAME = "targets"
@@ -764,6 +765,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     plan_info = summary.get("training_plan", {}) if isinstance(summary.get("training_plan"), dict) else {}
     history_info = summary.get("snapshot_history", {}) if isinstance(summary.get("snapshot_history"), dict) else {}
     target_info = summary.get("target_refresh", {}) if isinstance(summary.get("target_refresh"), dict) else {}
+    inbox_info = summary.get("review_inbox", {}) if isinstance(summary.get("review_inbox"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -787,6 +789,10 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             else "done"
             if isinstance(summary.get("action_cards"), dict) and summary["action_cards"].get("output_json")
             else "skipped",
+        },
+        {
+            "name": "Review Inbox",
+            "status": "done" if isinstance(inbox_info, dict) and inbox_info.get("schema_version") else "skipped",
         },
         {
             "name": "Team Cards",
@@ -961,7 +967,13 @@ def build_training_plan(
     return plan_info
 
 
-def build_demo_action_cards(training_plan: dict[str, Any] | None, targets_path: Path | None, output_dir: Path) -> dict[str, Any] | None:
+def build_demo_action_cards(
+    training_plan: dict[str, Any] | None,
+    targets_path: Path | None,
+    output_dir: Path,
+    *,
+    roster_index: Path | None = None,
+) -> dict[str, Any] | None:
     if not isinstance(training_plan, dict) or not training_plan.get("output_json"):
         return None
     info: dict[str, Any] = {
@@ -977,6 +989,7 @@ def build_demo_action_cards(training_plan: dict[str, Any] | None, targets_path: 
             planner_report=Path(str(training_plan["output_json"])),
             targets=targets_path,
             snapshots_dir=output_dir / "normalized",
+            roster_index=roster_index if roster_index and roster_index.exists() else None,
             output_dir=output_dir / "actions",
         )
     except action_cards.ActionCardError as exc:
@@ -1000,6 +1013,7 @@ def build_demo_team_cards(
     output_dir: Path,
     *,
     character_catalog: Path | None = None,
+    roster_index: Path | None = None,
 ) -> dict[str, Any] | None:
     if (
         not isinstance(action_card_info, dict)
@@ -1022,6 +1036,7 @@ def build_demo_team_cards(
             planner_report=Path(str(training_plan["output_json"])),
             character_catalog=character_catalog,
             snapshots_dir=output_dir / "normalized",
+            roster_index=roster_index if roster_index and roster_index.exists() else None,
             output_dir=output_dir / "teams",
         )
     except team_cards.TeamCardError as exc:
@@ -1037,6 +1052,90 @@ def build_demo_team_cards(
         }
     )
     return info
+
+
+def review_decision_source(path: Path) -> str | None:
+    try:
+        data = load_json(path)
+    except normalizer.NormalizeError:
+        return None
+    decision = data.get("review_decision") if isinstance(data.get("review_decision"), dict) else {}
+    return str(decision.get("source_normalized_json") or path)
+
+
+def roster_snapshot_items(path: Path) -> list[dict[str, Any]]:
+    if not path.exists() or not path.is_dir():
+        return []
+    items = []
+    for item in sorted(path.glob("*.json")):
+        try:
+            data = load_json(item)
+        except normalizer.NormalizeError:
+            continue
+        character = normalized_character(data)
+        equipment = normalized_equipment(data)
+        quality = data.get("quality") if isinstance(data.get("quality"), dict) else {}
+        items.append(
+            {
+                "character": character.get("name") or item.stem,
+                "level": character.get("level"),
+                "equipment": equipment.get("name"),
+                "snapshot_json": str(item),
+                "source_normalized_json": review_decision_source(item),
+                "quality": {
+                    "trusted_field_count": quality.get("trusted_field_count", 0),
+                    "field_count": quality.get("field_count", 0),
+                    "blockers": quality.get("blockers", []) if isinstance(quality.get("blockers"), list) else [],
+                },
+            }
+        )
+    return items
+
+
+def build_review_inbox(cases: list[dict[str, Any]], roster_dir: Path) -> dict[str, Any]:
+    accepted_dir = roster_dir / "accepted"
+    rejected_dir = roster_dir / "rejected"
+    accepted_items = roster_snapshot_items(accepted_dir)
+    rejected_items = roster_snapshot_items(rejected_dir)
+    accepted_sources = {str(item.get("source_normalized_json")) for item in accepted_items if item.get("source_normalized_json")}
+    rejected_sources = {str(item.get("source_normalized_json")) for item in rejected_items if item.get("source_normalized_json")}
+    pending_items = []
+    for case in cases:
+        normalized_json = case.get("normalized_json")
+        if not normalized_json:
+            continue
+        normalized_text = str(Path(str(normalized_json)).resolve())
+        if normalized_text in accepted_sources or normalized_text in rejected_sources or str(normalized_json) in accepted_sources or str(normalized_json) in rejected_sources:
+            continue
+        character = case.get("character") if isinstance(case.get("character"), dict) else {}
+        equipment = case.get("equipment") if isinstance(case.get("equipment"), dict) else {}
+        quality = case.get("quality") if isinstance(case.get("quality"), dict) else {}
+        pending_items.append(
+            {
+                "character": character.get("name") or case.get("name"),
+                "level": character.get("level"),
+                "equipment": equipment.get("name"),
+                "trusted_field_count": quality.get("trusted_field_count", 0),
+                "field_count": quality.get("field_count", 0),
+                "blockers": quality.get("blockers", []) if isinstance(quality.get("blockers"), list) else [],
+                "normalized_json": normalized_json,
+                "review_html": case.get("review_html"),
+            }
+        )
+    roster_index_path = roster_dir / "roster_index.json"
+    return {
+        "schema_version": "p1.4-lite-review-inbox",
+        "roster_dir": str(roster_dir),
+        "roster_index_json": str(roster_index_path) if roster_index_path.exists() else None,
+        "accepted_count": len(accepted_items),
+        "rejected_count": len(rejected_items),
+        "pending_count": len(pending_items),
+        "needs_manual_review_count": sum(1 for item in pending_items if item.get("blockers")),
+        "pending": pending_items,
+        "accepted": accepted_items,
+        "rejected": rejected_items,
+        "decision_command": "python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized --decision-manifest data/probes/review_decisions.json --roster-dir data/probes/roster",
+    }
 
 
 def build_target_refresh(target_source_manifest: Path | None, output_dir: Path) -> dict[str, Any] | None:
@@ -1107,6 +1206,7 @@ def run_pipeline(
     history_dir: Path | None = None,
     target_source_manifest: Path | None = None,
     character_catalog: Path | None = None,
+    roster_dir: Path | None = None,
     daily_stamina: float | None = None,
     horizon_days: float | None = None,
 ) -> dict[str, Any]:
@@ -1129,6 +1229,7 @@ def run_pipeline(
         "history_dir": str(history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME)),
         "target_source_manifest": str(target_source_manifest) if target_source_manifest else None,
         "character_catalog": str(character_catalog) if character_catalog else None,
+        "roster_dir": str(roster_dir or DEFAULT_ROSTER_DIR),
         "daily_stamina": daily_stamina,
         "horizon_days": horizon_days,
     }
@@ -1218,7 +1319,14 @@ def run_pipeline(
         if training_plan.get("error"):
             summary.setdefault("warnings", []).append(f"Training plan failed: {training_plan['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
-    action_card_info = build_demo_action_cards(training_plan, active_targets, output_dir)
+    active_roster_dir = roster_dir or DEFAULT_ROSTER_DIR
+    active_roster_index = active_roster_dir / "roster_index.json"
+    action_card_info = build_demo_action_cards(
+        training_plan,
+        active_targets,
+        output_dir,
+        roster_index=active_roster_index,
+    )
     if action_card_info is not None:
         summary["action_cards"] = action_card_info
         if action_card_info.get("warnings"):
@@ -1226,7 +1334,16 @@ def run_pipeline(
         if action_card_info.get("error"):
             summary.setdefault("warnings", []).append(f"Action cards failed: {action_card_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
-    team_card_info = build_demo_team_cards(action_card_info, training_plan, output_dir, character_catalog=character_catalog)
+    review_inbox = build_review_inbox(cases, active_roster_dir)
+    summary["review_inbox"] = review_inbox
+    summary["pipeline_steps"] = pipeline_steps(summary)
+    team_card_info = build_demo_team_cards(
+        action_card_info,
+        training_plan,
+        output_dir,
+        character_catalog=character_catalog,
+        roster_index=Path(str(review_inbox["roster_index_json"])) if review_inbox.get("roster_index_json") else None,
+    )
     if team_card_info is not None:
         summary["team_cards"] = team_card_info
         if team_card_info.get("warnings"):
@@ -1265,6 +1382,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report from normalized snapshots.")
     parser.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
     parser.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for planner target matching.")
+    parser.add_argument("--roster-dir", default=str(DEFAULT_ROSTER_DIR), help="Local accepted roster directory. Default: data/probes/roster.")
     parser.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
     parser.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
     parser.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
@@ -1292,6 +1410,7 @@ def main() -> int:
             history_dir=resolve_path(args.history_dir) if args.history_dir else None,
             target_source_manifest=resolve_path(args.target_source_manifest) if args.target_source_manifest else None,
             character_catalog=resolve_path(args.character_catalog) if args.character_catalog else None,
+            roster_dir=resolve_path(args.roster_dir) if args.roster_dir else None,
             daily_stamina=args.daily_stamina,
             horizon_days=args.horizon_days,
         )
@@ -1323,6 +1442,10 @@ def main() -> int:
         print(f"history_snapshot_count: {summary['snapshot_history'].get('snapshot_count', 0)}")
         print(f"history_diff_count: {summary['snapshot_history'].get('diff_count', 0)}")
         print(f"history_changed_character_count: {summary['snapshot_history'].get('changed_character_count', 0)}")
+    if isinstance(summary.get("review_inbox"), dict):
+        print(f"review_pending_count: {summary['review_inbox'].get('pending_count', 0)}")
+        print(f"review_accepted_count: {summary['review_inbox'].get('accepted_count', 0)}")
+        print(f"review_rejected_count: {summary['review_inbox'].get('rejected_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0

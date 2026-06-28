@@ -150,6 +150,7 @@ class DemoDashboardTests(unittest.TestCase):
                     "clean_demo": False,
                     "target_source_manifest": str(root / "target_sources.json"),
                     "history_dir": str(root / "snapshot_history"),
+                    "roster_dir": str(root / "roster"),
                 },
                 "warnings": ["当前包含历史 parsed 结果，平均通过率不代表 P0.9 replay batch"],
                 "training_plan": {
@@ -224,26 +225,27 @@ class DemoDashboardTests(unittest.TestCase):
                     "output_json": str(root / "action_cards.json"),
                     "output_md": str(root / "action_cards.md"),
                     "summary": {
-                        "owned_character_count": 1,
+                        "owned_character_count": 0,
+                        "pending_snapshot_count": 1,
                         "snapshot_file_count": 1,
                         "target_count": 2,
                         "covered_target_count": 1,
                         "uncovered_target_count": 1,
-                        "needs_recording_count": 1,
+                        "needs_recording_count": 2,
                         "high_priority_action_count": 1,
                     },
-                    "warnings": ["候选 ≠ 已拥有；catalog candidate 需要补录分享图或人工确认。"],
+                    "warnings": ["pending snapshot 和 catalog candidate 都不代表可用练度；只有 accepted roster 才算已确认拥有练度。"],
                     "cards": [
                         {
                             "rank": 1,
-                            "action_type": "train_owned_character",
+                            "action_type": "review_pending_snapshot",
                             "priority": "high",
-                            "title": "星见雅: 补关键技能到 8 左右",
+                            "title": "复核 星见雅 的解析快照",
                             "character": "星见雅",
                             "target": "危局强袭战 稳定通关",
-                            "reason": "mock reason",
-                            "source_class": "owned",
-                            "status": "actionable",
+                            "reason": "该角色只有 demo normalized snapshot，尚未进入 accepted roster。原动作：补关键技能到 8 左右。",
+                            "source_class": "pending_snapshot",
+                            "status": "needs_review",
                             "evidence": {
                                 "target_source": str(root / "target_source.html"),
                                 "target_hash": "abcdef123456",
@@ -276,30 +278,31 @@ class DemoDashboardTests(unittest.TestCase):
                         "playable_now_count": 0,
                         "needs_recording_count": 0,
                         "catalog_candidate_count": 1,
+                        "pending_snapshot_count": 1,
                     },
-                    "warnings": ["队伍候选基于本地快照和本地 catalog；catalog candidate 不代表已拥有。"],
+                    "warnings": ["队伍候选基于 accepted roster、本地快照和本地 catalog；catalog candidate 不代表已拥有。"],
                     "cards": [
                         {
                             "rank": 1,
                             "target": "危局强袭战 稳定通关",
                             "target_priority": "high",
-                            "team_status": "incomplete",
-                            "team_title": "队伍雏形: 危局强袭战 稳定通关",
-                            "coverage_reason": "星见雅 只能形成队伍雏形，缺少完整队伍证据。",
+                            "team_status": "needs_review",
+                            "team_title": "待确认快照队伍: 危局强袭战 稳定通关",
+                            "coverage_reason": "星见雅 已有本地 normalized snapshot，但尚未进入 accepted roster。",
                             "members": [
                                 {
                                     "slot": "core",
                                     "character": "星见雅",
-                                    "source_class": "owned_snapshot",
+                                    "source_class": "pending_snapshot",
                                     "snapshot_json": str(root / "case_normalized.json"),
-                                    "confidence": "high",
+                                    "confidence": "medium",
                                 }
                             ],
                             "evidence": {
                                 "target_source": str(root / "target_source.html"),
                                 "target_hash": "abcdef123456",
                             },
-                            "warnings": ["当前只是队伍雏形，不代表完整可用配队。"],
+                            "warnings": ["pending snapshot 尚未进入 accepted roster，不能视为可出战练度。"],
                         },
                         {
                             "rank": 2,
@@ -327,6 +330,7 @@ class DemoDashboardTests(unittest.TestCase):
                     {"name": "Normalized Snapshot", "status": "GENERATED"},
                     {"name": "Manual Review Gate", "status": "REQUIRES_REVIEW"},
                     {"name": "Action Cards", "status": "done"},
+                    {"name": "Review Inbox", "status": "done"},
                     {"name": "Team Cards", "status": "done"},
                 ],
                 "target_refresh": {
@@ -391,6 +395,30 @@ class DemoDashboardTests(unittest.TestCase):
                         "errors": [],
                     }
                 ],
+                "review_inbox": {
+                    "schema_version": "p1.4-lite-review-inbox",
+                    "roster_dir": str(root / "roster"),
+                    "roster_index_json": None,
+                    "accepted_count": 0,
+                    "rejected_count": 0,
+                    "pending_count": 1,
+                    "needs_manual_review_count": 1,
+                    "pending": [
+                        {
+                            "character": "星见雅",
+                            "level": "60",
+                            "equipment": "幻变魔方",
+                            "trusted_field_count": 10,
+                            "field_count": 12,
+                            "blockers": ["character.name 缺失或 uncertain"],
+                            "normalized_json": str(root / "case_normalized.json"),
+                            "review_html": str(root / "case_review.html"),
+                        }
+                    ],
+                    "accepted": [],
+                    "rejected": [],
+                    "decision_command": "python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized --decision-manifest data/probes/review_decisions.json --roster-dir data/probes/roster",
+                },
             }
 
             dashboard_tool.render_dashboard(summary, output)
@@ -416,6 +444,11 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("候选 ≠ 已拥有", html)
             self.assertIn("高优先级行动", html)
             self.assertIn("需补录/确认", html)
+            self.assertIn("练度更新收件箱", html)
+            self.assertIn("只有 accepted roster 可以作为已拥有练度", html)
+            self.assertIn("待确认快照", html)
+            self.assertIn("已接收快照", html)
+            self.assertIn("apply_review_decisions.py", html)
             self.assertIn("action_cards.json", html)
             self.assertIn("确认是否拥有 珂蕾妲", html)
             self.assertIn("高难配队候选", html)
@@ -423,8 +456,9 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("需补录队伍", html)
             self.assertIn("候选队伍", html)
             self.assertIn("team_cards.json", html)
-            self.assertIn("owned_snapshot", html)
+            self.assertIn("pending_snapshot", html)
             self.assertIn("catalog_candidate", html)
+            self.assertIn("pending snapshot 尚未进入 accepted roster", html)
             self.assertIn("catalog candidate 不代表已拥有", html)
             self.assertIn("培养优先级候选", html)
             self.assertIn("source status", html)
@@ -469,6 +503,7 @@ class DemoDashboardTests(unittest.TestCase):
                     parsed_dir=parsed_dir,
                     manifest=None,
                     output_dir=output_dir,
+                    roster_dir=root / "roster",
                     open_dashboard=False,
                 )
             finally:
@@ -482,6 +517,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("parsed-dir 模式会扫描历史 parsed JSON", summary["warnings"][0])
             self.assertNotIn("action_cards", summary)
             self.assertNotIn("team_cards", summary)
+            self.assertEqual(summary["review_inbox"]["pending_count"], 1)
             self.assertEqual(summary["snapshot_history"]["snapshot_count"], 1)
             self.assertEqual(summary["snapshot_history"]["no_previous_count"], 1)
             self.assertEqual(summary["cases"][0]["parse_status"], "PASS")
@@ -492,11 +528,13 @@ class DemoDashboardTests(unittest.TestCase):
             steps = {item["name"]: item["status"] for item in summary["pipeline_steps"]}
             self.assertEqual(steps["Normalized Snapshot"], "GENERATED")
             self.assertEqual(steps["Manual Review Gate"], "REQUIRES_REVIEW")
+            self.assertEqual(steps["Review Inbox"], "done")
             self.assertTrue(Path(summary["dashboard_html"]).exists())
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
             self.assertIn("parsed found", dashboard_html)
             self.assertIn("parsed used", dashboard_html)
             self.assertIn("requires_review 不代表解析失败", dashboard_html)
+            self.assertIn("练度更新收件箱", dashboard_html)
             self.assertTrue(Path(summary["cases"][0]["normalized_json"]).exists())
             self.assertEqual(summary["cases"][0]["review_html"], str(parsed_path.with_name("case_a_review.html").resolve()))
 
@@ -537,6 +575,7 @@ class DemoDashboardTests(unittest.TestCase):
                 manifest=None,
                 output_dir=output_dir,
                 open_dashboard=False,
+                roster_dir=root / "roster",
                 latest_only=True,
             )
 
@@ -577,6 +616,7 @@ class DemoDashboardTests(unittest.TestCase):
                 parsed_dir=None,
                 manifest=manifest_path,
                 output_dir=output_dir,
+                roster_dir=root / "roster",
                 open_dashboard=False,
             )
 
@@ -603,6 +643,7 @@ class DemoDashboardTests(unittest.TestCase):
                 output_dir=output_dir,
                 open_dashboard=False,
                 targets=targets_path,
+                roster_dir=root / "roster",
             )
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
 
@@ -624,11 +665,16 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["training_plan"]["output_md"]).exists())
             self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("Action Cards", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("Review Inbox", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("Team Cards", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertEqual(summary["review_inbox"]["pending_count"], 1)
+            self.assertEqual(summary["team_cards"]["summary"]["pending_snapshot_count"], 1)
             self.assertIn("培养优先级候选", dashboard_html)
             self.assertIn("下一步行动", dashboard_html)
             self.assertIn("高难配队候选", dashboard_html)
+            self.assertIn("练度更新收件箱", dashboard_html)
             self.assertIn("catalog candidate 不代表已拥有", dashboard_html)
+            self.assertIn("pending snapshot 尚未进入 accepted roster", dashboard_html)
             self.assertIn("今日投入建议", dashboard_html)
             self.assertIn("先人工确认解析结果", dashboard_html)
 
@@ -674,6 +720,7 @@ class DemoDashboardTests(unittest.TestCase):
                 output_dir=output_dir,
                 open_dashboard=False,
                 target_source_manifest=manifest_path,
+                roster_dir=root / "roster",
             )
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
 
@@ -704,6 +751,7 @@ class DemoDashboardTests(unittest.TestCase):
                     open_dashboard=False,
                     targets=root / "targets.json",
                     target_source_manifest=root / "target_sources.json",
+                    roster_dir=root / "roster",
                 )
 
     def test_run_demo_pipeline_records_snapshot_history_and_diffs_previous_snapshot(self) -> None:
@@ -727,6 +775,7 @@ class DemoDashboardTests(unittest.TestCase):
                 manifest=None,
                 output_dir=first_output_dir,
                 history_dir=history_dir,
+                roster_dir=root / "roster",
                 open_dashboard=False,
             )
             second = pipeline_tool.run_pipeline(
@@ -735,6 +784,7 @@ class DemoDashboardTests(unittest.TestCase):
                 manifest=None,
                 output_dir=second_output_dir,
                 history_dir=history_dir,
+                roster_dir=root / "roster",
                 open_dashboard=False,
             )
 
@@ -785,6 +835,7 @@ class DemoDashboardTests(unittest.TestCase):
                     manifest=None,
                     output_dir=output_dir,
                     state_file=state_file,
+                    roster_dir=root / "roster",
                     open_dashboard=False,
                 )
                 self.assertEqual(processed, ["a.jpg", "b.jpg"])
@@ -801,6 +852,7 @@ class DemoDashboardTests(unittest.TestCase):
                     output_dir=output_dir,
                     state_file=state_file,
                     new_only=True,
+                    roster_dir=root / "roster",
                     open_dashboard=False,
                 )
                 self.assertEqual(processed, [])
@@ -818,6 +870,7 @@ class DemoDashboardTests(unittest.TestCase):
                     output_dir=output_dir,
                     state_file=state_file,
                     new_only=True,
+                    roster_dir=root / "roster",
                     open_dashboard=False,
                 )
                 self.assertEqual(processed, ["b.jpg"])
@@ -860,6 +913,7 @@ class DemoDashboardTests(unittest.TestCase):
                     history_dir=None,
                     target_source_manifest=None,
                     character_catalog=None,
+                    roster_dir="data/probes/roster",
                     daily_stamina=None,
                     horizon_days=None,
                 )
@@ -878,6 +932,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIsNone(calls[0]["history_dir"])
         self.assertIsNone(calls[0]["target_source_manifest"])
         self.assertIsNone(calls[0]["character_catalog"])
+        self.assertIsNotNone(calls[0]["roster_dir"])
         self.assertIsNone(calls[0]["daily_stamina"])
         self.assertIsNone(calls[0]["horizon_days"])
 

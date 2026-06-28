@@ -233,6 +233,7 @@ def render_input_panel(summary: dict[str, Any]) -> str:
         <div><span>targets</span><strong>{e(rel_label(input_info.get("targets")) or "N/A")}</strong></div>
         <div><span>target_source_manifest</span><strong>{e(rel_label(input_info.get("target_source_manifest")) or "N/A")}</strong></div>
         <div><span>character_catalog</span><strong>{e(rel_label(input_info.get("character_catalog")) or "N/A")}</strong></div>
+        <div><span>roster_dir</span><strong>{e(rel_label(input_info.get("roster_dir")) or "N/A")}</strong></div>
         <div><span>history_dir</span><strong>{e(rel_label(input_info.get("history_dir")) or "N/A")}</strong></div>
         <div><span>latest_only</span><strong>{e(input_info.get("latest_only"))}</strong></div>
         <div><span>new_only</span><strong>{e(input_info.get("new_only"))}</strong></div>
@@ -446,7 +447,11 @@ def render_action_cards(summary: dict[str, Any]) -> str:
                 evidence_bits.append(str(evidence.get("target_source")))
             if evidence.get("target_hash"):
                 evidence_bits.append(str(evidence.get("target_hash")))
-            source_note = "候选 ≠ 已拥有" if item.get("source_class") in {"catalog_candidate", "catalog_owned_missing_snapshot"} else "owned snapshot"
+            source_note = (
+                "候选 ≠ 已拥有"
+                if item.get("source_class") in {"pending_snapshot", "catalog_candidate", "catalog_owned_missing_snapshot"}
+                else "accepted roster"
+            )
             rows.append(
                 "<article class=\"plan-item\">"
                 f"<div class=\"plan-rank\">#{e(item.get('rank'))}</div>"
@@ -473,7 +478,8 @@ def render_action_cards(summary: dict[str, Any]) -> str:
         <div><span>uncovered targets</span><strong>{e(card_summary.get("uncovered_target_count", "N/A"))}</strong></div>
         <div><span>high priority</span><strong>{e(card_summary.get("high_priority_action_count", "N/A"))}</strong></div>
         <div><span>needs recording</span><strong>{e(card_summary.get("needs_recording_count", "N/A"))}</strong></div>
-        <div><span>owned chars</span><strong>{e(card_summary.get("owned_character_count", "N/A"))}</strong></div>
+        <div><span>已确认角色</span><strong>{e(card_summary.get("owned_character_count", "N/A"))}</strong></div>
+        <div><span>待确认快照</span><strong>{e(card_summary.get("pending_snapshot_count", "N/A"))}</strong></div>
         <div><span>snapshot files</span><strong>{e(card_summary.get("snapshot_file_count", "N/A"))}</strong></div>
       </div>
       {warning_block}
@@ -546,6 +552,52 @@ def render_team_cards(summary: dict[str, Any]) -> str:
       </div>
       {warning_block}
       {body}
+    </section>
+    """
+
+
+def render_review_inbox(summary: dict[str, Any]) -> str:
+    inbox = summary.get("review_inbox")
+    if not isinstance(inbox, dict):
+        return ""
+    pending = inbox.get("pending") if isinstance(inbox.get("pending"), list) else []
+    accepted = inbox.get("accepted") if isinstance(inbox.get("accepted"), list) else []
+    rejected = inbox.get("rejected") if isinstance(inbox.get("rejected"), list) else []
+    rows = []
+    for item in pending[:8]:
+        if not isinstance(item, dict):
+            continue
+        blockers = item.get("blockers") if isinstance(item.get("blockers"), list) else []
+        rows.append(
+            "<article class=\"resource-item\">"
+            f"<strong>{e(item.get('character'))}</strong>"
+            f"<span>Lv.{e(item.get('level'))} · {e(item.get('equipment'))} · 可信字段 {e(item.get('trusted_field_count'))}/{e(item.get('field_count'))} · 阻断项：{e('；'.join(str(blocker) for blocker in blockers) or '无')}</span>"
+            f"<em>{link('review', item.get('review_html'))} {link('json', item.get('normalized_json'))}</em>"
+            "</article>"
+        )
+    pending_block = "".join(rows) if rows else '<div class="empty small">没有待确认快照。</div>'
+    accepted_names = "、".join(str(item.get("character")) for item in accepted[:8] if isinstance(item, dict))
+    rejected_names = "、".join(str(item.get("character")) for item in rejected[:8] if isinstance(item, dict))
+    return f"""
+    <section class="panel">
+      <h2>练度更新收件箱</h2>
+      <p class="muted-line">demo normalized 是 OCR/解析候选；只有 accepted roster 可以作为已拥有练度。</p>
+      <div class="links">
+        {link("roster_index.json", inbox.get("roster_index_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>待确认快照</span><strong>{e(inbox.get("pending_count", 0))}</strong></div>
+        <div><span>已接收快照</span><strong>{e(inbox.get("accepted_count", 0))}</strong></div>
+        <div><span>已拒绝快照</span><strong>{e(inbox.get("rejected_count", 0))}</strong></div>
+        <div><span>需要复核</span><strong>{e(inbox.get("needs_manual_review_count", 0))}</strong></div>
+        <div><span>已确认角色</span><strong>{e(accepted_names or "无")}</strong></div>
+        <div><span>已拒绝角色</span><strong>{e(rejected_names or "无")}</strong></div>
+      </div>
+      <p class="muted-line">{e(inbox.get("decision_command"))}</p>
+      <div class="resource-plan">
+        <h3>待确认快照</h3>
+        <div class="resource-list">{pending_block}</div>
+      </div>
     </section>
     """
 
@@ -639,6 +691,7 @@ def render_html(summary: dict[str, Any]) -> str:
     action_summary = action_info.get("summary", {}) if isinstance(action_info.get("summary"), dict) else {}
     team_info = summary.get("team_cards", {}) if isinstance(summary.get("team_cards"), dict) else {}
     team_summary = team_info.get("summary", {}) if isinstance(team_info.get("summary"), dict) else {}
+    inbox_info = summary.get("review_inbox", {}) if isinstance(summary.get("review_inbox"), dict) else {}
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
@@ -664,6 +717,8 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("Plan Items", plan_info.get("plan_item_count", 0) if plan_info else "N/A", "warn" if plan_info.get("error") else "ok" if plan_info else "muted"),
         metric_card("高优先级行动", action_summary.get("high_priority_action_count", "N/A") if action_summary else "N/A", "ok" if action_summary.get("high_priority_action_count") else "muted"),
         metric_card("需补录/确认", action_summary.get("needs_recording_count", "N/A") if action_summary else "N/A", "warn" if action_summary.get("needs_recording_count") else "muted"),
+        metric_card("待确认快照", inbox_info.get("pending_count", "N/A") if inbox_info else "N/A", "warn" if inbox_info.get("pending_count") else "muted"),
+        metric_card("已确认 Box", inbox_info.get("accepted_count", "N/A") if inbox_info else "N/A", "ok" if inbox_info.get("accepted_count") else "muted"),
         metric_card("可用队伍", team_summary.get("playable_now_count", "N/A") if team_summary else "N/A", "ok" if team_summary.get("playable_now_count") else "muted"),
         metric_card("需补录队伍", team_summary.get("needs_recording_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("needs_recording_count") else "muted"),
         metric_card("候选队伍", team_summary.get("catalog_candidate_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("catalog_candidate_count") else "muted"),
@@ -674,6 +729,7 @@ def render_html(summary: dict[str, Any]) -> str:
     update_panel = render_update_state(summary)
     snapshot_history = render_snapshot_history(summary)
     target_refresh = render_target_refresh(summary)
+    review_inbox = render_review_inbox(summary)
     training_plan = render_training_plan(summary)
     action_cards = render_action_cards(summary)
     team_cards = render_team_cards(summary)
@@ -787,6 +843,7 @@ def render_html(summary: dict[str, Any]) -> str:
     {steps}
     {target_refresh}
     {snapshot_history}
+    {review_inbox}
     {action_cards}
     {team_cards}
     {training_plan}

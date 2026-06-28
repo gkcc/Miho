@@ -114,16 +114,28 @@ class ActionCardTests(unittest.TestCase):
             report_path = root / "training_priority_report.json"
             targets_path = root / "targets.json"
             snapshots_dir = root / "normalized"
+            roster_index = root / "roster_index.json"
             output_dir = root / "actions"
             snapshots_dir.mkdir()
             (snapshots_dir / "miyabi.json").write_text("{}", encoding="utf-8")
             report_path.write_text(json.dumps(planner_report(), ensure_ascii=False), encoding="utf-8")
             targets_path.write_text(json.dumps({"game": "zzz"}, ensure_ascii=False), encoding="utf-8")
+            roster_index.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p1.4-lite-roster-index",
+                        "characters": [{"name": "星见雅"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
 
             result = action_tool.build_action_cards(
                 planner_report=report_path,
                 targets=targets_path,
                 snapshots_dir=snapshots_dir,
+                roster_index=roster_index,
                 output_dir=output_dir,
             )
 
@@ -131,6 +143,7 @@ class ActionCardTests(unittest.TestCase):
             self.assertTrue(Path(result["output_json"]).exists())
             self.assertTrue(Path(result["output_md"]).exists())
             self.assertEqual(result["summary"]["owned_character_count"], 1)
+            self.assertEqual(result["summary"]["pending_snapshot_count"], 0)
             self.assertEqual(result["summary"]["target_count"], 3)
             self.assertEqual(result["summary"]["covered_target_count"], 1)
             self.assertEqual(result["summary"]["uncovered_target_count"], 2)
@@ -138,7 +151,7 @@ class ActionCardTests(unittest.TestCase):
 
             train = next(item for item in result["cards"] if item["action_type"] == "train_owned_character")
             self.assertEqual(train["character"], "星见雅")
-            self.assertEqual(train["source_class"], "owned")
+            self.assertEqual(train["source_class"], "owned_snapshot")
             self.assertEqual(train["status"], "actionable")
             self.assertEqual(train["evidence"]["target_hash"], "abcdef123456")
             self.assertEqual(train["evidence"]["snapshot_source"], "figs/miyabi.jpg")
@@ -160,8 +173,29 @@ class ActionCardTests(unittest.TestCase):
             self.assertTrue(record["candidate_owned"])
 
             markdown = Path(result["output_md"]).read_text(encoding="utf-8")
-            self.assertIn("候选 ≠ 已拥有", markdown)
+            self.assertIn("accepted roster", markdown)
             self.assertIn("珂蕾妲", markdown)
+
+    def test_build_action_cards_keeps_unaccepted_snapshots_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report_path = root / "training_priority_report.json"
+            output_dir = root / "actions"
+            report_path.write_text(json.dumps(planner_report(), ensure_ascii=False), encoding="utf-8")
+
+            result = action_tool.build_action_cards(
+                planner_report=report_path,
+                output_dir=output_dir,
+            )
+
+            self.assertEqual(result["summary"]["owned_character_count"], 0)
+            self.assertEqual(result["summary"]["pending_snapshot_count"], 1)
+            self.assertFalse(any(item["action_type"] == "train_owned_character" for item in result["cards"]))
+            pending = next(item for item in result["cards"] if item["action_type"] == "review_pending_snapshot")
+            self.assertEqual(pending["character"], "星见雅")
+            self.assertEqual(pending["source_class"], "pending_snapshot")
+            self.assertEqual(pending["status"], "needs_review")
+            self.assertIn("尚未进入 accepted roster", pending["reason"])
 
     def test_missing_planner_report_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

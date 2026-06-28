@@ -105,12 +105,14 @@ class TeamCardTests(unittest.TestCase):
             self.assertEqual(result["summary"]["playable_now_count"], 0)
             self.assertEqual(result["summary"]["needs_recording_count"], 1)
             self.assertEqual(result["summary"]["catalog_candidate_count"], 1)
+            self.assertEqual(result["summary"]["pending_snapshot_count"], 1)
 
             covered = next(item for item in result["cards"] if item["target"] == "危局强袭战 稳定通关")
-            self.assertEqual(covered["team_status"], "incomplete")
-            self.assertEqual(covered["members"][0]["source_class"], "owned_snapshot")
+            self.assertEqual(covered["team_status"], "needs_review")
+            self.assertEqual(covered["members"][0]["source_class"], "pending_snapshot")
             self.assertEqual(covered["members"][0]["snapshot_json"], "normalized/miyabi.json")
             self.assertEqual(covered["members"][0]["snapshot_source"], "figs/miyabi.jpg")
+            self.assertIn("pending snapshot 尚未进入 accepted roster", " ".join(covered["warnings"]))
             self.assertEqual(covered["evidence"]["target_hash"], "abcdef123456")
 
             candidate = next(item for item in result["cards"] if item["target"] == "式舆防卫战 满星尝试")
@@ -127,6 +129,47 @@ class TeamCardTests(unittest.TestCase):
             markdown = Path(result["output_md"]).read_text(encoding="utf-8")
             self.assertIn("高难配队候选卡", markdown)
             self.assertIn("catalog candidate 不代表已拥有", markdown)
+            self.assertIn("pending snapshot 尚未进入 accepted roster", markdown)
+
+    def test_roster_index_controls_which_snapshots_count_as_owned(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            planner = planner_report()
+            planner["input"]["snapshots"] = ["normalized/miyabi.json", "normalized/nicole.json"]
+            planner["snapshots"].append({"character": "妮可", "source_image": "figs/nicole.jpg"})
+            planner["target_coverage"][0]["matched_characters"].append(
+                {"character": "妮可", "match_type": "tag_overlap", "score": 40}
+            )
+            planner_path = root / "training_priority_report.json"
+            action_path = root / "action_cards.json"
+            roster_index = root / "roster_index.json"
+            output_dir = root / "teams"
+            planner_path.write_text(json.dumps(planner, ensure_ascii=False), encoding="utf-8")
+            action_path.write_text(json.dumps(action_cards(), ensure_ascii=False), encoding="utf-8")
+            roster_index.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p1.4-lite-roster-index",
+                        "characters": [{"name": "星见雅"}, {"name": "妮可"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = team_tool.build_team_cards(
+                action_cards=action_path,
+                planner_report=planner_path,
+                roster_index=roster_index,
+                output_dir=output_dir,
+            )
+
+            covered = next(item for item in result["cards"] if item["target"] == "危局强袭战 稳定通关")
+            self.assertEqual(covered["team_status"], "playable_now")
+            self.assertEqual({item["source_class"] for item in covered["members"]}, {"owned_snapshot"})
+            self.assertEqual(result["summary"]["playable_now_count"], 1)
+            self.assertEqual(result["summary"]["pending_snapshot_count"], 0)
+            self.assertEqual(result["input"]["roster_index"], str(roster_index))
 
     def test_missing_action_cards_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

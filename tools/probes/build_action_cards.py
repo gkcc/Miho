@@ -118,6 +118,13 @@ def snapshot_json_sources(report: dict[str, Any]) -> dict[str, str]:
     return result
 
 
+def accepted_characters(roster_index: dict[str, Any] | None) -> set[str]:
+    if not isinstance(roster_index, dict):
+        return set()
+    characters = roster_index.get("characters") if isinstance(roster_index.get("characters"), list) else []
+    return {str(item.get("name")) for item in characters if isinstance(item, dict) and item.get("name")}
+
+
 def first_target_label(value: Any) -> str:
     text = str(value or "")
     if "、" in text:
@@ -150,26 +157,42 @@ def card_links(
     }
 
 
-def plan_item_card(item: dict[str, Any], report: dict[str, Any], planner_report: Path) -> dict[str, Any]:
+def plan_item_card(
+    item: dict[str, Any],
+    report: dict[str, Any],
+    planner_report: Path,
+    accepted: set[str],
+) -> dict[str, Any]:
     character = str(item.get("character") or "unknown_character")
     target = str(item.get("target") or "长期通用练度")
     action = str(item.get("action") or "补练度")
     gap_type = str(item.get("gap_type") or "")
-    action_type = "review_candidate" if gap_type == "data_review" else "train_owned_character"
-    status = "needs_review" if gap_type == "data_review" else "actionable"
+    is_accepted = character in accepted
+    if not is_accepted:
+        action_type = "review_pending_snapshot"
+        status = "needs_review"
+        source_class = "pending_snapshot"
+        title = f"复核 {character} 的解析快照"
+        reason = f"该角色只有 demo normalized snapshot，尚未进入 accepted roster。原动作：{action}。"
+    else:
+        action_type = "review_candidate" if gap_type == "data_review" else "train_owned_character"
+        status = "needs_review" if gap_type == "data_review" else "actionable"
+        source_class = "owned_snapshot"
+        title = f"{character}: {action}"
+        reason = item.get("reason")
     evidence = evidence_for(target, character, report)
     return {
         "action_type": action_type,
         "priority": priority_from_rank(item.get("priority_rank")),
-        "title": f"{character}: {action}",
+        "title": title,
         "character": character,
         "target": target,
-        "reason": item.get("reason"),
+        "reason": reason,
         "evidence": {
             **evidence,
             "target_match_reasons": item.get("target_match_reasons", []) if isinstance(item.get("target_match_reasons"), list) else [],
         },
-        "source_class": "owned",
+        "source_class": source_class,
         "status": status,
         "links": card_links(
             planner_report,
@@ -222,9 +245,10 @@ def card_sort_key(item: dict[str, Any]) -> tuple[int, int, str, str]:
     priority_weight = {"high": 0, "medium": 1, "low": 2}
     type_weight = {
         "train_owned_character": 0,
-        "record_missing_character": 1,
-        "review_candidate": 2,
-        "target_gap": 3,
+        "review_pending_snapshot": 1,
+        "record_missing_character": 2,
+        "review_candidate": 3,
+        "target_gap": 4,
     }
     return (
         priority_weight.get(str(item.get("priority") or "medium"), 1),
@@ -234,11 +258,12 @@ def card_sort_key(item: dict[str, Any]) -> tuple[int, int, str, str]:
     )
 
 
-def build_cards(report: dict[str, Any], planner_report: Path) -> list[dict[str, Any]]:
+def build_cards(report: dict[str, Any], planner_report: Path, roster_index: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     cards = []
+    accepted = accepted_characters(roster_index)
     for item in report.get("plan_items", []) if isinstance(report.get("plan_items"), list) else []:
         if isinstance(item, dict):
-            cards.append(plan_item_card(item, report, planner_report))
+            cards.append(plan_item_card(item, report, planner_report, accepted))
     for item in report.get("coverage_gap_actions", []) if isinstance(report.get("coverage_gap_actions"), list) else []:
         if isinstance(item, dict):
             cards.append(gap_action_card(item, report, planner_report))
@@ -254,16 +279,22 @@ def snapshot_count_from_dir(path: Path | None) -> int:
     return sum(1 for item in path.glob("*.json") if item.is_file())
 
 
-def summary_for(report: dict[str, Any], cards: list[dict[str, Any]], snapshots_dir: Path | None) -> dict[str, Any]:
+def summary_for(
+    report: dict[str, Any],
+    cards: list[dict[str, Any]],
+    snapshots_dir: Path | None,
+    roster_index: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     coverage = report.get("target_coverage") if isinstance(report.get("target_coverage"), list) else []
-    owned = {str(item.get("character")) for item in report.get("snapshots", []) if isinstance(item, dict) and item.get("character")}
+    owned = accepted_characters(roster_index)
     return {
         "owned_character_count": len(owned),
+        "pending_snapshot_count": sum(1 for item in cards if item.get("source_class") == "pending_snapshot"),
         "snapshot_file_count": snapshot_count_from_dir(snapshots_dir),
         "target_count": len(coverage),
         "covered_target_count": sum(1 for item in coverage if isinstance(item, dict) and item.get("coverage_status") == "covered"),
         "uncovered_target_count": sum(1 for item in coverage if isinstance(item, dict) and item.get("coverage_status") == "unmatched"),
-        "needs_recording_count": sum(1 for item in cards if item.get("action_type") in {"record_missing_character", "review_candidate"}),
+        "needs_recording_count": sum(1 for item in cards if item.get("action_type") in {"record_missing_character", "review_candidate", "review_pending_snapshot"}),
         "high_priority_action_count": sum(1 for item in cards if item.get("priority") == "high"),
     }
 
@@ -272,7 +303,7 @@ def render_markdown(action_report: dict[str, Any]) -> str:
     lines = [
         "# 下一步行动卡",
         "",
-        "候选 ≠ 已拥有；catalog candidate 必须先确认拥有状态或补录官方分享图。",
+        "pending snapshot 和 catalog candidate 都不代表可用练度；只有 accepted roster 才算已确认拥有练度。",
         "",
         "## Summary",
         "",
@@ -305,11 +336,13 @@ def build_action_cards(
     output_dir: Path,
     targets: Path | None = None,
     snapshots_dir: Path | None = None,
+    roster_index: Path | None = None,
 ) -> dict[str, Any]:
     report = load_json(planner_report)
     if targets is not None and not targets.exists():
         raise ActionCardError(f"Targets JSON does not exist: {targets}")
-    cards = build_cards(report, planner_report)
+    loaded_roster_index = load_json(roster_index) if roster_index else None
+    cards = build_cards(report, planner_report, loaded_roster_index)
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": now_iso(),
@@ -317,11 +350,12 @@ def build_action_cards(
             "planner_report": str(planner_report),
             "targets": str(targets) if targets else report.get("input", {}).get("targets") if isinstance(report.get("input"), dict) else None,
             "snapshots_dir": str(snapshots_dir) if snapshots_dir else None,
+            "roster_index": str(roster_index) if roster_index else None,
         },
-        "summary": summary_for(report, cards, snapshots_dir),
+        "summary": summary_for(report, cards, snapshots_dir, loaded_roster_index),
         "cards": cards,
         "warnings": [
-            "候选 ≠ 已拥有；catalog candidate 需要补录分享图或人工确认。"
+            "pending snapshot 和 catalog candidate 都不代表可用练度；只有 accepted roster 才算已确认拥有练度。"
         ],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -340,6 +374,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--planner-report", required=True, help="training_priority_report.json from plan_training_priorities.py.")
     parser.add_argument("--targets", default=None, help="Optional endgame targets JSON used by the planner.")
     parser.add_argument("--snapshots-dir", default=None, help="Optional normalized snapshot directory for summary counts.")
+    parser.add_argument("--roster-index", default=None, help="Optional accepted roster_index.json. Only these characters count as owned_snapshot.")
     parser.add_argument("--output-dir", required=True, help="Output directory for action_cards.json/md.")
     return parser
 
@@ -351,6 +386,7 @@ def main() -> int:
             planner_report=resolve_path(args.planner_report),
             targets=resolve_path(args.targets) if args.targets else None,
             snapshots_dir=resolve_path(args.snapshots_dir) if args.snapshots_dir else None,
+            roster_index=resolve_path(args.roster_index) if args.roster_index else None,
             output_dir=resolve_path(args.output_dir),
         )
     except ActionCardError as exc:
