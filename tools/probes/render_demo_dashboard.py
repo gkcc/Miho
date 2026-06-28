@@ -443,11 +443,20 @@ def render_action_cards(summary: dict[str, Any]) -> str:
         rows = []
         for item in cards[:8]:
             evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+            tier_signal = item.get("tier_signal") if isinstance(item.get("tier_signal"), dict) else {}
             evidence_bits = []
             if evidence.get("target_source"):
                 evidence_bits.append(str(evidence.get("target_source")))
             if evidence.get("target_hash"):
                 evidence_bits.append(str(evidence.get("target_hash")))
+            tier_bits = []
+            if tier_signal:
+                tier_bits.append(str(tier_signal.get("recommendation") or "unknown"))
+                if tier_signal.get("tier"):
+                    tier_bits.append(f"tier {tier_signal.get('tier')}")
+                if tier_signal.get("retention_score") is not None:
+                    tier_bits.append(f"保值 {percent_label(tier_signal.get('retention_score'))}")
+            tier_note = f"<span>tier signal: {e(' · '.join(tier_bits))}</span>" if tier_bits else ""
             source_note = (
                 "候选 ≠ 已拥有"
                 if item.get("source_class") in {"pending_snapshot", "catalog_candidate", "catalog_owned_missing_snapshot"}
@@ -461,6 +470,7 @@ def render_action_cards(summary: dict[str, Any]) -> str:
                 f"<p>{e(item.get('reason'))}</p>"
                 f"<span>{e(item.get('target'))}</span>"
                 f"<span>{e(source_note)} · evidence: {e(' · '.join(evidence_bits) or 'N/A')}</span>"
+                f"{tier_note}"
                 "</div>"
                 f"<strong>{e(item.get('priority'))}<br>{e(item.get('status'))}</strong>"
                 "</article>"
@@ -479,6 +489,9 @@ def render_action_cards(summary: dict[str, Any]) -> str:
         <div><span>uncovered targets</span><strong>{e(card_summary.get("uncovered_target_count", "N/A"))}</strong></div>
         <div><span>high priority</span><strong>{e(card_summary.get("high_priority_action_count", "N/A"))}</strong></div>
         <div><span>needs recording</span><strong>{e(card_summary.get("needs_recording_count", "N/A"))}</strong></div>
+        <div><span>tier signals</span><strong>{e(card_summary.get("tier_signal_count", "N/A"))}</strong></div>
+        <div><span>高保值行动</span><strong>{e(card_summary.get("high_value_owned_action_count", "N/A"))}</strong></div>
+        <div><span>低保值复核</span><strong>{e(card_summary.get("low_value_review_count", "N/A"))}</strong></div>
         <div><span>已确认角色</span><strong>{e(card_summary.get("owned_character_count", "N/A"))}</strong></div>
         <div><span>待确认快照</span><strong>{e(card_summary.get("pending_snapshot_count", "N/A"))}</strong></div>
         <div><span>snapshot files</span><strong>{e(card_summary.get("snapshot_file_count", "N/A"))}</strong></div>

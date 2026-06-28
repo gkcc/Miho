@@ -983,6 +983,7 @@ def build_demo_action_cards(
     output_dir: Path,
     *,
     roster_index: Path | None = None,
+    tier_watchlist: Path | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(training_plan, dict) or not training_plan.get("output_json"):
         return None
@@ -1000,6 +1001,7 @@ def build_demo_action_cards(
             targets=targets_path,
             snapshots_dir=output_dir / "normalized",
             roster_index=roster_index if roster_index and roster_index.exists() else None,
+            tier_watchlist=tier_watchlist if tier_watchlist and tier_watchlist.exists() else None,
             output_dir=output_dir / "actions",
         )
     except action_cards.ActionCardError as exc:
@@ -1012,6 +1014,7 @@ def build_demo_action_cards(
             "summary": result.get("summary", {}) if isinstance(result.get("summary"), dict) else {},
             "cards": result.get("cards", []) if isinstance(result.get("cards"), list) else [],
             "warnings": result.get("warnings", []) if isinstance(result.get("warnings"), list) else [],
+            "input": result.get("input", {}) if isinstance(result.get("input"), dict) else {},
         }
     )
     return info
@@ -1372,26 +1375,14 @@ def run_pipeline(
         summary["pipeline_steps"] = pipeline_steps(summary)
     active_roster_dir = roster_dir or DEFAULT_ROSTER_DIR
     active_roster_index = active_roster_dir / "roster_index.json"
-    action_card_info = build_demo_action_cards(
-        training_plan,
-        active_targets,
-        output_dir,
-        roster_index=active_roster_index,
-    )
-    if action_card_info is not None:
-        summary["action_cards"] = action_card_info
-        if action_card_info.get("warnings"):
-            summary.setdefault("warnings", []).extend(action_card_info["warnings"])
-        if action_card_info.get("error"):
-            summary.setdefault("warnings", []).append(f"Action cards failed: {action_card_info['error']}")
-        summary["pipeline_steps"] = pipeline_steps(summary)
     review_inbox = build_review_inbox(cases, active_roster_dir)
     summary["review_inbox"] = review_inbox
     summary["pipeline_steps"] = pipeline_steps(summary)
+    roster_index_for_replay = Path(str(review_inbox["roster_index_json"])) if review_inbox.get("roster_index_json") else active_roster_index
     tier_info = build_demo_tier_watchlist(
         tier_snapshot,
         output_dir,
-        roster_index=Path(str(review_inbox["roster_index_json"])) if review_inbox.get("roster_index_json") else active_roster_index,
+        roster_index=roster_index_for_replay,
     )
     if tier_info is not None:
         summary["tier_watchlist"] = tier_info
@@ -1400,12 +1391,27 @@ def run_pipeline(
         if tier_info.get("error"):
             summary.setdefault("warnings", []).append(f"Tier watchlist failed: {tier_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
+    tier_watchlist_path = Path(str(tier_info["output_json"])) if isinstance(tier_info, dict) and tier_info.get("output_json") else None
+    action_card_info = build_demo_action_cards(
+        training_plan,
+        active_targets,
+        output_dir,
+        roster_index=roster_index_for_replay,
+        tier_watchlist=tier_watchlist_path,
+    )
+    if action_card_info is not None:
+        summary["action_cards"] = action_card_info
+        if action_card_info.get("warnings"):
+            summary.setdefault("warnings", []).extend(action_card_info["warnings"])
+        if action_card_info.get("error"):
+            summary.setdefault("warnings", []).append(f"Action cards failed: {action_card_info['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
     team_card_info = build_demo_team_cards(
         action_card_info,
         training_plan,
         output_dir,
         character_catalog=character_catalog,
-        roster_index=Path(str(review_inbox["roster_index_json"])) if review_inbox.get("roster_index_json") else None,
+        roster_index=roster_index_for_replay if roster_index_for_replay.exists() else None,
     )
     if team_card_info is not None:
         summary["team_cards"] = team_card_info

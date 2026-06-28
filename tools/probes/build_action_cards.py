@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,10 @@ SCHEMA_VERSION = "p1.2-lite-action-cards"
 
 class ActionCardError(RuntimeError):
     pass
+
+
+HIGH_VALUE_TIER_RECOMMENDATIONS = {"protect_investment"}
+LOW_VALUE_TIER_RECOMMENDATIONS = {"avoid_overinvestment", "low_priority_candidate"}
 
 
 def resolve_path(value: str) -> Path:
@@ -52,6 +57,22 @@ def short_hash(value: Any) -> str | None:
         return None
     text = str(value)
     return text[:12] if len(text) > 12 else text
+
+
+def normalize_name(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "")).strip().lower()
+
+
+def normalize_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    raw_items = value if isinstance(value, list) else [value]
+    result: list[str] = []
+    for item in raw_items:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def priority_from_rank(rank: Any) -> str:
@@ -123,6 +144,98 @@ def accepted_characters(roster_index: dict[str, Any] | None) -> set[str]:
         return set()
     characters = roster_index.get("characters") if isinstance(roster_index.get("characters"), list) else []
     return {str(item.get("name")) for item in characters if isinstance(item, dict) and item.get("name")}
+
+
+def tier_signal_map(tier_watchlist: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not isinstance(tier_watchlist, dict):
+        return {}
+    entries = tier_watchlist.get("entries") if isinstance(tier_watchlist.get("entries"), list) else []
+    result: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not entry.get("character"):
+            continue
+        names = [str(entry["character"])] + normalize_list(entry.get("aliases"))
+        signal = {
+            "character": entry.get("character"),
+            "owned_status": entry.get("owned_status"),
+            "tier": entry.get("tier"),
+            "tier_score": entry.get("tier_score"),
+            "retention_score": entry.get("retention_score"),
+            "usage_rate": entry.get("usage_rate"),
+            "trend": entry.get("trend"),
+            "recommendation": entry.get("recommendation"),
+            "reason": entry.get("reason"),
+            "source": entry.get("source") if isinstance(entry.get("source"), dict) else None,
+        }
+        for name in names:
+            result.setdefault(normalize_name(name), signal)
+    return result
+
+
+def tier_signal_for(character: str, signals: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    return signals.get(normalize_name(character))
+
+
+def append_reason(reason: Any, extra: str) -> str:
+    base = str(reason or "").strip()
+    if not base:
+        return extra
+    if extra in base:
+        return base
+    return f"{base} {extra}"
+
+
+def tier_signal_evidence(signal: dict[str, Any]) -> dict[str, Any]:
+    source = signal.get("source") if isinstance(signal.get("source"), dict) else {}
+    return {
+        "recommendation": signal.get("recommendation"),
+        "tier": signal.get("tier"),
+        "tier_score": signal.get("tier_score"),
+        "retention_score": signal.get("retention_score"),
+        "trend": signal.get("trend"),
+        "source_name": source.get("name"),
+        "source_ref": source.get("source_ref"),
+    }
+
+
+def apply_tier_signal(card: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
+    if not signal:
+        return card
+    recommendation = str(signal.get("recommendation") or "")
+    card["tier_signal"] = tier_signal_evidence(signal)
+    evidence = card.get("evidence") if isinstance(card.get("evidence"), dict) else {}
+    evidence["tier_signal"] = card["tier_signal"]
+    card["evidence"] = evidence
+
+    if card.get("action_type") == "train_owned_character":
+        if recommendation in HIGH_VALUE_TIER_RECOMMENDATIONS:
+            card["reason"] = append_reason(
+                card.get("reason"),
+                "tier/保值信号较强，本地行动卡允许优先保护这类已确认投入。",
+            )
+        elif recommendation in LOW_VALUE_TIER_RECOMMENDATIONS:
+            original_title = card.get("title")
+            original_reason = card.get("reason")
+            card["action_type"] = "review_low_value_investment"
+            card["status"] = "needs_review"
+            card["priority"] = "low"
+            card["title"] = f"复核 {card.get('character')} 的低保值投入"
+            card["reason"] = (
+                "tier/保值信号偏弱，不建议为了拿奖励继续加码；"
+                f"原行动为「{original_title}」，原因为：{original_reason or 'N/A'}"
+            )
+    elif recommendation == "watch_candidate":
+        card["reason"] = append_reason(
+            card.get("reason"),
+            "tier/保值信号较强，但这仍只是观察候选；未进入 accepted roster 前不能当作已拥有练度或抽取建议。",
+        )
+    elif recommendation in LOW_VALUE_TIER_RECOMMENDATIONS:
+        card["priority"] = "low"
+        card["reason"] = append_reason(
+            card.get("reason"),
+            "tier/保值信号偏弱；补录或确认前先复核是否真的服务当前终局目标。",
+        )
+    return card
 
 
 def first_target_label(value: Any) -> str:
@@ -248,7 +361,8 @@ def card_sort_key(item: dict[str, Any]) -> tuple[int, int, str, str]:
         "review_pending_snapshot": 1,
         "record_missing_character": 2,
         "review_candidate": 3,
-        "target_gap": 4,
+        "review_low_value_investment": 4,
+        "target_gap": 5,
     }
     return (
         priority_weight.get(str(item.get("priority") or "medium"), 1),
@@ -258,15 +372,23 @@ def card_sort_key(item: dict[str, Any]) -> tuple[int, int, str, str]:
     )
 
 
-def build_cards(report: dict[str, Any], planner_report: Path, roster_index: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def build_cards(
+    report: dict[str, Any],
+    planner_report: Path,
+    roster_index: dict[str, Any] | None = None,
+    tier_watchlist: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     cards = []
     accepted = accepted_characters(roster_index)
+    tier_signals = tier_signal_map(tier_watchlist)
     for item in report.get("plan_items", []) if isinstance(report.get("plan_items"), list) else []:
         if isinstance(item, dict):
-            cards.append(plan_item_card(item, report, planner_report, accepted))
+            card = plan_item_card(item, report, planner_report, accepted)
+            cards.append(apply_tier_signal(card, tier_signal_for(str(card.get("character") or ""), tier_signals)))
     for item in report.get("coverage_gap_actions", []) if isinstance(report.get("coverage_gap_actions"), list) else []:
         if isinstance(item, dict):
-            cards.append(gap_action_card(item, report, planner_report))
+            card = gap_action_card(item, report, planner_report)
+            cards.append(apply_tier_signal(card, tier_signal_for(str(card.get("character") or ""), tier_signals)))
     cards.sort(key=card_sort_key)
     for index, item in enumerate(cards, start=1):
         item["rank"] = index
@@ -296,6 +418,21 @@ def summary_for(
         "uncovered_target_count": sum(1 for item in coverage if isinstance(item, dict) and item.get("coverage_status") == "unmatched"),
         "needs_recording_count": sum(1 for item in cards if item.get("action_type") in {"record_missing_character", "review_candidate", "review_pending_snapshot"}),
         "high_priority_action_count": sum(1 for item in cards if item.get("priority") == "high"),
+        "tier_signal_count": sum(1 for item in cards if isinstance(item.get("tier_signal"), dict)),
+        "high_value_owned_action_count": sum(
+            1
+            for item in cards
+            if item.get("action_type") == "train_owned_character"
+            and isinstance(item.get("tier_signal"), dict)
+            and item["tier_signal"].get("recommendation") == "protect_investment"
+        ),
+        "low_value_action_count": sum(
+            1
+            for item in cards
+            if isinstance(item.get("tier_signal"), dict)
+            and item["tier_signal"].get("recommendation") in LOW_VALUE_TIER_RECOMMENDATIONS
+        ),
+        "low_value_review_count": sum(1 for item in cards if item.get("action_type") == "review_low_value_investment"),
     }
 
 
@@ -313,6 +450,7 @@ def render_markdown(action_report: dict[str, Any]) -> str:
     lines.extend(["", "## Cards", ""])
     for item in action_report.get("cards", []):
         evidence = item.get("evidence", {}) if isinstance(item.get("evidence"), dict) else {}
+        tier_signal = item.get("tier_signal", {}) if isinstance(item.get("tier_signal"), dict) else {}
         lines.extend(
             [
                 f"### #{item.get('rank')} {item.get('title')}",
@@ -324,6 +462,7 @@ def render_markdown(action_report: dict[str, Any]) -> str:
                 f"- reason: {item.get('reason')}",
                 f"- target_source: {evidence.get('target_source') or 'N/A'}",
                 f"- target_hash: {evidence.get('target_hash') or 'N/A'}",
+                f"- tier_signal: {tier_signal.get('recommendation') or 'N/A'} / {tier_signal.get('tier') or 'N/A'}",
                 "",
             ]
         )
@@ -337,12 +476,14 @@ def build_action_cards(
     targets: Path | None = None,
     snapshots_dir: Path | None = None,
     roster_index: Path | None = None,
+    tier_watchlist: Path | None = None,
 ) -> dict[str, Any]:
     report = load_json(planner_report)
     if targets is not None and not targets.exists():
         raise ActionCardError(f"Targets JSON does not exist: {targets}")
     loaded_roster_index = load_json(roster_index) if roster_index else None
-    cards = build_cards(report, planner_report, loaded_roster_index)
+    loaded_tier_watchlist = load_json(tier_watchlist) if tier_watchlist else None
+    cards = build_cards(report, planner_report, loaded_roster_index, loaded_tier_watchlist)
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": now_iso(),
@@ -351,11 +492,13 @@ def build_action_cards(
             "targets": str(targets) if targets else report.get("input", {}).get("targets") if isinstance(report.get("input"), dict) else None,
             "snapshots_dir": str(snapshots_dir) if snapshots_dir else None,
             "roster_index": str(roster_index) if roster_index else None,
+            "tier_watchlist": str(tier_watchlist) if tier_watchlist else None,
         },
         "summary": summary_for(report, cards, snapshots_dir, loaded_roster_index),
         "cards": cards,
         "warnings": [
-            "pending snapshot 和 catalog candidate 都不代表可用练度；只有 accepted roster 才算已确认拥有练度。"
+            "pending snapshot 和 catalog candidate 都不代表可用练度；只有 accepted roster 才算已确认拥有练度。",
+            "tier_signal 只调整本地行动优先级，不是最终抽取建议。",
         ],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -375,6 +518,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--targets", default=None, help="Optional endgame targets JSON used by the planner.")
     parser.add_argument("--snapshots-dir", default=None, help="Optional normalized snapshot directory for summary counts.")
     parser.add_argument("--roster-index", default=None, help="Optional accepted roster_index.json. Only these characters count as owned_snapshot.")
+    parser.add_argument("--tier-watchlist", default=None, help="Optional tier_watchlist.json from build_tier_watchlist.py.")
     parser.add_argument("--output-dir", required=True, help="Output directory for action_cards.json/md.")
     return parser
 
@@ -387,6 +531,7 @@ def main() -> int:
             targets=resolve_path(args.targets) if args.targets else None,
             snapshots_dir=resolve_path(args.snapshots_dir) if args.snapshots_dir else None,
             roster_index=resolve_path(args.roster_index) if args.roster_index else None,
+            tier_watchlist=resolve_path(args.tier_watchlist) if args.tier_watchlist else None,
             output_dir=resolve_path(args.output_dir),
         )
     except ActionCardError as exc:
@@ -395,6 +540,8 @@ def main() -> int:
     print(f"card_count: {len(result['cards'])}")
     print(f"high_priority_action_count: {result['summary']['high_priority_action_count']}")
     print(f"needs_recording_count: {result['summary']['needs_recording_count']}")
+    print(f"tier_signal_count: {result['summary']['tier_signal_count']}")
+    print(f"low_value_review_count: {result['summary']['low_value_review_count']}")
     print(f"output_json: {result['output_json']}")
     print(f"output_md: {result['output_md']}")
     return 0

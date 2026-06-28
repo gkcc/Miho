@@ -25,7 +25,7 @@ python tools/probes/run_demo_pipeline.py `
   --tier-snapshot data/probes/tier/zzz_tier_snapshot.json
 ```
 
-`--tier-snapshot` 只读取本地 JSON，不联网抓取，不生成最终抽取建议。只有 `data/probes/roster/roster_index.json` 中的 accepted roster 才会被标记为已确认拥有练度；demo normalized snapshot 仍然需要人工确认。
+`--tier-snapshot` 只读取本地 JSON，不联网抓取，不生成最终抽取建议。只有 `data/probes/roster/roster_index.json` 中的 accepted roster 才会被标记为已确认拥有练度；demo normalized snapshot 仍然需要人工确认。若同时生成 action cards，tier / 保值信号只用于解释或降级本地行动优先级，避免为了短期奖励继续加码低保值角色。
 
 ## Tier Snapshot 草案
 

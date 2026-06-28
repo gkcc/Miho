@@ -262,6 +262,10 @@ class DemoDashboardTests(unittest.TestCase):
                         "uncovered_target_count": 1,
                         "needs_recording_count": 2,
                         "high_priority_action_count": 1,
+                        "tier_signal_count": 1,
+                        "high_value_owned_action_count": 0,
+                        "low_value_action_count": 0,
+                        "low_value_review_count": 0,
                     },
                     "warnings": ["pending snapshot 和 catalog candidate 都不代表可用练度；只有 accepted roster 才算已确认拥有练度。"],
                     "cards": [
@@ -275,6 +279,13 @@ class DemoDashboardTests(unittest.TestCase):
                             "reason": "该角色只有 demo normalized snapshot，尚未进入 accepted roster。原动作：补关键技能到 8 左右。",
                             "source_class": "pending_snapshot",
                             "status": "needs_review",
+                            "tier_signal": {
+                                "recommendation": "watch_candidate",
+                                "tier": "S",
+                                "tier_score": 90,
+                                "retention_score": 0.9,
+                                "trend": "stable",
+                            },
                             "evidence": {
                                 "target_source": str(root / "target_source.html"),
                                 "target_hash": "abcdef123456",
@@ -517,6 +528,9 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("候选 ≠ 已拥有", html)
             self.assertIn("高优先级行动", html)
             self.assertIn("需补录/确认", html)
+            self.assertIn("tier signal", html)
+            self.assertIn("高保值行动", html)
+            self.assertIn("低保值复核", html)
             self.assertIn("练度更新收件箱", html)
             self.assertIn("只有 accepted roster 可以作为已拥有练度", html)
             self.assertIn("待确认快照", html)
@@ -741,6 +755,11 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["action_cards"]["output_json"]).exists())
             self.assertTrue(Path(summary["action_cards"]["output_md"]).exists())
             self.assertGreater(summary["action_cards"]["summary"]["high_priority_action_count"], 0)
+            self.assertGreater(summary["action_cards"]["summary"]["tier_signal_count"], 0)
+            self.assertEqual(
+                Path(summary["action_cards"]["input"]["tier_watchlist"]).name,
+                "tier_watchlist.json",
+            )
             self.assertIn("team_cards", summary)
             self.assertTrue(Path(summary["team_cards"]["output_json"]).exists())
             self.assertTrue(Path(summary["team_cards"]["output_md"]).exists())
@@ -764,6 +783,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("练度更新收件箱", dashboard_html)
             self.assertIn("Tier / 保值观察", dashboard_html)
             self.assertIn("tier_watchlist.json", dashboard_html)
+            self.assertIn("tier signal", dashboard_html)
             self.assertIn("catalog candidate 不代表已拥有", dashboard_html)
             self.assertIn("pending snapshot 尚未进入 accepted roster", dashboard_html)
             self.assertIn("今日投入建议", dashboard_html)

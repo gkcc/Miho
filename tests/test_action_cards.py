@@ -107,6 +107,54 @@ def planner_report() -> dict:
     }
 
 
+def tier_watchlist_report(*, miyabi_recommendation: str = "protect_investment") -> dict:
+    miyabi_reason = (
+        "已在 accepted roster 中，且 tier/保值信号较强；后续培养和配队建议应优先保护这类投入。"
+        if miyabi_recommendation == "protect_investment"
+        else "已在 accepted roster 中，但保值或趋势偏弱；除非命中具体终局目标，否则不建议继续加码。"
+    )
+    return {
+        "schema_version": "p1.5-lite-tier-watchlist",
+        "source": {"name": "unit test tier snapshot", "source_type": "manual", "source_ref": "local"},
+        "entries": [
+            {
+                "character": "星见雅",
+                "owned_status": "accepted_roster",
+                "tier": "S",
+                "tier_score": 90,
+                "retention_score": 0.9 if miyabi_recommendation == "protect_investment" else 0.35,
+                "trend": "stable" if miyabi_recommendation == "protect_investment" else "down",
+                "recommendation": miyabi_recommendation,
+                "reason": miyabi_reason,
+                "source": {"name": "unit test tier snapshot", "source_ref": "local"},
+            },
+            {
+                "character": "珂蕾妲",
+                "owned_status": "not_in_roster",
+                "tier": "S+",
+                "tier_score": 92,
+                "retention_score": 0.88,
+                "trend": "up",
+                "recommendation": "watch_candidate",
+                "reason": "未在 accepted roster 中，但 tier/保值信号较强；这里只做观察候选，不直接生成抽取建议。",
+                "source": {"name": "unit test tier snapshot", "source_ref": "local"},
+            },
+            {
+                "character": "莱特",
+                "owned_status": "not_in_roster",
+                "tier": "B",
+                "tier_score": 65,
+                "retention_score": 0.4,
+                "trend": "down",
+                "recommendation": "low_priority_candidate",
+                "reason": "未在 accepted roster 中，且趋势或保值偏弱；作为低优先级观察项。",
+                "source": {"name": "unit test tier snapshot", "source_ref": "local"},
+            },
+        ],
+        "warnings": [],
+    }
+
+
 class ActionCardTests(unittest.TestCase):
     def test_build_action_cards_keeps_owned_and_catalog_candidates_separate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -115,6 +163,7 @@ class ActionCardTests(unittest.TestCase):
             targets_path = root / "targets.json"
             snapshots_dir = root / "normalized"
             roster_index = root / "roster_index.json"
+            tier_watchlist = root / "tier_watchlist.json"
             output_dir = root / "actions"
             snapshots_dir.mkdir()
             (snapshots_dir / "miyabi.json").write_text("{}", encoding="utf-8")
@@ -130,12 +179,14 @@ class ActionCardTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            tier_watchlist.write_text(json.dumps(tier_watchlist_report(), ensure_ascii=False), encoding="utf-8")
 
             result = action_tool.build_action_cards(
                 planner_report=report_path,
                 targets=targets_path,
                 snapshots_dir=snapshots_dir,
                 roster_index=roster_index,
+                tier_watchlist=tier_watchlist,
                 output_dir=output_dir,
             )
 
@@ -148,6 +199,9 @@ class ActionCardTests(unittest.TestCase):
             self.assertEqual(result["summary"]["covered_target_count"], 1)
             self.assertEqual(result["summary"]["uncovered_target_count"], 2)
             self.assertGreaterEqual(result["summary"]["needs_recording_count"], 2)
+            self.assertEqual(result["summary"]["tier_signal_count"], 3)
+            self.assertEqual(result["summary"]["high_value_owned_action_count"], 1)
+            self.assertEqual(result["summary"]["low_value_action_count"], 1)
 
             train = next(item for item in result["cards"] if item["action_type"] == "train_owned_character")
             self.assertEqual(train["character"], "星见雅")
@@ -158,6 +212,8 @@ class ActionCardTests(unittest.TestCase):
             self.assertEqual(train["evidence"]["snapshot_json"], "normalized/miyabi.json")
             self.assertEqual(train["links"]["normalized_json"], "normalized/miyabi.json")
             self.assertEqual(train["links"]["snapshot_source"], "figs/miyabi.jpg")
+            self.assertEqual(train["tier_signal"]["recommendation"], "protect_investment")
+            self.assertIn("优先保护", train["reason"])
 
             review = next(item for item in result["cards"] if item["character"] == "珂蕾妲")
             self.assertEqual(review["action_type"], "review_candidate")
@@ -166,15 +222,20 @@ class ActionCardTests(unittest.TestCase):
             self.assertEqual(review["status"], "needs_review")
             self.assertIn("stun", review["evidence"]["matched_tags"])
             self.assertEqual(review["evidence"]["target_hash"], "123456abcdef")
+            self.assertEqual(review["tier_signal"]["recommendation"], "watch_candidate")
+            self.assertIn("不能当作已拥有练度", review["reason"])
 
             record = next(item for item in result["cards"] if item["character"] == "莱特")
             self.assertEqual(record["action_type"], "record_missing_character")
             self.assertEqual(record["source_class"], "catalog_owned_missing_snapshot")
             self.assertTrue(record["candidate_owned"])
+            self.assertEqual(record["priority"], "low")
+            self.assertEqual(record["tier_signal"]["recommendation"], "low_priority_candidate")
 
             markdown = Path(result["output_md"]).read_text(encoding="utf-8")
             self.assertIn("accepted roster", markdown)
             self.assertIn("珂蕾妲", markdown)
+            self.assertIn("tier_signal", markdown)
 
     def test_build_action_cards_keeps_unaccepted_snapshots_pending(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -196,6 +257,45 @@ class ActionCardTests(unittest.TestCase):
             self.assertEqual(pending["source_class"], "pending_snapshot")
             self.assertEqual(pending["status"], "needs_review")
             self.assertIn("尚未进入 accepted roster", pending["reason"])
+
+    def test_build_action_cards_demotes_low_value_owned_training(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report_path = root / "training_priority_report.json"
+            roster_index = root / "roster_index.json"
+            tier_watchlist = root / "tier_watchlist.json"
+            output_dir = root / "actions"
+            report_path.write_text(json.dumps(planner_report(), ensure_ascii=False), encoding="utf-8")
+            roster_index.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p1.4-lite-roster-index",
+                        "characters": [{"name": "星见雅"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            tier_watchlist.write_text(
+                json.dumps(tier_watchlist_report(miyabi_recommendation="avoid_overinvestment"), ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            result = action_tool.build_action_cards(
+                planner_report=report_path,
+                roster_index=roster_index,
+                tier_watchlist=tier_watchlist,
+                output_dir=output_dir,
+            )
+
+            self.assertFalse(any(item["action_type"] == "train_owned_character" for item in result["cards"]))
+            low_value = next(item for item in result["cards"] if item["character"] == "星见雅")
+            self.assertEqual(low_value["action_type"], "review_low_value_investment")
+            self.assertEqual(low_value["status"], "needs_review")
+            self.assertEqual(low_value["priority"], "low")
+            self.assertEqual(low_value["tier_signal"]["recommendation"], "avoid_overinvestment")
+            self.assertEqual(result["summary"]["low_value_review_count"], 1)
+            self.assertIn("不建议为了拿奖励继续加码", low_value["reason"])
 
     def test_missing_planner_report_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
