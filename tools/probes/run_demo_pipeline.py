@@ -24,6 +24,7 @@ import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import build_action_cards as action_cards  # noqa: E402
 import build_endgame_plan as endgame_plan  # noqa: E402
+import build_run_manifest as run_manifest  # noqa: E402
 import build_roster_delta as roster_delta  # noqa: E402
 import build_team_cards as team_cards  # noqa: E402
 import build_tier_watchlist as tier_watchlist  # noqa: E402
@@ -772,6 +773,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     tier_info = summary.get("tier_watchlist", {}) if isinstance(summary.get("tier_watchlist"), dict) else {}
     delta_info = summary.get("roster_delta", {}) if isinstance(summary.get("roster_delta"), dict) else {}
     endgame_info = summary.get("endgame_plan", {}) if isinstance(summary.get("endgame_plan"), dict) else {}
+    manifest_info = summary.get("run_manifest", {}) if isinstance(summary.get("run_manifest"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -822,6 +824,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(delta_info, dict) and delta_info.get("error")
             else "done"
             if isinstance(delta_info, dict) and delta_info.get("output_json")
+            else "skipped",
+        },
+        {
+            "name": "Run Manifest",
+            "status": "failed"
+            if isinstance(manifest_info, dict) and manifest_info.get("error")
+            else "done"
+            if isinstance(manifest_info, dict) and manifest_info.get("output_json")
             else "skipped",
         },
         {
@@ -1172,6 +1182,43 @@ def build_demo_roster_delta(
         }
 
 
+def build_demo_run_manifest(
+    *,
+    output_dir: Path,
+    roster_index: Path | None = None,
+    targets_path: Path | None = None,
+    team_cards_path: Path | None = None,
+    action_cards_path: Path | None = None,
+    tier_watchlist_path: Path | None = None,
+    roster_delta_path: Path | None = None,
+) -> dict[str, Any] | None:
+    if not roster_index or not roster_index.exists():
+        return None
+    try:
+        return run_manifest.build_run_manifest(
+            output_dir=output_dir,
+            roster_index=roster_index,
+            targets=targets_path if targets_path and targets_path.exists() else None,
+            team_cards=team_cards_path if team_cards_path and team_cards_path.exists() else None,
+            action_cards=action_cards_path if action_cards_path and action_cards_path.exists() else None,
+            tier_watchlist=tier_watchlist_path if tier_watchlist_path and tier_watchlist_path.exists() else None,
+            roster_delta=roster_delta_path if roster_delta_path and roster_delta_path.exists() else None,
+        )
+    except run_manifest.RunManifestError as exc:
+        return {
+            "schema_version": run_manifest.SCHEMA_VERSION,
+            "input": {
+                "roster_index": str(roster_index) if roster_index else None,
+                "targets": str(targets_path) if targets_path else None,
+                "team_cards": str(team_cards_path) if team_cards_path else None,
+                "action_cards": str(action_cards_path) if action_cards_path else None,
+                "tier_watchlist": str(tier_watchlist_path) if tier_watchlist_path else None,
+                "roster_delta": str(roster_delta_path) if roster_delta_path else None,
+            },
+            "error": str(exc),
+        }
+
+
 def build_demo_endgame_plan(
     *,
     roster_index: Path,
@@ -1181,6 +1228,7 @@ def build_demo_endgame_plan(
     action_cards_path: Path | None = None,
     tier_watchlist_path: Path | None = None,
     roster_delta_path: Path | None = None,
+    run_manifest_path: Path | None = None,
 ) -> dict[str, Any] | None:
     if not roster_index.exists() or not team_cards_path or not team_cards_path.exists():
         return None
@@ -1192,6 +1240,7 @@ def build_demo_endgame_plan(
             action_cards=action_cards_path if action_cards_path and action_cards_path.exists() else None,
             tier_watchlist=tier_watchlist_path if tier_watchlist_path and tier_watchlist_path.exists() else None,
             roster_delta=roster_delta_path if roster_delta_path and roster_delta_path.exists() else None,
+            run_manifest=run_manifest_path if run_manifest_path and run_manifest_path.exists() else None,
             output_dir=output_dir / "endgame_plan",
         )
     except endgame_plan.EndgamePlanError as exc:
@@ -1204,6 +1253,7 @@ def build_demo_endgame_plan(
                 "action_cards": str(action_cards_path) if action_cards_path else None,
                 "tier_watchlist": str(tier_watchlist_path) if tier_watchlist_path else None,
                 "roster_delta": str(roster_delta_path) if roster_delta_path else None,
+                "run_manifest": str(run_manifest_path) if run_manifest_path else None,
             },
             "error": str(exc),
         }
@@ -1549,6 +1599,28 @@ def run_pipeline(
         if isinstance(roster_delta_info, dict) and roster_delta_info.get("output_json")
         else None
     )
+    run_manifest_info = build_demo_run_manifest(
+        output_dir=output_dir,
+        roster_index=roster_index_for_replay if roster_index_for_replay.exists() else None,
+        targets_path=active_targets,
+        team_cards_path=team_cards_path,
+        action_cards_path=action_cards_path,
+        tier_watchlist_path=tier_watchlist_path,
+        roster_delta_path=roster_delta_path,
+    )
+    if run_manifest_info is not None:
+        summary["run_manifest"] = run_manifest_info
+        status = run_manifest_info.get("artifact_status") if isinstance(run_manifest_info.get("artifact_status"), dict) else {}
+        if isinstance(status.get("warnings"), list):
+            summary.setdefault("warnings", []).extend(status["warnings"])
+        if run_manifest_info.get("error"):
+            summary.setdefault("warnings", []).append(f"Run manifest failed: {run_manifest_info['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
+    run_manifest_path = (
+        Path(str(run_manifest_info["output_json"]))
+        if isinstance(run_manifest_info, dict) and run_manifest_info.get("output_json")
+        else None
+    )
     endgame_plan_info = build_demo_endgame_plan(
         roster_index=roster_index_for_replay,
         targets_path=active_targets,
@@ -1557,6 +1629,7 @@ def run_pipeline(
         action_cards_path=action_cards_path,
         tier_watchlist_path=tier_watchlist_path,
         roster_delta_path=roster_delta_path,
+        run_manifest_path=run_manifest_path,
     )
     if endgame_plan_info is not None:
         summary["endgame_plan"] = endgame_plan_info
@@ -1678,6 +1751,12 @@ def main() -> int:
             print(f"roster_delta_new_count: {delta_summary.get('new_character_count', 0)}")
             print(f"roster_delta_updated_count: {delta_summary.get('updated_character_count', 0)}")
             print(f"roster_delta_team_impact_count: {delta_summary.get('team_impact_count', 0)}")
+    if isinstance(summary.get("run_manifest"), dict):
+        manifest_status = summary["run_manifest"].get("artifact_status", {})
+        if isinstance(manifest_status, dict):
+            print(f"run_manifest_consistent: {manifest_status.get('consistent')}")
+            print(f"run_manifest_missing_count: {len(manifest_status.get('missing', []))}")
+            print(f"run_manifest_stale_or_mismatched_count: {len(manifest_status.get('stale_or_mismatched', []))}")
     if isinstance(summary.get("endgame_plan"), dict):
         plan_summary = summary["endgame_plan"].get("summary", {})
         if isinstance(plan_summary, dict):

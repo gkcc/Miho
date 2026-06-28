@@ -497,10 +497,31 @@ class DemoDashboardTests(unittest.TestCase):
                     ],
                     "error": None,
                 },
+                "run_manifest": {
+                    "schema_version": "p2.0-lite-run-manifest",
+                    "run_id": "demo_test_run",
+                    "created_at": "2026-06-29T00:00:00+08:00",
+                    "output_json": str(root / "run_manifest.json"),
+                    "inputs": {
+                        "roster_index": {"path": str(root / "roster_index.json"), "sha256": "a" * 64, "exists": True},
+                        "targets": {"path": str(root / "targets.json"), "sha256": "b" * 64, "exists": True},
+                        "team_cards": {"path": str(root / "team_cards.json"), "sha256": "c" * 64, "exists": True},
+                        "action_cards": {"path": str(root / "action_cards.json"), "sha256": "d" * 64, "exists": True},
+                        "tier_watchlist": {"path": str(root / "tier_watchlist.json"), "sha256": "e" * 64, "exists": True},
+                        "roster_delta": {"path": str(root / "roster_delta.json"), "sha256": "f" * 64, "exists": True},
+                    },
+                    "artifact_status": {
+                        "consistent": True,
+                        "missing": [],
+                        "stale_or_mismatched": [],
+                        "warnings": [],
+                    },
+                },
                 "endgame_plan": {
-                    "schema_version": "p1.9-lite-endgame-plan",
+                    "schema_version": "p2.0-lite-endgame-plan",
                     "output_json": str(root / "endgame_plan.json"),
                     "output_md": str(root / "endgame_plan.md"),
+                    "plan_trust_level": "warning",
                     "summary": {
                         "target_count": 4,
                         "ready_now_count": 1,
@@ -508,7 +529,18 @@ class DemoDashboardTests(unittest.TestCase):
                         "needs_recording_count": 1,
                         "watch_only_count": 1,
                         "blocked_count": 0,
+                        "trusted_plan_count": 1,
+                        "warning_plan_count": 3,
+                        "blocked_plan_count": 0,
                         "stale_or_unverified_count": 1,
+                        "artifact_consistent": True,
+                        "artifact_warning_count": 0,
+                    },
+                    "artifact_status": {
+                        "consistent": True,
+                        "missing": [],
+                        "stale_or_mismatched": [],
+                        "warnings": [],
                     },
                     "warnings": ["本期高难方案只聚合本地 accepted roster；不是抽卡建议。"],
                     "target_plans": [
@@ -516,6 +548,8 @@ class DemoDashboardTests(unittest.TestCase):
                             "target": "危局强袭战 稳定通关",
                             "target_priority": "high",
                             "plan_status": "ready_now",
+                            "source_plan_status": "ready_now",
+                            "plan_trust_level": "trusted",
                             "recommended_line": "可先尝试：星见雅 核心队。",
                             "team_candidates": [
                                 {
@@ -528,6 +562,7 @@ class DemoDashboardTests(unittest.TestCase):
                                         {
                                             "character": "星见雅",
                                             "source_class": "owned_snapshot",
+                                            "source_class_effective": "owned_snapshot",
                                             "tier": "S",
                                             "retention_score": 0.9,
                                             "tier_entry_status": "verified",
@@ -551,6 +586,8 @@ class DemoDashboardTests(unittest.TestCase):
                             "target": "待确认目标",
                             "target_priority": "high",
                             "plan_status": "needs_review",
+                            "source_plan_status": "needs_review",
+                            "plan_trust_level": "warning",
                             "recommended_line": "先复核 pending snapshot，确认后再作为可出战练度。",
                             "team_candidates": [
                                 {
@@ -561,6 +598,7 @@ class DemoDashboardTests(unittest.TestCase):
                                         {
                                             "character": "莱特",
                                             "source_class": "pending_snapshot",
+                                            "source_class_effective": "pending_snapshot",
                                             "tier": None,
                                             "retention_score": None,
                                             "tier_entry_status": "missing",
@@ -578,6 +616,8 @@ class DemoDashboardTests(unittest.TestCase):
                             "target": "补录目标",
                             "target_priority": "medium",
                             "plan_status": "needs_recording",
+                            "source_plan_status": "needs_recording",
+                            "plan_trust_level": "warning",
                             "recommended_line": "先补录官方分享图，避免只凭 catalog 拿来排队。",
                             "team_candidates": [],
                             "next_actions": [{"action_type": "record_missing_character", "title": "补录 珂蕾妲 的官方分享图"}],
@@ -588,6 +628,8 @@ class DemoDashboardTests(unittest.TestCase):
                             "target": "观察目标",
                             "target_priority": "low",
                             "plan_status": "watch_only",
+                            "source_plan_status": "watch_only",
+                            "plan_trust_level": "warning",
                             "recommended_line": "仅观察候选或确认拥有状态；这里不生成抽卡建议。",
                             "team_candidates": [],
                             "next_actions": [],
@@ -605,6 +647,7 @@ class DemoDashboardTests(unittest.TestCase):
                     {"name": "Tier Watchlist", "status": "done"},
                     {"name": "Team Cards", "status": "done"},
                     {"name": "Roster Delta", "status": "done"},
+                    {"name": "Run Manifest", "status": "done"},
                     {"name": "Endgame Plan", "status": "done"},
                 ],
                 "target_refresh": {
@@ -755,6 +798,11 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("delta 只基于 accepted roster", html)
             self.assertIn("更新角色", html)
             self.assertIn("Tier 命中", html)
+            self.assertIn("运行一致性", html)
+            self.assertIn("run_manifest.json", html)
+            self.assertIn("输入产物 hash", html)
+            self.assertIn("demo_test_run", html)
+            self.assertIn("方案 Trust", html)
             self.assertIn("本期高难方案", html)
             self.assertIn("endgame_plan.json", html)
             self.assertIn("不是抽卡建议", html)
@@ -766,6 +814,9 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("needs_review", html)
             self.assertIn("needs_recording", html)
             self.assertIn("watch_only", html)
+            self.assertIn("trusted", html)
+            self.assertIn("source_status", html)
+            self.assertIn("owned_snapshot-&gt;owned_snapshot", html)
             self.assertIn("review_pending_snapshot", html)
             self.assertIn("培养优先级候选", html)
             self.assertIn("source status", html)
@@ -896,9 +947,28 @@ class DemoDashboardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             roster_path = root / "roster_index.json"
+            targets_path = root / "targets.json"
             team_path = root / "team_cards.json"
+            actions_path = root / "action_cards.json"
+            tiers_path = root / "tier_watchlist.json"
+            delta_path = root / "roster_delta.json"
             roster_path.write_text(
                 json.dumps({"characters": [{"name": "星见雅"}]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            targets_path.write_text(
+                json.dumps(
+                    {
+                        "targets": [
+                            {
+                                "target": "危局强袭战 稳定通关",
+                                "priority": "high",
+                                "source": {"source_ref": "targets/crisis.html", "content_sha256": "a" * 64},
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
                 encoding="utf-8",
             )
             team_path.write_text(
@@ -911,6 +981,7 @@ class DemoDashboardTests(unittest.TestCase):
                                 "team_status": "playable_now",
                                 "target_priority": "high",
                                 "members": [{"character": "星见雅", "source_class": "owned_snapshot"}],
+                                "evidence": {"target_source": "targets/crisis.html", "target_hash": "aaaaaaaaaaaa"},
                             }
                         ]
                     },
@@ -918,19 +989,40 @@ class DemoDashboardTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            actions_path.write_text(json.dumps({"cards": []}, ensure_ascii=False), encoding="utf-8")
+            tiers_path.write_text(json.dumps({"entries": []}, ensure_ascii=False), encoding="utf-8")
+            delta_path.write_text(json.dumps({"character_changes": []}, ensure_ascii=False), encoding="utf-8")
+            manifest = pipeline_tool.build_demo_run_manifest(
+                output_dir=root / "demo",
+                roster_index=roster_path,
+                targets_path=targets_path,
+                team_cards_path=team_path,
+                action_cards_path=actions_path,
+                tier_watchlist_path=tiers_path,
+                roster_delta_path=delta_path,
+            )
+            self.assertIsNotNone(manifest)
+            assert manifest is not None
+            manifest_path = Path(str(manifest["output_json"]))
 
             result = pipeline_tool.build_demo_endgame_plan(
                 roster_index=roster_path,
                 output_dir=root / "demo",
                 team_cards_path=team_path,
+                targets_path=targets_path,
+                action_cards_path=actions_path,
+                tier_watchlist_path=tiers_path,
+                roster_delta_path=delta_path,
+                run_manifest_path=manifest_path,
             )
 
             self.assertIsNotNone(result)
             assert result is not None
-            self.assertEqual(result["schema_version"], "p1.9-lite-endgame-plan")
+            self.assertEqual(result["schema_version"], "p2.0-lite-endgame-plan")
             self.assertEqual(result["summary"]["ready_now_count"], 1)
+            self.assertEqual(result["summary"]["trusted_plan_count"], 1)
             self.assertTrue(Path(result["output_json"]).exists())
-            self.assertIn("缺少 targets JSON", " ".join(result["warnings"]))
+            self.assertEqual(result["target_plans"][0]["plan_trust_level"], "trusted")
 
     def test_run_demo_pipeline_manifest_uses_explicit_expected_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -14,7 +14,7 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_VERSION = "p1.9-lite-endgame-plan"
+SCHEMA_VERSION = "p2.0-lite-endgame-plan"
 
 READY_STATUSES = {"ready_now"}
 NEEDS_REVIEW_ACTIONS = {"review_pending_snapshot"}
@@ -105,6 +105,40 @@ def artifact_hashes(**paths: Path | None) -> dict[str, dict[str, Any]]:
         if evidence is not None:
             result[name] = evidence
     return result
+
+
+def fallback_artifact_status(run_manifest: dict[str, Any] | None) -> dict[str, Any]:
+    if isinstance(run_manifest, dict) and isinstance(run_manifest.get("artifact_status"), dict):
+        status = dict(run_manifest["artifact_status"])
+        status.setdefault("consistent", False)
+        status.setdefault("missing", [])
+        status.setdefault("stale_or_mismatched", [])
+        status.setdefault("warnings", [])
+        return status
+    return {
+        "consistent": False,
+        "missing": ["run_manifest"],
+        "stale_or_mismatched": [],
+        "warnings": ["缺少 run_manifest；无法确认 roster、targets、team/action cards 是否为同一批生成。"],
+    }
+
+
+def artifact_trust_warnings(artifact_status: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    if artifact_status.get("missing"):
+        warnings.append(f"运行产物缺失：{', '.join(str(item) for item in artifact_status.get('missing', []))}。")
+    if artifact_status.get("stale_or_mismatched"):
+        warnings.append(
+            "运行产物可能不是同一批生成："
+            + ", ".join(str(item) for item in artifact_status.get("stale_or_mismatched", []))
+            + "。"
+        )
+    for warning in artifact_status.get("warnings", []):
+        if warning:
+            warnings.append(str(warning))
+    if artifact_status.get("consistent") is False and not warnings:
+        warnings.append("运行产物一致性未通过。")
+    return list(dict.fromkeys(warnings))
 
 
 def roster_map(roster_index: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -249,9 +283,11 @@ def member_plan(
     character = str(member.get("character") or "unknown_character")
     source_class = str(member.get("source_class") or "unknown")
     normalized = normalize_name(character)
+    source_class_effective = source_class
     tier = member_tier_observation(character, tier_signals)
     warnings: list[str] = []
     if source_class == "owned_snapshot" and normalized not in roster:
+        source_class_effective = "missing_from_current_roster"
         warnings.append(f"{character} 标记为 owned_snapshot，但当前 roster_index 中未命中；请确认产物是否同批生成。")
     if source_class == "pending_snapshot":
         warnings.append(f"{character} 仍是 pending snapshot，不能当作 ready_now 战力。")
@@ -265,6 +301,7 @@ def member_plan(
         {
             "character": character,
             "source_class": source_class,
+            "source_class_effective": source_class_effective,
             "tier": tier["tier"],
             "retention_score": tier["retention_score"],
             "tier_entry_status": tier["tier_entry_status"],
@@ -277,6 +314,8 @@ def member_plan(
 def status_from_source_classes(source_classes: set[str], team_status: str) -> str:
     if not source_classes:
         return "blocked"
+    if "missing_from_current_roster" in source_classes:
+        return "needs_review"
     if "pending_snapshot" in source_classes:
         return "needs_review"
     if "catalog_owned_missing_snapshot" in source_classes:
@@ -293,7 +332,7 @@ def status_from_source_classes(source_classes: set[str], team_status: str) -> st
 def high_value_verified_count(members: list[dict[str, Any]], tier_signals: dict[str, dict[str, Any]]) -> int:
     count = 0
     for member in members:
-        if member.get("source_class") != "owned_snapshot":
+        if member.get("source_class_effective", member.get("source_class")) != "owned_snapshot":
             continue
         signal = tier_signals.get(normalize_name(member.get("character")))
         if not signal or (signal.get("entry_status") or "verified") != "verified":
@@ -325,7 +364,7 @@ def team_candidate(
         )
         members.append(planned_member)
         warnings.extend(member_warnings)
-    source_classes = {str(member.get("source_class") or "") for member in members}
+    source_classes = {str(member.get("source_class_effective") or member.get("source_class") or "") for member in members}
     plan_status = status_from_source_classes(source_classes, str(card.get("team_status") or ""))
     verified_high_value = high_value_verified_count(members, tier_signals)
     weak_tier_count = sum(1 for member in members if member.get("tier_entry_status") in WEAK_TIER_STATUSES)
@@ -396,6 +435,32 @@ def recommended_line(plan_status: str, candidates: list[dict[str, Any]]) -> str:
     return "当前证据不足，先补齐本地确认数据。"
 
 
+def trust_level_for_plan(
+    *,
+    source_plan_status: str,
+    trust_warnings: list[str],
+    candidates: list[dict[str, Any]],
+) -> str:
+    has_missing_roster = any(
+        member.get("source_class_effective") == "missing_from_current_roster"
+        for team in candidates
+        if isinstance(team, dict)
+        for member in team.get("members", [])
+        if isinstance(member, dict)
+    )
+    if source_plan_status == "blocked" or has_missing_roster:
+        return "blocked"
+    if source_plan_status == "ready_now" and not trust_warnings:
+        return "trusted"
+    return "warning"
+
+
+def apply_trust_gate(source_plan_status: str, plan_trust_level: str) -> str:
+    if source_plan_status == "ready_now" and plan_trust_level != "trusted":
+        return "needs_review"
+    return source_plan_status
+
+
 def next_actions_for_target(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for item in actions[:8]:
@@ -424,13 +489,14 @@ def target_plan(
     tier_signals: dict[str, dict[str, Any]],
     delta_changes: dict[str, str],
     input_artifact_hashes: dict[str, dict[str, Any]],
+    artifact_status: dict[str, Any],
 ) -> dict[str, Any]:
     candidates = [
         team_candidate(card, roster=roster, tier_signals=tier_signals, delta_changes=delta_changes)
         for card in teams
     ]
     candidates.sort(key=team_sort_key)
-    plan_status = plan_status_from_candidates(candidates, actions)
+    source_plan_status = plan_status_from_candidates(candidates, actions)
     evidence = target_evidence(target)
     if (not evidence.get("target_source") or not evidence.get("target_hash")) and teams:
         team_evidence = teams[0].get("evidence") if isinstance(teams[0].get("evidence"), dict) else {}
@@ -439,14 +505,29 @@ def target_plan(
     warnings = []
     if not teams:
         warnings.append("该目标没有 team_cards 候选；只能根据 action_cards 降级展示。")
+    for candidate in candidates:
+        if isinstance(candidate.get("warnings"), list):
+            warnings.extend(str(item) for item in candidate["warnings"] if item)
+    if not evidence.get("target_source") or not evidence.get("target_hash"):
+        warnings.append("目标缺少 target_source 或 target_hash；不能作为完全可信的本期高难结论。")
     if any(candidate.get("weak_tier_count") for candidate in candidates):
         warnings.append("存在 stale/unverified/low_trust tier 证据，只展示不提升排序。")
+    artifact_warnings = artifact_trust_warnings(artifact_status)
+    warnings.extend(artifact_warnings)
+    plan_trust_level = trust_level_for_plan(
+        source_plan_status=source_plan_status,
+        trust_warnings=warnings,
+        candidates=candidates,
+    )
+    plan_status = apply_trust_gate(source_plan_status, plan_trust_level)
     if plan_status == "watch_only":
         warnings.append("watch_only 不是抽卡建议；catalog candidate 不能当作已拥有战力。")
     return {
         "target": target_name(target),
         "target_priority": target_priority(target.get("priority") or target.get("target_priority")),
         "plan_status": plan_status,
+        "source_plan_status": source_plan_status,
+        "plan_trust_level": plan_trust_level,
         "recommended_line": recommended_line(plan_status, candidates),
         "team_candidates": candidates,
         "next_actions": next_actions_for_target(actions),
@@ -489,6 +570,8 @@ def render_markdown(plan: dict[str, Any]) -> str:
             [
                 f"### {item.get('target')}",
                 f"- plan_status: {item.get('plan_status')}",
+                f"- source_plan_status: {item.get('source_plan_status')}",
+                f"- plan_trust_level: {item.get('plan_trust_level')}",
                 f"- target_priority: {item.get('target_priority')}",
                 f"- recommended_line: {item.get('recommended_line')}",
             ]
@@ -506,6 +589,7 @@ def render_markdown(plan: dict[str, Any]) -> str:
                     lines.append(
                         "    - "
                         f"{member.get('character')} [{member.get('source_class')}] "
+                        f"effective={member.get('source_class_effective') or member.get('source_class')} "
                         f"tier={member.get('tier') or 'N/A'} "
                         f"status={member.get('tier_entry_status')} "
                         f"delta={member.get('delta_change_type')}"
@@ -534,6 +618,7 @@ def build_endgame_plan(
     action_cards: Path | None = None,
     tier_watchlist: Path | None = None,
     roster_delta: Path | None = None,
+    run_manifest: Path | None = None,
 ) -> dict[str, Any]:
     roster_index_data = load_json(roster_index)
     team_cards_data = load_json(team_cards)
@@ -541,6 +626,8 @@ def build_endgame_plan(
     action_cards_data = load_json(action_cards) if action_cards and action_cards.exists() else None
     tier_watchlist_data = load_json(tier_watchlist) if tier_watchlist and tier_watchlist.exists() else None
     roster_delta_data = load_json(roster_delta) if roster_delta and roster_delta.exists() else None
+    run_manifest_data = load_json(run_manifest) if run_manifest and run_manifest.exists() else None
+    artifact_status = fallback_artifact_status(run_manifest_data)
     roster = roster_map(roster_index_data)
     tier_signals = tier_signal_map(tier_watchlist_data)
     delta_changes = delta_change_map(roster_delta_data)
@@ -553,6 +640,7 @@ def build_endgame_plan(
         action_cards=action_cards,
         tier_watchlist=tier_watchlist,
         roster_delta=roster_delta,
+        run_manifest=run_manifest,
     )
 
     plans = [
@@ -564,6 +652,7 @@ def build_endgame_plan(
             tier_signals=tier_signals,
             delta_changes=delta_changes,
             input_artifact_hashes=input_hashes,
+            artifact_status=artifact_status,
         )
         for target in target_items(targets_data, team_cards_data)
     ]
@@ -586,7 +675,12 @@ def build_endgame_plan(
         "needs_recording_count": sum(1 for item in plans if item.get("plan_status") == "needs_recording"),
         "watch_only_count": sum(1 for item in plans if item.get("plan_status") == "watch_only"),
         "blocked_count": sum(1 for item in plans if item.get("plan_status") == "blocked"),
+        "trusted_plan_count": sum(1 for item in plans if item.get("plan_trust_level") == "trusted"),
+        "warning_plan_count": sum(1 for item in plans if item.get("plan_trust_level") == "warning"),
+        "blocked_plan_count": sum(1 for item in plans if item.get("plan_trust_level") == "blocked"),
         "stale_or_unverified_count": stale_or_unverified_count,
+        "artifact_consistent": bool(artifact_status.get("consistent")) and not artifact_status.get("missing"),
+        "artifact_warning_count": len(artifact_trust_warnings(artifact_status)),
     }
     warnings = [
         "本期高难方案只聚合本地 accepted roster / team cards / action cards / tier watchlist / roster delta；不是抽卡建议。",
@@ -600,6 +694,9 @@ def build_endgame_plan(
         warnings.append("缺少 tier_watchlist；tier / 保值观察为空。")
     if roster_delta_data is None:
         warnings.append("缺少 roster_delta；delta_change_type 将为 missing。")
+    if run_manifest_data is None:
+        warnings.append("缺少 run_manifest；高难方案会降级为 warning/needs_review。")
+    warnings.extend(artifact_trust_warnings(artifact_status))
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": now_iso(),
@@ -610,7 +707,14 @@ def build_endgame_plan(
             "action_cards": str(action_cards) if action_cards else None,
             "tier_watchlist": str(tier_watchlist) if tier_watchlist else None,
             "roster_delta": str(roster_delta) if roster_delta else None,
+            "run_manifest": str(run_manifest) if run_manifest else None,
         },
+        "artifact_status": artifact_status,
+        "plan_trust_level": "blocked"
+        if summary["blocked_plan_count"]
+        else "warning"
+        if summary["warning_plan_count"] or summary["artifact_warning_count"]
+        else "trusted",
         "summary": summary,
         "target_plans": plans,
         "warnings": warnings,
@@ -633,6 +737,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--action-cards", default=None, help="Optional action_cards.json.")
     parser.add_argument("--tier-watchlist", default=None, help="Optional tier_watchlist.json.")
     parser.add_argument("--roster-delta", default=None, help="Optional roster_delta.json.")
+    parser.add_argument("--run-manifest", default=None, help="Optional run_manifest.json.")
     parser.add_argument("--output-dir", required=True, help="Output directory for endgame_plan.json/md.")
     return parser
 
@@ -647,6 +752,7 @@ def main() -> int:
             action_cards=resolve_path(args.action_cards) if args.action_cards else None,
             tier_watchlist=resolve_path(args.tier_watchlist) if args.tier_watchlist else None,
             roster_delta=resolve_path(args.roster_delta) if args.roster_delta else None,
+            run_manifest=resolve_path(args.run_manifest) if args.run_manifest else None,
             output_dir=resolve_path(args.output_dir),
         )
     except EndgamePlanError as exc:
@@ -658,6 +764,9 @@ def main() -> int:
     print(f"needs_review_count: {summary['needs_review_count']}")
     print(f"needs_recording_count: {summary['needs_recording_count']}")
     print(f"watch_only_count: {summary['watch_only_count']}")
+    print(f"trusted_plan_count: {summary['trusted_plan_count']}")
+    print(f"warning_plan_count: {summary['warning_plan_count']}")
+    print(f"blocked_plan_count: {summary['blocked_plan_count']}")
     print(f"output_json: {result['output_json']}")
     print(f"output_md: {result['output_md']}")
     return 0

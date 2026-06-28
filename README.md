@@ -30,7 +30,7 @@ python tools/probes/run_demo_pipeline.py `
 
 人工确认后可生成本次 box 变化影响报告。`apply_review_decisions.py` 会在重建当前 `roster_index.json` 前，把旧 index 备份到 `data/probes/roster/history/`；demo pipeline 检测到 previous/current roster index 时，会生成 `roster_delta.json/md` 并在 Dashboard 展示“本次练度更新影响”。该 delta 只比较 accepted roster 当前保留版本，不包含 pending snapshot、rejected snapshot 或 catalog candidate。
 
-如果已有 accepted roster 和 team cards，demo pipeline 还会生成 `endgame_plan.json/md`，并在 Dashboard 展示“本期高难方案”。该方案只聚合本地 `roster_index`、终局 targets、action/team cards、本地 tier / 保值观察和 roster delta，用来区分“可直接尝试 / 先复核 / 需补录 / 仅观察”。它不是抽卡建议，不输出“必抽 / 建议抽 / 跳过”，也不保证自动通关；`pending_snapshot`、`catalog_candidate` 和 stale/unverified tier 都不能提升为 `ready_now`。
+如果已有 accepted roster 和 team cards，demo pipeline 还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`，并在 Dashboard 展示“运行一致性”和“本期高难方案”。`run_manifest.json` 会记录 roster、targets、action/team cards、tier watchlist、roster delta 的路径与 sha256，用来判断是否为同一批生成。高难方案只聚合本地 `roster_index`、终局 targets、action/team cards、本地 tier / 保值观察和 roster delta，用来区分“可直接尝试 / 先复核 / 需补录 / 仅观察”。它不是抽卡建议，不输出“必抽 / 建议抽 / 跳过”，也不保证自动通关；`pending_snapshot`、`catalog_candidate`、stale/unverified tier、错批产物或缺少 target evidence 都不能提升为可信 `ready_now`。
 
 ## Tier Snapshot 草案
 

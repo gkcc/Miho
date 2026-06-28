@@ -66,9 +66,9 @@ def rel_label(value: Any) -> str:
 
 def status_class(value: Any) -> str:
     text = str(value or "").lower()
-    if text in {"pass", "done", "ok", "true", "generated", "ready_for_review"}:
+    if text in {"pass", "done", "ok", "true", "generated", "ready_for_review", "trusted", "consistent"}:
         return "ok"
-    if text in {"needs_review", "needs-review", "requires_review", "missing_expected", "uncertain", "skipped", "n/a"}:
+    if text in {"needs_review", "needs-review", "requires_review", "missing_expected", "uncertain", "skipped", "n/a", "warning"}:
         return "warn"
     if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure"}:
         return "bad"
@@ -691,6 +691,55 @@ def render_roster_delta(summary: dict[str, Any]) -> str:
     """
 
 
+def render_run_manifest(summary: dict[str, Any]) -> str:
+    manifest = summary.get("run_manifest")
+    if not isinstance(manifest, dict):
+        return ""
+    status = manifest.get("artifact_status") if isinstance(manifest.get("artifact_status"), dict) else {}
+    inputs = manifest.get("inputs") if isinstance(manifest.get("inputs"), dict) else {}
+    warnings = status.get("warnings") if isinstance(status.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Manifest Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    input_rows = []
+    for name, item in inputs.items():
+        if not isinstance(item, dict):
+            input_rows.append(f"<li>{e(name)}: missing</li>")
+            continue
+        state = "ok" if item.get("exists") else "missing"
+        digest = str(item.get("sha256") or "")
+        input_rows.append(
+            f"<li>{e(name)}: {e(rel_label(item.get('path')) or 'N/A')} · {e(digest[:12] or state)}</li>"
+        )
+    input_block = "<ul>" + "".join(input_rows) + "</ul>" if input_rows else "<p class=\"muted-line\">没有记录输入产物。</p>"
+    stale = status.get("stale_or_mismatched") if isinstance(status.get("stale_or_mismatched"), list) else []
+    missing = status.get("missing") if isinstance(status.get("missing"), list) else []
+    error = manifest.get("error")
+    error_block = ""
+    if error:
+        error_block = f'<div class="errors"><strong>Run manifest failed</strong><ul><li>{e(error)}</li></ul></div>'
+    return f"""
+    <section class="panel">
+      <h2>运行一致性</h2>
+      <p class="muted-line">用于确认 roster、targets、action/team cards、tier watchlist 和 roster delta 是否为同一批生成。当前包含历史 parsed 结果时，平均通过率不代表 P0.9 replay batch。</p>
+      <div class="links">{link("run_manifest.json", manifest.get("output_json"))}</div>
+      <div class="input-grid">
+        <div><span>run_id</span><strong>{e(manifest.get("run_id") or "N/A")}</strong></div>
+        <div><span>created_at</span><strong>{e(manifest.get("created_at") or "N/A")}</strong></div>
+        <div><span>consistent</span><strong>{e(status.get("consistent"))}</strong></div>
+        <div><span>missing</span><strong>{e(len(missing))}</strong></div>
+        <div><span>stale/mismatched</span><strong>{e(len(stale))}</strong></div>
+        <div><span>warnings</span><strong>{e(len(warnings))}</strong></div>
+      </div>
+      <div class="resource-plan">
+        <h3>输入产物 hash</h3>
+        {input_block}
+      </div>
+      {warning_block}
+      {error_block}
+    </section>
+    """
+
+
 def render_endgame_plan(summary: dict[str, Any]) -> str:
     plan = summary.get("endgame_plan")
     if not isinstance(plan, dict):
@@ -717,9 +766,10 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
                     continue
                 tier = member.get("tier") or "tier?"
                 source_class = member.get("source_class") or "unknown"
+                source_effective = member.get("source_class_effective") or source_class
                 delta = member.get("delta_change_type") or "missing"
                 member_bits.append(
-                    f"{member.get('character')} [{source_class}] · {tier}/{member.get('tier_entry_status') or 'missing'} · delta {delta}"
+                    f"{member.get('character')} [{source_class}->{source_effective}] · {tier}/{member.get('tier_entry_status') or 'missing'} · delta {delta}"
                 )
             actions = item.get("next_actions") if isinstance(item.get("next_actions"), list) else []
             action_bits = "；".join(
@@ -744,6 +794,7 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
                 f"<span>成员：{e(' / '.join(member_bits) or '无')}</span>"
                 f"<span>下一步：{e(action_bits or 'none')}</span>"
                 f"<span>evidence: {e(evidence.get('target_source') or 'N/A')} · {e(evidence.get('target_hash') or 'hash?')} · {e(' / '.join(hash_bits) or 'artifact hash missing')}</span>"
+                f"<span>trust: {e(item.get('plan_trust_level') or 'N/A')} · source_status {e(item.get('source_plan_status') or item.get('plan_status'))}</span>"
                 f"<span>warning: {e(warnings_text or 'none')}</span>"
                 "</div>"
                 f"<strong>{e(item.get('target_priority'))}<br>{e(first_team.get('team_status') or item.get('plan_status'))}</strong>"
@@ -765,6 +816,11 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
         <div><span>needs recording</span><strong>{e(plan_summary.get("needs_recording_count", "N/A"))}</strong></div>
         <div><span>watch only</span><strong>{e(plan_summary.get("watch_only_count", "N/A"))}</strong></div>
         <div><span>stale/unverified</span><strong>{e(plan_summary.get("stale_or_unverified_count", "N/A"))}</strong></div>
+        <div><span>trust</span><strong>{e(plan.get("plan_trust_level", "N/A"))}</strong></div>
+        <div><span>trusted plans</span><strong>{e(plan_summary.get("trusted_plan_count", "N/A"))}</strong></div>
+        <div><span>warning plans</span><strong>{e(plan_summary.get("warning_plan_count", "N/A"))}</strong></div>
+        <div><span>blocked plans</span><strong>{e(plan_summary.get("blocked_plan_count", "N/A"))}</strong></div>
+        <div><span>artifact consistent</span><strong>{e(plan_summary.get("artifact_consistent", "N/A"))}</strong></div>
       </div>
       {warning_block}
       {body}
@@ -934,6 +990,8 @@ def render_html(summary: dict[str, Any]) -> str:
     tier_summary = tier_info.get("summary", {}) if isinstance(tier_info.get("summary"), dict) else {}
     delta_info = summary.get("roster_delta", {}) if isinstance(summary.get("roster_delta"), dict) else {}
     delta_summary = delta_info.get("summary", {}) if isinstance(delta_info.get("summary"), dict) else {}
+    run_info = summary.get("run_manifest", {}) if isinstance(summary.get("run_manifest"), dict) else {}
+    run_status = run_info.get("artifact_status", {}) if isinstance(run_info.get("artifact_status"), dict) else {}
     endgame_info = summary.get("endgame_plan", {}) if isinstance(summary.get("endgame_plan"), dict) else {}
     endgame_summary = endgame_info.get("summary", {}) if isinstance(endgame_info.get("summary"), dict) else {}
     metrics = [
@@ -970,6 +1028,9 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("本次新增", delta_summary.get("new_character_count", "N/A") if delta_summary else "N/A", "ok" if delta_summary.get("new_character_count") else "muted"),
         metric_card("本次更新", delta_summary.get("updated_character_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("updated_character_count") else "muted"),
         metric_card("更新影响队伍", delta_summary.get("team_impact_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("team_impact_count") else "muted"),
+        metric_card("运行一致性", run_status.get("consistent", "N/A") if run_status else "N/A", "ok" if run_status.get("consistent") else "warn" if run_info else "muted"),
+        metric_card("错批产物", len(run_status.get("stale_or_mismatched", [])) if run_status else "N/A", "bad" if run_status.get("stale_or_mismatched") else "ok" if run_info else "muted"),
+        metric_card("方案 Trust", endgame_info.get("plan_trust_level", "N/A") if endgame_info else "N/A", status_class(endgame_info.get("plan_trust_level")) if endgame_info else "muted"),
         metric_card("高难方案目标", endgame_summary.get("target_count", "N/A") if endgame_summary else "N/A", "ok" if endgame_summary.get("target_count") else "muted"),
         metric_card("可直接尝试", endgame_summary.get("ready_now_count", "N/A") if endgame_summary else "N/A", "ok" if endgame_summary.get("ready_now_count") else "muted"),
         metric_card("先复核", endgame_summary.get("needs_review_count", "N/A") if endgame_summary else "N/A", "warn" if endgame_summary.get("needs_review_count") else "muted"),
@@ -987,6 +1048,7 @@ def render_html(summary: dict[str, Any]) -> str:
     snapshot_history = render_snapshot_history(summary)
     target_refresh = render_target_refresh(summary)
     review_inbox = render_review_inbox(summary)
+    run_manifest = render_run_manifest(summary)
     endgame_plan = render_endgame_plan(summary)
     roster_delta = render_roster_delta(summary)
     tier_watchlist = render_tier_watchlist(summary)
@@ -1104,6 +1166,7 @@ def render_html(summary: dict[str, Any]) -> str:
     {target_refresh}
     {snapshot_history}
     {review_inbox}
+    {run_manifest}
     {endgame_plan}
     {roster_delta}
     {tier_watchlist}
