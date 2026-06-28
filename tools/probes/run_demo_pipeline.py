@@ -737,7 +737,13 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
     return summary
 
 
-def build_training_plan(cases: list[dict[str, Any]], targets_path: Path | None, output_dir: Path) -> dict[str, Any] | None:
+def build_training_plan(
+    cases: list[dict[str, Any]],
+    targets_path: Path | None,
+    output_dir: Path,
+    *,
+    snapshot_history: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     if targets_path is None:
         return None
     normalized_paths = [Path(str(case["normalized_json"])) for case in cases if case.get("normalized_json")]
@@ -755,7 +761,7 @@ def build_training_plan(cases: list[dict[str, Any]], targets_path: Path | None, 
         plan_info["error"] = "No normalized snapshots available for planner."
         return plan_info
     try:
-        report = planner.generate_report(normalized_paths, targets_path, output_dir / "planner")
+        report = planner.generate_report(normalized_paths, targets_path, output_dir / "planner", history_context=snapshot_history)
     except planner.PlannerError as exc:
         plan_info["error"] = str(exc)
         return plan_info
@@ -766,6 +772,7 @@ def build_training_plan(cases: list[dict[str, Any]], targets_path: Path | None, 
             "plan_item_count": len(report.get("plan_items", [])) if isinstance(report.get("plan_items"), list) else 0,
             "top_plan_items": report.get("plan_items", [])[:5] if isinstance(report.get("plan_items"), list) else [],
             "warnings": report.get("warnings", []) if isinstance(report.get("warnings"), list) else [],
+            "history_context": report.get("history_context", {}) if isinstance(report.get("history_context"), dict) else {},
         }
     )
     return plan_info
@@ -921,7 +928,7 @@ def run_pipeline(
         if target_refresh.get("error"):
             summary.setdefault("warnings", []).append(f"Target refresh failed: {target_refresh['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
-    training_plan = build_training_plan(cases, active_targets, output_dir)
+    training_plan = build_training_plan(cases, active_targets, output_dir, snapshot_history=snapshot_history)
     if training_plan is not None:
         summary["training_plan"] = training_plan
         if training_plan.get("warnings"):

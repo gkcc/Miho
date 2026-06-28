@@ -166,13 +166,45 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertEqual(report["characters"][0]["character"], "星见雅")
             self.assertEqual(report["characters"][1]["character"], "苍角")
 
+    def test_generate_report_uses_history_context_for_continuity_bonus(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_path = root / "snapshot.json"
+            targets_path = root / "targets.json"
+            output_dir = root / "planner"
+            snapshot_path.write_text(json.dumps(normalized_snapshot(), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets_json(), ensure_ascii=False), encoding="utf-8")
+            history_context = {
+                "items": [
+                    {
+                        "character": "星见雅",
+                        "status": "diffed",
+                        "current_snapshot": str(snapshot_path),
+                        "previous_snapshot": str(root / "previous.json"),
+                        "diff_md": str(root / "diff.md"),
+                        "change_count": 4,
+                        "requires_review_change_count": 1,
+                    }
+                ]
+            }
+
+            report = planner_tool.generate_report([snapshot_path], targets_path, output_dir, history_context=history_context)
+
+            self.assertTrue(report["history_context"]["available"])
+            self.assertEqual(report["history_context"]["character_count"], 1)
+            self.assertEqual(report["characters"][0]["history"]["recent_change_count"], 4)
+            boosted_items = [item for item in report["plan_items"] if item["continuity_bonus"] > 0]
+            self.assertTrue(boosted_items)
+            self.assertTrue(any("历史快照显示近期已有 4 项变化" in item["reason"] for item in boosted_items))
+
     def test_cli_plan_command_is_registered(self) -> None:
         parser = cli_tool.build_arg_parser()
-        args = parser.parse_args(["plan", "--snapshot", "a.json", "--targets", "targets.json"])
+        args = parser.parse_args(["plan", "--snapshot", "a.json", "--targets", "targets.json", "--history-index", "history/index.json"])
 
         self.assertEqual(args.handler, cli_tool.run_plan)
         self.assertEqual(args.snapshot, ["a.json"])
         self.assertEqual(args.targets, "targets.json")
+        self.assertEqual(args.history_index, "history/index.json")
 
 
 if __name__ == "__main__":

@@ -107,6 +107,87 @@ def load_targets(path: Path) -> dict[str, Any]:
     return data
 
 
+def load_history_index(path: Path) -> dict[str, Any]:
+    data = load_json(path)
+    if not isinstance(data.get("characters"), dict):
+        raise PlannerError("History index JSON must contain a characters object")
+    return data
+
+
+def history_items_by_character(history_context: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not isinstance(history_context, dict):
+        return {}
+    items = history_context.get("items")
+    if not isinstance(items, list):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        character = str(item.get("character") or "")
+        if character:
+            result[character] = item
+    return result
+
+
+def history_index_by_character(history_index: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not isinstance(history_index, dict):
+        return {}
+    characters = history_index.get("characters")
+    if not isinstance(characters, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for entry in characters.values():
+        if not isinstance(entry, dict):
+            continue
+        character = str(entry.get("character") or "")
+        if character:
+            result[character] = entry
+    return result
+
+
+def history_for_character(
+    name: str,
+    *,
+    history_context: dict[str, Any] | None = None,
+    history_index: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    context_item = history_items_by_character(history_context).get(name)
+    index_item = history_index_by_character(history_index).get(name)
+    if context_item:
+        return {
+            "tracked": True,
+            "status": context_item.get("status") or "tracked",
+            "recent_change_count": int(context_item.get("change_count") or 0),
+            "recent_requires_review_change_count": int(context_item.get("requires_review_change_count") or 0),
+            "current_snapshot": context_item.get("current_snapshot"),
+            "previous_snapshot": context_item.get("previous_snapshot"),
+            "diff_md": context_item.get("diff_md"),
+            "last_seen_at": index_item.get("last_seen_at") if index_item else None,
+        }
+    if index_item:
+        return {
+            "tracked": True,
+            "status": "indexed",
+            "recent_change_count": 0,
+            "recent_requires_review_change_count": 0,
+            "current_snapshot": index_item.get("latest_snapshot"),
+            "previous_snapshot": None,
+            "diff_md": None,
+            "last_seen_at": index_item.get("last_seen_at"),
+        }
+    return {
+        "tracked": False,
+        "status": "not_tracked",
+        "recent_change_count": 0,
+        "recent_requires_review_change_count": 0,
+        "current_snapshot": None,
+        "previous_snapshot": None,
+        "diff_md": None,
+        "last_seen_at": None,
+    }
+
+
 def match_targets(snapshot: dict[str, Any], targets: dict[str, Any]) -> list[dict[str, Any]]:
     name = character_name(snapshot)
     matched = []
@@ -235,7 +316,13 @@ def stat_gaps(snapshot: dict[str, Any], minimums: dict[str, Any]) -> list[dict[s
     return gaps
 
 
-def character_gaps(snapshot: dict[str, Any], targets: dict[str, Any]) -> dict[str, Any]:
+def character_gaps(
+    snapshot: dict[str, Any],
+    targets: dict[str, Any],
+    *,
+    history_context: dict[str, Any] | None = None,
+    history_index: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     matched_targets = match_targets(snapshot, targets)
     defaults = targets.get("default_minimums", {}) if isinstance(targets.get("default_minimums"), dict) else {}
     minimums = minimums_for_targets(matched_targets, defaults)
@@ -246,6 +333,8 @@ def character_gaps(snapshot: dict[str, Any], targets: dict[str, Any]) -> dict[st
     quality = snapshot.get("quality", {}) if isinstance(snapshot.get("quality"), dict) else {}
     blocker_count = len(quality.get("blockers", [])) if isinstance(quality.get("blockers"), list) else 0
     priority = target_priority(matched_targets)
+    name = character_name(snapshot)
+    history = history_for_character(name, history_context=history_context, history_index=history_index)
 
     if blocker_count:
         add_gap(
@@ -338,10 +427,11 @@ def character_gaps(snapshot: dict[str, Any], targets: dict[str, Any]) -> dict[st
         )
 
     return {
-        "character": character_name(snapshot),
+        "character": name,
         "matched_targets": target_names(matched_targets),
         "target_priority": priority,
         "quality_blockers": quality.get("blockers", []) if isinstance(quality.get("blockers"), list) else [],
+        "history": history,
         "gaps": sorted(gaps, key=lambda item: (-int(item["severity"]), str(item["gap_type"]))),
     }
 
@@ -352,10 +442,21 @@ def plan_items(character_reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
         character = report["character"]
         matched_targets = report.get("matched_targets", [])
         target_label = "、".join(matched_targets) if matched_targets else "长期通用练度"
+        history = report.get("history", {}) if isinstance(report.get("history"), dict) else {}
+        recent_change_count = int(history.get("recent_change_count") or 0)
+        continuity_bonus = min(3, recent_change_count)
         for gap in report.get("gaps", []):
             score = int(gap["severity"]) * 10 + int(report.get("target_priority", 1))
             if gap["gap_type"] == "data_review":
                 score += 8
+                item_bonus = 0
+                reason = gap["reason"]
+            else:
+                item_bonus = continuity_bonus
+                score += item_bonus
+                reason = gap["reason"]
+                if item_bonus:
+                    reason = f"{reason} 历史快照显示近期已有 {recent_change_count} 项变化，适合延续投入。"
             items.append(
                 {
                     "priority_score": score,
@@ -363,9 +464,12 @@ def plan_items(character_reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "target": target_label,
                     "gap_type": gap["gap_type"],
                     "action": gap["action"],
-                    "reason": gap["reason"],
+                    "reason": reason,
                     "estimated_days": gap["estimated_days"],
                     "confidence": gap["confidence"],
+                    "continuity_bonus": item_bonus,
+                    "recent_change_count": recent_change_count,
+                    "recent_diff_md": history.get("diff_md"),
                 }
             )
     items.sort(key=lambda item: (-int(item["priority_score"]), str(item["character"]), str(item["gap_type"])))
@@ -421,18 +525,38 @@ def render_markdown(report: dict[str, Any]) -> str:
         blockers = character.get("quality_blockers", [])
         if blockers:
             lines.append(f"- quality_blockers: {'; '.join(blockers)}")
+        history = character.get("history", {}) if isinstance(character.get("history"), dict) else {}
+        if history.get("tracked"):
+            lines.append(
+                "- history: status={status}, recent_change_count={changes}, recent_requires_review_change_count={review}".format(
+                    status=history.get("status"),
+                    changes=history.get("recent_change_count", 0),
+                    review=history.get("recent_requires_review_change_count", 0),
+                )
+            )
         for gap in character.get("gaps", []):
             lines.append(f"- [{gap['gap_type']}] {gap['action']}：{gap['reason']}")
         lines.append("")
     return "\n".join(lines)
 
 
-def generate_report(snapshot_paths: list[Path], targets_path: Path, output_dir: Path) -> dict[str, Any]:
+def generate_report(
+    snapshot_paths: list[Path],
+    targets_path: Path,
+    output_dir: Path,
+    *,
+    history_context: dict[str, Any] | None = None,
+    history_index: Path | None = None,
+) -> dict[str, Any]:
     if not snapshot_paths:
         raise PlannerError("At least one normalized snapshot is required")
     snapshots = [load_json(path) for path in snapshot_paths]
     targets = load_targets(targets_path)
-    characters = [character_gaps(snapshot, targets) for snapshot in snapshots]
+    loaded_history_index = load_history_index(history_index) if history_index else None
+    characters = [
+        character_gaps(snapshot, targets, history_context=history_context, history_index=loaded_history_index)
+        for snapshot in snapshots
+    ]
     report = {
         "schema_version": "p1.2-planner-draft",
         "created_at": now_iso(),
@@ -440,6 +564,7 @@ def generate_report(snapshot_paths: list[Path], targets_path: Path, output_dir: 
         "input": {
             "snapshots": [str(path) for path in snapshot_paths],
             "targets": str(targets_path),
+            "history_index": str(history_index) if history_index else None,
         },
         "target_source": targets.get("source", {}),
         "snapshots": [
@@ -453,6 +578,10 @@ def generate_report(snapshot_paths: list[Path], targets_path: Path, output_dir: 
         ],
         "characters": characters,
         "plan_items": plan_items(characters),
+        "history_context": {
+            "available": bool(history_context or loaded_history_index),
+            "character_count": sum(1 for item in characters if item.get("history", {}).get("tracked")),
+        },
         "warnings": build_warnings(targets, snapshots),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -471,6 +600,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--snapshot", action="append", default=[], help="Normalized snapshot JSON. Can be repeated.")
     parser.add_argument("--snapshot-manifest", default=None, help="JSON manifest containing a snapshots list.")
     parser.add_argument("--targets", required=True, help="Local endgame target configuration JSON.")
+    parser.add_argument("--history-index", default=None, help="Optional snapshot_history/index.json for long-term continuity context.")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Output directory. Default: data/probes/planner.")
     return parser
 
@@ -481,7 +611,12 @@ def main() -> int:
         snapshot_paths = [resolve_path(value) for value in args.snapshot]
         if args.snapshot_manifest:
             snapshot_paths.extend(load_manifest_snapshots(resolve_path(args.snapshot_manifest)))
-        report = generate_report(snapshot_paths, resolve_path(args.targets), resolve_path(args.output_dir))
+        report = generate_report(
+            snapshot_paths,
+            resolve_path(args.targets),
+            resolve_path(args.output_dir),
+            history_index=resolve_path(args.history_index) if args.history_index else None,
+        )
     except PlannerError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

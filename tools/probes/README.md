@@ -345,6 +345,7 @@ data/probes/demo/snapshot_history/index.json
 * image mode 会维护本地 `update_state.json`，记录分享图 sha256 和上次处理结果。
 * 如果提供 `--new-only`，只处理新增或内容变更的分享图，未变化图片会跳过。
 * demo 会维护本地 `snapshot_history/index.json`，保存每个角色最近一次 normalized snapshot，并在下次同角色出现时生成相邻快照 diff。
+* planner 会读取本轮 `snapshot_history` 上下文，给近期已有变化的角色一个小的连续投入提示，避免只看静态缺口。
 * `snapshot_history` 仍是 probe 输出，不是正式数据库；它只用于观察“这次相对上次练度变化了什么”。
 
 输入隔离：
@@ -410,12 +411,22 @@ python tools/probes/plan_training_priorities.py `
   --targets "data/probes/targets/zzz_endgame_targets.json"
 ```
 
+带长期演进上下文：
+
+```powershell
+python tools/probes/plan_training_priorities.py `
+  --snapshot "data/probes/normalized/xxx_normalized.json" `
+  --targets "data/probes/targets/zzz_endgame_targets.json" `
+  --history-index "data/probes/demo/snapshot_history/index.json"
+```
+
 CLI 壳：
 
 ```powershell
 python tools/probes/miho_probe_cli.py plan `
   --snapshot "data/probes/normalized/xxx_normalized.json" `
-  --targets "data/probes/targets/zzz_endgame_targets.json"
+  --targets "data/probes/targets/zzz_endgame_targets.json" `
+  --history-index "data/probes/demo/snapshot_history/index.json"
 ```
 
 输出：

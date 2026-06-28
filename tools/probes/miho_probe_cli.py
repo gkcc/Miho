@@ -72,6 +72,7 @@ def run_plan(args: argparse.Namespace) -> int:
         snapshot_paths,
         planner_tool.resolve_path(args.targets),
         planner_tool.resolve_path(args.output_dir),
+        history_index=planner_tool.resolve_path(args.history_index) if args.history_index else None,
     )
     print(f"plan_item_count: {len(report['plan_items'])}")
     print(f"output_json: {report['output_json']}")
@@ -144,6 +145,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     plan.add_argument("--snapshot", action="append", default=[], help="Normalized snapshot JSON. Can be repeated.")
     plan.add_argument("--snapshot-manifest", default=None, help="JSON manifest containing a snapshots list.")
     plan.add_argument("--targets", required=True, help="Local endgame target configuration JSON.")
+    plan.add_argument("--history-index", default=None, help="Optional snapshot_history/index.json for long-term continuity context.")
     plan.add_argument("--output-dir", default=str(planner_tool.DEFAULT_OUTPUT_DIR), help="Output directory.")
     plan.set_defaults(handler=run_plan)
 

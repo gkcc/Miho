@@ -330,6 +330,8 @@ class DemoDashboardTests(unittest.TestCase):
 
             self.assertIn("training_plan", summary)
             self.assertGreater(summary["training_plan"]["plan_item_count"], 0)
+            self.assertTrue(summary["training_plan"]["history_context"]["available"])
+            self.assertEqual(summary["training_plan"]["history_context"]["character_count"], 1)
             self.assertTrue(Path(summary["training_plan"]["output_json"]).exists())
             self.assertTrue(Path(summary["training_plan"]["output_md"]).exists())
             self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
