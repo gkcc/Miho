@@ -14,6 +14,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import diff_normalized_snapshots as diff_tool  # noqa: E402
 import normalize_export_parse as normalize_tool  # noqa: E402
+import plan_training_priorities as planner_tool  # noqa: E402
 import run_demo_pipeline as demo_tool  # noqa: E402
 
 
@@ -57,6 +58,21 @@ def run_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_plan(args: argparse.Namespace) -> int:
+    snapshot_paths = [planner_tool.resolve_path(path) for path in args.snapshot]
+    if args.snapshot_manifest:
+        snapshot_paths.extend(planner_tool.load_manifest_snapshots(planner_tool.resolve_path(args.snapshot_manifest)))
+    report = planner_tool.generate_report(
+        snapshot_paths,
+        planner_tool.resolve_path(args.targets),
+        planner_tool.resolve_path(args.output_dir),
+    )
+    print(f"plan_item_count: {len(report['plan_items'])}")
+    print(f"output_json: {report['output_json']}")
+    print(f"output_md: {report['output_md']}")
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Local Miho probe command shell.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -86,6 +102,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     diff.add_argument("--new", required=True, help="New normalized JSON.")
     diff.add_argument("--output-dir", default=None, help="Output directory.")
     diff.set_defaults(handler=run_diff)
+
+    plan = subparsers.add_parser("plan", help="Generate a local training priority report from normalized snapshots.")
+    plan.add_argument("--snapshot", action="append", default=[], help="Normalized snapshot JSON. Can be repeated.")
+    plan.add_argument("--snapshot-manifest", default=None, help="JSON manifest containing a snapshots list.")
+    plan.add_argument("--targets", required=True, help="Local endgame target configuration JSON.")
+    plan.add_argument("--output-dir", default=str(planner_tool.DEFAULT_OUTPUT_DIR), help="Output directory.")
+    plan.set_defaults(handler=run_plan)
     return parser
 
 

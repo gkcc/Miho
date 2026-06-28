@@ -372,6 +372,77 @@ powershell -ExecutionPolicy Bypass -File scripts/build_miho_probe_exe.ps1
 
 该脚本使用 PyInstaller 构建 `MihoProbe.exe` 命令壳。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
 
+### P1.2 本地培养优先级 planner probe
+
+P1.2 把 P1.0 的 normalized snapshot 和本地终局目标配置连起来，生成“先确认哪些数据、再投入哪些体力”的候选报告。它是 planner 消费端原型，不联网、不抓当前活动、不写 SQLite，不代表当前线上高难结论。
+
+单角色：
+
+```powershell
+python tools/probes/plan_training_priorities.py `
+  --snapshot "data/probes/normalized/xxx_normalized.json" `
+  --targets "data/probes/targets/zzz_endgame_targets.json"
+```
+
+多角色 manifest：
+
+```powershell
+python tools/probes/plan_training_priorities.py `
+  --snapshot-manifest "data/probes/planner/snapshots_manifest.json" `
+  --targets "data/probes/targets/zzz_endgame_targets.json"
+```
+
+CLI 壳：
+
+```powershell
+python tools/probes/miho_probe_cli.py plan `
+  --snapshot "data/probes/normalized/xxx_normalized.json" `
+  --targets "data/probes/targets/zzz_endgame_targets.json"
+```
+
+输出：
+
+```text
+data/probes/planner/training_priority_report.json
+data/probes/planner/training_priority_report.md
+```
+
+targets JSON 是本地配置，后续可以由官方公告 / 官方活动页解析器生成。当前建议结构：
+
+```json
+{
+  "game": "zzz",
+  "source": {
+    "type": "manual",
+    "note": "本地人工配置，不代表当前线上高难"
+  },
+  "default_minimums": {
+    "character_level": 60,
+    "equipment_level": 60,
+    "skill_level": 8,
+    "drive_disc_level": 12,
+    "stats": {
+      "atk": 2000,
+      "crit_rate": 45
+    }
+  },
+  "targets": [
+    {
+      "goal_id": "zzz_shiyu_mock",
+      "activity_name": "式舆防卫战",
+      "target_tier": "稳定通关",
+      "priority": "high",
+      "preferred_characters": ["星见雅"],
+      "minimums": {
+        "skill_level": 9
+      }
+    }
+  ]
+}
+```
+
+报告会优先暴露 `requires_manual_review` 和 quality blockers。只要 normalized snapshot 来自 OCR 或存在 blocker，建议都只能作为人工确认前的候选，不能直接写正式数据库或自动生成最终养成计划。
+
 ### P0.8 OCR 实验矩阵
 
 真实识别率提升必须以 expected diff 的 `pass_rate` 为硬验收，`coverage_summary` 只能辅助定位。
