@@ -370,9 +370,10 @@ data/probes/demo/snapshot_history/index.json
 * 当前阶段始终不会自动导入正式数据库，即使 `Parse PASS` / `Normalized GENERATED` 也只表示可以进入人工复核。
 * 如果 demo 已生成 planner report，还会生成 `action_cards.json/md` 并在 Dashboard 显示“下一步行动”；这些行动卡只收敛已有 planner/evidence 结论，不重新联网、不自动导入、不代表正式抽卡建议。
 * 行动卡中的 pending snapshot / catalog candidate 必须按“候选 ≠ 已拥有”处理，只有 accepted roster 中出现的角色才算当前 box 已确认角色。
-* 如果 action cards 和 planner report 都存在，还会生成 `team_cards.json/md` 并在 Dashboard 显示“高难配队候选”；队伍候选只基于本地 snapshot、planner evidence 和本地 catalog 候选，不是正式 tier list。
+* 如果 action cards 和 planner report 都存在，还会生成 `team_cards.json/md` 并在 Dashboard 显示“高难配队候选”；队伍候选只基于 accepted roster、本地 snapshot、planner evidence、本地 tier watchlist 和本地 catalog 候选，不是正式 tier list。
 * Dashboard 会显示“练度更新收件箱”：demo normalized snapshot 是 OCR/解析候选，只有进入 accepted roster 的 snapshot 才能作为已确认 box。
 * Team card 里的 `pending_snapshot` 只是待确认解析候选，`catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 accepted roster 中的 `owned_snapshot` 才能作为可用练度证据。
+* Tier watchlist 会标记 `verified` / `stale` / `unverified` / `low_trust`。只有 verified 且属于 accepted roster 的高保值信号能辅助队伍排序；stale/unverified/low_trust 只能作为弱参考。
 
 P0.9 replay batch 验收命令：
 
@@ -406,6 +407,7 @@ python tools/probes/build_team_cards.py `
   --character-catalog data/probes/catalog/zzz_characters.json `
   --snapshots-dir data/probes/demo/normalized `
   --roster-index data/probes/roster/roster_index.json `
+  --tier-watchlist data/probes/demo/tier_watchlist/tier_watchlist.json `
   --output-dir data/probes/demo/teams
 ```
 

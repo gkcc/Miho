@@ -20,8 +20,14 @@ class ActionCardError(RuntimeError):
     pass
 
 
-HIGH_VALUE_TIER_RECOMMENDATIONS = {"protect_investment"}
-LOW_VALUE_TIER_RECOMMENDATIONS = {"avoid_overinvestment", "low_priority_candidate"}
+HIGH_VALUE_TIER_RECOMMENDATIONS = {"protect_investment", "owned_high_value"}
+LOW_VALUE_TIER_RECOMMENDATIONS = {
+    "avoid_overinvestment",
+    "low_priority_candidate",
+    "owned_low_value_caution",
+    "non_owned_low_priority_watch",
+}
+WATCH_ONLY_TIER_RECOMMENDATIONS = {"watch_candidate", "non_owned_watch_only"}
 
 
 def resolve_path(value: str) -> Path:
@@ -163,8 +169,11 @@ def tier_signal_map(tier_watchlist: dict[str, Any] | None) -> dict[str, dict[str
             "retention_score": entry.get("retention_score"),
             "usage_rate": entry.get("usage_rate"),
             "trend": entry.get("trend"),
+            "observation_status": entry.get("observation_status"),
+            "entry_status": entry.get("entry_status"),
             "recommendation": entry.get("recommendation"),
             "reason": entry.get("reason"),
+            "evidence": entry.get("evidence") if isinstance(entry.get("evidence"), dict) else None,
             "source": entry.get("source") if isinstance(entry.get("source"), dict) else None,
         }
         for name in names:
@@ -187,21 +196,26 @@ def append_reason(reason: Any, extra: str) -> str:
 
 def tier_signal_evidence(signal: dict[str, Any]) -> dict[str, Any]:
     source = signal.get("source") if isinstance(signal.get("source"), dict) else {}
+    evidence = signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
     return {
         "recommendation": signal.get("recommendation"),
+        "observation_status": signal.get("observation_status") or signal.get("recommendation"),
+        "entry_status": signal.get("entry_status"),
         "tier": signal.get("tier"),
         "tier_score": signal.get("tier_score"),
         "retention_score": signal.get("retention_score"),
         "trend": signal.get("trend"),
-        "source_name": source.get("name"),
-        "source_ref": source.get("source_ref"),
+        "source_name": evidence.get("source_title") or source.get("name"),
+        "source_ref": evidence.get("source_ref") or source.get("source_ref"),
+        "period": evidence.get("period"),
+        "content_sha256_short": evidence.get("content_sha256_short"),
     }
 
 
 def apply_tier_signal(card: dict[str, Any], signal: dict[str, Any] | None) -> dict[str, Any]:
     if not signal:
         return card
-    recommendation = str(signal.get("recommendation") or "")
+    recommendation = str(signal.get("observation_status") or signal.get("recommendation") or "")
     card["tier_signal"] = tier_signal_evidence(signal)
     evidence = card.get("evidence") if isinstance(card.get("evidence"), dict) else {}
     evidence["tier_signal"] = card["tier_signal"]
@@ -224,7 +238,7 @@ def apply_tier_signal(card: dict[str, Any], signal: dict[str, Any] | None) -> di
                 "tier/保值信号偏弱，不建议为了拿奖励继续加码；"
                 f"原行动为「{original_title}」，原因为：{original_reason or 'N/A'}"
             )
-    elif recommendation == "watch_candidate":
+    elif recommendation in WATCH_ONLY_TIER_RECOMMENDATIONS:
         card["reason"] = append_reason(
             card.get("reason"),
             "tier/保值信号较强，但这仍只是观察候选；未进入 accepted roster 前不能当作已拥有练度或抽取建议。",
@@ -424,13 +438,13 @@ def summary_for(
             for item in cards
             if item.get("action_type") == "train_owned_character"
             and isinstance(item.get("tier_signal"), dict)
-            and item["tier_signal"].get("recommendation") == "protect_investment"
+            and item["tier_signal"].get("observation_status") in HIGH_VALUE_TIER_RECOMMENDATIONS
         ),
         "low_value_action_count": sum(
             1
             for item in cards
             if isinstance(item.get("tier_signal"), dict)
-            and item["tier_signal"].get("recommendation") in LOW_VALUE_TIER_RECOMMENDATIONS
+            and item["tier_signal"].get("observation_status") in LOW_VALUE_TIER_RECOMMENDATIONS
         ),
         "low_value_review_count": sum(1 for item in cards if item.get("action_type") == "review_low_value_investment"),
     }

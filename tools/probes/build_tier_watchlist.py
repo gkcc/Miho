@@ -30,6 +30,23 @@ TIER_SCORES = {
     "C": 50,
 }
 
+OBSERVATION_STATUS_BY_RECOMMENDATION = {
+    "protect_investment": "owned_high_value",
+    "watch_candidate": "non_owned_watch_only",
+    "avoid_overinvestment": "owned_low_value_caution",
+    "low_priority_candidate": "non_owned_low_priority_watch",
+    "owned_observe": "owned_observe",
+    "observe_candidate": "non_owned_observe",
+}
+
+ENTRY_STATUS_RANK = {
+    "verified": 0,
+    "low_trust": 1,
+    "stale": 2,
+    "unverified": 3,
+    "invalid_source": 4,
+}
+
 
 class TierWatchlistError(RuntimeError):
     pass
@@ -102,6 +119,21 @@ def tier_score(value: Any) -> int:
     return TIER_SCORES.get(text, 0)
 
 
+def parse_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def snapshot_entries(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     for key in ("entries", "characters", "items"):
         value = snapshot.get(key)
@@ -110,14 +142,84 @@ def snapshot_entries(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     raise TierWatchlistError("Tier snapshot must contain an entries, characters, or items list")
 
 
-def source_info(snapshot: dict[str, Any], tier_snapshot_path: Path) -> dict[str, Any]:
-    source = snapshot.get("source") if isinstance(snapshot.get("source"), dict) else {}
+def normalize_source(source: dict[str, Any], tier_snapshot_path: Path, index: int = 0) -> dict[str, Any]:
+    title = source.get("title") or source.get("name") or source.get("source_name") or tier_snapshot_path.name
+    source_id = source.get("source_id") or source.get("id") or f"source_{index + 1}"
     return {
-        "name": source.get("name") or snapshot.get("source_name") or tier_snapshot_path.name,
-        "source_type": source.get("source_type") or snapshot.get("source_type") or "local_snapshot",
+        "source_id": source_id,
+        "title": title,
+        "name": title,
+        "source_type": source.get("source_type") or source.get("source_kind") or "local_snapshot",
         "source_ref": source.get("source_ref") or source.get("url") or str(tier_snapshot_path),
-        "captured_at": source.get("captured_at") or snapshot.get("captured_at"),
+        "period": source.get("period"),
+        "captured_at": source.get("captured_at"),
+        "content_sha256": source.get("content_sha256") or source.get("sha256"),
+        "trust_level": str(source.get("trust_level") or "medium").strip().lower(),
     }
+
+
+def source_infos(snapshot: dict[str, Any], tier_snapshot_path: Path) -> list[dict[str, Any]]:
+    sources = snapshot.get("sources")
+    if isinstance(sources, list) and sources:
+        return [normalize_source(item, tier_snapshot_path, index) for index, item in enumerate(sources) if isinstance(item, dict)]
+    source = snapshot.get("source") if isinstance(snapshot.get("source"), dict) else {}
+    merged = {
+        **source,
+        "source_type": source.get("source_type") or snapshot.get("source_type"),
+        "captured_at": source.get("captured_at") or snapshot.get("captured_at"),
+        "period": source.get("period") or snapshot.get("period"),
+        "content_sha256": source.get("content_sha256") or snapshot.get("content_sha256"),
+        "trust_level": source.get("trust_level") or snapshot.get("trust_level"),
+    }
+    return [normalize_source(merged, tier_snapshot_path, 0)]
+
+
+def source_map(sources: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(source.get("source_id")): source for source in sources if source.get("source_id")}
+
+
+def entry_source(entry: dict[str, Any], sources_by_id: dict[str, dict[str, Any]], default_source: dict[str, Any]) -> dict[str, Any]:
+    ids = normalize_list(entry.get("evidence_source_ids") or entry.get("source_ids") or entry.get("source_id"))
+    for source_id in ids:
+        if source_id in sources_by_id:
+            return sources_by_id[source_id]
+    entry_source_value = entry.get("source")
+    if isinstance(entry_source_value, dict):
+        return normalize_source(entry_source_value, Path(str(default_source.get("source_ref") or PROJECT_ROOT)), 0)
+    return default_source
+
+
+def source_status(source: dict[str, Any], *, stale_days: int, now: datetime | None = None) -> tuple[str, list[str]]:
+    warnings: list[str] = []
+    if not source:
+        return "invalid_source", ["缺少 evidence source。"]
+    missing_proof = False
+    missing_time = False
+    is_stale = False
+    is_low_trust = False
+    if not source.get("source_ref") or not source.get("content_sha256"):
+        missing_proof = True
+        warnings.append("缺少 source_ref 或 content_sha256，tier entry 只能作为未验证参考。")
+    captured_at = parse_datetime(source.get("captured_at"))
+    if captured_at is None:
+        missing_time = True
+        warnings.append("缺少 captured_at 或时间格式无法解析，无法判断新鲜度。")
+    else:
+        current = now or datetime.now(timezone.utc).astimezone()
+        age_days = (current - captured_at.astimezone(current.tzinfo)).days
+        if age_days > stale_days:
+            is_stale = True
+            warnings.append(f"source captured_at 已超过 {stale_days} 天，tier entry 标记为 stale。")
+    if str(source.get("trust_level") or "").lower() == "low":
+        is_low_trust = True
+        warnings.append("source trust_level=low，只能作为弱参考。")
+    if missing_proof or missing_time:
+        return "unverified", warnings
+    if is_stale:
+        return "stale", warnings
+    if is_low_trust:
+        return "low_trust", warnings
+    return "verified", warnings
 
 
 def roster_character_map(roster_index: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
@@ -229,6 +331,19 @@ def output_entry(entry: dict[str, Any], roster_map: dict[str, dict[str, Any]], s
     high_value = is_high_value(entry, score, retention)
     low_value = is_low_value(entry, score, retention)
     recommendation, reason = recommendation_for(owned=owned, high_value=high_value, low_value=low_value, trend=trend)
+    observation_status = OBSERVATION_STATUS_BY_RECOMMENDATION.get(recommendation, "observe")
+    entry_status = source.get("entry_status") or "verified"
+    evidence = {
+        "source_id": source.get("source_id"),
+        "source_title": source.get("title") or source.get("name"),
+        "source_type": source.get("source_type"),
+        "source_ref": source.get("source_ref"),
+        "period": source.get("period"),
+        "captured_at": source.get("captured_at"),
+        "content_sha256": source.get("content_sha256"),
+        "content_sha256_short": str(source.get("content_sha256") or "")[:12] or None,
+        "trust_level": source.get("trust_level"),
+    }
     return {
         "character": character,
         "aliases": [name for name in entry_names(entry)[1:]],
@@ -242,52 +357,71 @@ def output_entry(entry: dict[str, Any], roster_map: dict[str, dict[str, Any]], s
         "element": entry.get("element") or entry.get("attribute"),
         "modes": normalize_list(entry.get("modes") or entry.get("targets")),
         "value_tags": sorted(entry_tags(entry)),
+        "observation_status": observation_status,
         "recommendation": recommendation,
         "reason": reason,
+        "entry_status": entry_status,
+        "entry_warnings": source.get("entry_warnings", []) if isinstance(source.get("entry_warnings"), list) else [],
+        "evidence": evidence,
         "notes": entry.get("notes") or entry.get("comment"),
         "source": source,
         "roster_snapshot_json": matched_roster.get("snapshot_json") if isinstance(matched_roster, dict) else None,
     }
 
 
-def sort_key(item: dict[str, Any]) -> tuple[int, int, float, str]:
-    recommendation_rank = {
-        "protect_investment": 0,
-        "watch_candidate": 1,
+def sort_key(item: dict[str, Any]) -> tuple[int, int, int, float, str]:
+    status_rank = ENTRY_STATUS_RANK.get(str(item.get("entry_status") or "verified"), 9)
+    observation_rank = {
+        "owned_high_value": 0,
+        "non_owned_watch_only": 1,
         "owned_observe": 2,
-        "avoid_overinvestment": 3,
-        "observe_candidate": 4,
-        "low_priority_candidate": 5,
-    }.get(str(item.get("recommendation")), 9)
+        "owned_low_value_caution": 3,
+        "non_owned_observe": 4,
+        "non_owned_low_priority_watch": 5,
+    }.get(str(item.get("observation_status") or ""), 9)
     retention = item.get("retention_score")
     return (
-        recommendation_rank,
+        status_rank,
+        observation_rank,
         -int(item.get("tier_score") or 0),
         -(float(retention) if isinstance(retention, (int, float)) else 0.0),
         str(item.get("character") or ""),
     )
 
 
-def summary_for(entries: list[dict[str, Any]], source: dict[str, Any]) -> dict[str, Any]:
+def summary_for(entries: list[dict[str, Any]], sources: list[dict[str, Any]]) -> dict[str, Any]:
     accepted = [item for item in entries if item.get("owned_status") == "accepted_roster"]
     return {
         "entry_count": len(entries),
         "accepted_roster_count": len(accepted),
         "candidate_count": len(entries) - len(accepted),
-        "owned_high_value_count": sum(1 for item in entries if item.get("recommendation") == "protect_investment"),
-        "watch_candidate_count": sum(1 for item in entries if item.get("recommendation") == "watch_candidate"),
-        "low_value_owned_count": sum(1 for item in entries if item.get("recommendation") == "avoid_overinvestment"),
-        "source_type": source.get("source_type"),
-        "source_name": source.get("name"),
+        "owned_high_value_count": sum(1 for item in entries if item.get("observation_status") == "owned_high_value"),
+        "watch_candidate_count": sum(1 for item in entries if item.get("observation_status") == "non_owned_watch_only"),
+        "low_value_owned_count": sum(1 for item in entries if item.get("observation_status") == "owned_low_value_caution"),
+        "verified_entry_count": sum(1 for item in entries if item.get("entry_status") == "verified"),
+        "stale_entry_count": sum(1 for item in entries if item.get("entry_status") == "stale"),
+        "unverified_entry_count": sum(1 for item in entries if item.get("entry_status") in {"unverified", "invalid_source"}),
+        "low_trust_entry_count": sum(1 for item in entries if item.get("entry_status") == "low_trust"),
+        "stale_source_count": sum(1 for item in entries if item.get("entry_status") == "stale"),
+        "unverified_source_count": sum(1 for item in entries if item.get("entry_status") in {"unverified", "invalid_source"}),
+        "source_type": sources[0].get("source_type") if sources else None,
+        "source_name": sources[0].get("name") if sources else None,
     }
 
 
-def build_tier_watchlist(*, tier_snapshot: Path, output_dir: Path, roster_index: Path | None = None) -> dict[str, Any]:
+def build_tier_watchlist(*, tier_snapshot: Path, output_dir: Path, roster_index: Path | None = None, stale_days: int = 60) -> dict[str, Any]:
     snapshot = load_json(tier_snapshot)
     roster = load_json(roster_index) if roster_index and roster_index.exists() else None
     roster_map = roster_character_map(roster)
-    source = source_info(snapshot, tier_snapshot)
-    entries = [output_entry(entry, roster_map, source) for entry in snapshot_entries(snapshot)]
+    sources = source_infos(snapshot, tier_snapshot)
+    sources_by_id = source_map(sources)
+    default_source = sources[0] if sources else {}
+    entries = []
+    for raw_entry in snapshot_entries(snapshot):
+        source = entry_source(raw_entry, sources_by_id, default_source)
+        entry_status, entry_warnings = source_status(source, stale_days=stale_days)
+        source_with_status = {**source, "entry_status": entry_status, "entry_warnings": entry_warnings}
+        entries.append(output_entry(raw_entry, roster_map, source_with_status))
     entries.sort(key=sort_key)
     result = {
         "schema_version": SCHEMA_VERSION,
@@ -295,13 +429,16 @@ def build_tier_watchlist(*, tier_snapshot: Path, output_dir: Path, roster_index:
         "input": {
             "tier_snapshot": str(tier_snapshot),
             "roster_index": str(roster_index) if roster_index else None,
+            "stale_days": stale_days,
         },
-        "source": source,
-        "summary": summary_for(entries, source),
+        "source": default_source,
+        "sources": sources,
+        "summary": summary_for(entries, sources),
         "entries": entries,
         "warnings": [
             "tier watchlist 只读取本地 snapshot；它不是联网爬取，也不是最终抽取建议。",
             "owned_status 只有 accepted_roster 才代表已确认拥有练度。",
+            "stale/unverified/low_trust tier entry 只能作为弱参考，不得提升 team rank。",
         ],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -333,6 +470,9 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"- owned_high_value_count: {summary.get('owned_high_value_count', 0)}",
         f"- watch_candidate_count: {summary.get('watch_candidate_count', 0)}",
         f"- low_value_owned_count: {summary.get('low_value_owned_count', 0)}",
+        f"- verified_entry_count: {summary.get('verified_entry_count', 0)}",
+        f"- stale_entry_count: {summary.get('stale_entry_count', 0)}",
+        f"- unverified_entry_count: {summary.get('unverified_entry_count', 0)}",
         "",
         "## Entries",
         "",
@@ -346,7 +486,10 @@ def render_markdown(result: dict[str, Any]) -> str:
                 f"- retention_score: {percent_label(item.get('retention_score'))}",
                 f"- usage_rate: {percent_label(item.get('usage_rate'))}",
                 f"- trend: {item.get('trend')}",
-                f"- recommendation: {item.get('recommendation')}",
+                f"- observation_status: {item.get('observation_status')}",
+                f"- entry_status: {item.get('entry_status')}",
+                f"- source_period: {(item.get('evidence') or {}).get('period') if isinstance(item.get('evidence'), dict) else 'N/A'}",
+                f"- source_hash: {(item.get('evidence') or {}).get('content_sha256_short') if isinstance(item.get('evidence'), dict) else 'N/A'}",
                 f"- reason: {item.get('reason')}",
                 "",
             ]
@@ -358,6 +501,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build a local tier/value watchlist from a local snapshot.")
     parser.add_argument("--tier-snapshot", required=True, help="Local tier/meta snapshot JSON.")
     parser.add_argument("--roster-index", default=None, help="Optional accepted roster_index.json.")
+    parser.add_argument("--stale-days", type=int, default=60, help="Mark tier sources older than this many days as stale. Default: 60.")
     parser.add_argument("--output-dir", required=True, help="Output directory.")
     return parser
 
@@ -368,6 +512,7 @@ def main() -> int:
         result = build_tier_watchlist(
             tier_snapshot=resolve_path(args.tier_snapshot),
             roster_index=resolve_path(args.roster_index) if args.roster_index else None,
+            stale_days=args.stale_days,
             output_dir=resolve_path(args.output_dir),
         )
     except TierWatchlistError as exc:
@@ -378,6 +523,9 @@ def main() -> int:
     print(f"accepted_roster_count: {summary['accepted_roster_count']}")
     print(f"owned_high_value_count: {summary['owned_high_value_count']}")
     print(f"watch_candidate_count: {summary['watch_candidate_count']}")
+    print(f"verified_entry_count: {summary['verified_entry_count']}")
+    print(f"stale_entry_count: {summary['stale_entry_count']}")
+    print(f"unverified_entry_count: {summary['unverified_entry_count']}")
     print(f"output_json: {result['output_json']}")
     print(f"output_md: {result['output_md']}")
     return 0

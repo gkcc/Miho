@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,10 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = "p1.3-lite-team-cards"
+
+HIGH_VALUE_OBSERVATION_STATUSES = {"owned_high_value", "protect_investment"}
+LOW_VALUE_OBSERVATION_STATUSES = {"owned_low_value_caution", "avoid_overinvestment"}
+WATCH_ONLY_OBSERVATION_STATUSES = {"non_owned_watch_only", "watch_candidate"}
 
 
 class TeamCardError(RuntimeError):
@@ -54,6 +59,22 @@ def short_hash(value: Any) -> str | None:
     return text[:12] if len(text) > 12 else text
 
 
+def normalize_name(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "")).strip().lower()
+
+
+def normalize_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    raw_items = value if isinstance(value, list) else [value]
+    result: list[str] = []
+    for item in raw_items:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
 def coverage_items(report: dict[str, Any]) -> list[dict[str, Any]]:
     items = report.get("target_coverage")
     return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
@@ -84,6 +105,46 @@ def accepted_characters(roster_index: dict[str, Any] | None) -> set[str]:
         return set()
     characters = roster_index.get("characters") if isinstance(roster_index.get("characters"), list) else []
     return {str(item.get("name")) for item in characters if isinstance(item, dict) and item.get("name")}
+
+
+def tier_signal_map(tier_watchlist: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not isinstance(tier_watchlist, dict):
+        return {}
+    entries = tier_watchlist.get("entries") if isinstance(tier_watchlist.get("entries"), list) else []
+    result: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not entry.get("character"):
+            continue
+        evidence = entry.get("evidence") if isinstance(entry.get("evidence"), dict) else {}
+        signal = {
+            "character": entry.get("character"),
+            "owned_status": entry.get("owned_status"),
+            "tier": entry.get("tier"),
+            "tier_score": entry.get("tier_score"),
+            "retention_score": entry.get("retention_score"),
+            "usage_rate": entry.get("usage_rate"),
+            "trend": entry.get("trend"),
+            "observation_status": entry.get("observation_status") or entry.get("recommendation"),
+            "recommendation": entry.get("recommendation"),
+            "entry_status": entry.get("entry_status") or "verified",
+            "entry_warnings": entry.get("entry_warnings", []) if isinstance(entry.get("entry_warnings"), list) else [],
+            "period": evidence.get("period"),
+            "content_sha256_short": evidence.get("content_sha256_short"),
+            "source_title": evidence.get("source_title"),
+            "source_ref": evidence.get("source_ref"),
+        }
+        names = [str(entry["character"])] + normalize_list(entry.get("aliases"))
+        for name in names:
+            result.setdefault(normalize_name(name), signal)
+    return result
+
+
+def attach_tier_signal(member: dict[str, Any], tier_signals: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    signal = tier_signals.get(normalize_name(member.get("character")))
+    if not signal:
+        return member
+    member["tier_signal"] = signal
+    return member
 
 
 def action_reason_map(action_report: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
@@ -200,6 +261,10 @@ def warnings_for(status: str, members: list[dict[str, Any]]) -> list[str]:
         warnings.append("catalog 标记已拥有但缺少 normalized snapshot，不能视为可出战练度。")
     if any(item.get("source_class") == "pending_snapshot" for item in members):
         warnings.append("pending snapshot 尚未进入 accepted roster，不能视为可出战练度。")
+    if any(item.get("tier_signal") and item.get("source_class") != "owned_snapshot" for item in members):
+        warnings.append("非 accepted roster 成员的 tier 只显示为观察项，不能提升为已拥有战力。")
+    if any((item.get("tier_signal") or {}).get("entry_status") in {"stale", "unverified", "invalid_source", "low_trust"} for item in members):
+        warnings.append("存在 stale/unverified/low_trust tier 证据，只能作为弱参考。")
     if status == "incomplete":
         warnings.append("当前只是队伍雏形，不代表完整可用配队。")
     return warnings
@@ -227,6 +292,7 @@ def build_card(
     source_images: dict[str, str],
     accepted: set[str],
     action_reasons: dict[tuple[str, str], dict[str, Any]],
+    tier_signals: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     target = str(item.get("target") or "unknown_target")
     coverage_status = str(item.get("coverage_status") or "unmatched")
@@ -237,20 +303,28 @@ def build_card(
         for index, match in enumerate(matched[:4]):
             if isinstance(match, dict):
                 members.append(
-                    owned_member(
-                        match,
-                        target=target,
-                        index=index,
-                        snapshot_jsons=snapshot_jsons,
-                        source_images=source_images,
-                        accepted=accepted,
-                        action_reasons=action_reasons,
+                    attach_tier_signal(
+                        owned_member(
+                            match,
+                            target=target,
+                            index=index,
+                            snapshot_jsons=snapshot_jsons,
+                            source_images=source_images,
+                            accepted=accepted,
+                            action_reasons=action_reasons,
+                        ),
+                        tier_signals,
                     )
                 )
     else:
         for index, candidate in enumerate(candidates[:4]):
             if isinstance(candidate, dict):
-                members.append(candidate_member(candidate, target=target, index=index, action_reasons=action_reasons))
+                members.append(
+                    attach_tier_signal(
+                        candidate_member(candidate, target=target, index=index, action_reasons=action_reasons),
+                        tier_signals,
+                    )
+                )
     status = team_status_for(coverage_status, members)
     title_prefix = {
         "playable_now": "可用队伍候选",
@@ -259,6 +333,7 @@ def build_card(
         "needs_candidate_confirmation": "待确认队伍候选",
         "incomplete": "队伍雏形",
     }.get(status, "队伍候选")
+    team_value = team_value_for(members)
     return {
         "target": target,
         "target_priority": target_priority(item),
@@ -266,20 +341,84 @@ def build_card(
         "team_title": f"{title_prefix}: {target}",
         "members": members,
         "coverage_reason": coverage_reason(status, members),
+        "team_value": team_value,
         "evidence": evidence_from_coverage(item),
         "warnings": warnings_for(status, members),
     }
+
+
+def team_value_for(members: list[dict[str, Any]]) -> dict[str, Any]:
+    accepted_high_value = 0
+    accepted_low_value = 0
+    stale_meta = 0
+    unverified_meta = 0
+    weak_meta = 0
+    for member in members:
+        signal = member.get("tier_signal") if isinstance(member.get("tier_signal"), dict) else {}
+        if not signal:
+            continue
+        status = str(signal.get("entry_status") or "verified")
+        observation = str(signal.get("observation_status") or signal.get("recommendation") or "")
+        if status == "stale":
+            stale_meta += 1
+        if status in {"unverified", "invalid_source"}:
+            unverified_meta += 1
+        if status in {"stale", "unverified", "invalid_source", "low_trust"}:
+            weak_meta += 1
+        if member.get("source_class") != "owned_snapshot" or status != "verified":
+            continue
+        if observation in HIGH_VALUE_OBSERVATION_STATUSES:
+            accepted_high_value += 1
+        if observation in LOW_VALUE_OBSERVATION_STATUSES:
+            accepted_low_value += 1
+    if accepted_high_value:
+        reason = f"{accepted_high_value} 名 accepted roster 成员有 verified 高保值 tier 信号。"
+    elif weak_meta:
+        reason = "仅存在 stale/unverified/low_trust tier 弱参考，不提升队伍排序。"
+    else:
+        reason = "没有 verified 高保值 tier 信号。"
+    return {
+        "accepted_high_value_members": accepted_high_value,
+        "accepted_low_value_members": accepted_low_value,
+        "stale_meta_count": stale_meta,
+        "unverified_meta_count": unverified_meta,
+        "weak_meta_count": weak_meta,
+        "ranking_reason": reason,
+    }
+
+
+def card_sort_key(card: dict[str, Any]) -> tuple[int, int, int, int, str]:
+    status_weight = {
+        "playable_now": 0,
+        "needs_review": 1,
+        "needs_recording": 2,
+        "needs_candidate_confirmation": 3,
+        "incomplete": 4,
+    }.get(str(card.get("team_status") or ""), 9)
+    priority_weight = {"high": 0, "medium": 1, "low": 2}.get(str(card.get("target_priority") or "medium"), 1)
+    team_value = card.get("team_value") if isinstance(card.get("team_value"), dict) else {}
+    weak_meta_count = int(team_value.get("weak_meta_count") or 0)
+    high_value_count = int(team_value.get("accepted_high_value_members") or 0)
+    return (
+        status_weight,
+        -high_value_count,
+        priority_weight,
+        weak_meta_count,
+        str(card.get("target") or ""),
+    )
 
 
 def build_cards(
     planner_report: dict[str, Any],
     action_report: dict[str, Any],
     roster_index: dict[str, Any] | None = None,
+    tier_watchlist: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     snapshot_jsons = snapshot_json_by_character(planner_report)
     source_images = source_image_by_character(planner_report)
     accepted = accepted_characters(roster_index)
     action_reasons = action_reason_map(action_report)
+    tier_signals = tier_signal_map(tier_watchlist)
     cards = [
         build_card(
             item,
@@ -287,10 +426,12 @@ def build_cards(
             source_images=source_images,
             accepted=accepted,
             action_reasons=action_reasons,
+            tier_signals=tier_signals,
         )
         for item in coverage_items(planner_report)
     ]
     cards = cards[: max(0, len(coverage_items(planner_report)) * 2)]
+    cards.sort(key=card_sort_key)
     for index, card in enumerate(cards, start=1):
         card["rank"] = index
     return cards
@@ -305,6 +446,28 @@ def summary_for(cards: list[dict[str, Any]], planner_report: dict[str, Any]) -> 
         "needs_recording_count": sum(1 for item in cards if item.get("team_status") == "needs_recording"),
         "catalog_candidate_count": sum(1 for item in members if item.get("source_class") == "catalog_candidate"),
         "pending_snapshot_count": sum(1 for item in members if item.get("source_class") == "pending_snapshot"),
+        "accepted_high_value_member_count": sum(
+            int((card.get("team_value") or {}).get("accepted_high_value_members") or 0)
+            for card in cards
+            if isinstance(card.get("team_value"), dict)
+        ),
+        "high_value_playable_team_count": sum(
+            1
+            for card in cards
+            if card.get("team_status") == "playable_now"
+            and isinstance(card.get("team_value"), dict)
+            and int(card["team_value"].get("accepted_high_value_members") or 0) > 0
+        ),
+        "stale_meta_count": sum(
+            int((card.get("team_value") or {}).get("stale_meta_count") or 0)
+            for card in cards
+            if isinstance(card.get("team_value"), dict)
+        ),
+        "unverified_meta_count": sum(
+            int((card.get("team_value") or {}).get("unverified_meta_count") or 0)
+            for card in cards
+            if isinstance(card.get("team_value"), dict)
+        ),
     }
 
 
@@ -322,6 +485,7 @@ def render_markdown(team_report: dict[str, Any]) -> str:
     lines.extend(["", "## Team Cards", ""])
     for card in team_report.get("cards", []):
         evidence = card.get("evidence") if isinstance(card.get("evidence"), dict) else {}
+        team_value = card.get("team_value") if isinstance(card.get("team_value"), dict) else {}
         lines.extend(
             [
                 f"### #{card.get('rank')} {card.get('team_title')}",
@@ -331,6 +495,7 @@ def render_markdown(team_report: dict[str, Any]) -> str:
                 f"- coverage_reason: {card.get('coverage_reason')}",
                 f"- target_source: {evidence.get('target_source') or 'N/A'}",
                 f"- target_hash: {evidence.get('target_hash') or 'N/A'}",
+                f"- team_value: high={team_value.get('accepted_high_value_members', 0)} stale={team_value.get('stale_meta_count', 0)} unverified={team_value.get('unverified_meta_count', 0)}",
                 "- members:",
             ]
         )
@@ -338,7 +503,8 @@ def render_markdown(team_report: dict[str, Any]) -> str:
             if isinstance(member, dict):
                 lines.append(
                     f"  - {member.get('slot')}: {member.get('character')} "
-                    f"({member.get('source_class')}, {member.get('confidence')})"
+                    f"({member.get('source_class')}, {member.get('confidence')}, "
+                    f"tier={(member.get('tier_signal') or {}).get('tier') if isinstance(member.get('tier_signal'), dict) else 'N/A'})"
                 )
         warnings = card.get("warnings") if isinstance(card.get("warnings"), list) else []
         if warnings:
@@ -357,13 +523,15 @@ def build_team_cards(
     character_catalog: Path | None = None,
     snapshots_dir: Path | None = None,
     roster_index: Path | None = None,
+    tier_watchlist: Path | None = None,
 ) -> dict[str, Any]:
     action_report = load_json(action_cards)
     planner = load_json(planner_report)
     if character_catalog is not None and not character_catalog.exists():
         raise TeamCardError(f"Character catalog JSON does not exist: {character_catalog}")
     loaded_roster_index = load_json(roster_index) if roster_index else None
-    cards = build_cards(planner, action_report, loaded_roster_index)
+    loaded_tier_watchlist = load_json(tier_watchlist) if tier_watchlist else None
+    cards = build_cards(planner, action_report, loaded_roster_index, loaded_tier_watchlist)
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": now_iso(),
@@ -373,11 +541,13 @@ def build_team_cards(
             "character_catalog": str(character_catalog) if character_catalog else None,
             "snapshots_dir": str(snapshots_dir) if snapshots_dir else None,
             "roster_index": str(roster_index) if roster_index else None,
+            "tier_watchlist": str(tier_watchlist) if tier_watchlist else None,
         },
         "summary": summary_for(cards, planner),
         "cards": cards,
         "warnings": [
-            "队伍候选基于 accepted roster、本地快照和本地 catalog；catalog candidate 不代表已拥有。"
+            "队伍候选基于 accepted roster、本地快照和本地 catalog；catalog candidate 不代表已拥有。",
+            "Tier/保值观察来自本地证据文件，不是抽取建议；stale/unverified tier 不提升 team rank。",
         ],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -398,6 +568,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--character-catalog", default=None, help="Optional local character catalog JSON.")
     parser.add_argument("--snapshots-dir", default=None, help="Optional normalized snapshot directory for input metadata.")
     parser.add_argument("--roster-index", default=None, help="Optional accepted roster_index.json. Only these characters count as owned_snapshot.")
+    parser.add_argument("--tier-watchlist", default=None, help="Optional tier_watchlist.json. Only verified accepted-roster signals affect ranking.")
     parser.add_argument("--output-dir", required=True, help="Output directory for team_cards.json/md.")
     return parser
 
@@ -411,6 +582,7 @@ def main() -> int:
             character_catalog=resolve_path(args.character_catalog) if args.character_catalog else None,
             snapshots_dir=resolve_path(args.snapshots_dir) if args.snapshots_dir else None,
             roster_index=resolve_path(args.roster_index) if args.roster_index else None,
+            tier_watchlist=resolve_path(args.tier_watchlist) if args.tier_watchlist else None,
             output_dir=resolve_path(args.output_dir),
         )
     except TeamCardError as exc:
@@ -420,6 +592,7 @@ def main() -> int:
     print(f"playable_now_count: {result['summary']['playable_now_count']}")
     print(f"needs_recording_count: {result['summary']['needs_recording_count']}")
     print(f"catalog_candidate_count: {result['summary']['catalog_candidate_count']}")
+    print(f"high_value_playable_team_count: {result['summary']['high_value_playable_team_count']}")
     print(f"output_json: {result['output_json']}")
     print(f"output_md: {result['output_md']}")
     return 0

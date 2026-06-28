@@ -33,6 +33,10 @@ class TierWatchlistTests(unittest.TestCase):
                             "name": "unit test tier snapshot",
                             "source_type": "manual",
                             "source_ref": "local",
+                            "period": "2026-06",
+                            "captured_at": "2026-06-29T00:00:00+08:00",
+                            "content_sha256": "a" * 64,
+                            "trust_level": "high",
                         },
                         "entries": [
                             {
@@ -94,13 +98,18 @@ class TierWatchlistTests(unittest.TestCase):
             self.assertEqual(result["summary"]["owned_high_value_count"], 1)
             self.assertEqual(result["summary"]["watch_candidate_count"], 1)
             self.assertEqual(result["summary"]["candidate_count"], 2)
+            self.assertEqual(result["summary"]["verified_entry_count"], 3)
 
             miyabi = next(item for item in result["entries"] if item["character"] == "星见雅")
             self.assertEqual(miyabi["owned_status"], "accepted_roster")
             self.assertEqual(miyabi["recommendation"], "protect_investment")
+            self.assertEqual(miyabi["observation_status"], "owned_high_value")
+            self.assertEqual(miyabi["entry_status"], "verified")
             self.assertEqual(miyabi["retention_score"], 0.91)
             self.assertEqual(miyabi["usage_rate"], 0.425)
             self.assertIn("保值信号较强", miyabi["reason"])
+            self.assertEqual(miyabi["evidence"]["period"], "2026-06")
+            self.assertEqual(miyabi["evidence"]["content_sha256_short"], "a" * 12)
 
             yaoqin = next(item for item in result["entries"] if item["character"] == "耀嘉音")
             self.assertEqual(yaoqin["owned_status"], "not_in_roster")
@@ -110,7 +119,68 @@ class TierWatchlistTests(unittest.TestCase):
             markdown = Path(result["output_md"]).read_text(encoding="utf-8")
             self.assertIn("Tier / 保值观察", markdown)
             self.assertIn("accepted_roster_count: 1", markdown)
+            self.assertIn("verified_entry_count: 3", markdown)
             self.assertIn("耀嘉音", markdown)
+
+    def test_evidence_gate_marks_unverified_and_stale_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            tier_snapshot = root / "tier_snapshot.json"
+            output_dir = root / "tier_watchlist"
+            tier_snapshot.write_text(
+                json.dumps(
+                    {
+                        "sources": [
+                            {
+                                "source_id": "fresh_without_hash",
+                                "title": "fresh unverified",
+                                "source_type": "manual",
+                                "source_ref": "local",
+                                "period": "2026-06",
+                                "captured_at": "2026-06-29T00:00:00+08:00",
+                                "trust_level": "high",
+                            },
+                            {
+                                "source_id": "old_verified",
+                                "title": "old source",
+                                "source_type": "manual",
+                                "source_ref": "local-old",
+                                "period": "2026-01",
+                                "captured_at": "2026-01-01T00:00:00+08:00",
+                                "content_sha256": "b" * 64,
+                                "trust_level": "high",
+                            },
+                        ],
+                        "entries": [
+                            {
+                                "character": "未验证角色",
+                                "tier": "S",
+                                "retention_score": 0.9,
+                                "evidence_source_ids": ["fresh_without_hash"],
+                            },
+                            {
+                                "character": "过期角色",
+                                "tier": "S",
+                                "retention_score": 0.9,
+                                "evidence_source_ids": ["old_verified"],
+                            },
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = tier_tool.build_tier_watchlist(tier_snapshot=tier_snapshot, output_dir=output_dir, stale_days=60)
+
+            unverified = next(item for item in result["entries"] if item["character"] == "未验证角色")
+            stale = next(item for item in result["entries"] if item["character"] == "过期角色")
+            self.assertEqual(unverified["entry_status"], "unverified")
+            self.assertEqual(stale["entry_status"], "stale")
+            self.assertEqual(result["summary"]["unverified_entry_count"], 1)
+            self.assertEqual(result["summary"]["stale_entry_count"], 1)
+            self.assertIn("未验证参考", " ".join(unverified["entry_warnings"]))
+            self.assertIn("stale", " ".join(stale["entry_warnings"]))
 
     def test_missing_snapshot_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

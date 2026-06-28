@@ -22,10 +22,11 @@ python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_man
 python tools/probes/run_demo_pipeline.py `
   --parsed-dir data/probes/parsed `
   --latest-only `
-  --tier-snapshot data/probes/tier/zzz_tier_snapshot.json
+  --tier-snapshot data/probes/tier/zzz_tier_snapshot.json `
+  --tier-stale-days 60
 ```
 
-`--tier-snapshot` 只读取本地 JSON，不联网抓取，不生成最终抽取建议。只有 `data/probes/roster/roster_index.json` 中的 accepted roster 才会被标记为已确认拥有练度；demo normalized snapshot 仍然需要人工确认。若同时生成 action cards，tier / 保值信号只用于解释或降级本地行动优先级，避免为了短期奖励继续加码低保值角色。
+`--tier-snapshot` 只读取本地 JSON，不联网抓取，不生成最终抽取建议。只有 `data/probes/roster/roster_index.json` 中的 accepted roster 才会被标记为已确认拥有练度；demo normalized snapshot 仍然需要人工确认。若同时生成 action cards / team cards，tier / 保值信号只用于解释、降级本地行动优先级，或辅助已确认队伍排序，避免为了短期奖励继续加码低保值角色。`stale` / `unverified` tier 只能作为弱参考，不会提升队伍排序。
 
 ## Tier Snapshot 草案
 
@@ -36,7 +37,11 @@ python tools/probes/run_demo_pipeline.py `
   "source": {
     "name": "manual tier snapshot",
     "source_type": "manual",
-    "source_ref": "local"
+    "source_ref": "local",
+    "period": "2026-06",
+    "captured_at": "2026-06-29T00:00:00+08:00",
+    "content_sha256": "local-source-content-sha256",
+    "trust_level": "high"
   },
   "entries": [
     {

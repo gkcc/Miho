@@ -1027,6 +1027,7 @@ def build_demo_team_cards(
     *,
     character_catalog: Path | None = None,
     roster_index: Path | None = None,
+    tier_watchlist: Path | None = None,
 ) -> dict[str, Any] | None:
     if (
         not isinstance(action_card_info, dict)
@@ -1050,6 +1051,7 @@ def build_demo_team_cards(
             character_catalog=character_catalog,
             snapshots_dir=output_dir / "normalized",
             roster_index=roster_index if roster_index and roster_index.exists() else None,
+            tier_watchlist=tier_watchlist if tier_watchlist and tier_watchlist.exists() else None,
             output_dir=output_dir / "teams",
         )
     except team_cards.TeamCardError as exc:
@@ -1062,6 +1064,7 @@ def build_demo_team_cards(
             "summary": result.get("summary", {}) if isinstance(result.get("summary"), dict) else {},
             "cards": result.get("cards", []) if isinstance(result.get("cards"), list) else [],
             "warnings": result.get("warnings", []) if isinstance(result.get("warnings"), list) else [],
+            "input": result.get("input", {}) if isinstance(result.get("input"), dict) else {},
         }
     )
     return info
@@ -1072,6 +1075,7 @@ def build_demo_tier_watchlist(
     output_dir: Path,
     *,
     roster_index: Path | None = None,
+    stale_days: int = 60,
 ) -> dict[str, Any] | None:
     if tier_snapshot is None:
         return None
@@ -1087,6 +1091,7 @@ def build_demo_tier_watchlist(
         result = tier_watchlist.build_tier_watchlist(
             tier_snapshot=tier_snapshot,
             roster_index=roster_index if roster_index and roster_index.exists() else None,
+            stale_days=stale_days,
             output_dir=output_dir / "tier_watchlist",
         )
     except tier_watchlist.TierWatchlistError as exc:
@@ -1260,6 +1265,7 @@ def run_pipeline(
     character_catalog: Path | None = None,
     roster_dir: Path | None = None,
     tier_snapshot: Path | None = None,
+    tier_stale_days: int = 60,
     daily_stamina: float | None = None,
     horizon_days: float | None = None,
 ) -> dict[str, Any]:
@@ -1284,6 +1290,7 @@ def run_pipeline(
         "character_catalog": str(character_catalog) if character_catalog else None,
         "roster_dir": str(roster_dir or DEFAULT_ROSTER_DIR),
         "tier_snapshot": str(tier_snapshot) if tier_snapshot else None,
+        "tier_stale_days": tier_stale_days,
         "daily_stamina": daily_stamina,
         "horizon_days": horizon_days,
     }
@@ -1383,6 +1390,7 @@ def run_pipeline(
         tier_snapshot,
         output_dir,
         roster_index=roster_index_for_replay,
+        stale_days=tier_stale_days,
     )
     if tier_info is not None:
         summary["tier_watchlist"] = tier_info
@@ -1412,6 +1420,7 @@ def run_pipeline(
         output_dir,
         character_catalog=character_catalog,
         roster_index=roster_index_for_replay if roster_index_for_replay.exists() else None,
+        tier_watchlist=tier_watchlist_path,
     )
     if team_card_info is not None:
         summary["team_cards"] = team_card_info
@@ -1453,6 +1462,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for planner target matching.")
     parser.add_argument("--roster-dir", default=str(DEFAULT_ROSTER_DIR), help="Local accepted roster directory. Default: data/probes/roster.")
     parser.add_argument("--tier-snapshot", default=None, help="Optional local tier/value snapshot JSON. Does not fetch network data.")
+    parser.add_argument("--tier-stale-days", type=int, default=60, help="Mark tier sources older than this many days as stale. Default: 60.")
     parser.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
     parser.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
     parser.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
@@ -1482,6 +1492,7 @@ def main() -> int:
             character_catalog=resolve_path(args.character_catalog) if args.character_catalog else None,
             roster_dir=resolve_path(args.roster_dir) if args.roster_dir else None,
             tier_snapshot=resolve_path(args.tier_snapshot) if args.tier_snapshot else None,
+            tier_stale_days=args.tier_stale_days,
             daily_stamina=args.daily_stamina,
             horizon_days=args.horizon_days,
         )
@@ -1523,6 +1534,8 @@ def main() -> int:
             print(f"tier_entry_count: {tier_summary.get('entry_count', 0)}")
             print(f"tier_owned_high_value_count: {tier_summary.get('owned_high_value_count', 0)}")
             print(f"tier_watch_candidate_count: {tier_summary.get('watch_candidate_count', 0)}")
+            print(f"tier_stale_entry_count: {tier_summary.get('stale_entry_count', 0)}")
+            print(f"tier_unverified_entry_count: {tier_summary.get('unverified_entry_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0

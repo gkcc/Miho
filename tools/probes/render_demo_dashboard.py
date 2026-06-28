@@ -520,13 +520,22 @@ def render_team_cards(summary: dict[str, Any]) -> str:
         rows = []
         for item in cards[:8]:
             evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+            team_value = item.get("team_value") if isinstance(item.get("team_value"), dict) else {}
             members = item.get("members") if isinstance(item.get("members"), list) else []
             member_bits = []
             for member in members:
                 if not isinstance(member, dict):
                     continue
+                tier_signal = member.get("tier_signal") if isinstance(member.get("tier_signal"), dict) else {}
+                tier_badge = ""
+                if tier_signal:
+                    tier_badge = (
+                        f" · {tier_signal.get('tier') or 'tier?'}"
+                        f"/{tier_signal.get('observation_status') or tier_signal.get('recommendation') or 'observe'}"
+                        f"/{tier_signal.get('entry_status') or 'verified'}"
+                    )
                 member_bits.append(
-                    f"{member.get('slot')}: {member.get('character')} [{member.get('source_class')}]"
+                    f"{member.get('slot')}: {member.get('character')} [{member.get('source_class')}]{tier_badge}"
                 )
             card_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
             warning_text = "；".join(str(warning) for warning in card_warnings) or "none"
@@ -542,6 +551,7 @@ def render_team_cards(summary: dict[str, Any]) -> str:
                 f"<h3>{e(item.get('team_title'))}</h3>"
                 f"<p>{e(item.get('coverage_reason'))}</p>"
                 f"<span>{e(' / '.join(member_bits) or '无成员')}</span>"
+                f"<span>team value: 已确认高保值 {e(team_value.get('accepted_high_value_members', 0))} · stale {e(team_value.get('stale_meta_count', 0))} · unverified {e(team_value.get('unverified_meta_count', 0))}</span>"
                 f"<span>evidence: {e(' · '.join(evidence_bits) or 'N/A')}</span>"
                 f"<span>warning: {e(warning_text)}</span>"
                 "</div>"
@@ -552,7 +562,7 @@ def render_team_cards(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>高难配队候选</h2>
-      <p class="muted-line">队伍候选基于本地快照和本地 catalog；catalog candidate 不代表已拥有。</p>
+      <p class="muted-line">队伍候选基于 accepted roster、本地快照、本地 catalog 与本地 Tier/保值观察；catalog candidate 不代表已拥有，Tier/保值观察不是抽取建议。</p>
       <div class="links">
         {link("team_cards.md", teams.get("output_md"))}
         {link("team_cards.json", teams.get("output_json"))}
@@ -563,6 +573,10 @@ def render_team_cards(summary: dict[str, Any]) -> str:
         <div><span>playable now</span><strong>{e(team_summary.get("playable_now_count", "N/A"))}</strong></div>
         <div><span>needs recording</span><strong>{e(team_summary.get("needs_recording_count", "N/A"))}</strong></div>
         <div><span>catalog candidates</span><strong>{e(team_summary.get("catalog_candidate_count", "N/A"))}</strong></div>
+        <div><span>已确认高保值成员</span><strong>{e(team_summary.get("accepted_high_value_member_count", "N/A"))}</strong></div>
+        <div><span>高保值可用队伍</span><strong>{e(team_summary.get("high_value_playable_team_count", "N/A"))}</strong></div>
+        <div><span>stale tier</span><strong>{e(team_summary.get("stale_meta_count", "N/A"))}</strong></div>
+        <div><span>unverified tier</span><strong>{e(team_summary.get("unverified_meta_count", "N/A"))}</strong></div>
       </div>
       {warning_block}
       {body}
@@ -641,15 +655,17 @@ def render_tier_watchlist(summary: dict[str, Any]) -> str:
         for item in entries[:10]:
             owned_note = "accepted roster" if item.get("owned_status") == "accepted_roster" else "候选 ≠ 已拥有"
             modes = "、".join(str(mode) for mode in item.get("modes", []) if mode) if isinstance(item.get("modes"), list) else ""
+            evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
             detail = (
                 f"{owned_note} · tier {item.get('tier')} · 保值 {percent_label(item.get('retention_score'))} "
-                f"· 使用 {percent_label(item.get('usage_rate'))} · {modes or '目标未标注'}"
+                f"· 使用 {percent_label(item.get('usage_rate'))} · {modes or '目标未标注'} "
+                f"· {item.get('entry_status') or 'verified'} · {evidence.get('period') or 'period?'} · {evidence.get('content_sha256_short') or 'hash?'}"
             )
             rows.append(
                 "<article class=\"plan-item\">"
                 f"<div class=\"plan-rank\">{e(item.get('tier') or 'N/A')}</div>"
                 "<div>"
-                f"<h3>{e(item.get('character'))} · {e(item.get('recommendation'))}</h3>"
+                f"<h3>{e(item.get('character'))} · {e(item.get('observation_status') or item.get('recommendation'))}</h3>"
                 f"<p>{e(item.get('reason'))}</p>"
                 f"<span>{e(detail)}</span>"
                 "</div>"
@@ -660,7 +676,7 @@ def render_tier_watchlist(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>Tier / 保值观察</h2>
-      <p class="muted-line">本区只读取本地 tier snapshot 和 accepted roster；它不是联网爬取，也不是最终抽取建议。</p>
+      <p class="muted-line">本区只读取本地 tier snapshot 和 accepted roster；它不是联网爬取，也不是抽取建议。stale/unverified 只能作为弱参考。</p>
       <div class="links">
         {link("tier_watchlist.md", watchlist.get("output_md"))}
         {link("tier_watchlist.json", watchlist.get("output_json"))}
@@ -671,6 +687,9 @@ def render_tier_watchlist(summary: dict[str, Any]) -> str:
         <div><span>已有高保值</span><strong>{e(tier_summary.get("owned_high_value_count", "N/A"))}</strong></div>
         <div><span>观察候选</span><strong>{e(tier_summary.get("watch_candidate_count", "N/A"))}</strong></div>
         <div><span>低保值已有</span><strong>{e(tier_summary.get("low_value_owned_count", "N/A"))}</strong></div>
+        <div><span>verified</span><strong>{e(tier_summary.get("verified_entry_count", "N/A"))}</strong></div>
+        <div><span>stale</span><strong>{e(tier_summary.get("stale_entry_count", "N/A"))}</strong></div>
+        <div><span>unverified</span><strong>{e(tier_summary.get("unverified_entry_count", "N/A"))}</strong></div>
         <div><span>source</span><strong>{e(tier_summary.get("source_name", "N/A"))}</strong></div>
       </div>
       {warning_block}
@@ -800,7 +819,10 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("已确认 Box", inbox_info.get("accepted_count", "N/A") if inbox_info else "N/A", "ok" if inbox_info.get("accepted_count") else "muted"),
         metric_card("已有高保值", tier_summary.get("owned_high_value_count", "N/A") if tier_summary else "N/A", "ok" if tier_summary.get("owned_high_value_count") else "muted"),
         metric_card("Tier 观察候选", tier_summary.get("watch_candidate_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("watch_candidate_count") else "muted"),
+        metric_card("stale tier", tier_summary.get("stale_entry_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("stale_entry_count") else "muted"),
+        metric_card("unverified tier", tier_summary.get("unverified_entry_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("unverified_entry_count") else "muted"),
         metric_card("可用队伍", team_summary.get("playable_now_count", "N/A") if team_summary else "N/A", "ok" if team_summary.get("playable_now_count") else "muted"),
+        metric_card("高保值可用队伍", team_summary.get("high_value_playable_team_count", "N/A") if team_summary else "N/A", "ok" if team_summary.get("high_value_playable_team_count") else "muted"),
         metric_card("需补录队伍", team_summary.get("needs_recording_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("needs_recording_count") else "muted"),
         metric_card("候选队伍", team_summary.get("catalog_candidate_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("catalog_candidate_count") else "muted"),
     ]

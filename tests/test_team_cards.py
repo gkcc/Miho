@@ -81,6 +81,63 @@ def action_cards() -> dict:
     }
 
 
+def tier_watchlist() -> dict:
+    return {
+        "schema_version": "p1.5-lite-tier-watchlist",
+        "summary": {"verified_entry_count": 3},
+        "entries": [
+            {
+                "character": "星见雅",
+                "owned_status": "accepted_roster",
+                "tier": "S",
+                "tier_score": 90,
+                "retention_score": 0.9,
+                "trend": "stable",
+                "observation_status": "owned_high_value",
+                "recommendation": "protect_investment",
+                "entry_status": "verified",
+                "evidence": {
+                    "period": "2026-06",
+                    "content_sha256_short": "aaaaaaaaaaaa",
+                    "source_title": "unit tier",
+                },
+            },
+            {
+                "character": "妮可",
+                "owned_status": "accepted_roster",
+                "tier": "A",
+                "tier_score": 78,
+                "retention_score": 0.7,
+                "trend": "stable",
+                "observation_status": "owned_observe",
+                "recommendation": "owned_observe",
+                "entry_status": "stale",
+                "evidence": {
+                    "period": "2026-01",
+                    "content_sha256_short": "bbbbbbbbbbbb",
+                    "source_title": "old tier",
+                },
+            },
+            {
+                "character": "珂蕾妲",
+                "owned_status": "not_in_roster",
+                "tier": "S+",
+                "tier_score": 92,
+                "retention_score": 0.88,
+                "trend": "up",
+                "observation_status": "non_owned_watch_only",
+                "recommendation": "watch_candidate",
+                "entry_status": "verified",
+                "evidence": {
+                    "period": "2026-06",
+                    "content_sha256_short": "cccccccccccc",
+                    "source_title": "unit tier",
+                },
+            },
+        ],
+    }
+
+
 class TeamCardTests(unittest.TestCase):
     def test_build_team_cards_keeps_snapshot_and_catalog_sources_separate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -142,10 +199,12 @@ class TeamCardTests(unittest.TestCase):
             )
             planner_path = root / "training_priority_report.json"
             action_path = root / "action_cards.json"
+            tier_path = root / "tier_watchlist.json"
             roster_index = root / "roster_index.json"
             output_dir = root / "teams"
             planner_path.write_text(json.dumps(planner, ensure_ascii=False), encoding="utf-8")
             action_path.write_text(json.dumps(action_cards(), ensure_ascii=False), encoding="utf-8")
+            tier_path.write_text(json.dumps(tier_watchlist(), ensure_ascii=False), encoding="utf-8")
             roster_index.write_text(
                 json.dumps(
                     {
@@ -161,15 +220,53 @@ class TeamCardTests(unittest.TestCase):
                 action_cards=action_path,
                 planner_report=planner_path,
                 roster_index=roster_index,
+                tier_watchlist=tier_path,
                 output_dir=output_dir,
             )
 
             covered = next(item for item in result["cards"] if item["target"] == "危局强袭战 稳定通关")
             self.assertEqual(covered["team_status"], "playable_now")
             self.assertEqual({item["source_class"] for item in covered["members"]}, {"owned_snapshot"})
+            self.assertEqual(covered["team_value"]["accepted_high_value_members"], 1)
+            self.assertEqual(covered["team_value"]["stale_meta_count"], 1)
+            self.assertEqual(covered["members"][0]["tier_signal"]["entry_status"], "verified")
+            self.assertEqual(covered["members"][0]["tier_signal"]["observation_status"], "owned_high_value")
             self.assertEqual(result["summary"]["playable_now_count"], 1)
+            self.assertEqual(result["summary"]["high_value_playable_team_count"], 1)
+            self.assertEqual(result["summary"]["accepted_high_value_member_count"], 1)
+            self.assertEqual(result["summary"]["stale_meta_count"], 1)
             self.assertEqual(result["summary"]["pending_snapshot_count"], 0)
             self.assertEqual(result["input"]["roster_index"], str(roster_index))
+            self.assertEqual(result["input"]["tier_watchlist"], str(tier_path))
+
+    def test_tier_watchlist_does_not_promote_pending_or_catalog_members(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            planner_path = root / "training_priority_report.json"
+            action_path = root / "action_cards.json"
+            tier_path = root / "tier_watchlist.json"
+            output_dir = root / "teams"
+            planner_path.write_text(json.dumps(planner_report(), ensure_ascii=False), encoding="utf-8")
+            action_path.write_text(json.dumps(action_cards(), ensure_ascii=False), encoding="utf-8")
+            tier_path.write_text(json.dumps(tier_watchlist(), ensure_ascii=False), encoding="utf-8")
+
+            result = team_tool.build_team_cards(
+                action_cards=action_path,
+                planner_report=planner_path,
+                tier_watchlist=tier_path,
+                output_dir=output_dir,
+            )
+
+            covered = next(item for item in result["cards"] if item["target"] == "危局强袭战 稳定通关")
+            candidate = next(item for item in result["cards"] if item["target"] == "式舆防卫战 满星尝试")
+            self.assertEqual(covered["team_status"], "needs_review")
+            self.assertEqual(covered["members"][0]["source_class"], "pending_snapshot")
+            self.assertEqual(covered["team_value"]["accepted_high_value_members"], 0)
+            self.assertEqual(candidate["team_status"], "needs_candidate_confirmation")
+            self.assertEqual(candidate["members"][0]["source_class"], "catalog_candidate")
+            self.assertEqual(candidate["members"][0]["tier_signal"]["observation_status"], "non_owned_watch_only")
+            self.assertEqual(result["summary"]["high_value_playable_team_count"], 0)
+            self.assertIn("非 accepted roster 成员的 tier", " ".join(candidate["warnings"]))
 
     def test_missing_action_cards_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

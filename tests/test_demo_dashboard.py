@@ -127,6 +127,10 @@ def tier_snapshot_json() -> dict:
             "name": "unit test tier snapshot",
             "source_type": "manual",
             "source_ref": "local",
+            "period": "2026-06",
+            "captured_at": "2026-06-29T00:00:00+08:00",
+            "content_sha256": "a" * 64,
+            "trust_level": "high",
         },
         "entries": [
             {
@@ -319,6 +323,10 @@ class DemoDashboardTests(unittest.TestCase):
                         "needs_recording_count": 0,
                         "catalog_candidate_count": 1,
                         "pending_snapshot_count": 1,
+                        "accepted_high_value_member_count": 0,
+                        "high_value_playable_team_count": 0,
+                        "stale_meta_count": 0,
+                        "unverified_meta_count": 0,
                     },
                     "warnings": ["队伍候选基于 accepted roster、本地快照和本地 catalog；catalog candidate 不代表已拥有。"],
                     "cards": [
@@ -329,6 +337,14 @@ class DemoDashboardTests(unittest.TestCase):
                             "team_status": "needs_review",
                             "team_title": "待确认快照队伍: 危局强袭战 稳定通关",
                             "coverage_reason": "星见雅 已有本地 normalized snapshot，但尚未进入 accepted roster。",
+                            "team_value": {
+                                "accepted_high_value_members": 0,
+                                "accepted_low_value_members": 0,
+                                "stale_meta_count": 0,
+                                "unverified_meta_count": 0,
+                                "weak_meta_count": 0,
+                                "ranking_reason": "没有 verified 高保值 tier 信号。",
+                            },
                             "members": [
                                 {
                                     "slot": "core",
@@ -336,6 +352,13 @@ class DemoDashboardTests(unittest.TestCase):
                                     "source_class": "pending_snapshot",
                                     "snapshot_json": str(root / "case_normalized.json"),
                                     "confidence": "medium",
+                                    "tier_signal": {
+                                        "tier": "S",
+                                        "observation_status": "non_owned_watch_only",
+                                        "entry_status": "verified",
+                                        "period": "2026-06",
+                                        "content_sha256_short": "aaaaaaaaaaaa",
+                                    },
                                 }
                             ],
                             "evidence": {
@@ -351,6 +374,14 @@ class DemoDashboardTests(unittest.TestCase):
                             "team_status": "needs_candidate_confirmation",
                             "team_title": "待确认队伍候选: 式舆防卫战 满星尝试",
                             "coverage_reason": "珂蕾妲 仍是 catalog 候选，先确认拥有状态。",
+                            "team_value": {
+                                "accepted_high_value_members": 0,
+                                "accepted_low_value_members": 0,
+                                "stale_meta_count": 0,
+                                "unverified_meta_count": 0,
+                                "weak_meta_count": 0,
+                                "ranking_reason": "没有 verified 高保值 tier 信号。",
+                            },
                             "members": [
                                 {
                                     "slot": "core",
@@ -377,6 +408,9 @@ class DemoDashboardTests(unittest.TestCase):
                         "owned_high_value_count": 1,
                         "watch_candidate_count": 1,
                         "low_value_owned_count": 0,
+                        "verified_entry_count": 2,
+                        "stale_entry_count": 0,
+                        "unverified_entry_count": 0,
                         "source_name": "unit test tier snapshot",
                         "source_type": "manual",
                     },
@@ -391,7 +425,13 @@ class DemoDashboardTests(unittest.TestCase):
                             "usage_rate": 0.4,
                             "trend": "stable",
                             "modes": ["危局强袭战"],
+                            "observation_status": "owned_high_value",
                             "recommendation": "protect_investment",
+                            "entry_status": "verified",
+                            "evidence": {
+                                "period": "2026-06",
+                                "content_sha256_short": "aaaaaaaaaaaa",
+                            },
                             "reason": "已在 accepted roster 中，且 tier/保值信号较强；后续培养和配队建议应优先保护这类投入。",
                         },
                         {
@@ -403,7 +443,13 @@ class DemoDashboardTests(unittest.TestCase):
                             "usage_rate": None,
                             "trend": "up",
                             "modes": ["式舆防卫战"],
+                            "observation_status": "non_owned_watch_only",
                             "recommendation": "watch_candidate",
+                            "entry_status": "verified",
+                            "evidence": {
+                                "period": "2026-06",
+                                "content_sha256_short": "aaaaaaaaaaaa",
+                            },
                             "reason": "未在 accepted roster 中，但 tier/保值信号较强；这里只做观察候选，不直接生成抽取建议。",
                         },
                     ],
@@ -540,14 +586,19 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("Tier / 保值观察", html)
             self.assertIn("已有高保值", html)
             self.assertIn("Tier 观察候选", html)
+            self.assertIn("verified", html)
+            self.assertIn("stale tier", html)
+            self.assertIn("unverified tier", html)
             self.assertIn("tier_watchlist.json", html)
-            self.assertIn("protect_investment", html)
-            self.assertIn("watch_candidate", html)
+            self.assertIn("owned_high_value", html)
+            self.assertIn("non_owned_watch_only", html)
             self.assertIn("不是最终抽取建议", html)
             self.assertIn("action_cards.json", html)
             self.assertIn("确认是否拥有 珂蕾妲", html)
             self.assertIn("高难配队候选", html)
             self.assertIn("可用队伍", html)
+            self.assertIn("高保值可用队伍", html)
+            self.assertIn("team value", html)
             self.assertIn("需补录队伍", html)
             self.assertIn("候选队伍", html)
             self.assertIn("team_cards.json", html)
@@ -764,10 +815,12 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["team_cards"]["output_json"]).exists())
             self.assertTrue(Path(summary["team_cards"]["output_md"]).exists())
             self.assertGreater(summary["team_cards"]["summary"]["team_card_count"], 0)
+            self.assertIn("high_value_playable_team_count", summary["team_cards"]["summary"])
             self.assertIn("tier_watchlist", summary)
             self.assertTrue(Path(summary["tier_watchlist"]["output_json"]).exists())
             self.assertTrue(Path(summary["tier_watchlist"]["output_md"]).exists())
             self.assertGreater(summary["tier_watchlist"]["summary"]["watch_candidate_count"], 0)
+            self.assertGreater(summary["tier_watchlist"]["summary"]["verified_entry_count"], 0)
             self.assertTrue(Path(summary["training_plan"]["output_json"]).exists())
             self.assertTrue(Path(summary["training_plan"]["output_md"]).exists())
             self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
@@ -784,6 +837,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("Tier / 保值观察", dashboard_html)
             self.assertIn("tier_watchlist.json", dashboard_html)
             self.assertIn("tier signal", dashboard_html)
+            self.assertIn("team value", dashboard_html)
             self.assertIn("catalog candidate 不代表已拥有", dashboard_html)
             self.assertIn("pending snapshot 尚未进入 accepted roster", dashboard_html)
             self.assertIn("今日投入建议", dashboard_html)

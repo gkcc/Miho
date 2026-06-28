@@ -40,6 +40,7 @@ def run_demo(args: argparse.Namespace) -> int:
         character_catalog=demo_tool.resolve_path(args.character_catalog) if args.character_catalog else None,
         roster_dir=demo_tool.resolve_path(args.roster_dir) if args.roster_dir else None,
         tier_snapshot=demo_tool.resolve_path(args.tier_snapshot) if args.tier_snapshot else None,
+        tier_stale_days=getattr(args, "tier_stale_days", 60),
         daily_stamina=args.daily_stamina,
         horizon_days=args.horizon_days,
     )
@@ -141,6 +142,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     demo.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for planner target matching.")
     demo.add_argument("--roster-dir", default=str(demo_tool.DEFAULT_ROSTER_DIR), help="Local accepted roster directory. Default: data/probes/roster.")
     demo.add_argument("--tier-snapshot", default=None, help="Optional local tier/value snapshot JSON. Does not fetch network data.")
+    demo.add_argument("--tier-stale-days", type=int, default=60, help="Mark tier sources older than this many days as stale. Default: 60.")
     demo.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
     demo.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
     demo.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
