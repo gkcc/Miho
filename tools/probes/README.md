@@ -342,6 +342,7 @@ data/probes/demo/snapshot_history/index.json
 * expected diff 平均 pass_rate；
 * normalized snapshot 数；
 * 需要人工确认的 case 数；
+* Demo 状态、Parse 状态、Expected 状态、Normalized 状态和 Import 状态；
 * 每张图的角色、音擎、expected JSON 文件名、review HTML、parsed JSON、normalized JSON/MD、expected diff 和 blockers。
 * 如果提供 `--targets`，还会展示培养优先级候选和 planner 报告链接。
 * 如果提供 `--character-catalog`，planner 会用本地角色标签补全做目标弱点 / 机制匹配。
@@ -365,6 +366,8 @@ data/probes/demo/snapshot_history/index.json
 * 想清空 demo 输出再跑时加 `--clean-demo`，该开关只允许清理 `data/probes/` 下的输出目录。
 * 准确率验收必须用 manifest，例如 `data/probes/replay_manifest.json`；不要扫描整个 `data/probes/parsed` 来判断 P0.9 通过率。
 * demo manifest 的每个 case 可以显式写 `expected`，Dashboard 会显示实际命中的 expected JSON 文件名，方便确认没有对错模板。
+* Dashboard 的 `requires_review` 是人工确认安全门禁，不代表解析失败；真正失败看 `Parse FAIL`、`Expected FAIL`、`Normalized FAILED` 或 `Import BLOCKED`。
+* 当前阶段始终不会自动导入正式数据库，即使 `Parse PASS` / `Normalized GENERATED` 也只表示可以进入人工复核。
 
 P0.9 replay batch 验收命令：
 

@@ -37,6 +37,7 @@ SNAPSHOT_HISTORY_DIRNAME = "snapshot_history"
 TARGET_REFRESH_DIRNAME = "targets"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 PARSED_DIR_HISTORY_WARNING_CASES = 5
+EXPECTED_PASS_RATE_TARGET = 0.8
 MODE_OCR_FRESH_IMAGE = "OCR fresh image mode"
 MODE_PARSED_REPLAY = "parsed replay mode"
 MODE_MANIFEST_CONTROLLED = "manifest controlled mode"
@@ -522,6 +523,58 @@ def nearby_review_html(parsed_path: Path) -> str | None:
     return str(candidate.resolve()) if candidate.exists() else None
 
 
+def text_contains_any(values: list[str], needles: tuple[str, ...]) -> bool:
+    joined = "\n".join(values).lower()
+    return any(needle.lower() in joined for needle in needles)
+
+
+def critical_quality_blockers(case: dict[str, Any]) -> list[str]:
+    quality = case.get("quality", {}) if isinstance(case.get("quality"), dict) else {}
+    blockers = [str(item) for item in quality.get("blockers", []) if item] if isinstance(quality.get("blockers"), list) else []
+    errors = [str(item) for item in case.get("errors", []) if item] if isinstance(case.get("errors"), list) else []
+    critical: list[str] = []
+    if str(case.get("review_status") or "").upper() == "FAIL" or text_contains_any(errors, ("review failed",)):
+        critical.append("review_status=FAIL")
+    if not case.get("normalized_json") or text_contains_any(errors, ("normalize failed",)):
+        critical.append("normalized 失败")
+    if text_contains_any(blockers + errors, ("invalid_candidate",)):
+        critical.append("存在 invalid_candidate")
+    if text_contains_any(blockers + errors, ("drive_disc 全缺", "drive_discs 全缺", "drive_disc_main_stats 缺失", "drive_disc_sub_stats 缺失")):
+        critical.append("驱动盘主副词条缺失")
+    return critical
+
+
+def case_statuses(case: dict[str, Any], source_mode: str | None) -> dict[str, Any]:
+    errors = [str(item) for item in case.get("errors", []) if item] if isinstance(case.get("errors"), list) else []
+    review_status = str(case.get("review_status") or "").upper()
+    if review_status == "FAIL" or text_contains_any(errors, ("review failed",)):
+        parse_status = "FAIL"
+    elif source_mode == MODE_PARSED_REPLAY and not case.get("review_html"):
+        parse_status = "SKIPPED"
+    elif case.get("parsed_json"):
+        parse_status = "PASS"
+    else:
+        parse_status = "FAIL" if errors else "SKIPPED"
+
+    if not case.get("expected_json"):
+        expected_status = "N/A"
+    elif case.get("pass_rate") is None:
+        expected_status = "FAIL"
+    else:
+        expected_status = "PASS" if float(case.get("pass_rate") or 0) >= EXPECTED_PASS_RATE_TARGET else "FAIL"
+
+    normalized_status = "GENERATED" if case.get("normalized_json") else "FAILED"
+    critical = critical_quality_blockers(case)
+    import_status = "BLOCKED" if critical else "REQUIRES_REVIEW"
+    return {
+        "parse_status": parse_status,
+        "expected_status": expected_status,
+        "normalized_status": normalized_status,
+        "import_status": import_status,
+        "import_blockers": critical,
+    }
+
+
 def case_template(name: str) -> dict[str, Any]:
     return {
         "name": name,
@@ -543,6 +596,11 @@ def case_template(name: str) -> dict[str, Any]:
         "character": {"name": None, "level": None, "rank": None},
         "equipment": {"name": None, "level": None, "rank": None},
         "quality": empty_quality(),
+        "parse_status": "SKIPPED",
+        "expected_status": "N/A",
+        "normalized_status": "FAILED",
+        "import_status": "REQUIRES_REVIEW",
+        "import_blockers": [],
         "crops_dir": None,
         "errors": [],
     }
@@ -695,17 +753,24 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     cases = summary.get("cases", [])
     input_info = summary.get("input", {})
     errors = [error for case in cases for error in case.get("errors", [])]
-    normalized_count = summary["overall"].get("normalized_count", 0)
-    expected_count = summary["overall"].get("expected_available_count", 0)
-    needs_review = summary["overall"].get("requires_manual_review_count", 0)
+    overall = summary.get("overall", {}) if isinstance(summary.get("overall"), dict) else {}
+    normalized_count = overall.get("normalized_count", 0)
+    expected_counts = overall.get("expected_status_counts", {}) if isinstance(overall.get("expected_status_counts"), dict) else {}
+    parse_counts = overall.get("parse_status_counts", {}) if isinstance(overall.get("parse_status_counts"), dict) else {}
+    normalized_counts = overall.get("normalized_status_counts", {}) if isinstance(overall.get("normalized_status_counts"), dict) else {}
+    import_counts = overall.get("import_status_counts", {}) if isinstance(overall.get("import_status_counts"), dict) else {}
     plan_info = summary.get("training_plan", {}) if isinstance(summary.get("training_plan"), dict) else {}
     history_info = summary.get("snapshot_history", {}) if isinstance(summary.get("snapshot_history"), dict) else {}
     target_info = summary.get("target_refresh", {}) if isinstance(summary.get("target_refresh"), dict) else {}
+    expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
+    normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
+    manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
     return [
         {"name": "官方分享图", "status": "done" if input_info.get("images_dir") or any(case.get("image") for case in cases) else "skipped"},
-        {"name": "OCR Review", "status": "failed" if errors and input_info.get("images_dir") else "done" if any(case.get("review_html") for case in cases) else "skipped"},
-        {"name": "Expected Diff", "status": "done" if expected_count else "skipped"},
-        {"name": "Normalized Snapshot", "status": "needs_review" if normalized_count and needs_review else "done" if normalized_count else "failed"},
+        {"name": "OCR Review", "status": "FAIL" if parse_counts.get("FAIL") or (errors and input_info.get("images_dir")) else "PASS" if parse_counts.get("PASS") else "SKIPPED"},
+        {"name": "Expected Diff", "status": expected_step},
+        {"name": "Normalized Snapshot", "status": normalized_step},
+        {"name": "Manual Review Gate", "status": manual_review_step},
         {"name": "Snapshot Diff", "status": "done" if summary.get("snapshot_diff_md") else "skipped"},
         {
             "name": "Snapshot History",
@@ -740,14 +805,29 @@ def build_warnings(cases: list[dict[str, Any]], input_info: dict[str, Any]) -> l
 
 
 def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[str, Any], snapshot_history: dict[str, Any] | None = None) -> dict[str, Any]:
+    source_mode_value = str(input_info.get("source_mode") or "")
+    for case in cases:
+        case.update(case_statuses(case, source_mode_value))
     parse_success_count = sum(1 for case in cases if case.get("parsed_json"))
     review_counts: dict[str, int] = {}
+    parse_status_counts: dict[str, int] = {}
+    expected_status_counts: dict[str, int] = {}
+    normalized_status_counts: dict[str, int] = {}
+    import_status_counts: dict[str, int] = {}
     pass_rates = []
     normalized_paths = []
     requires_review = 0
     for case in cases:
         review_status = case.get("review_status") or "N/A"
         review_counts[review_status] = review_counts.get(review_status, 0) + 1
+        for counts, key in (
+            (parse_status_counts, "parse_status"),
+            (expected_status_counts, "expected_status"),
+            (normalized_status_counts, "normalized_status"),
+            (import_status_counts, "import_status"),
+        ):
+            status = str(case.get(key) or "N/A")
+            counts[status] = counts.get(status, 0) + 1
         if case.get("pass_rate") is not None:
             pass_rates.append(float(case["pass_rate"]))
         if case.get("normalized_json"):
@@ -757,13 +837,19 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
     errors = [error for case in cases for error in case.get("errors", [])]
     if not cases:
         conclusion = "没有发现可处理的图片或 parsed JSON。"
-    elif errors:
+    elif parse_status_counts.get("FAIL") or normalized_status_counts.get("FAILED"):
         conclusion = "Demo pipeline 已生成 Dashboard，但部分 case 失败，请打开 case 卡片查看错误。"
     elif requires_review:
-        conclusion = "已生成标准化快照；当前仍是本地 demo，需要人工确认后才能进入后续导入原型。"
+        conclusion = "已生成标准化快照；当前仍是本地 demo，需要人工确认后才能进入后续导入原型。requires_review 不代表解析失败。"
     else:
         conclusion = "已生成标准化快照；当前阶段仍不会自动写入正式数据库。"
     warnings = build_warnings(cases, input_info)
+    if parse_status_counts.get("FAIL") or normalized_status_counts.get("FAILED"):
+        demo_status = "HAS_PARSE_FAILURE"
+    elif expected_status_counts.get("N/A"):
+        demo_status = "MISSING_EXPECTED"
+    else:
+        demo_status = "READY_FOR_REVIEW"
     summary: dict[str, Any] = {
         "created_at": normalizer.now_iso(),
         "input": input_info,
@@ -773,6 +859,11 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
             "case_count": len(cases),
             "parse_success_count": parse_success_count,
             "review_status_counts": review_counts,
+            "parse_status_counts": parse_status_counts,
+            "expected_status_counts": expected_status_counts,
+            "normalized_status_counts": normalized_status_counts,
+            "import_status_counts": import_status_counts,
+            "demo_status": demo_status,
             "expected_available_count": sum(1 for case in cases if case.get("expected_json")),
             "average_pass_rate": round(sum(pass_rates) / len(pass_rates), 4) if pass_rates else None,
             "normalized_count": len(normalized_paths),

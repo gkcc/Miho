@@ -131,6 +131,11 @@ class DemoDashboardTests(unittest.TestCase):
                     "case_count": 1,
                     "parse_success_count": 1,
                     "review_status_counts": {"NEEDS_REVIEW": 1},
+                    "parse_status_counts": {"PASS": 1},
+                    "expected_status_counts": {"N/A": 1},
+                    "normalized_status_counts": {"GENERATED": 1},
+                    "import_status_counts": {"REQUIRES_REVIEW": 1},
+                    "demo_status": "MISSING_EXPECTED",
                     "average_pass_rate": None,
                     "normalized_count": 1,
                     "requires_manual_review_count": 1,
@@ -215,7 +220,10 @@ class DemoDashboardTests(unittest.TestCase):
                     },
                     "error": None,
                 },
-                "pipeline_steps": [{"name": "Normalized Snapshot", "status": "needs_review"}],
+                "pipeline_steps": [
+                    {"name": "Normalized Snapshot", "status": "GENERATED"},
+                    {"name": "Manual Review Gate", "status": "REQUIRES_REVIEW"},
+                ],
                 "target_refresh": {
                     "manifest": str(root / "target_sources.json"),
                     "output_json": str(root / "targets" / "endgame_targets.json"),
@@ -262,6 +270,11 @@ class DemoDashboardTests(unittest.TestCase):
                         "review_status": "NEEDS_REVIEW",
                         "coverage_level": "medium",
                         "pass_rate": None,
+                        "parse_status": "PASS",
+                        "expected_status": "N/A",
+                        "normalized_status": "GENERATED",
+                        "import_status": "REQUIRES_REVIEW",
+                        "import_blockers": [],
                         "character": {"name": "星见雅", "level": "60", "rank": "S"},
                         "equipment": {"name": "幻变魔方"},
                         "quality": {
@@ -285,6 +298,15 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("normalized_json", html)
             self.assertIn("review_html", html)
             self.assertIn("case_expected.json", html)
+            self.assertIn("Demo 状态", html)
+            self.assertIn("MISSING_EXPECTED", html)
+            self.assertIn("Parse PASS", html)
+            self.assertIn("Expected N/A", html)
+            self.assertIn("Normalized Snapshot", html)
+            self.assertIn("GENERATED", html)
+            self.assertIn("Manual Review Gate", html)
+            self.assertIn("REQUIRES_REVIEW", html)
+            self.assertIn("requires_review 不代表解析失败", html)
             self.assertIn("培养优先级候选", html)
             self.assertIn("source status", html)
             self.assertIn("local_draft", html)
@@ -341,12 +363,40 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("parsed-dir 模式会扫描历史 parsed JSON", summary["warnings"][0])
             self.assertEqual(summary["snapshot_history"]["snapshot_count"], 1)
             self.assertEqual(summary["snapshot_history"]["no_previous_count"], 1)
+            self.assertEqual(summary["cases"][0]["parse_status"], "PASS")
+            self.assertEqual(summary["cases"][0]["expected_status"], "N/A")
+            self.assertEqual(summary["cases"][0]["normalized_status"], "GENERATED")
+            self.assertEqual(summary["cases"][0]["import_status"], "REQUIRES_REVIEW")
+            steps = {item["name"]: item["status"] for item in summary["pipeline_steps"]}
+            self.assertEqual(steps["Normalized Snapshot"], "GENERATED")
+            self.assertEqual(steps["Manual Review Gate"], "REQUIRES_REVIEW")
             self.assertTrue(Path(summary["dashboard_html"]).exists())
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
             self.assertIn("parsed found", dashboard_html)
             self.assertIn("parsed used", dashboard_html)
+            self.assertIn("requires_review 不代表解析失败", dashboard_html)
             self.assertTrue(Path(summary["cases"][0]["normalized_json"]).exists())
             self.assertEqual(summary["cases"][0]["review_html"], str(parsed_path.with_name("case_a_review.html").resolve()))
+
+    def test_run_demo_pipeline_marks_review_fail_as_parse_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            case = pipeline_tool.case_template("bad_case")
+            case["parsed_json"] = str(root / "bad_case.json")
+            case["review_status"] = "FAIL"
+            summary = pipeline_tool.summarize(
+                [case],
+                root,
+                {"source_mode": "OCR fresh image mode", "images_dir": str(root / "figs")},
+            )
+
+            self.assertEqual(summary["cases"][0]["parse_status"], "FAIL")
+            self.assertEqual(summary["cases"][0]["normalized_status"], "FAILED")
+            self.assertEqual(summary["cases"][0]["import_status"], "BLOCKED")
+            self.assertEqual(summary["overall"]["demo_status"], "HAS_PARSE_FAILURE")
+            steps = {item["name"]: item["status"] for item in summary["pipeline_steps"]}
+            self.assertEqual(steps["OCR Review"], "FAIL")
+            self.assertEqual(steps["Manual Review Gate"], "BLOCKED")
 
     def test_run_demo_pipeline_latest_only_keeps_newest_parsed_per_source_image(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -66,11 +66,11 @@ def rel_label(value: Any) -> str:
 
 def status_class(value: Any) -> str:
     text = str(value or "").lower()
-    if text in {"pass", "done", "ok", "true"}:
+    if text in {"pass", "done", "ok", "true", "generated", "ready_for_review"}:
         return "ok"
-    if text in {"needs_review", "needs-review", "uncertain", "skipped", "n/a"}:
+    if text in {"needs_review", "needs-review", "requires_review", "missing_expected", "uncertain", "skipped", "n/a"}:
         return "warn"
-    if text in {"fail", "failed", "false", "error"}:
+    if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure"}:
         return "bad"
     return "muted"
 
@@ -92,6 +92,27 @@ def basename(value: Any) -> str:
     if not value:
         return ""
     return Path(str(value)).name
+
+
+def derived_case_status(case: dict[str, Any], key: str) -> str:
+    existing = case.get(key)
+    if existing:
+        return str(existing)
+    if key == "parse_status":
+        if str(case.get("review_status") or "").upper() == "FAIL":
+            return "FAIL"
+        return "PASS" if case.get("parsed_json") else "SKIPPED"
+    if key == "expected_status":
+        if not case.get("expected_json"):
+            return "N/A"
+        if case.get("pass_rate") is None:
+            return "FAIL"
+        return "PASS" if float(case.get("pass_rate") or 0) >= 0.8 else "FAIL"
+    if key == "normalized_status":
+        return "GENERATED" if case.get("normalized_json") else "FAILED"
+    if key == "import_status":
+        return "BLOCKED" if case.get("import_blockers") else "REQUIRES_REVIEW"
+    return "N/A"
 
 
 def evidence_hint(evidence: Any) -> str:
@@ -141,6 +162,14 @@ def render_case(case: dict[str, Any]) -> str:
     if error_html:
         error_html = f'<div class="errors"><strong>Errors</strong><ul>{error_html}</ul></div>'
     expected_name = case.get("expected_json_name") or basename(case.get("expected_json")) or "missing"
+    parse_status = derived_case_status(case, "parse_status")
+    expected_status = derived_case_status(case, "expected_status")
+    normalized_status = derived_case_status(case, "normalized_status")
+    import_status = derived_case_status(case, "import_status")
+    import_blockers = case.get("import_blockers") if isinstance(case.get("import_blockers"), list) else []
+    import_blocker_html = "".join(f"<li>{e(item)}</li>" for item in import_blockers)
+    if import_blocker_html:
+        import_blocker_html = f'<div class="errors"><strong>Import blockers</strong><ul>{import_blocker_html}</ul></div>'
 
     return f"""
     <article class="case-card">
@@ -148,7 +177,7 @@ def render_case(case: dict[str, Any]) -> str:
       <div class="case-body">
         <div class="case-head">
           <h3>{e(case.get("name"))}</h3>
-          <span class="badge {status_class(case.get("review_status"))}">{e(case.get("review_status") or "N/A")}</span>
+          <span class="badge {status_class(parse_status)}">Parse {e(parse_status)}</span>
         </div>
         <div class="facts">
           <div><span>角色</span><strong>{e(character.get("name") or "")}</strong></div>
@@ -156,10 +185,14 @@ def render_case(case: dict[str, Any]) -> str:
           <div><span>评级</span><strong>{e(character.get("rank") or "")}</strong></div>
           <div><span>音擎</span><strong>{e(equipment.get("name") or "")}</strong></div>
           <div><span>覆盖</span><strong>{e(case.get("coverage_level") or "")}</strong></div>
+          <div><span>Parse</span><strong>{e(parse_status)}</strong></div>
+          <div><span>Expected 状态</span><strong>{e(expected_status)}</strong></div>
+          <div><span>Normalized</span><strong>{e(normalized_status)}</strong></div>
+          <div><span>Import</span><strong>{e(import_status)}</strong></div>
           <div><span>Expected</span><strong>{e(pass_rate)}</strong></div>
           <div><span>Expected JSON</span><strong>{e(expected_name)}</strong></div>
           <div><span>可信字段</span><strong>{e(quality.get("trusted_field_count"))}/{e(quality.get("field_count"))}</strong></div>
-          <div><span>人工确认</span><strong>{e(quality.get("requires_manual_review"))}</strong></div>
+          <div><span>requires_review</span><strong>{e(quality.get("requires_manual_review"))}</strong></div>
         </div>
         <div class="links">
           {link("review_html", case.get("review_html"))}
@@ -174,6 +207,7 @@ def render_case(case: dict[str, Any]) -> str:
           <summary>Quality blockers</summary>
           <ul>{blocker_html}</ul>
         </details>
+        {import_blocker_html}
         {error_html}
       </div>
     </article>
@@ -462,6 +496,10 @@ def render_html(summary: dict[str, Any]) -> str:
     overall = summary.get("overall", {}) if isinstance(summary.get("overall"), dict) else {}
     cases = summary.get("cases", []) if isinstance(summary.get("cases"), list) else []
     review_counts = overall.get("review_status_counts", {}) if isinstance(overall.get("review_status_counts"), dict) else {}
+    parse_counts = overall.get("parse_status_counts", {}) if isinstance(overall.get("parse_status_counts"), dict) else {}
+    expected_counts = overall.get("expected_status_counts", {}) if isinstance(overall.get("expected_status_counts"), dict) else {}
+    normalized_counts = overall.get("normalized_status_counts", {}) if isinstance(overall.get("normalized_status_counts"), dict) else {}
+    import_counts = overall.get("import_status_counts", {}) if isinstance(overall.get("import_status_counts"), dict) else {}
     avg = overall.get("average_pass_rate")
     average_pass_rate = "N/A" if avg is None else f"{round(float(avg) * 100, 2)}%"
     conclusion = overall.get("conclusion") or ""
@@ -471,9 +509,18 @@ def render_html(summary: dict[str, Any]) -> str:
     history_info = summary.get("snapshot_history", {}) if isinstance(summary.get("snapshot_history"), dict) else {}
     target_info = summary.get("target_refresh", {}) if isinstance(summary.get("target_refresh"), dict) else {}
     metrics = [
+        metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
         metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),
+        metric_card("Parse PASS", parse_counts.get("PASS", 0), "ok"),
+        metric_card("Parse FAIL", parse_counts.get("FAIL", 0), "bad"),
+        metric_card("Expected PASS", expected_counts.get("PASS", 0), "ok"),
+        metric_card("Expected FAIL", expected_counts.get("FAIL", 0), "bad"),
+        metric_card("Expected N/A", expected_counts.get("N/A", 0), "warn"),
+        metric_card("Normalized GENERATED", normalized_counts.get("GENERATED", overall.get("normalized_count", 0)), "ok"),
+        metric_card("Import BLOCKED", import_counts.get("BLOCKED", 0), "bad"),
+        metric_card("Import Review", import_counts.get("REQUIRES_REVIEW", 0), "warn"),
         metric_card("PASS", review_counts.get("PASS", 0), "ok"),
         metric_card("NEEDS_REVIEW", review_counts.get("NEEDS_REVIEW", 0), "warn"),
         metric_card("FAIL", review_counts.get("FAIL", 0), "bad"),
@@ -593,6 +640,7 @@ def render_html(summary: dict[str, Any]) -> str:
   <header>
     <h1>Miho 本地练度识别体验台</h1>
     <p>{e(conclusion)}</p>
+    <p>当前 P1.1 仍是本地 demo。即使解析通过，也不会自动导入；requires_review 不代表解析失败，而是人工确认安全门禁。</p>
   </header>
   <main>
     <section class="metrics">{''.join(metrics)}</section>
