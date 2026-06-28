@@ -555,6 +555,12 @@ target intake 会记录来源 freshness：
 * 默认 `max_source_age_hours=168`，可在 manifest 或命令行覆盖；
 * stale 来源会继续输出 targets，但会进入 warnings，不能当作“当前高难挑战”事实。
 
+target intake 也会记录轻量证据，方便审计但不保存网页全文：
+
+* `sources[].content_sha256`：公开 URL / 本地文本内容的 hash，用于确认来源内容是否变化；
+* `sources[].matched_aliases`：活动名、弱点标签、机制标签分别命中了哪些关键词；
+* `targets[].evidence.source_ref`、`title`、`excerpt`、`matched_aliases`：planner 解释目标标签时使用的来源证据。
+
 从本地保存的网页 / 文本生成 targets：
 
 ```powershell

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import ipaddress
 import json
@@ -205,6 +206,19 @@ def contains_alias(text: str, aliases: list[str]) -> bool:
     return any(alias.lower() in text_lower for alias in aliases)
 
 
+def matched_aliases(text: str, aliases: list[str]) -> list[str]:
+    text_lower = text.lower()
+    return [alias for alias in aliases if alias.lower() in text_lower]
+
+
+def source_ref(metadata: dict[str, Any]) -> str | None:
+    return metadata.get("uri") or metadata.get("path")
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
+
 def extract_activity(game: str, text: str, explicit: str | None = None) -> str:
     if explicit:
         return explicit
@@ -220,6 +234,26 @@ def extract_tags(text: str, aliases: dict[str, list[str]], explicit: list[str] |
         if tag not in tags and contains_alias(text, words):
             tags.append(tag)
     return tags
+
+
+def tag_alias_evidence(text: str, aliases: dict[str, list[str]], explicit: list[str] | None = None) -> dict[str, list[str]]:
+    evidence: dict[str, list[str]] = {}
+    for tag in explicit or []:
+        evidence[str(tag)] = ["explicit"]
+    for tag, words in aliases.items():
+        hits = matched_aliases(text, words)
+        if hits:
+            evidence[tag] = list(dict.fromkeys(evidence.get(tag, []) + hits))
+    return evidence
+
+
+def activity_alias_evidence(game: str, text: str, activity: str, explicit: str | None = None) -> list[str]:
+    if explicit:
+        return ["explicit"]
+    aliases = ACTIVITY_ALIASES.get(game, [])
+    if activity not in aliases:
+        return []
+    return matched_aliases(text, [activity])
 
 
 def parse_stat_minimums(values: list[str]) -> dict[str, Any]:
@@ -313,11 +347,20 @@ def build_target_from_source(game: str, source: dict[str, Any], index: int, *, d
     freshness = annotate_freshness(metadata, max_age_hours)
     plain_text = strip_html_markup(raw_text)
     title = extract_title(raw_text, plain_text)
+    metadata["content_sha256"] = sha256_text(raw_text)
     metadata["title"] = title
     metadata["text_excerpt"] = evidence_excerpt(plain_text)
-    activity = extract_activity(game, plain_text, source.get("activity_name"))
-    weakness_tags = extract_tags(plain_text, WEAKNESS_ALIASES, normalize_list(source.get("weakness_tags")))
-    mechanic_tags = extract_tags(plain_text, MECHANIC_ALIASES, normalize_list(source.get("mechanic_tags")))
+    explicit_activity = source.get("activity_name")
+    explicit_weakness_tags = normalize_list(source.get("weakness_tags"))
+    explicit_mechanic_tags = normalize_list(source.get("mechanic_tags"))
+    activity = extract_activity(game, plain_text, explicit_activity)
+    weakness_tags = extract_tags(plain_text, WEAKNESS_ALIASES, explicit_weakness_tags)
+    mechanic_tags = extract_tags(plain_text, MECHANIC_ALIASES, explicit_mechanic_tags)
+    metadata["matched_aliases"] = {
+        "activity": activity_alias_evidence(game, plain_text, activity, explicit_activity),
+        "weakness_tags": tag_alias_evidence(plain_text, WEAKNESS_ALIASES, explicit_weakness_tags),
+        "mechanic_tags": tag_alias_evidence(plain_text, MECHANIC_ALIASES, explicit_mechanic_tags),
+    }
     preferred_characters = normalize_list(source.get("preferred_characters"))
     minimums = source.get("minimums") if isinstance(source.get("minimums"), dict) else {}
     target = {
@@ -333,8 +376,12 @@ def build_target_from_source(game: str, source: dict[str, Any], index: int, *, d
         "minimums": minimums,
         "evidence": {
             "source_index": index,
+            "source_kind": metadata.get("kind"),
+            "source_ref": source_ref(metadata),
+            "content_sha256": metadata["content_sha256"],
             "title": title,
             "excerpt": evidence_excerpt(plain_text),
+            "matched_aliases": metadata["matched_aliases"],
         },
     }
     warnings = []

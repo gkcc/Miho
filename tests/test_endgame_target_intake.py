@@ -65,6 +65,14 @@ class EndgameTargetIntakeTests(unittest.TestCase):
             self.assertIn("fire", result["targets"][0]["weakness_tags"])
             self.assertIn("anomaly", result["targets"][0]["mechanic_tags"])
             self.assertIn("stun", result["targets"][0]["mechanic_tags"])
+            self.assertEqual(len(result["sources"][0]["content_sha256"]), 64)
+            self.assertEqual(result["targets"][0]["evidence"]["content_sha256"], result["sources"][0]["content_sha256"])
+            self.assertEqual(result["targets"][0]["evidence"]["source_kind"], "file")
+            self.assertEqual(result["targets"][0]["evidence"]["source_ref"], str(source))
+            self.assertIn("危局强袭战", result["targets"][0]["evidence"]["matched_aliases"]["activity"])
+            self.assertIn("火属性", result["targets"][0]["evidence"]["matched_aliases"]["weakness_tags"]["fire"])
+            self.assertIn("异常", result["targets"][0]["evidence"]["matched_aliases"]["mechanic_tags"]["anomaly"])
+            self.assertIn("击破", result["targets"][0]["evidence"]["matched_aliases"]["mechanic_tags"]["stun"])
             self.assertIn("不是 official_current", result["warnings"][-1])
 
     def test_public_url_validation_blocks_local_and_private_hosts(self) -> None:
@@ -118,6 +126,8 @@ class EndgameTargetIntakeTests(unittest.TestCase):
             self.assertEqual(result["targets"][0]["activity_name"], "混沌回忆")
             self.assertIn("quantum", result["targets"][0]["weakness_tags"])
             self.assertIn("follow_up", result["targets"][0]["mechanic_tags"])
+            self.assertIn("量子", result["sources"][0]["matched_aliases"]["weakness_tags"]["quantum"])
+            self.assertIn("追加攻击", result["targets"][0]["evidence"]["matched_aliases"]["mechanic_tags"]["follow_up"])
 
     def test_prepare_targets_marks_stale_local_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
