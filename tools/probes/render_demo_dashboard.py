@@ -234,6 +234,7 @@ def render_input_panel(summary: dict[str, Any]) -> str:
         <div><span>target_source_manifest</span><strong>{e(rel_label(input_info.get("target_source_manifest")) or "N/A")}</strong></div>
         <div><span>character_catalog</span><strong>{e(rel_label(input_info.get("character_catalog")) or "N/A")}</strong></div>
         <div><span>roster_dir</span><strong>{e(rel_label(input_info.get("roster_dir")) or "N/A")}</strong></div>
+        <div><span>tier_snapshot</span><strong>{e(rel_label(input_info.get("tier_snapshot")) or "N/A")}</strong></div>
         <div><span>history_dir</span><strong>{e(rel_label(input_info.get("history_dir")) or "N/A")}</strong></div>
         <div><span>latest_only</span><strong>{e(input_info.get("latest_only"))}</strong></div>
         <div><span>new_only</span><strong>{e(input_info.get("new_only"))}</strong></div>
@@ -602,6 +603,69 @@ def render_review_inbox(summary: dict[str, Any]) -> str:
     """
 
 
+def percent_label(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return f"{round(float(value) * 100, 1)}%"
+    return "N/A"
+
+
+def render_tier_watchlist(summary: dict[str, Any]) -> str:
+    watchlist = summary.get("tier_watchlist")
+    if not isinstance(watchlist, dict):
+        return ""
+    error = watchlist.get("error")
+    entries = watchlist.get("entries") if isinstance(watchlist.get("entries"), list) else []
+    tier_summary = watchlist.get("summary") if isinstance(watchlist.get("summary"), dict) else {}
+    warnings = watchlist.get("warnings") if isinstance(watchlist.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Tier Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if error:
+        body = f'<div class="errors"><strong>Tier watchlist failed</strong><ul><li>{e(error)}</li></ul></div>'
+    elif not entries:
+        body = '<div class="empty">没有 tier / 保值观察条目。</div>'
+    else:
+        rows = []
+        for item in entries[:10]:
+            owned_note = "accepted roster" if item.get("owned_status") == "accepted_roster" else "候选 ≠ 已拥有"
+            modes = "、".join(str(mode) for mode in item.get("modes", []) if mode) if isinstance(item.get("modes"), list) else ""
+            detail = (
+                f"{owned_note} · tier {item.get('tier')} · 保值 {percent_label(item.get('retention_score'))} "
+                f"· 使用 {percent_label(item.get('usage_rate'))} · {modes or '目标未标注'}"
+            )
+            rows.append(
+                "<article class=\"plan-item\">"
+                f"<div class=\"plan-rank\">{e(item.get('tier') or 'N/A')}</div>"
+                "<div>"
+                f"<h3>{e(item.get('character'))} · {e(item.get('recommendation'))}</h3>"
+                f"<p>{e(item.get('reason'))}</p>"
+                f"<span>{e(detail)}</span>"
+                "</div>"
+                f"<strong>{e(item.get('trend'))}<br>{e(item.get('owned_status'))}</strong>"
+                "</article>"
+            )
+        body = '<div class="plan-list">' + "".join(rows) + "</div>"
+    return f"""
+    <section class="panel">
+      <h2>Tier / 保值观察</h2>
+      <p class="muted-line">本区只读取本地 tier snapshot 和 accepted roster；它不是联网爬取，也不是最终抽取建议。</p>
+      <div class="links">
+        {link("tier_watchlist.md", watchlist.get("output_md"))}
+        {link("tier_watchlist.json", watchlist.get("output_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>entry count</span><strong>{e(tier_summary.get("entry_count", "N/A"))}</strong></div>
+        <div><span>已确认命中</span><strong>{e(tier_summary.get("accepted_roster_count", "N/A"))}</strong></div>
+        <div><span>已有高保值</span><strong>{e(tier_summary.get("owned_high_value_count", "N/A"))}</strong></div>
+        <div><span>观察候选</span><strong>{e(tier_summary.get("watch_candidate_count", "N/A"))}</strong></div>
+        <div><span>低保值已有</span><strong>{e(tier_summary.get("low_value_owned_count", "N/A"))}</strong></div>
+        <div><span>source</span><strong>{e(tier_summary.get("source_name", "N/A"))}</strong></div>
+      </div>
+      {warning_block}
+      {body}
+    </section>
+    """
+
+
 def render_snapshot_history(summary: dict[str, Any]) -> str:
     history = summary.get("snapshot_history")
     if not isinstance(history, dict) or not history.get("snapshot_count"):
@@ -692,6 +756,8 @@ def render_html(summary: dict[str, Any]) -> str:
     team_info = summary.get("team_cards", {}) if isinstance(summary.get("team_cards"), dict) else {}
     team_summary = team_info.get("summary", {}) if isinstance(team_info.get("summary"), dict) else {}
     inbox_info = summary.get("review_inbox", {}) if isinstance(summary.get("review_inbox"), dict) else {}
+    tier_info = summary.get("tier_watchlist", {}) if isinstance(summary.get("tier_watchlist"), dict) else {}
+    tier_summary = tier_info.get("summary", {}) if isinstance(tier_info.get("summary"), dict) else {}
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
@@ -719,6 +785,8 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("需补录/确认", action_summary.get("needs_recording_count", "N/A") if action_summary else "N/A", "warn" if action_summary.get("needs_recording_count") else "muted"),
         metric_card("待确认快照", inbox_info.get("pending_count", "N/A") if inbox_info else "N/A", "warn" if inbox_info.get("pending_count") else "muted"),
         metric_card("已确认 Box", inbox_info.get("accepted_count", "N/A") if inbox_info else "N/A", "ok" if inbox_info.get("accepted_count") else "muted"),
+        metric_card("已有高保值", tier_summary.get("owned_high_value_count", "N/A") if tier_summary else "N/A", "ok" if tier_summary.get("owned_high_value_count") else "muted"),
+        metric_card("Tier 观察候选", tier_summary.get("watch_candidate_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("watch_candidate_count") else "muted"),
         metric_card("可用队伍", team_summary.get("playable_now_count", "N/A") if team_summary else "N/A", "ok" if team_summary.get("playable_now_count") else "muted"),
         metric_card("需补录队伍", team_summary.get("needs_recording_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("needs_recording_count") else "muted"),
         metric_card("候选队伍", team_summary.get("catalog_candidate_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("catalog_candidate_count") else "muted"),
@@ -730,6 +798,7 @@ def render_html(summary: dict[str, Any]) -> str:
     snapshot_history = render_snapshot_history(summary)
     target_refresh = render_target_refresh(summary)
     review_inbox = render_review_inbox(summary)
+    tier_watchlist = render_tier_watchlist(summary)
     training_plan = render_training_plan(summary)
     action_cards = render_action_cards(summary)
     team_cards = render_team_cards(summary)
@@ -844,6 +913,7 @@ def render_html(summary: dict[str, Any]) -> str:
     {target_refresh}
     {snapshot_history}
     {review_inbox}
+    {tier_watchlist}
     {action_cards}
     {team_cards}
     {training_plan}

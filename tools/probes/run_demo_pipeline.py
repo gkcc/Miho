@@ -24,6 +24,7 @@ import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import build_action_cards as action_cards  # noqa: E402
 import build_team_cards as team_cards  # noqa: E402
+import build_tier_watchlist as tier_watchlist  # noqa: E402
 import normalize_export_parse as normalizer  # noqa: E402
 import plan_training_priorities as planner  # noqa: E402
 import prepare_endgame_targets as target_intake  # noqa: E402
@@ -766,6 +767,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     history_info = summary.get("snapshot_history", {}) if isinstance(summary.get("snapshot_history"), dict) else {}
     target_info = summary.get("target_refresh", {}) if isinstance(summary.get("target_refresh"), dict) else {}
     inbox_info = summary.get("review_inbox", {}) if isinstance(summary.get("review_inbox"), dict) else {}
+    tier_info = summary.get("tier_watchlist", {}) if isinstance(summary.get("tier_watchlist"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -793,6 +795,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
         {
             "name": "Review Inbox",
             "status": "done" if isinstance(inbox_info, dict) and inbox_info.get("schema_version") else "skipped",
+        },
+        {
+            "name": "Tier Watchlist",
+            "status": "failed"
+            if isinstance(tier_info, dict) and tier_info.get("error")
+            else "done"
+            if isinstance(tier_info, dict) and tier_info.get("output_json")
+            else "skipped",
         },
         {
             "name": "Team Cards",
@@ -1054,6 +1064,45 @@ def build_demo_team_cards(
     return info
 
 
+def build_demo_tier_watchlist(
+    tier_snapshot: Path | None,
+    output_dir: Path,
+    *,
+    roster_index: Path | None = None,
+) -> dict[str, Any] | None:
+    if tier_snapshot is None:
+        return None
+    info: dict[str, Any] = {
+        "output_json": None,
+        "output_md": None,
+        "summary": {},
+        "entries": [],
+        "warnings": [],
+        "error": None,
+    }
+    try:
+        result = tier_watchlist.build_tier_watchlist(
+            tier_snapshot=tier_snapshot,
+            roster_index=roster_index if roster_index and roster_index.exists() else None,
+            output_dir=output_dir / "tier_watchlist",
+        )
+    except tier_watchlist.TierWatchlistError as exc:
+        info["error"] = str(exc)
+        return info
+    info.update(
+        {
+            "schema_version": result.get("schema_version"),
+            "output_json": result.get("output_json"),
+            "output_md": result.get("output_md"),
+            "summary": result.get("summary", {}) if isinstance(result.get("summary"), dict) else {},
+            "entries": result.get("entries", []) if isinstance(result.get("entries"), list) else [],
+            "warnings": result.get("warnings", []) if isinstance(result.get("warnings"), list) else [],
+            "source": result.get("source", {}) if isinstance(result.get("source"), dict) else {},
+        }
+    )
+    return info
+
+
 def review_decision_source(path: Path) -> str | None:
     try:
         data = load_json(path)
@@ -1207,6 +1256,7 @@ def run_pipeline(
     target_source_manifest: Path | None = None,
     character_catalog: Path | None = None,
     roster_dir: Path | None = None,
+    tier_snapshot: Path | None = None,
     daily_stamina: float | None = None,
     horizon_days: float | None = None,
 ) -> dict[str, Any]:
@@ -1230,6 +1280,7 @@ def run_pipeline(
         "target_source_manifest": str(target_source_manifest) if target_source_manifest else None,
         "character_catalog": str(character_catalog) if character_catalog else None,
         "roster_dir": str(roster_dir or DEFAULT_ROSTER_DIR),
+        "tier_snapshot": str(tier_snapshot) if tier_snapshot else None,
         "daily_stamina": daily_stamina,
         "horizon_days": horizon_days,
     }
@@ -1337,6 +1388,18 @@ def run_pipeline(
     review_inbox = build_review_inbox(cases, active_roster_dir)
     summary["review_inbox"] = review_inbox
     summary["pipeline_steps"] = pipeline_steps(summary)
+    tier_info = build_demo_tier_watchlist(
+        tier_snapshot,
+        output_dir,
+        roster_index=Path(str(review_inbox["roster_index_json"])) if review_inbox.get("roster_index_json") else active_roster_index,
+    )
+    if tier_info is not None:
+        summary["tier_watchlist"] = tier_info
+        if tier_info.get("warnings"):
+            summary.setdefault("warnings", []).extend(tier_info["warnings"])
+        if tier_info.get("error"):
+            summary.setdefault("warnings", []).append(f"Tier watchlist failed: {tier_info['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
     team_card_info = build_demo_team_cards(
         action_card_info,
         training_plan,
@@ -1383,6 +1446,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
     parser.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for planner target matching.")
     parser.add_argument("--roster-dir", default=str(DEFAULT_ROSTER_DIR), help="Local accepted roster directory. Default: data/probes/roster.")
+    parser.add_argument("--tier-snapshot", default=None, help="Optional local tier/value snapshot JSON. Does not fetch network data.")
     parser.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
     parser.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
     parser.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
@@ -1411,6 +1475,7 @@ def main() -> int:
             target_source_manifest=resolve_path(args.target_source_manifest) if args.target_source_manifest else None,
             character_catalog=resolve_path(args.character_catalog) if args.character_catalog else None,
             roster_dir=resolve_path(args.roster_dir) if args.roster_dir else None,
+            tier_snapshot=resolve_path(args.tier_snapshot) if args.tier_snapshot else None,
             daily_stamina=args.daily_stamina,
             horizon_days=args.horizon_days,
         )
@@ -1446,6 +1511,12 @@ def main() -> int:
         print(f"review_pending_count: {summary['review_inbox'].get('pending_count', 0)}")
         print(f"review_accepted_count: {summary['review_inbox'].get('accepted_count', 0)}")
         print(f"review_rejected_count: {summary['review_inbox'].get('rejected_count', 0)}")
+    if isinstance(summary.get("tier_watchlist"), dict):
+        tier_summary = summary["tier_watchlist"].get("summary", {})
+        if isinstance(tier_summary, dict):
+            print(f"tier_entry_count: {tier_summary.get('entry_count', 0)}")
+            print(f"tier_owned_high_value_count: {tier_summary.get('owned_high_value_count', 0)}")
+            print(f"tier_watch_candidate_count: {tier_summary.get('watch_candidate_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0

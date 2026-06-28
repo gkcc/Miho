@@ -121,6 +121,34 @@ def targets_json() -> dict:
     }
 
 
+def tier_snapshot_json() -> dict:
+    return {
+        "source": {
+            "name": "unit test tier snapshot",
+            "source_type": "manual",
+            "source_ref": "local",
+        },
+        "entries": [
+            {
+                "character": "星见雅",
+                "tier": "S",
+                "retention_score": 0.9,
+                "usage_rate": "40%",
+                "trend": "stable",
+                "modes": ["危局强袭战"],
+                "value_tags": ["high_retention"],
+            },
+            {
+                "character": "珂蕾妲",
+                "tier": "A",
+                "retention_score": 0.74,
+                "trend": "unknown",
+                "modes": ["式舆防卫战"],
+            },
+        ],
+    }
+
+
 class DemoDashboardTests(unittest.TestCase):
     def test_dashboard_html_contains_case_links_and_quality(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -151,6 +179,7 @@ class DemoDashboardTests(unittest.TestCase):
                     "target_source_manifest": str(root / "target_sources.json"),
                     "history_dir": str(root / "snapshot_history"),
                     "roster_dir": str(root / "roster"),
+                    "tier_snapshot": str(root / "tier_snapshot.json"),
                 },
                 "warnings": ["当前包含历史 parsed 结果，平均通过率不代表 P0.9 replay batch"],
                 "training_plan": {
@@ -326,11 +355,55 @@ class DemoDashboardTests(unittest.TestCase):
                     ],
                     "error": None,
                 },
+                "tier_watchlist": {
+                    "schema_version": "p1.5-lite-tier-watchlist",
+                    "output_json": str(root / "tier_watchlist.json"),
+                    "output_md": str(root / "tier_watchlist.md"),
+                    "summary": {
+                        "entry_count": 2,
+                        "accepted_roster_count": 1,
+                        "candidate_count": 1,
+                        "owned_high_value_count": 1,
+                        "watch_candidate_count": 1,
+                        "low_value_owned_count": 0,
+                        "source_name": "unit test tier snapshot",
+                        "source_type": "manual",
+                    },
+                    "warnings": ["tier watchlist 只读取本地 snapshot；它不是联网爬取，也不是最终抽取建议。"],
+                    "entries": [
+                        {
+                            "character": "星见雅",
+                            "owned_status": "accepted_roster",
+                            "tier": "S",
+                            "tier_score": 90,
+                            "retention_score": 0.9,
+                            "usage_rate": 0.4,
+                            "trend": "stable",
+                            "modes": ["危局强袭战"],
+                            "recommendation": "protect_investment",
+                            "reason": "已在 accepted roster 中，且 tier/保值信号较强；后续培养和配队建议应优先保护这类投入。",
+                        },
+                        {
+                            "character": "耀嘉音",
+                            "owned_status": "not_in_roster",
+                            "tier": "S+",
+                            "tier_score": 92,
+                            "retention_score": 0.88,
+                            "usage_rate": None,
+                            "trend": "up",
+                            "modes": ["式舆防卫战"],
+                            "recommendation": "watch_candidate",
+                            "reason": "未在 accepted roster 中，但 tier/保值信号较强；这里只做观察候选，不直接生成抽取建议。",
+                        },
+                    ],
+                    "error": None,
+                },
                 "pipeline_steps": [
                     {"name": "Normalized Snapshot", "status": "GENERATED"},
                     {"name": "Manual Review Gate", "status": "REQUIRES_REVIEW"},
                     {"name": "Action Cards", "status": "done"},
                     {"name": "Review Inbox", "status": "done"},
+                    {"name": "Tier Watchlist", "status": "done"},
                     {"name": "Team Cards", "status": "done"},
                 ],
                 "target_refresh": {
@@ -449,6 +522,14 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("待确认快照", html)
             self.assertIn("已接收快照", html)
             self.assertIn("apply_review_decisions.py", html)
+            self.assertIn("tier_snapshot", html)
+            self.assertIn("Tier / 保值观察", html)
+            self.assertIn("已有高保值", html)
+            self.assertIn("Tier 观察候选", html)
+            self.assertIn("tier_watchlist.json", html)
+            self.assertIn("protect_investment", html)
+            self.assertIn("watch_candidate", html)
+            self.assertIn("不是最终抽取建议", html)
             self.assertIn("action_cards.json", html)
             self.assertIn("确认是否拥有 珂蕾妲", html)
             self.assertIn("高难配队候选", html)
@@ -631,10 +712,12 @@ class DemoDashboardTests(unittest.TestCase):
             parsed_dir = root / "parsed"
             output_dir = root / "demo"
             targets_path = root / "targets.json"
+            tier_snapshot_path = root / "tier_snapshot.json"
             parsed_dir.mkdir()
             parsed_path = parsed_dir / "case_a.json"
             parsed_path.write_text(json.dumps(parsed_json(), ensure_ascii=False), encoding="utf-8")
             targets_path.write_text(json.dumps(targets_json(), ensure_ascii=False), encoding="utf-8")
+            tier_snapshot_path.write_text(json.dumps(tier_snapshot_json(), ensure_ascii=False), encoding="utf-8")
 
             summary = pipeline_tool.run_pipeline(
                 images_dir=None,
@@ -644,6 +727,7 @@ class DemoDashboardTests(unittest.TestCase):
                 open_dashboard=False,
                 targets=targets_path,
                 roster_dir=root / "roster",
+                tier_snapshot=tier_snapshot_path,
             )
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
 
@@ -661,11 +745,16 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["team_cards"]["output_json"]).exists())
             self.assertTrue(Path(summary["team_cards"]["output_md"]).exists())
             self.assertGreater(summary["team_cards"]["summary"]["team_card_count"], 0)
+            self.assertIn("tier_watchlist", summary)
+            self.assertTrue(Path(summary["tier_watchlist"]["output_json"]).exists())
+            self.assertTrue(Path(summary["tier_watchlist"]["output_md"]).exists())
+            self.assertGreater(summary["tier_watchlist"]["summary"]["watch_candidate_count"], 0)
             self.assertTrue(Path(summary["training_plan"]["output_json"]).exists())
             self.assertTrue(Path(summary["training_plan"]["output_md"]).exists())
             self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("Action Cards", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("Review Inbox", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("Tier Watchlist", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("Team Cards", {item["name"] for item in summary["pipeline_steps"]})
             self.assertEqual(summary["review_inbox"]["pending_count"], 1)
             self.assertEqual(summary["team_cards"]["summary"]["pending_snapshot_count"], 1)
@@ -673,6 +762,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("下一步行动", dashboard_html)
             self.assertIn("高难配队候选", dashboard_html)
             self.assertIn("练度更新收件箱", dashboard_html)
+            self.assertIn("Tier / 保值观察", dashboard_html)
+            self.assertIn("tier_watchlist.json", dashboard_html)
             self.assertIn("catalog candidate 不代表已拥有", dashboard_html)
             self.assertIn("pending snapshot 尚未进入 accepted roster", dashboard_html)
             self.assertIn("今日投入建议", dashboard_html)
@@ -914,6 +1005,7 @@ class DemoDashboardTests(unittest.TestCase):
                     target_source_manifest=None,
                     character_catalog=None,
                     roster_dir="data/probes/roster",
+                    tier_snapshot=None,
                     daily_stamina=None,
                     horizon_days=None,
                 )
@@ -933,6 +1025,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIsNone(calls[0]["target_source_manifest"])
         self.assertIsNone(calls[0]["character_catalog"])
         self.assertIsNotNone(calls[0]["roster_dir"])
+        self.assertIsNone(calls[0]["tier_snapshot"])
         self.assertIsNone(calls[0]["daily_stamina"])
         self.assertIsNone(calls[0]["horizon_days"])
 
