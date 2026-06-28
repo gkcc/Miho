@@ -204,6 +204,37 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             self.assertIn("target_matches", markdown)
             self.assertIn("tag_overlap", markdown)
 
+    def test_generate_report_matches_targets_by_character_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_path = root / "snapshot.json"
+            targets_path = root / "targets.json"
+            catalog_path = root / "catalog.json"
+            targets = targets_json()
+            targets["source"] = {"type": "official_snapshot"}
+            targets["freshness"] = {"level": "fresh", "stale_source_count": 0}
+            targets["targets"][0].pop("preferred_characters")
+            targets["targets"][0]["weakness_tags"] = ["ice"]
+            targets["targets"][0]["mechanic_tags"] = ["anomaly"]
+            catalog_path.write_text(
+                json.dumps(
+                    {"characters": [{"name": "星见雅", "element": "ice", "combat_tags": ["anomaly", "slash"]}]},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            snapshot_path.write_text(json.dumps(normalized_snapshot(), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+            report = planner_tool.generate_report([snapshot_path], targets_path, root / "planner", character_catalog=catalog_path)
+
+            character = report["characters"][0]
+            self.assertEqual(report["character_catalog"]["entry_count"], 1)
+            self.assertTrue(character["catalog_match"]["matched"])
+            self.assertEqual(character["catalog_match"]["catalog_name"], "星见雅")
+            self.assertEqual(character["target_matches"][0]["match_type"], "tag_overlap")
+            self.assertEqual(character["target_matches"][0]["matched_tags"], ["anomaly", "ice"])
+
     def test_generate_report_warns_on_stale_target_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -305,6 +336,8 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
                 "targets.json",
                 "--history-index",
                 "history/index.json",
+                "--character-catalog",
+                "catalog.json",
                 "--daily-stamina",
                 "180",
                 "--horizon-days",
@@ -316,6 +349,7 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
         self.assertEqual(args.snapshot, ["a.json"])
         self.assertEqual(args.targets, "targets.json")
         self.assertEqual(args.history_index, "history/index.json")
+        self.assertEqual(args.character_catalog, "catalog.json")
         self.assertEqual(args.daily_stamina, 180)
         self.assertEqual(args.horizon_days, 5)
 

@@ -183,6 +183,7 @@ def render_input_panel(summary: dict[str, Any]) -> str:
         <div><span>parsed used</span><strong>{e(input_info.get("parsed_dir_selected_count") if input_info.get("parsed_dir_selected_count") is not None else "N/A")}</strong></div>
         <div><span>targets</span><strong>{e(rel_label(input_info.get("targets")) or "N/A")}</strong></div>
         <div><span>target_source_manifest</span><strong>{e(rel_label(input_info.get("target_source_manifest")) or "N/A")}</strong></div>
+        <div><span>character_catalog</span><strong>{e(rel_label(input_info.get("character_catalog")) or "N/A")}</strong></div>
         <div><span>history_dir</span><strong>{e(rel_label(input_info.get("history_dir")) or "N/A")}</strong></div>
         <div><span>latest_only</span><strong>{e(input_info.get("latest_only"))}</strong></div>
         <div><span>new_only</span><strong>{e(input_info.get("new_only"))}</strong></div>
@@ -225,6 +226,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     warning_block = f'<div class="warnings"><strong>Planner Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     resource = plan.get("resource_plan") if isinstance(plan.get("resource_plan"), dict) else {}
     source_status = plan.get("target_source_status") if isinstance(plan.get("target_source_status"), dict) else {}
+    catalog_summary = plan.get("character_catalog_summary") if isinstance(plan.get("character_catalog_summary"), dict) else {}
     source_status_block = ""
     if source_status:
         source_status_block = f"""
@@ -233,6 +235,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
           <div><span>source freshness</span><strong>{e(source_status.get("freshness_level", "N/A"))}</strong></div>
           <div><span>current ready</span><strong>{e(source_status.get("current_endgame_ready", "N/A"))}</strong></div>
           <div><span>plan confidence</span><strong>{e(source_status.get("planning_confidence", "N/A"))}</strong></div>
+          <div><span>catalog entries</span><strong>{e(catalog_summary.get("entry_count", "N/A"))}</strong></div>
         </div>
         """
     resource_block = ""

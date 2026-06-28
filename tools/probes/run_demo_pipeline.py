@@ -762,6 +762,7 @@ def build_training_plan(
     output_dir: Path,
     *,
     snapshot_history: dict[str, Any] | None = None,
+    character_catalog: Path | None = None,
     daily_stamina: float | None = None,
     horizon_days: float | None = None,
 ) -> dict[str, Any] | None:
@@ -770,6 +771,7 @@ def build_training_plan(
     normalized_paths = [Path(str(case["normalized_json"])) for case in cases if case.get("normalized_json")]
     plan_info: dict[str, Any] = {
         "targets_json": str(targets_path),
+        "character_catalog": str(character_catalog) if character_catalog else None,
         "snapshot_count": len(normalized_paths),
         "output_json": None,
         "output_md": None,
@@ -787,6 +789,7 @@ def build_training_plan(
             targets_path,
             output_dir / "planner",
             history_context=snapshot_history,
+            character_catalog=character_catalog,
             daily_stamina=daily_stamina,
             horizon_days=horizon_days,
         )
@@ -803,6 +806,7 @@ def build_training_plan(
             "history_context": report.get("history_context", {}) if isinstance(report.get("history_context"), dict) else {},
             "resource_plan": report.get("resource_plan", {}) if isinstance(report.get("resource_plan"), dict) else {},
             "target_source_status": report.get("target_source_status", {}) if isinstance(report.get("target_source_status"), dict) else {},
+            "character_catalog_summary": report.get("character_catalog", {}) if isinstance(report.get("character_catalog"), dict) else {},
         }
     )
     return plan_info
@@ -875,6 +879,7 @@ def run_pipeline(
     state_file: Path | None = None,
     history_dir: Path | None = None,
     target_source_manifest: Path | None = None,
+    character_catalog: Path | None = None,
     daily_stamina: float | None = None,
     horizon_days: float | None = None,
 ) -> dict[str, Any]:
@@ -896,6 +901,7 @@ def run_pipeline(
         "state_file": str(state_file) if state_file else None,
         "history_dir": str(history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME)),
         "target_source_manifest": str(target_source_manifest) if target_source_manifest else None,
+        "character_catalog": str(character_catalog) if character_catalog else None,
         "daily_stamina": daily_stamina,
         "horizon_days": horizon_days,
     }
@@ -973,6 +979,7 @@ def run_pipeline(
         active_targets,
         output_dir,
         snapshot_history=snapshot_history,
+        character_catalog=character_catalog,
         daily_stamina=daily_stamina,
         horizon_days=horizon_days,
     )
@@ -1013,6 +1020,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-file", default=None, help="Image update state JSON. Default: <output-dir>/update_state.json.")
     parser.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report from normalized snapshots.")
     parser.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
+    parser.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for planner target matching.")
     parser.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
     parser.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
     parser.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
@@ -1039,6 +1047,7 @@ def main() -> int:
             state_file=resolve_path(args.state_file) if args.state_file else None,
             history_dir=resolve_path(args.history_dir) if args.history_dir else None,
             target_source_manifest=resolve_path(args.target_source_manifest) if args.target_source_manifest else None,
+            character_catalog=resolve_path(args.character_catalog) if args.character_catalog else None,
             daily_stamina=args.daily_stamina,
             horizon_days=args.horizon_days,
         )

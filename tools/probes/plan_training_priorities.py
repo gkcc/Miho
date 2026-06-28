@@ -111,6 +111,37 @@ def normalize_list(value: Any) -> list[str]:
     return result
 
 
+def catalog_entries(character_catalog: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(character_catalog, dict):
+        return []
+    entries = character_catalog.get("entries")
+    return entries if isinstance(entries, list) else []
+
+
+def catalog_entry_for_character(name: str, character_catalog: dict[str, Any] | None) -> dict[str, Any] | None:
+    wanted = str(name).strip().lower()
+    if not wanted:
+        return None
+    for entry in catalog_entries(character_catalog):
+        if not isinstance(entry, dict):
+            continue
+        names = normalize_list(entry.get("name")) + normalize_list(entry.get("aliases"))
+        if wanted in {item.lower() for item in names}:
+            return entry
+    return None
+
+
+def catalog_combat_tags(entry: dict[str, Any] | None) -> set[str]:
+    if not isinstance(entry, dict):
+        return set()
+    tags: set[str] = set()
+    for key in ("tags", "combat_tags", "element_tags", "role_tags", "mechanic_tags"):
+        tags.update(normalize_list(entry.get(key)))
+    for key in ("element", "attribute", "role", "path"):
+        tags.update(normalize_list(entry.get(key)))
+    return {tag.lower() for tag in tags}
+
+
 def load_manifest_snapshots(manifest: Path) -> list[Path]:
     data = load_json(manifest)
     raw = data.get("snapshots")
@@ -132,6 +163,31 @@ def load_targets(path: Path) -> dict[str, Any]:
     if not isinstance(data.get("targets"), list):
         raise PlannerError("Targets JSON must contain a targets list")
     return data
+
+
+def load_character_catalog(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    data = load_json(path)
+    raw = data.get("characters", data)
+    entries: list[dict[str, Any]] = []
+    if isinstance(raw, dict):
+        for name, value in raw.items():
+            if isinstance(value, dict):
+                entry = dict(value)
+                entry.setdefault("name", name)
+            elif isinstance(value, list):
+                entry = {"name": name, "combat_tags": value}
+            else:
+                entry = {"name": name, "combat_tags": [value]}
+            entries.append(entry)
+    elif isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                entries.append(dict(item))
+    else:
+        raise PlannerError("Character catalog must be an object, a characters object, or a characters list")
+    return {"path": str(path), "entries": entries}
 
 
 def load_history_index(path: Path) -> dict[str, Any]:
@@ -215,7 +271,7 @@ def history_for_character(
     }
 
 
-def snapshot_combat_tags(snapshot: dict[str, Any]) -> set[str]:
+def snapshot_combat_tags(snapshot: dict[str, Any], catalog_entry: dict[str, Any] | None = None) -> set[str]:
     tags: set[str] = set()
     character = snapshot.get("character", {}) if isinstance(snapshot.get("character"), dict) else {}
     for key in ("tags", "combat_tags", "element_tags", "role_tags"):
@@ -223,6 +279,7 @@ def snapshot_combat_tags(snapshot: dict[str, Any]) -> set[str]:
         tags.update(normalize_list(character.get(key)))
     for key in ("element", "attribute", "role", "path"):
         tags.update(normalize_list(character.get(key)))
+    tags.update(catalog_combat_tags(catalog_entry))
     return {tag.lower() for tag in tags}
 
 
@@ -239,9 +296,14 @@ def target_tags(target: dict[str, Any]) -> set[str]:
     return {tag.lower() for tag in tags}
 
 
-def target_match_details(snapshot: dict[str, Any], targets: dict[str, Any]) -> list[dict[str, Any]]:
+def target_match_details(
+    snapshot: dict[str, Any],
+    targets: dict[str, Any],
+    character_catalog: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     name = character_name(snapshot)
-    character_tags = snapshot_combat_tags(snapshot)
+    catalog_entry = catalog_entry_for_character(name, character_catalog)
+    character_tags = snapshot_combat_tags(snapshot, catalog_entry)
     matched: list[dict[str, Any]] = []
     for target in targets.get("targets", []):
         if not isinstance(target, dict):
@@ -291,8 +353,12 @@ def target_match_details(snapshot: dict[str, Any], targets: dict[str, Any]) -> l
     return matched
 
 
-def match_targets(snapshot: dict[str, Any], targets: dict[str, Any]) -> list[dict[str, Any]]:
-    return [item["target"] for item in target_match_details(snapshot, targets)]
+def match_targets(
+    snapshot: dict[str, Any],
+    targets: dict[str, Any],
+    character_catalog: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    return [item["target"] for item in target_match_details(snapshot, targets, character_catalog)]
 
 
 def target_priority(targets: list[dict[str, Any]]) -> int:
@@ -489,8 +555,11 @@ def character_gaps(
     *,
     history_context: dict[str, Any] | None = None,
     history_index: dict[str, Any] | None = None,
+    character_catalog: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    match_details = target_match_details(snapshot, targets)
+    name = character_name(snapshot)
+    catalog_entry = catalog_entry_for_character(name, character_catalog)
+    match_details = target_match_details(snapshot, targets, character_catalog)
     matched_targets = [item["target"] for item in match_details]
     defaults = targets.get("default_minimums", {}) if isinstance(targets.get("default_minimums"), dict) else {}
     minimums = minimums_for_targets(matched_targets, defaults)
@@ -501,7 +570,6 @@ def character_gaps(
     quality = snapshot.get("quality", {}) if isinstance(snapshot.get("quality"), dict) else {}
     blocker_count = len(quality.get("blockers", [])) if isinstance(quality.get("blockers"), list) else 0
     priority = target_priority(matched_targets)
-    name = character_name(snapshot)
     history = history_for_character(name, history_context=history_context, history_index=history_index)
 
     if blocker_count:
@@ -596,6 +664,11 @@ def character_gaps(
 
     return {
         "character": name,
+        "catalog_match": {
+            "matched": catalog_entry is not None,
+            "catalog_name": catalog_entry.get("name") if isinstance(catalog_entry, dict) else None,
+            "tags": sorted(catalog_combat_tags(catalog_entry)),
+        },
         "matched_targets": target_names(matched_targets),
         "target_matches": target_match_summaries(match_details),
         "target_priority": priority,
@@ -865,6 +938,7 @@ def generate_report(
     *,
     history_context: dict[str, Any] | None = None,
     history_index: Path | None = None,
+    character_catalog: Path | None = None,
     daily_stamina: float | None = None,
     horizon_days: float | None = None,
 ) -> dict[str, Any]:
@@ -873,8 +947,15 @@ def generate_report(
     snapshots = [load_json(path) for path in snapshot_paths]
     targets = load_targets(targets_path)
     loaded_history_index = load_history_index(history_index) if history_index else None
+    loaded_character_catalog = load_character_catalog(character_catalog)
     characters = [
-        character_gaps(snapshot, targets, history_context=history_context, history_index=loaded_history_index)
+        character_gaps(
+            snapshot,
+            targets,
+            history_context=history_context,
+            history_index=loaded_history_index,
+            character_catalog=loaded_character_catalog,
+        )
         for snapshot in snapshots
     ]
     source_status = target_source_status(targets)
@@ -888,9 +969,14 @@ def generate_report(
             "snapshots": [str(path) for path in snapshot_paths],
             "targets": str(targets_path),
             "history_index": str(history_index) if history_index else None,
+            "character_catalog": str(character_catalog) if character_catalog else None,
         },
         "target_source": targets.get("source", {}),
         "target_source_status": source_status,
+        "character_catalog": {
+            "path": loaded_character_catalog.get("path") if isinstance(loaded_character_catalog, dict) else None,
+            "entry_count": len(catalog_entries(loaded_character_catalog)),
+        },
         "snapshots": [
             {
                 "character": character_name(snapshot),
@@ -926,6 +1012,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--snapshot-manifest", default=None, help="JSON manifest containing a snapshots list.")
     parser.add_argument("--targets", required=True, help="Local endgame target configuration JSON.")
     parser.add_argument("--history-index", default=None, help="Optional snapshot_history/index.json for long-term continuity context.")
+    parser.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for target matching.")
     parser.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget. Default: targets.resource_budget.daily_stamina or 240.")
     parser.add_argument("--horizon-days", type=float, default=None, help="Planning horizon in days. Default: targets.resource_budget.horizon_days or 7.")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Output directory. Default: data/probes/planner.")
@@ -943,6 +1030,7 @@ def main() -> int:
             resolve_path(args.targets),
             resolve_path(args.output_dir),
             history_index=resolve_path(args.history_index) if args.history_index else None,
+            character_catalog=resolve_path(args.character_catalog) if args.character_catalog else None,
             daily_stamina=args.daily_stamina,
             horizon_days=args.horizon_days,
         )

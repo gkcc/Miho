@@ -626,6 +626,7 @@ class DemoDashboardTests(unittest.TestCase):
                     targets=None,
                     history_dir=None,
                     target_source_manifest=None,
+                    character_catalog=None,
                     daily_stamina=None,
                     horizon_days=None,
                 )
@@ -643,6 +644,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIsNone(calls[0]["targets"])
         self.assertIsNone(calls[0]["history_dir"])
         self.assertIsNone(calls[0]["target_source_manifest"])
+        self.assertIsNone(calls[0]["character_catalog"])
         self.assertIsNone(calls[0]["daily_stamina"])
         self.assertIsNone(calls[0]["horizon_days"])
 

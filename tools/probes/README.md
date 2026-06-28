@@ -320,6 +320,7 @@ python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.js
 python tools/probes/run_demo_pipeline.py --images-dir figs --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --target-source-manifest data/probes/targets/endgame_sources_manifest.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --targets data/probes/targets/endgame_targets.json --daily-stamina 240 --horizon-days 7 --open
+python tools/probes/run_demo_pipeline.py --images-dir figs --targets data/probes/targets/endgame_targets.json --character-catalog data/probes/catalog/zzz_characters.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --history-dir data/probes/demo/snapshot_history --open
 ```
@@ -343,6 +344,7 @@ data/probes/demo/snapshot_history/index.json
 * 需要人工确认的 case 数；
 * 每张图的角色、音擎、expected JSON 文件名、review HTML、parsed JSON、normalized JSON/MD、expected diff 和 blockers。
 * 如果提供 `--targets`，还会展示培养优先级候选和 planner 报告链接。
+* 如果提供 `--character-catalog`，planner 会用本地角色标签补全做目标弱点 / 机制匹配。
 * 如果提供 `--target-source-manifest`，会先用公开 URL 或本地保存的公开页面刷新 `endgame_targets.json`，再交给 planner。
 * 如果提供 `--daily-stamina` / `--horizon-days`，planner 会把优先级转换成今日和规划窗口内的体力投入建议；默认按 240 / 7 天估算。
 * image mode 会维护本地 `update_state.json`，记录分享图 sha256 和上次处理结果。
@@ -381,6 +383,7 @@ CLI 壳：
 python tools/probes/miho_probe_cli.py demo --images-dir figs --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --target-source-manifest data/probes/targets/endgame_sources_manifest.json --open
+python tools/probes/miho_probe_cli.py demo --images-dir figs --targets data/probes/targets/endgame_targets.json --character-catalog data/probes/catalog/zzz_characters.json --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/miho_probe_cli.py demo --parsed-dir data/probes/parsed --latest-only --history-dir data/probes/demo/snapshot_history --open
 python tools/probes/miho_probe_cli.py normalize --parsed data/probes/parsed/xxx.json
@@ -421,6 +424,7 @@ python tools/probes/plan_training_priorities.py `
 python tools/probes/plan_training_priorities.py `
   --snapshot "data/probes/normalized/xxx_normalized.json" `
   --targets "data/probes/targets/zzz_endgame_targets.json" `
+  --character-catalog "data/probes/catalog/zzz_characters.json" `
   --history-index "data/probes/demo/snapshot_history/index.json" `
   --daily-stamina 240 `
   --horizon-days 7
@@ -432,6 +436,7 @@ CLI 壳：
 python tools/probes/miho_probe_cli.py plan `
   --snapshot "data/probes/normalized/xxx_normalized.json" `
   --targets "data/probes/targets/zzz_endgame_targets.json" `
+  --character-catalog "data/probes/catalog/zzz_characters.json" `
   --history-index "data/probes/demo/snapshot_history/index.json" `
   --daily-stamina 240 `
   --horizon-days 7
@@ -467,7 +472,23 @@ data/probes/planner/training_priority_report.md
 * `recommended_team_templates[].preferred_characters` 命中；
 * normalized snapshot 的 `combat_tags` / `character.tags` / `character.element` / `character.role` 与目标 `weakness_tags`、`mechanic_tags`、`preferred_tags`、`required_tags` 有交集。
 
-第三种是给“当前高难弱点 / 机制标签 -> 角色长期培养候选”的衔接口，后续可由角色 catalog 或人工确认后的 normalized snapshot 补充角色元素、定位和机制标签。
+第三种是给“当前高难弱点 / 机制标签 -> 角色长期培养候选”的衔接口，可由 `--character-catalog` 或人工确认后的 normalized snapshot 补充角色元素、定位和机制标签。
+
+角色 catalog 是本地非敏感配置，不提交真实账号数据。最小格式：
+
+```json
+{
+  "characters": [
+    {
+      "name": "星见雅",
+      "aliases": ["Miyabi"],
+      "element": "ice",
+      "role": "attack",
+      "combat_tags": ["anomaly", "slash"]
+    }
+  ]
+}
+```
 
 targets JSON 是本地配置，后续可以由官方公告 / 官方活动页解析器生成。当前建议结构：
 
