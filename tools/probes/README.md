@@ -318,6 +318,7 @@ python tools/probes/run_demo_pipeline.py --images-dir figs --open
 python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --open
 python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.json --open
 python tools/probes/run_demo_pipeline.py --images-dir figs --targets data/probes/targets/endgame_targets.json --open
+python tools/probes/run_demo_pipeline.py --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
 ```
 
 默认输入目录是本地 `figs/`，该目录只放用户手动保存的官方分享图，不提交 Git。默认输出：
@@ -337,10 +338,13 @@ data/probes/demo/index.html
 * 需要人工确认的 case 数；
 * 每张图的角色、音擎、expected JSON 文件名、review HTML、parsed JSON、normalized JSON/MD、expected diff 和 blockers。
 * 如果提供 `--targets`，还会展示培养优先级候选和 planner 报告链接。
+* image mode 会维护本地 `update_state.json`，记录分享图 sha256 和上次处理结果。
+* 如果提供 `--new-only`，只处理新增或内容变更的分享图，未变化图片会跳过。
 
 输入隔离：
 
 * 成品体验用 `scripts/run_miho_demo.bat`，它走 `figs/` 的 fresh OCR image mode。
+* 增量体验用 `--new-only --state-file data/probes/demo/update_state.json`，用于模拟“用户新增导出图后自动进入解析链路”。
 * `--parsed-dir` 是 replay 调试入口，会扫描目录中的历史 parsed JSON，可能包含旧失败结果。
 * parsed replay 只想看每张源图最新结果时加 `--latest-only`。
 * 想清空 demo 输出再跑时加 `--clean-demo`，该开关只允许清理 `data/probes/` 下的输出目录。
@@ -363,6 +367,7 @@ CLI 壳：
 ```powershell
 python tools/probes/miho_probe_cli.py demo --images-dir figs --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --targets data/probes/targets/endgame_targets.json --open
+python tools/probes/miho_probe_cli.py demo --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/miho_probe_cli.py normalize --parsed data/probes/parsed/xxx.json
 python tools/probes/miho_probe_cli.py diff --old old_normalized.json --new new_normalized.json
 ```

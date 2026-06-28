@@ -181,9 +181,31 @@ def render_input_panel(summary: dict[str, Any]) -> str:
         <div><span>manifest</span><strong>{e(rel_label(input_info.get("manifest")) or "N/A")}</strong></div>
         <div><span>targets</span><strong>{e(rel_label(input_info.get("targets")) or "N/A")}</strong></div>
         <div><span>latest_only</span><strong>{e(input_info.get("latest_only"))}</strong></div>
+        <div><span>new_only</span><strong>{e(input_info.get("new_only"))}</strong></div>
         <div><span>clean_demo</span><strong>{e(input_info.get("clean_demo"))}</strong></div>
+        <div><span>state_file</span><strong>{e(rel_label(input_info.get("state_file")) or "N/A")}</strong></div>
       </div>
       {warnings_block}
+    </section>
+    """
+
+
+def render_update_state(summary: dict[str, Any]) -> str:
+    update = summary.get("update_state")
+    if not isinstance(update, dict):
+        return ""
+    counts = update.get("status_counts") if isinstance(update.get("status_counts"), dict) else {}
+    return f"""
+    <section class="panel">
+      <h2>本地更新扫描</h2>
+      <div class="input-grid">
+        <div><span>state_file</span><strong>{e(rel_label(update.get("state_file")) or "N/A")}</strong></div>
+        <div><span>discovered</span><strong>{e(update.get("discovered_image_count", 0))}</strong></div>
+        <div><span>processed</span><strong>{e(update.get("processed_image_count", 0))}</strong></div>
+        <div><span>skipped unchanged</span><strong>{e(update.get("skipped_unchanged_count", 0))}</strong></div>
+        <div><span>new</span><strong>{e(counts.get("new", 0))}</strong></div>
+        <div><span>changed</span><strong>{e(counts.get("changed", 0))}</strong></div>
+      </div>
     </section>
     """
 
@@ -239,6 +261,7 @@ def render_html(summary: dict[str, Any]) -> str:
     conclusion = overall.get("conclusion") or ""
     input_info = summary.get("input", {}) if isinstance(summary.get("input"), dict) else {}
     plan_info = summary.get("training_plan", {}) if isinstance(summary.get("training_plan"), dict) else {}
+    update_info = summary.get("update_state", {}) if isinstance(summary.get("update_state"), dict) else {}
     metrics = [
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
@@ -249,11 +272,13 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("Expected 平均", average_pass_rate, "muted"),
         metric_card("Normalized", overall.get("normalized_count", 0), "ok"),
         metric_card("需人工确认", overall.get("requires_manual_review_count", 0), "warn"),
+        metric_card("本轮处理图片", update_info.get("processed_image_count", "N/A") if update_info else "N/A", "ok" if update_info.get("processed_image_count") else "muted"),
         metric_card("Plan Items", plan_info.get("plan_item_count", 0) if plan_info else "N/A", "warn" if plan_info.get("error") else "ok" if plan_info else "muted"),
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
     input_panel = render_input_panel(summary)
+    update_panel = render_update_state(summary)
     training_plan = render_training_plan(summary)
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -347,6 +372,7 @@ def render_html(summary: dict[str, Any]) -> str:
   <main>
     <section class="metrics">{''.join(metrics)}</section>
     {input_panel}
+    {update_panel}
     {steps}
     {training_plan}
     <section class="panel"><h2>Case 卡片</h2><div class="case-grid">{cards}</div></section>

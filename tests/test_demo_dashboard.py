@@ -297,6 +297,73 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("培养优先级候选", dashboard_html)
             self.assertIn("先人工确认解析结果", dashboard_html)
 
+    def test_run_demo_pipeline_image_mode_writes_update_state_and_new_only_skips_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images_dir = root / "figs"
+            output_dir = root / "demo"
+            state_file = root / "update_state.json"
+            images_dir.mkdir()
+            image_a = images_dir / "a.jpg"
+            image_b = images_dir / "b.jpg"
+            image_a.write_bytes(b"image-a-v1")
+            image_b.write_bytes(b"image-b-v1")
+            processed: list[str] = []
+            original_process = pipeline_tool.process_image_case
+
+            def fake_process_image_case(image_path, *, name, output_dir, expected_dir, engine, game, layout):  # noqa: ANN001, ANN003
+                processed.append(Path(image_path).name)
+                case = pipeline_tool.case_template(name)
+                case["image"] = str(Path(image_path).resolve())
+                case["review_status"] = "PASS"
+                return case
+
+            pipeline_tool.process_image_case = fake_process_image_case
+            try:
+                first = pipeline_tool.run_pipeline(
+                    images_dir=images_dir,
+                    parsed_dir=None,
+                    manifest=None,
+                    output_dir=output_dir,
+                    state_file=state_file,
+                    open_dashboard=False,
+                )
+                self.assertEqual(processed, ["a.jpg", "b.jpg"])
+                self.assertTrue(state_file.exists())
+                self.assertEqual(first["update_state"]["processed_image_count"], 2)
+
+                processed.clear()
+                second = pipeline_tool.run_pipeline(
+                    images_dir=images_dir,
+                    parsed_dir=None,
+                    manifest=None,
+                    output_dir=output_dir,
+                    state_file=state_file,
+                    new_only=True,
+                    open_dashboard=False,
+                )
+                self.assertEqual(processed, [])
+                self.assertEqual(second["overall"]["case_count"], 0)
+                self.assertEqual(second["update_state"]["skipped_unchanged_count"], 2)
+                self.assertIn("new-only 模式没有发现新增或变更图片", second["warnings"][0])
+
+                image_b.write_bytes(b"image-b-v2")
+                processed.clear()
+                third = pipeline_tool.run_pipeline(
+                    images_dir=images_dir,
+                    parsed_dir=None,
+                    manifest=None,
+                    output_dir=output_dir,
+                    state_file=state_file,
+                    new_only=True,
+                    open_dashboard=False,
+                )
+                self.assertEqual(processed, ["b.jpg"])
+                self.assertEqual(third["update_state"]["status_counts"]["changed"], 1)
+                self.assertEqual(third["update_state"]["processed_image_count"], 1)
+            finally:
+                pipeline_tool.process_image_case = original_process
+
     def test_cli_demo_command_calls_pipeline_core(self) -> None:
         calls = []
         original_run_pipeline = cli_tool.demo_tool.run_pipeline
@@ -319,7 +386,9 @@ class DemoDashboardTests(unittest.TestCase):
                     layout="zzz-agent-card",
                     open=False,
                     latest_only=False,
+                    new_only=False,
                     clean_demo=False,
+                    state_file=None,
                     targets=None,
                 )
             )
@@ -331,6 +400,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertEqual(calls[0]["engine"], "paddle")
         self.assertIsNotNone(calls[0]["images_dir"])
         self.assertFalse(calls[0]["latest_only"])
+        self.assertFalse(calls[0]["new_only"])
+        self.assertIsNone(calls[0]["state_file"])
         self.assertIsNone(calls[0]["targets"])
 
 

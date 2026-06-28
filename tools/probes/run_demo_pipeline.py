@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -29,6 +30,7 @@ import render_export_review as review_render  # noqa: E402
 DEFAULT_IMAGES_DIR = PROJECT_ROOT / "figs"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
+UPDATE_STATE_FILENAME = "update_state.json"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 PARSED_DIR_HISTORY_WARNING_CASES = 5
 MODE_OCR_FRESH_IMAGE = "OCR fresh image mode"
@@ -111,6 +113,122 @@ def image_files(images_dir: Path) -> list[Path]:
     if not images_dir.is_dir():
         raise DemoPipelineError(f"Images path is not a directory: {images_dir}")
     return sorted(path for path in images_dir.iterdir() if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def image_fingerprint(path: Path) -> dict[str, Any]:
+    stat = path.stat()
+    return {
+        "path": str(path.resolve()),
+        "name": path.name,
+        "size": stat.st_size,
+        "mtime": stat.st_mtime,
+        "sha256": sha256_file(path),
+    }
+
+
+def load_update_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"schema_version": "p1.4-update-state-draft", "images": {}}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise DemoPipelineError(f"Invalid update state JSON: {path}. Details: {exc}") from exc
+    if not isinstance(data, dict):
+        raise DemoPipelineError(f"Expected update state object: {path}")
+    if not isinstance(data.get("images"), dict):
+        data["images"] = {}
+    data.setdefault("schema_version", "p1.4-update-state-draft")
+    return data
+
+
+def image_update_records(paths: list[Path], state: dict[str, Any], new_only: bool) -> tuple[list[dict[str, Any]], list[Path]]:
+    records: list[dict[str, Any]] = []
+    selected: list[Path] = []
+    images = state.get("images", {}) if isinstance(state.get("images"), dict) else {}
+    for path in paths:
+        fingerprint = image_fingerprint(path)
+        previous = images.get(fingerprint["path"])
+        if not isinstance(previous, dict):
+            status = "new"
+        elif previous.get("sha256") == fingerprint["sha256"]:
+            status = "unchanged"
+        else:
+            status = "changed"
+        should_process = (not new_only) or status in {"new", "changed"}
+        if should_process:
+            selected.append(path)
+        records.append(
+            {
+                "image": fingerprint["path"],
+                "name": fingerprint["name"],
+                "sha256": fingerprint["sha256"],
+                "size": fingerprint["size"],
+                "mtime": fingerprint["mtime"],
+                "previous_sha256": previous.get("sha256") if isinstance(previous, dict) else None,
+                "status": status,
+                "processed": should_process,
+            }
+        )
+    return records, selected
+
+
+def update_case_state_entry(case: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "path": record["image"],
+        "name": record["name"],
+        "sha256": record["sha256"],
+        "size": record["size"],
+        "mtime": record["mtime"],
+        "last_seen_at": normalizer.now_iso(),
+        "last_processed_at": normalizer.now_iso() if record.get("processed") else None,
+        "update_status": record["status"],
+        "review_status": case.get("review_status"),
+        "coverage_level": case.get("coverage_level"),
+        "parsed_json": case.get("parsed_json"),
+        "normalized_json": case.get("normalized_json"),
+        "character": case.get("character"),
+        "equipment": case.get("equipment"),
+        "errors": case.get("errors", []),
+    }
+
+
+def write_update_state(path: Path, state: dict[str, Any], records: list[dict[str, Any]], cases: list[dict[str, Any]]) -> None:
+    images = state.get("images", {}) if isinstance(state.get("images"), dict) else {}
+    case_by_image = {}
+    for case in cases:
+        if case.get("image"):
+            case_by_image[str(Path(str(case["image"])).resolve())] = case
+    for record in records:
+        if not record.get("processed"):
+            continue
+        case = case_by_image.get(record["image"], {})
+        images[record["image"]] = update_case_state_entry(case, record)
+    state["images"] = images
+    state["updated_at"] = normalizer.now_iso()
+    write_json(path, state)
+
+
+def build_update_summary(path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
+    counts: dict[str, int] = {"new": 0, "changed": 0, "unchanged": 0}
+    for record in records:
+        status = str(record.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return {
+        "state_file": str(path),
+        "discovered_image_count": len(records),
+        "processed_image_count": sum(1 for record in records if record.get("processed")),
+        "skipped_unchanged_count": sum(1 for record in records if record.get("status") == "unchanged" and not record.get("processed")),
+        "status_counts": counts,
+        "records": records,
+    }
 
 
 def parsed_files(parsed_dir: Path) -> list[Path]:
@@ -423,6 +541,9 @@ def build_warnings(cases: list[dict[str, Any]], input_info: dict[str, Any]) -> l
             warnings.append("parsed-dir 模式会扫描历史 parsed JSON，可能包含旧失败结果；准确率验收请使用 manifest。")
         if not input_info.get("latest_only") and len(cases) > PARSED_DIR_HISTORY_WARNING_CASES:
             warnings.append("当前包含历史 parsed 结果，平均通过率不代表 P0.9 replay batch")
+    update_state = input_info.get("update_state")
+    if isinstance(update_state, dict) and input_info.get("new_only") and update_state.get("processed_image_count") == 0:
+        warnings.append("new-only 模式没有发现新增或变更图片，本轮不会重新 OCR。")
     return warnings
 
 
@@ -539,6 +660,8 @@ def run_pipeline(
     latest_only: bool = False,
     clean_demo: bool = False,
     targets: Path | None = None,
+    new_only: bool = False,
+    state_file: Path | None = None,
 ) -> dict[str, Any]:
     if clean_demo:
         clean_demo_output_dir(output_dir)
@@ -552,6 +675,8 @@ def run_pipeline(
         "latest_only": bool(latest_only),
         "clean_demo": bool(clean_demo),
         "targets": str(targets) if targets else None,
+        "new_only": bool(new_only),
+        "state_file": str(state_file) if state_file else None,
     }
     if manifest:
         for raw in manifest_cases(manifest):
@@ -585,7 +710,12 @@ def run_pipeline(
     else:
         active_images_dir = images_dir or DEFAULT_IMAGES_DIR
         input_info["images_dir"] = str(active_images_dir)
-        for image_path in image_files(active_images_dir):
+        active_state_file = state_file or (output_dir / UPDATE_STATE_FILENAME)
+        input_info["state_file"] = str(active_state_file)
+        state = load_update_state(active_state_file)
+        update_records, selected_images = image_update_records(image_files(active_images_dir), state, new_only)
+        input_info["update_state"] = build_update_summary(active_state_file, update_records)
+        for image_path in selected_images:
             cases.append(
                 process_image_case(
                     image_path,
@@ -597,8 +727,11 @@ def run_pipeline(
                     layout=layout,
                 )
             )
+        write_update_state(active_state_file, state, update_records, cases)
 
     summary = summarize(cases, output_dir, input_info)
+    if isinstance(input_info.get("update_state"), dict):
+        summary["update_state"] = input_info["update_state"]
     training_plan = build_training_plan(cases, targets, output_dir)
     if training_plan is not None:
         summary["training_plan"] = training_plan
@@ -632,7 +765,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--layout", choices=("full", "zzz-agent-card"), default="zzz-agent-card", help="Layout hint. Default: zzz-agent-card.")
     parser.add_argument("--open", action="store_true", help="Open generated dashboard in the default browser.")
     parser.add_argument("--latest-only", action="store_true", help="In parsed-dir mode, keep only the newest parsed JSON for each source image.")
+    parser.add_argument("--new-only", action="store_true", help="In image mode, process only new or changed images according to the update state file.")
     parser.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
+    parser.add_argument("--state-file", default=None, help="Image update state JSON. Default: <output-dir>/update_state.json.")
     parser.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report from normalized snapshots.")
     return parser
 
@@ -653,6 +788,8 @@ def main() -> int:
             latest_only=args.latest_only,
             clean_demo=args.clean_demo,
             targets=resolve_path(args.targets) if args.targets else None,
+            new_only=args.new_only,
+            state_file=resolve_path(args.state_file) if args.state_file else None,
         )
     except (DemoPipelineError, normalizer.NormalizeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -665,6 +802,9 @@ def main() -> int:
     print(f"parse_success_count: {overall['parse_success_count']}")
     print(f"normalized_count: {overall['normalized_count']}")
     print(f"requires_manual_review_count: {overall['requires_manual_review_count']}")
+    if isinstance(summary.get("update_state"), dict):
+        print(f"processed_image_count: {summary['update_state'].get('processed_image_count', 0)}")
+        print(f"skipped_unchanged_count: {summary['update_state'].get('skipped_unchanged_count', 0)}")
     if isinstance(summary.get("training_plan"), dict):
         print(f"plan_item_count: {summary['training_plan'].get('plan_item_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")

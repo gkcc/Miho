@@ -33,6 +33,8 @@ def run_demo(args: argparse.Namespace) -> int:
         latest_only=args.latest_only,
         clean_demo=args.clean_demo,
         targets=demo_tool.resolve_path(args.targets) if args.targets else None,
+        new_only=args.new_only,
+        state_file=demo_tool.resolve_path(args.state_file) if args.state_file else None,
     )
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
@@ -117,7 +119,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     demo.add_argument("--layout", choices=("full", "zzz-agent-card"), default="zzz-agent-card")
     demo.add_argument("--open", action="store_true", help="Open generated dashboard.")
     demo.add_argument("--latest-only", action="store_true", help="In parsed-dir mode, keep only the newest parsed JSON for each source image.")
+    demo.add_argument("--new-only", action="store_true", help="In image mode, process only new or changed images according to the update state file.")
     demo.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
+    demo.add_argument("--state-file", default=None, help="Image update state JSON. Default: <output-dir>/update_state.json.")
     demo.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report.")
     demo.set_defaults(handler=run_demo)
 
