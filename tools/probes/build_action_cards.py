@@ -103,6 +103,21 @@ def snapshot_sources(report: dict[str, Any]) -> dict[str, str]:
     return result
 
 
+def snapshot_json_sources(report: dict[str, Any]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    snapshot_paths = []
+    input_info = report.get("input") if isinstance(report.get("input"), dict) else {}
+    if isinstance(input_info.get("snapshots"), list):
+        snapshot_paths = [str(item) for item in input_info["snapshots"] if item]
+    snapshots = report.get("snapshots") if isinstance(report.get("snapshots"), list) else []
+    for index, item in enumerate(snapshots):
+        if not isinstance(item, dict) or not item.get("character"):
+            continue
+        if index < len(snapshot_paths):
+            result[str(item["character"])] = snapshot_paths[index]
+    return result
+
+
 def first_target_label(value: Any) -> str:
     text = str(value or "")
     if "、" in text:
@@ -117,14 +132,21 @@ def evidence_for(target: str, character: str, report: dict[str, Any]) -> dict[st
         "target_hash": evidence.get("content_sha256_short") or short_hash(evidence.get("content_sha256")),
         "matched_aliases": evidence.get("matched_aliases", {}) if isinstance(evidence.get("matched_aliases"), dict) else {},
         "snapshot_source": snapshot_sources(report).get(character),
+        "snapshot_json": snapshot_json_sources(report).get(character),
     }
 
 
-def card_links(planner_report: Path, target_source: Any | None = None, snapshot_source: Any | None = None) -> dict[str, Any]:
+def card_links(
+    planner_report: Path,
+    target_source: Any | None = None,
+    snapshot_json: Any | None = None,
+    snapshot_source: Any | None = None,
+) -> dict[str, Any]:
     return {
         "planner_report": str(planner_report),
         "target_source": target_source,
-        "normalized_json": snapshot_source,
+        "normalized_json": snapshot_json,
+        "snapshot_source": snapshot_source,
     }
 
 
@@ -149,7 +171,12 @@ def plan_item_card(item: dict[str, Any], report: dict[str, Any], planner_report:
         },
         "source_class": "owned",
         "status": status,
-        "links": card_links(planner_report, evidence.get("target_source"), evidence.get("snapshot_source")),
+        "links": card_links(
+            planner_report,
+            evidence.get("target_source"),
+            evidence.get("snapshot_json"),
+            evidence.get("snapshot_source"),
+        ),
     }
 
 
@@ -187,7 +214,7 @@ def gap_action_card(item: dict[str, Any], report: dict[str, Any], planner_report
         "source_class": source_class,
         "candidate_owned": item.get("owned"),
         "status": status,
-        "links": card_links(planner_report, evidence.get("target_source"), None),
+        "links": card_links(planner_report, evidence.get("target_source"), None, evidence.get("snapshot_source")),
     }
 
 

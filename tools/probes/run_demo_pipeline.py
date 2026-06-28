@@ -23,6 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import build_action_cards as action_cards  # noqa: E402
+import build_team_cards as team_cards  # noqa: E402
 import normalize_export_parse as normalizer  # noqa: E402
 import plan_training_priorities as planner  # noqa: E402
 import prepare_endgame_targets as target_intake  # noqa: E402
@@ -787,6 +788,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(summary.get("action_cards"), dict) and summary["action_cards"].get("output_json")
             else "skipped",
         },
+        {
+            "name": "Team Cards",
+            "status": "failed"
+            if isinstance(summary.get("team_cards"), dict) and summary["team_cards"].get("error")
+            else "done"
+            if isinstance(summary.get("team_cards"), dict) and summary["team_cards"].get("output_json")
+            else "skipped",
+        },
     ]
 
 
@@ -971,6 +980,51 @@ def build_demo_action_cards(training_plan: dict[str, Any] | None, targets_path: 
             output_dir=output_dir / "actions",
         )
     except action_cards.ActionCardError as exc:
+        info["error"] = str(exc)
+        return info
+    info.update(
+        {
+            "output_json": result.get("output_json"),
+            "output_md": result.get("output_md"),
+            "summary": result.get("summary", {}) if isinstance(result.get("summary"), dict) else {},
+            "cards": result.get("cards", []) if isinstance(result.get("cards"), list) else [],
+            "warnings": result.get("warnings", []) if isinstance(result.get("warnings"), list) else [],
+        }
+    )
+    return info
+
+
+def build_demo_team_cards(
+    action_card_info: dict[str, Any] | None,
+    training_plan: dict[str, Any] | None,
+    output_dir: Path,
+    *,
+    character_catalog: Path | None = None,
+) -> dict[str, Any] | None:
+    if (
+        not isinstance(action_card_info, dict)
+        or not action_card_info.get("output_json")
+        or not isinstance(training_plan, dict)
+        or not training_plan.get("output_json")
+    ):
+        return None
+    info: dict[str, Any] = {
+        "output_json": None,
+        "output_md": None,
+        "summary": {},
+        "cards": [],
+        "warnings": [],
+        "error": None,
+    }
+    try:
+        result = team_cards.build_team_cards(
+            action_cards=Path(str(action_card_info["output_json"])),
+            planner_report=Path(str(training_plan["output_json"])),
+            character_catalog=character_catalog,
+            snapshots_dir=output_dir / "normalized",
+            output_dir=output_dir / "teams",
+        )
+    except team_cards.TeamCardError as exc:
         info["error"] = str(exc)
         return info
     info.update(
@@ -1171,6 +1225,14 @@ def run_pipeline(
             summary.setdefault("warnings", []).extend(action_card_info["warnings"])
         if action_card_info.get("error"):
             summary.setdefault("warnings", []).append(f"Action cards failed: {action_card_info['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
+    team_card_info = build_demo_team_cards(action_card_info, training_plan, output_dir, character_catalog=character_catalog)
+    if team_card_info is not None:
+        summary["team_cards"] = team_card_info
+        if team_card_info.get("warnings"):
+            summary.setdefault("warnings", []).extend(team_card_info["warnings"])
+        if team_card_info.get("error"):
+            summary.setdefault("warnings", []).append(f"Team cards failed: {team_card_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
     summary_path = output_dir / "demo_summary.json"
     write_json(summary_path, summary)

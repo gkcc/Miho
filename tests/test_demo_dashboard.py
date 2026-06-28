@@ -267,10 +267,67 @@ class DemoDashboardTests(unittest.TestCase):
                     ],
                     "error": None,
                 },
+                "team_cards": {
+                    "output_json": str(root / "team_cards.json"),
+                    "output_md": str(root / "team_cards.md"),
+                    "summary": {
+                        "target_count": 2,
+                        "team_card_count": 2,
+                        "playable_now_count": 0,
+                        "needs_recording_count": 0,
+                        "catalog_candidate_count": 1,
+                    },
+                    "warnings": ["队伍候选基于本地快照和本地 catalog；catalog candidate 不代表已拥有。"],
+                    "cards": [
+                        {
+                            "rank": 1,
+                            "target": "危局强袭战 稳定通关",
+                            "target_priority": "high",
+                            "team_status": "incomplete",
+                            "team_title": "队伍雏形: 危局强袭战 稳定通关",
+                            "coverage_reason": "星见雅 只能形成队伍雏形，缺少完整队伍证据。",
+                            "members": [
+                                {
+                                    "slot": "core",
+                                    "character": "星见雅",
+                                    "source_class": "owned_snapshot",
+                                    "snapshot_json": str(root / "case_normalized.json"),
+                                    "confidence": "high",
+                                }
+                            ],
+                            "evidence": {
+                                "target_source": str(root / "target_source.html"),
+                                "target_hash": "abcdef123456",
+                            },
+                            "warnings": ["当前只是队伍雏形，不代表完整可用配队。"],
+                        },
+                        {
+                            "rank": 2,
+                            "target": "式舆防卫战 满星尝试",
+                            "target_priority": "high",
+                            "team_status": "needs_candidate_confirmation",
+                            "team_title": "待确认队伍候选: 式舆防卫战 满星尝试",
+                            "coverage_reason": "珂蕾妲 仍是 catalog 候选，先确认拥有状态。",
+                            "members": [
+                                {
+                                    "slot": "core",
+                                    "character": "珂蕾妲",
+                                    "source_class": "catalog_candidate",
+                                    "snapshot_json": None,
+                                    "confidence": "low",
+                                }
+                            ],
+                            "evidence": {"target_hash": "222222222222"},
+                            "warnings": ["catalog candidate 不代表已拥有；需要人工确认或补录官方分享图。"],
+                        },
+                    ],
+                    "error": None,
+                },
                 "pipeline_steps": [
                     {"name": "Normalized Snapshot", "status": "GENERATED"},
                     {"name": "Manual Review Gate", "status": "REQUIRES_REVIEW"},
                     {"name": "Action Cards", "status": "done"},
+                    {"name": "Team Cards", "status": "done"},
                 ],
                 "target_refresh": {
                     "manifest": str(root / "target_sources.json"),
@@ -361,6 +418,14 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("需补录/确认", html)
             self.assertIn("action_cards.json", html)
             self.assertIn("确认是否拥有 珂蕾妲", html)
+            self.assertIn("高难配队候选", html)
+            self.assertIn("可用队伍", html)
+            self.assertIn("需补录队伍", html)
+            self.assertIn("候选队伍", html)
+            self.assertIn("team_cards.json", html)
+            self.assertIn("owned_snapshot", html)
+            self.assertIn("catalog_candidate", html)
+            self.assertIn("catalog candidate 不代表已拥有", html)
             self.assertIn("培养优先级候选", html)
             self.assertIn("source status", html)
             self.assertIn("local_draft", html)
@@ -415,6 +480,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["input"]["parsed_dir_discovered_count"], 1)
             self.assertEqual(summary["input"]["parsed_dir_selected_count"], 1)
             self.assertIn("parsed-dir 模式会扫描历史 parsed JSON", summary["warnings"][0])
+            self.assertNotIn("action_cards", summary)
+            self.assertNotIn("team_cards", summary)
             self.assertEqual(summary["snapshot_history"]["snapshot_count"], 1)
             self.assertEqual(summary["snapshot_history"]["no_previous_count"], 1)
             self.assertEqual(summary["cases"][0]["parse_status"], "PASS")
@@ -549,12 +616,19 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["action_cards"]["output_json"]).exists())
             self.assertTrue(Path(summary["action_cards"]["output_md"]).exists())
             self.assertGreater(summary["action_cards"]["summary"]["high_priority_action_count"], 0)
+            self.assertIn("team_cards", summary)
+            self.assertTrue(Path(summary["team_cards"]["output_json"]).exists())
+            self.assertTrue(Path(summary["team_cards"]["output_md"]).exists())
+            self.assertGreater(summary["team_cards"]["summary"]["team_card_count"], 0)
             self.assertTrue(Path(summary["training_plan"]["output_json"]).exists())
             self.assertTrue(Path(summary["training_plan"]["output_md"]).exists())
             self.assertIn("Training Plan", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("Action Cards", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("Team Cards", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("培养优先级候选", dashboard_html)
             self.assertIn("下一步行动", dashboard_html)
+            self.assertIn("高难配队候选", dashboard_html)
+            self.assertIn("catalog candidate 不代表已拥有", dashboard_html)
             self.assertIn("今日投入建议", dashboard_html)
             self.assertIn("先人工确认解析结果", dashboard_html)
 

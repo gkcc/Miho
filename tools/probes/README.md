@@ -370,6 +370,8 @@ data/probes/demo/snapshot_history/index.json
 * 当前阶段始终不会自动导入正式数据库，即使 `Parse PASS` / `Normalized GENERATED` 也只表示可以进入人工复核。
 * 如果 demo 已生成 planner report，还会生成 `action_cards.json/md` 并在 Dashboard 显示“下一步行动”；这些行动卡只收敛已有 planner/evidence 结论，不重新联网、不自动导入、不代表正式抽卡建议。
 * 行动卡中的 catalog candidate 必须按“候选 ≠ 已拥有”处理，只有 normalized snapshot 中出现的角色才算当前 box 已记录角色。
+* 如果 action cards 和 planner report 都存在，还会生成 `team_cards.json/md` 并在 Dashboard 显示“高难配队候选”；队伍候选只基于本地 snapshot、planner evidence 和本地 catalog 候选，不是正式 tier list。
+* Team card 里的 `catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 `owned_snapshot` 才来自本地 normalized snapshot。
 
 P0.9 replay batch 验收命令：
 
@@ -392,6 +394,19 @@ python tools/probes/build_action_cards.py `
   --snapshots-dir data/probes/demo/normalized `
   --output-dir data/probes/demo/actions
 ```
+
+P1.3-lite 高难配队候选卡单独生成命令：
+
+```powershell
+python tools/probes/build_team_cards.py `
+  --action-cards data/probes/demo/actions/action_cards.json `
+  --planner-report data/probes/demo/planner/training_priority_report.json `
+  --character-catalog data/probes/catalog/zzz_characters.json `
+  --snapshots-dir data/probes/demo/normalized `
+  --output-dir data/probes/demo/teams
+```
+
+Team cards 是本地证据驱动的队伍雏形视图，不做复杂战斗模拟、不生成正式抽卡建议、不把 catalog candidate 当作 owned。缺少 normalized snapshot 的角色必须先补录官方分享图或人工确认。
 
 CLI 壳：
 

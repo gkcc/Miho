@@ -482,6 +482,74 @@ def render_action_cards(summary: dict[str, Any]) -> str:
     """
 
 
+def render_team_cards(summary: dict[str, Any]) -> str:
+    teams = summary.get("team_cards")
+    if not isinstance(teams, dict):
+        return ""
+    error = teams.get("error")
+    cards = teams.get("cards") if isinstance(teams.get("cards"), list) else []
+    team_summary = teams.get("summary") if isinstance(teams.get("summary"), dict) else {}
+    warnings = teams.get("warnings") if isinstance(teams.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Team Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if error:
+        body = f'<div class="errors"><strong>Team cards failed</strong><ul><li>{e(error)}</li></ul></div>'
+    elif not cards:
+        body = '<div class="empty">没有生成高难配队候选卡。</div>'
+    else:
+        rows = []
+        for item in cards[:8]:
+            evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+            members = item.get("members") if isinstance(item.get("members"), list) else []
+            member_bits = []
+            for member in members:
+                if not isinstance(member, dict):
+                    continue
+                member_bits.append(
+                    f"{member.get('slot')}: {member.get('character')} [{member.get('source_class')}]"
+                )
+            card_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
+            warning_text = "；".join(str(warning) for warning in card_warnings) or "none"
+            evidence_bits = []
+            if evidence.get("target_source"):
+                evidence_bits.append(str(evidence.get("target_source")))
+            if evidence.get("target_hash"):
+                evidence_bits.append(str(evidence.get("target_hash")))
+            rows.append(
+                "<article class=\"plan-item\">"
+                f"<div class=\"plan-rank\">#{e(item.get('rank'))}</div>"
+                "<div>"
+                f"<h3>{e(item.get('team_title'))}</h3>"
+                f"<p>{e(item.get('coverage_reason'))}</p>"
+                f"<span>{e(' / '.join(member_bits) or '无成员')}</span>"
+                f"<span>evidence: {e(' · '.join(evidence_bits) or 'N/A')}</span>"
+                f"<span>warning: {e(warning_text)}</span>"
+                "</div>"
+                f"<strong>{e(item.get('target_priority'))}<br>{e(item.get('team_status'))}</strong>"
+                "</article>"
+            )
+        body = '<div class="plan-list">' + "".join(rows) + "</div>"
+    return f"""
+    <section class="panel">
+      <h2>高难配队候选</h2>
+      <p class="muted-line">队伍候选基于本地快照和本地 catalog；catalog candidate 不代表已拥有。</p>
+      <div class="links">
+        {link("team_cards.md", teams.get("output_md"))}
+        {link("team_cards.json", teams.get("output_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>target count</span><strong>{e(team_summary.get("target_count", "N/A"))}</strong></div>
+        <div><span>team cards</span><strong>{e(team_summary.get("team_card_count", "N/A"))}</strong></div>
+        <div><span>playable now</span><strong>{e(team_summary.get("playable_now_count", "N/A"))}</strong></div>
+        <div><span>needs recording</span><strong>{e(team_summary.get("needs_recording_count", "N/A"))}</strong></div>
+        <div><span>catalog candidates</span><strong>{e(team_summary.get("catalog_candidate_count", "N/A"))}</strong></div>
+      </div>
+      {warning_block}
+      {body}
+    </section>
+    """
+
+
 def render_snapshot_history(summary: dict[str, Any]) -> str:
     history = summary.get("snapshot_history")
     if not isinstance(history, dict) or not history.get("snapshot_count"):
@@ -569,6 +637,8 @@ def render_html(summary: dict[str, Any]) -> str:
     target_info = summary.get("target_refresh", {}) if isinstance(summary.get("target_refresh"), dict) else {}
     action_info = summary.get("action_cards", {}) if isinstance(summary.get("action_cards"), dict) else {}
     action_summary = action_info.get("summary", {}) if isinstance(action_info.get("summary"), dict) else {}
+    team_info = summary.get("team_cards", {}) if isinstance(summary.get("team_cards"), dict) else {}
+    team_summary = team_info.get("summary", {}) if isinstance(team_info.get("summary"), dict) else {}
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
@@ -594,6 +664,9 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("Plan Items", plan_info.get("plan_item_count", 0) if plan_info else "N/A", "warn" if plan_info.get("error") else "ok" if plan_info else "muted"),
         metric_card("高优先级行动", action_summary.get("high_priority_action_count", "N/A") if action_summary else "N/A", "ok" if action_summary.get("high_priority_action_count") else "muted"),
         metric_card("需补录/确认", action_summary.get("needs_recording_count", "N/A") if action_summary else "N/A", "warn" if action_summary.get("needs_recording_count") else "muted"),
+        metric_card("可用队伍", team_summary.get("playable_now_count", "N/A") if team_summary else "N/A", "ok" if team_summary.get("playable_now_count") else "muted"),
+        metric_card("需补录队伍", team_summary.get("needs_recording_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("needs_recording_count") else "muted"),
+        metric_card("候选队伍", team_summary.get("catalog_candidate_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("catalog_candidate_count") else "muted"),
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
@@ -603,6 +676,7 @@ def render_html(summary: dict[str, Any]) -> str:
     target_refresh = render_target_refresh(summary)
     training_plan = render_training_plan(summary)
     action_cards = render_action_cards(summary)
+    team_cards = render_team_cards(summary)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -714,6 +788,7 @@ def render_html(summary: dict[str, Any]) -> str:
     {target_refresh}
     {snapshot_history}
     {action_cards}
+    {team_cards}
     {training_plan}
     <section class="panel"><h2>Case 卡片</h2><div class="case-grid">{cards}</div></section>
   </main>

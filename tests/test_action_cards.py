@@ -23,7 +23,7 @@ def planner_report() -> dict:
     return {
         "schema_version": "p1.2-planner-draft",
         "game": "zzz",
-        "input": {"targets": "targets.json"},
+        "input": {"targets": "targets.json", "snapshots": ["normalized/miyabi.json"]},
         "snapshots": [{"character": "星见雅", "source_image": "figs/miyabi.jpg"}],
         "target_coverage": [
             {
@@ -142,6 +142,9 @@ class ActionCardTests(unittest.TestCase):
             self.assertEqual(train["status"], "actionable")
             self.assertEqual(train["evidence"]["target_hash"], "abcdef123456")
             self.assertEqual(train["evidence"]["snapshot_source"], "figs/miyabi.jpg")
+            self.assertEqual(train["evidence"]["snapshot_json"], "normalized/miyabi.json")
+            self.assertEqual(train["links"]["normalized_json"], "normalized/miyabi.json")
+            self.assertEqual(train["links"]["snapshot_source"], "figs/miyabi.jpg")
 
             review = next(item for item in result["cards"] if item["character"] == "珂蕾妲")
             self.assertEqual(review["action_type"], "review_candidate")
