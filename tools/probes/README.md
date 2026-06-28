@@ -461,6 +461,14 @@ data/probes/planner/training_priority_report.md
 
 只要 `current_endgame_ready=false`，planner 仍会输出候选项，但非数据确认类训练动作会被来源置信度限制，报告和 Dashboard 都会显示 warning。
 
+目标匹配顺序：
+
+* `preferred_characters` 精确命中；
+* `recommended_team_templates[].preferred_characters` 命中；
+* normalized snapshot 的 `combat_tags` / `character.tags` / `character.element` / `character.role` 与目标 `weakness_tags`、`mechanic_tags`、`preferred_tags`、`required_tags` 有交集。
+
+第三种是给“当前高难弱点 / 机制标签 -> 角色长期培养候选”的衔接口，后续可由角色 catalog 或人工确认后的 normalized snapshot 补充角色元素、定位和机制标签。
+
 targets JSON 是本地配置，后续可以由官方公告 / 官方活动页解析器生成。当前建议结构：
 
 ```json

@@ -96,6 +96,21 @@ def character_name(snapshot: dict[str, Any]) -> str:
     return str(name) if name else "unknown_character"
 
 
+def normalize_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = [value]
+    result = []
+    for item in raw_items:
+        text = str(field_value(item) or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
 def load_manifest_snapshots(manifest: Path) -> list[Path]:
     data = load_json(manifest)
     raw = data.get("snapshots")
@@ -200,23 +215,84 @@ def history_for_character(
     }
 
 
-def match_targets(snapshot: dict[str, Any], targets: dict[str, Any]) -> list[dict[str, Any]]:
+def snapshot_combat_tags(snapshot: dict[str, Any]) -> set[str]:
+    tags: set[str] = set()
+    character = snapshot.get("character", {}) if isinstance(snapshot.get("character"), dict) else {}
+    for key in ("tags", "combat_tags", "element_tags", "role_tags"):
+        tags.update(normalize_list(snapshot.get(key)))
+        tags.update(normalize_list(character.get(key)))
+    for key in ("element", "attribute", "role", "path"):
+        tags.update(normalize_list(character.get(key)))
+    return {tag.lower() for tag in tags}
+
+
+def target_tags(target: dict[str, Any]) -> set[str]:
+    tags: set[str] = set()
+    for key in ("weakness_tags", "mechanic_tags", "preferred_tags", "required_tags"):
+        tags.update(normalize_list(target.get(key)))
+    templates = target.get("recommended_team_templates")
+    if isinstance(templates, list):
+        for template in templates:
+            if isinstance(template, dict):
+                for key in ("weakness_tags", "mechanic_tags", "preferred_tags", "required_tags"):
+                    tags.update(normalize_list(template.get(key)))
+    return {tag.lower() for tag in tags}
+
+
+def target_match_details(snapshot: dict[str, Any], targets: dict[str, Any]) -> list[dict[str, Any]]:
     name = character_name(snapshot)
-    matched = []
+    character_tags = snapshot_combat_tags(snapshot)
+    matched: list[dict[str, Any]] = []
     for target in targets.get("targets", []):
         if not isinstance(target, dict):
             continue
         preferred = target.get("preferred_characters")
         if isinstance(preferred, list) and name in {str(item) for item in preferred}:
-            matched.append(target)
+            matched.append(
+                {
+                    "target": target,
+                    "match_type": "preferred_character",
+                    "score": 100,
+                    "matched_tags": [],
+                    "reason": "角色在目标 preferred_characters 中。",
+                }
+            )
             continue
         templates = target.get("recommended_team_templates")
         if isinstance(templates, list):
+            template_matched = False
             for template in templates:
                 if isinstance(template, dict) and name in {str(item) for item in template.get("preferred_characters", [])}:
-                    matched.append(target)
+                    matched.append(
+                        {
+                            "target": target,
+                            "match_type": "team_template",
+                            "score": 90,
+                            "matched_tags": [],
+                            "reason": "角色在推荐队伍模板中。",
+                        }
+                    )
+                    template_matched = True
                     break
+            if template_matched:
+                continue
+        overlap = sorted(character_tags & target_tags(target))
+        if overlap:
+            matched.append(
+                {
+                    "target": target,
+                    "match_type": "tag_overlap",
+                    "score": min(80, 35 + len(overlap) * 15),
+                    "matched_tags": overlap,
+                    "reason": "角色标签命中目标弱点/机制：" + "、".join(overlap),
+                }
+            )
+    matched.sort(key=lambda item: (-int(item["score"]), str(item["target"].get("goal_id") or "")))
     return matched
+
+
+def match_targets(snapshot: dict[str, Any], targets: dict[str, Any]) -> list[dict[str, Any]]:
+    return [item["target"] for item in target_match_details(snapshot, targets)]
 
 
 def target_priority(targets: list[dict[str, Any]]) -> int:
@@ -233,6 +309,24 @@ def target_names(targets: list[dict[str, Any]]) -> list[str]:
         tier = target.get("target_tier")
         names.append(f"{activity} {tier}".strip())
     return names
+
+
+def target_match_summaries(details: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries = []
+    for detail in details:
+        target = detail.get("target") if isinstance(detail.get("target"), dict) else {}
+        activity = target.get("activity_name") or target.get("goal_id") or "unknown_goal"
+        tier = target.get("target_tier")
+        summaries.append(
+            {
+                "target": f"{activity} {tier}".strip(),
+                "match_type": detail.get("match_type"),
+                "score": detail.get("score"),
+                "matched_tags": detail.get("matched_tags", []),
+                "reason": detail.get("reason"),
+            }
+        )
+    return summaries
 
 
 def minimums_for_targets(targets: list[dict[str, Any]], defaults: dict[str, Any]) -> dict[str, Any]:
@@ -396,7 +490,8 @@ def character_gaps(
     history_context: dict[str, Any] | None = None,
     history_index: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    matched_targets = match_targets(snapshot, targets)
+    match_details = target_match_details(snapshot, targets)
+    matched_targets = [item["target"] for item in match_details]
     defaults = targets.get("default_minimums", {}) if isinstance(targets.get("default_minimums"), dict) else {}
     minimums = minimums_for_targets(matched_targets, defaults)
     gaps: list[dict[str, Any]] = []
@@ -502,6 +597,7 @@ def character_gaps(
     return {
         "character": name,
         "matched_targets": target_names(matched_targets),
+        "target_matches": target_match_summaries(match_details),
         "target_priority": priority,
         "quality_blockers": quality.get("blockers", []) if isinstance(quality.get("blockers"), list) else [],
         "history": history,
@@ -518,6 +614,11 @@ def plan_items(character_reports: list[dict[str, Any]], source_status: dict[str,
         character = report["character"]
         matched_targets = report.get("matched_targets", [])
         target_label = "、".join(matched_targets) if matched_targets else "长期通用练度"
+        match_reasons = [
+            str(item.get("reason"))
+            for item in report.get("target_matches", [])
+            if isinstance(item, dict) and item.get("reason")
+        ]
         history = report.get("history", {}) if isinstance(report.get("history"), dict) else {}
         recent_change_count = int(history.get("recent_change_count") or 0)
         continuity_bonus = min(3, recent_change_count)
@@ -543,12 +644,13 @@ def plan_items(character_reports: list[dict[str, Any]], source_status: dict[str,
                     "target": target_label,
                     "gap_type": gap["gap_type"],
                     "action": gap["action"],
-                    "reason": reason,
-                    "estimated_days": gap["estimated_days"],
-                    "confidence": confidence,
-                    "source_confidence": source_confidence,
-                    "target_source_status": active_source_status.get("status"),
-                    "continuity_bonus": item_bonus,
+                "reason": reason,
+                "estimated_days": gap["estimated_days"],
+                "confidence": confidence,
+                "source_confidence": source_confidence,
+                "target_source_status": active_source_status.get("status"),
+                "target_match_reasons": match_reasons,
+                "continuity_bonus": item_bonus,
                     "recent_change_count": recent_change_count,
                     "recent_diff_md": history.get("diff_md"),
                 }
@@ -724,6 +826,20 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"### {character['character']}")
         targets = "、".join(character.get("matched_targets", [])) or "长期通用练度"
         lines.append(f"- matched_targets: {targets}")
+        matches = character.get("target_matches") if isinstance(character.get("target_matches"), list) else []
+        if matches:
+            lines.append("- target_matches:")
+            for match in matches:
+                tags = "、".join(match.get("matched_tags", [])) if isinstance(match.get("matched_tags"), list) else ""
+                lines.append(
+                    "  - {target}: {match_type}, score={score}, tags={tags}, reason={reason}".format(
+                        target=match.get("target"),
+                        match_type=match.get("match_type"),
+                        score=match.get("score"),
+                        tags=tags,
+                        reason=match.get("reason"),
+                    )
+                )
         blockers = character.get("quality_blockers", [])
         if blockers:
             lines.append(f"- quality_blockers: {'; '.join(blockers)}")

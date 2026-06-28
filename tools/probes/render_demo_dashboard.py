@@ -268,6 +268,8 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     else:
         rows = []
         for item in items:
+            match_reasons = item.get("target_match_reasons") if isinstance(item.get("target_match_reasons"), list) else []
+            match_hint = f"<span>{e(match_reasons[0])}</span>" if match_reasons else ""
             rows.append(
                 "<article class=\"plan-item\">"
                 f"<div class=\"plan-rank\">#{e(item.get('priority_rank'))}</div>"
@@ -275,6 +277,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
                 f"<h3>{e(item.get('character'))} · {e(item.get('action'))}</h3>"
                 f"<p>{e(item.get('reason'))}</p>"
                 f"<span>{e(item.get('target'))}</span>"
+                f"{match_hint}"
                 "</div>"
                 f"<strong>{e(item.get('estimated_days'))} 天</strong>"
                 "</article>"

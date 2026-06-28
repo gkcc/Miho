@@ -341,7 +341,7 @@ def build_target_from_source(game: str, source: dict[str, Any], index: int, *, d
     if activity == "待确认高难目标":
         warnings.append(f"source #{index} 未识别出已知高难活动名，需要人工确认 activity_name。")
     if not preferred_characters:
-        warnings.append(f"source #{index} 未配置 preferred_characters，planner 只能使用默认长期练度目标。")
+        warnings.append(f"source #{index} 未配置 preferred_characters，planner 将依赖角色标签匹配或默认长期练度目标。")
     if freshness["status"] == "stale":
         warnings.append(
             "source #{index} 已过期：age_hours={age} > max_source_age_hours={max_age}，不能当作当前高难事实。".format(

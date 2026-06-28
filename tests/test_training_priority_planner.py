@@ -40,8 +40,8 @@ def field(value, *, status: str = "ok", uncertain: bool = False) -> dict:
     }
 
 
-def normalized_snapshot(name: str = "星见雅") -> dict:
-    return {
+def normalized_snapshot(name: str = "星见雅", combat_tags: list[str] | None = None) -> dict:
+    snapshot = {
         "schema_version": "p1.0-draft",
         "source_type": "official_export_image",
         "game": "zzz",
@@ -97,6 +97,9 @@ def normalized_snapshot(name: str = "星见雅") -> dict:
             "blockers": ["drive_disc sub_stats 全缺"],
         },
     }
+    if combat_tags:
+        snapshot["combat_tags"] = combat_tags
+    return snapshot
 
 
 def targets_json() -> dict:
@@ -175,6 +178,31 @@ class TrainingPriorityPlannerTests(unittest.TestCase):
             training_items = [item for item in report["plan_items"] if item["gap_type"] != "data_review"]
             self.assertTrue(training_items)
             self.assertTrue(all(item["source_confidence"] == "high" for item in training_items))
+
+    def test_generate_report_matches_targets_by_combat_tags(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            snapshot_path = root / "snapshot.json"
+            targets_path = root / "targets.json"
+            targets = targets_json()
+            targets["source"] = {"type": "official_snapshot"}
+            targets["freshness"] = {"level": "fresh", "stale_source_count": 0}
+            targets["targets"][0].pop("preferred_characters")
+            targets["targets"][0]["weakness_tags"] = ["ice"]
+            targets["targets"][0]["mechanic_tags"] = ["anomaly"]
+            snapshot_path.write_text(json.dumps(normalized_snapshot(combat_tags=["ice", "anomaly"]), ensure_ascii=False), encoding="utf-8")
+            targets_path.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+            report = planner_tool.generate_report([snapshot_path], targets_path, root / "planner")
+
+            character = report["characters"][0]
+            self.assertEqual(character["matched_targets"], ["式舆防卫战 稳定通关"])
+            self.assertEqual(character["target_matches"][0]["match_type"], "tag_overlap")
+            self.assertEqual(character["target_matches"][0]["matched_tags"], ["anomaly", "ice"])
+            self.assertTrue(any("角色标签命中目标弱点/机制" in item["target_match_reasons"][0] for item in report["plan_items"]))
+            markdown = Path(report["output_md"]).read_text(encoding="utf-8")
+            self.assertIn("target_matches", markdown)
+            self.assertIn("tag_overlap", markdown)
 
     def test_generate_report_warns_on_stale_target_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
