@@ -592,6 +592,15 @@ python tools/probes/build_demo_doctor.py `
   --output-dir data/probes/demo/demo_doctor
 ```
 
+P3.0-lite 安全 launcher 默认只打印下一步，不执行命令：
+
+```powershell
+python tools/probes/doctor_launcher.py `
+  --doctor data/probes/demo/demo_doctor/demo_doctor.json
+```
+
+它会生成 `data/probes/demo/launcher/launcher_report.json/md`。只有显式加 `--execute-rerun`，且 doctor 当前动作为 `rerun_demo_pipeline`、`action_contract.allowed_for_launcher=true`、`writes_roster=false`、`requires_manual_confirmation=false`、`evidence_check.strict_status` 非 `blocked` 时，才允许执行重跑命令。launcher 永远不执行 safe apply、try_now、自动 accept 或任何写 roster 动作。
+
 P1.4-lite 练度更新收件箱与已确认 Box Index：
 
 ```powershell
