@@ -307,6 +307,8 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
     follow_action = str(follow_up.get("primary_next_action") or "N/A")
     freshness = str(report.get("launcher_report_freshness") or "unknown")
     freshness_current = freshness == "current"
+    follow_up_current = report.get("follow_up_matches_current_doctor") is True
+    operation_state = str(report.get("launcher_report_operation_state") or freshness)
     freshness_note = ""
     if freshness == "stale":
         freshness_note = (
@@ -321,7 +323,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
     elif report.get("report_is_initial_doctor_state"):
         freshness_note = (
             '<div class="warnings"><strong>launcher report 匹配启动前 doctor</strong>'
-            "<ul><li>该 report 与当前 demo_doctor 匹配，但匹配的是 initial doctor 状态；follow-up 仍需结合下方状态复核。</li></ul></div>"
+            "<ul><li>该 report 与当前 demo_doctor 匹配，但匹配的是 initial doctor 状态；follow-up 仅供审计，不能当成当前操作建议。</li></ul></div>"
         )
     status_note = ""
     if freshness_current and status == "blocked":
@@ -341,7 +343,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
         )
     status_note = freshness_note + status_note
     follow_note = ""
-    if not freshness_current:
+    if not follow_up_current:
         follow_note = ""
     elif follow_action == "try_now" and follow_up.get("try_now_allowed"):
         follow_note = (
@@ -374,6 +376,8 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
         <div><span>launcher_status</span><strong>{e(status)}</strong></div>
         <div><span>launcher report freshness</span><strong>{e(freshness)}</strong></div>
         <div><span>matches_current_doctor</span><strong>{e(bool_text(report.get("matches_current_doctor")))}</strong></div>
+        <div><span>follow_up_matches_current_doctor</span><strong>{e(bool_text(report.get("follow_up_matches_current_doctor")))}</strong></div>
+        <div><span>operation_state</span><strong>{e(operation_state)}</strong></div>
         <div><span>freshness_match_source</span><strong>{e(report.get("freshness_match_source") or "N/A")}</strong></div>
         <div><span>executed</span><strong>{e(bool_text(report.get("executed")))}</strong></div>
         <div><span>returncode</span><strong>{e(report.get("returncode") if report.get("returncode") is not None else "N/A")}</strong></div>

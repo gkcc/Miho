@@ -1598,6 +1598,8 @@ def launcher_freshness_for_report(output_dir: Path, report: dict[str, Any]) -> d
     elif current_sha and initial_sha == current_sha:
         freshness = "current"
         match_source = "initial_doctor"
+        if follow_up_sha and follow_up_sha != current_sha:
+            warnings.append("launcher_report_follow_up_not_for_current_dashboard")
     elif current_sha and (initial_sha or follow_up_sha):
         freshness = "stale"
         warnings.append("launcher_report_not_for_current_dashboard")
@@ -1605,6 +1607,13 @@ def launcher_freshness_for_report(output_dir: Path, report: dict[str, Any]) -> d
         freshness = "unknown"
         if not initial_sha and not follow_up_sha:
             warnings.append("launcher_report_doctor_hash_missing")
+    follow_up_matches = match_source == "follow_up"
+    if follow_up_matches:
+        operation_state = "follow_up_current"
+    elif match_source == "initial_doctor":
+        operation_state = "initial_current"
+    else:
+        operation_state = freshness
     return {
         "launcher_report_freshness": freshness,
         "current_demo_doctor_json": str(doctor_path),
@@ -1612,6 +1621,8 @@ def launcher_freshness_for_report(output_dir: Path, report: dict[str, Any]) -> d
         "report_initial_doctor_sha256": initial_sha,
         "report_follow_up_sha256": follow_up_sha,
         "matches_current_doctor": freshness == "current",
+        "follow_up_matches_current_doctor": follow_up_matches,
+        "launcher_report_operation_state": operation_state,
         "freshness_match_source": match_source,
         "report_is_initial_doctor_state": match_source == "initial_doctor",
         "freshness_warnings": warnings,
@@ -1623,7 +1634,7 @@ def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
     if not report_path.exists():
         return None
     base: dict[str, Any] = {
-        "schema_version": "p3.5-lite-dashboard-launcher-report",
+        "schema_version": "p3.6-fix-dashboard-launcher-report",
         "report_path": str(report_path),
         "loaded": False,
         "warnings": [],
@@ -1642,7 +1653,7 @@ def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
     freshness_warnings = string_list(freshness.get("freshness_warnings"))
     base.update(
         {
-            "schema_version": "p3.6-lite-dashboard-launcher-report",
+            "schema_version": "p3.6-fix-dashboard-launcher-report",
             "loaded": True,
             "source_schema_version": report.get("schema_version"),
             "launcher_status": report.get("launcher_status"),

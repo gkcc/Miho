@@ -263,6 +263,8 @@ class DemoDashboardTests(unittest.TestCase):
                 "loaded": True,
                 "launcher_report_freshness": "current",
                 "matches_current_doctor": True,
+                "follow_up_matches_current_doctor": True,
+                "launcher_report_operation_state": "follow_up_current",
                 "freshness_match_source": "follow_up",
                 "current_demo_doctor_sha256": "a" * 64,
                 "report_initial_doctor_sha256": "b" * 64,
@@ -432,6 +434,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("启动器执行记录", html)
         self.assertIn("executed_with_followup_warning", html)
         self.assertIn("launcher report freshness", html)
+        self.assertIn("follow_up_matches_current_doctor", html)
+        self.assertIn("operation_state", html)
         self.assertIn("freshness_match_source", html)
         self.assertIn("command_script_resolved", html)
         self.assertIn("rerun_started_at", html)
@@ -481,6 +485,8 @@ class DemoDashboardTests(unittest.TestCase):
             "loaded": True,
             "launcher_report_freshness": "current",
             "matches_current_doctor": True,
+            "follow_up_matches_current_doctor": False,
+            "launcher_report_operation_state": "initial_current",
             "freshness_match_source": "initial_doctor",
             "launcher_status": "blocked",
             "executed": False,
@@ -512,6 +518,8 @@ class DemoDashboardTests(unittest.TestCase):
             "loaded": True,
             "launcher_report_freshness": "current",
             "matches_current_doctor": True,
+            "follow_up_matches_current_doctor": True,
+            "launcher_report_operation_state": "follow_up_current",
             "freshness_match_source": "follow_up",
             "freshness_warnings": [],
             "launcher_status": "executed",
@@ -571,6 +579,8 @@ class DemoDashboardTests(unittest.TestCase):
             assert report is not None
             self.assertEqual(report["launcher_report_freshness"], "current")
             self.assertTrue(report["matches_current_doctor"])
+            self.assertTrue(report["follow_up_matches_current_doctor"])
+            self.assertEqual(report["launcher_report_operation_state"], "follow_up_current")
             self.assertEqual(report["freshness_match_source"], "follow_up")
             self.assertEqual(report["current_demo_doctor_sha256"], current_sha)
             self.assertEqual(report["report_follow_up_sha256"], current_sha)
@@ -598,9 +608,83 @@ class DemoDashboardTests(unittest.TestCase):
             assert report is not None
             self.assertEqual(report["launcher_report_freshness"], "current")
             self.assertTrue(report["matches_current_doctor"])
+            self.assertFalse(report["follow_up_matches_current_doctor"])
+            self.assertEqual(report["launcher_report_operation_state"], "initial_current")
             self.assertEqual(report["freshness_match_source"], "initial_doctor")
             self.assertTrue(report["report_is_initial_doctor_state"])
             self.assertEqual(report["report_initial_doctor_sha256"], current_sha)
+
+    def test_initial_current_with_stale_followup_suppresses_try_now(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "demo"
+            current_sha = write_demo_doctor(output_dir)
+            write_launcher_report(
+                output_dir,
+                {
+                    "launcher_status": "executed",
+                    "executed": True,
+                    "initial_doctor_sha256": current_sha,
+                    "warnings": [],
+                    "blockers": [],
+                    "follow_up": {
+                        "sha256": "c" * 64,
+                        "loaded": True,
+                        "doctor_status": "ready_to_try",
+                        "primary_next_action": "try_now",
+                        "try_now_allowed": True,
+                    },
+                },
+            )
+            report = pipeline_tool.build_launcher_report_summary(output_dir)
+            summary = dashboard_minimal_summary()
+            summary["launcher_report"] = report
+
+            html = dashboard_tool.render_html(summary)
+
+            self.assertIsNotNone(report)
+            assert report is not None
+            self.assertEqual(report["launcher_report_freshness"], "current")
+            self.assertEqual(report["launcher_report_operation_state"], "initial_current")
+            self.assertFalse(report["follow_up_matches_current_doctor"])
+            self.assertIn("launcher_report_follow_up_not_for_current_dashboard", report["freshness_warnings"])
+            self.assertIn("launcher report 匹配启动前 doctor", html)
+            self.assertIn("follow-up 仅供审计", html)
+            self.assertIn("launcher_report_follow_up_not_for_current_dashboard", html)
+            self.assertNotIn("游戏内可尝试", html)
+
+    def test_initial_current_with_stale_followup_suppresses_safe_apply_note(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "demo"
+            current_sha = write_demo_doctor(output_dir)
+            write_launcher_report(
+                output_dir,
+                {
+                    "launcher_status": "printed",
+                    "executed": False,
+                    "initial_doctor_sha256": current_sha,
+                    "warnings": [],
+                    "blockers": [],
+                    "follow_up": {
+                        "sha256": "d" * 64,
+                        "loaded": True,
+                        "doctor_status": "needs_apply",
+                        "primary_next_action": "safe_apply_review_decisions",
+                        "try_now_allowed": False,
+                    },
+                },
+            )
+            report = pipeline_tool.build_launcher_report_summary(output_dir)
+            summary = dashboard_minimal_summary()
+            summary["launcher_report"] = report
+
+            html = dashboard_tool.render_html(summary)
+
+            self.assertIsNotNone(report)
+            assert report is not None
+            self.assertEqual(report["launcher_report_operation_state"], "initial_current")
+            self.assertFalse(report["follow_up_matches_current_doctor"])
+            self.assertIn("follow-up 仅供审计", html)
+            self.assertNotIn("safe apply 需要人工确认", html)
 
     def test_launcher_report_summary_marks_stale_and_dashboard_suppresses_action_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
