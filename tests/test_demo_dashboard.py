@@ -815,6 +815,10 @@ class DemoDashboardTests(unittest.TestCase):
                     "rejected_count": 0,
                     "pending_count": 1,
                     "needs_manual_review_count": 1,
+                    "safe_apply_status": "applied",
+                    "review_apply_receipt_json": str(root / "review_apply_receipt.json"),
+                    "review_apply_receipt_md": str(root / "review_apply_receipt.md"),
+                    "review_log_json": str(root / "review_log.json"),
                     "pending": [
                         {
                             "character": "星见雅",
@@ -865,6 +869,10 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("已接收快照", html)
             self.assertIn("apply_review_decisions.py", html)
             self.assertIn("--preview-result", html)
+            self.assertIn("review_apply_receipt.json", html)
+            self.assertIn("review_apply_receipt.md", html)
+            self.assertIn("safe apply", html)
+            self.assertIn("applied", html)
             self.assertIn("tier_snapshot", html)
             self.assertIn("Tier / 保值观察", html)
             self.assertIn("已有高保值", html)
@@ -1232,6 +1240,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["review_decision_preview"]["output_md"]).exists())
             self.assertIn("Review Decision Preview", {item["name"] for item in summary["pipeline_steps"]})
             self.assertEqual(summary["review_inbox"]["pending_count"], 1)
+            self.assertEqual(summary["review_inbox"]["safe_apply_status"], "not_applied")
             self.assertEqual(summary["team_cards"]["summary"]["pending_snapshot_count"], 1)
             self.assertIn("今日作战简报", dashboard_html)
             self.assertIn("执行清单", dashboard_html)

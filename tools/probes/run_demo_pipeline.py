@@ -1458,10 +1458,17 @@ def build_review_inbox(cases: list[dict[str, Any]], roster_dir: Path) -> dict[st
             }
         )
     roster_index_path = roster_dir / "roster_index.json"
+    receipt_json = roster_dir / "review_apply_receipt.json"
+    receipt_md = roster_dir / "review_apply_receipt.md"
+    review_log = roster_dir / "review_log.json"
     return {
         "schema_version": "p1.4-lite-review-inbox",
         "roster_dir": str(roster_dir),
         "roster_index_json": str(roster_index_path) if roster_index_path.exists() else None,
+        "review_apply_receipt_json": str(receipt_json) if receipt_json.exists() else None,
+        "review_apply_receipt_md": str(receipt_md) if receipt_md.exists() else None,
+        "review_log_json": str(review_log) if review_log.exists() else None,
+        "safe_apply_status": "applied" if receipt_json.exists() else "not_applied",
         "accepted_count": len(accepted_items),
         "rejected_count": len(rejected_items),
         "pending_count": len(pending_items),

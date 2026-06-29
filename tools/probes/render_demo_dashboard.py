@@ -624,11 +624,15 @@ def render_review_inbox(summary: dict[str, Any]) -> str:
       <p class="muted-line">demo normalized 是 OCR/解析候选；只有 accepted roster 可以作为已拥有练度。</p>
       <div class="links">
         {link("roster_index.json", inbox.get("roster_index_json"))}
+        {link("review_apply_receipt.md", inbox.get("review_apply_receipt_md"))}
+        {link("review_apply_receipt.json", inbox.get("review_apply_receipt_json"))}
+        {link("review_log.json", inbox.get("review_log_json"))}
       </div>
       <div class="input-grid">
         <div><span>待确认快照</span><strong>{e(inbox.get("pending_count", 0))}</strong></div>
         <div><span>已接收快照</span><strong>{e(inbox.get("accepted_count", 0))}</strong></div>
         <div><span>已拒绝快照</span><strong>{e(inbox.get("rejected_count", 0))}</strong></div>
+        <div><span>safe apply</span><strong>{e(inbox.get("safe_apply_status") or "not_applied")}</strong></div>
         <div><span>需要复核</span><strong>{e(inbox.get("needs_manual_review_count", 0))}</strong></div>
         <div><span>已确认角色</span><strong>{e(accepted_names or "无")}</strong></div>
         <div><span>已拒绝角色</span><strong>{e(rejected_names or "无")}</strong></div>
@@ -790,6 +794,11 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
 def safe_apply_status(summary: dict[str, Any]) -> str:
     apply_info = summary.get("review_apply") if isinstance(summary.get("review_apply"), dict) else {}
     if apply_info and not apply_info.get("error") and apply_info.get("output_json"):
+        return "applied"
+    inbox_info = summary.get("review_inbox") if isinstance(summary.get("review_inbox"), dict) else {}
+    if inbox_info.get("safe_apply_status"):
+        return str(inbox_info.get("safe_apply_status"))
+    if inbox_info.get("review_apply_receipt_json"):
         return "applied"
     preview = summary.get("review_decision_preview") if isinstance(summary.get("review_decision_preview"), dict) else {}
     preview_status = str(preview.get("preview_status") or "").lower()

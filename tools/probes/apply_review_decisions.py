@@ -23,6 +23,7 @@ import build_roster_index as roster_index  # noqa: E402
 
 SCHEMA_VERSION = "p1.4-lite-review-decisions"
 APPLY_AUDIT_SCHEMA = "p2.4-lite-review-apply-audit"
+APPLY_RECEIPT_SCHEMA = "p2.5-lite-review-apply-receipt"
 READY_PREVIEW_STATUSES = {"ready", "ready_with_override"}
 
 
@@ -161,7 +162,7 @@ def validate_preview_gate(
     require_preview_ready: bool,
 ) -> tuple[dict[str, Any] | None, dict[str, dict[str, Any]]]:
     accepts = accept_decisions(decisions)
-    if not accepts and not require_preview_ready:
+    if not accepts and preview_result is None and not require_preview_ready:
         return None, {}
     if preview_result is None:
         reason = "--preview-result is required"
@@ -269,12 +270,18 @@ def apply_decision_item(
     note = str(decision.get("note") or "")
     record = {
         "normalized_json": str(source_path),
+        "normalized_json_sha256": sha256_file(source_path),
         "character": character_name(snapshot),
         "decision": decision_value,
         "note": note,
         "status": "skipped",
         "output_json": None,
         "error": None,
+        "did_write_accepted": False,
+        "did_write_rejected": False,
+        "did_enter_roster": False,
+        "preview_validation_status": "validated" if preview_result else "not_provided",
+        "preview_decision_status": preview_item.get("decision_status") if isinstance(preview_item, dict) else None,
     }
     if decision_value in {"pending", ""}:
         record["status"] = "pending"
@@ -317,6 +324,8 @@ def apply_decision_item(
     write_json(target_path, snapshot)
     record["status"] = "accepted" if decision_value == "accept" else "rejected"
     record["output_json"] = str(target_path)
+    record["did_write_accepted"] = decision_value == "accept"
+    record["did_write_rejected"] = decision_value == "reject"
     return record
 
 
@@ -339,6 +348,85 @@ def backup_existing_roster_index(roster_dir: Path) -> str | None:
     latest = history_dir / "roster_index_previous.json"
     shutil.copy2(current, latest)
     return str(target)
+
+
+def update_roster_entry_status(records: list[dict[str, Any]], index_result: dict[str, Any] | None) -> None:
+    entered_sources: set[str] = set()
+    if isinstance(index_result, dict):
+        characters = index_result.get("characters") if isinstance(index_result.get("characters"), list) else []
+        for item in characters:
+            if isinstance(item, dict) and item.get("source_normalized_json"):
+                entered_sources.add(str(item.get("source_normalized_json")))
+    for record in records:
+        if record.get("status") != "accepted":
+            continue
+        if record.get("normalized_json") in entered_sources:
+            record["did_enter_roster"] = True
+
+
+def receipt_warnings(records: list[dict[str, Any]], preview_data: dict[str, Any] | None) -> list[str]:
+    warnings: list[str] = []
+    if preview_data is None and any(record.get("status") in {"rejected", "pending"} for record in records):
+        warnings.append("reject/pending applied without preview_result; receipt marks source validation as not_provided.")
+    if any(record.get("status") == "accepted" and not record.get("did_enter_roster") for record in records):
+        warnings.append("accepted snapshot was written but did not enter roster_index.")
+    return list(dict.fromkeys(warnings))
+
+
+def build_apply_receipt(result: dict[str, Any], *, preview_data: dict[str, Any] | None) -> dict[str, Any]:
+    records = result.get("records") if isinstance(result.get("records"), list) else []
+    return {
+        "schema_version": APPLY_RECEIPT_SCHEMA,
+        "created_at": result.get("created_at"),
+        "input": result.get("input", {}),
+        "summary": {
+            **(result.get("summary") if isinstance(result.get("summary"), dict) else {}),
+            "did_enter_roster_count": sum(1 for item in records if isinstance(item, dict) and item.get("did_enter_roster")),
+            "did_write_accepted_count": sum(1 for item in records if isinstance(item, dict) and item.get("did_write_accepted")),
+            "did_write_rejected_count": sum(1 for item in records if isinstance(item, dict) and item.get("did_write_rejected")),
+            "preview_validated_count": sum(1 for item in records if isinstance(item, dict) and item.get("preview_validation_status") == "validated"),
+            "preview_not_provided_count": sum(1 for item in records if isinstance(item, dict) and item.get("preview_validation_status") == "not_provided"),
+        },
+        "review_apply_gate": result.get("review_apply_gate", {}),
+        "records": records,
+        "warnings": receipt_warnings(records, preview_data),
+    }
+
+
+def render_receipt_markdown(receipt: dict[str, Any]) -> str:
+    summary = receipt.get("summary") if isinstance(receipt.get("summary"), dict) else {}
+    lines = [
+        "# Review Apply Receipt",
+        "",
+        f"- schema_version: {receipt.get('schema_version')}",
+        f"- accepted_count: {summary.get('accepted_count', 0)}",
+        f"- rejected_count: {summary.get('rejected_count', 0)}",
+        f"- pending_count: {summary.get('pending_count', 0)}",
+        f"- did_enter_roster_count: {summary.get('did_enter_roster_count', 0)}",
+        f"- did_write_rejected_count: {summary.get('did_write_rejected_count', 0)}",
+        f"- preview_validated_count: {summary.get('preview_validated_count', 0)}",
+        f"- preview_not_provided_count: {summary.get('preview_not_provided_count', 0)}",
+        "",
+        "## Warnings",
+        "",
+    ]
+    warnings = receipt.get("warnings") if isinstance(receipt.get("warnings"), list) else []
+    if warnings:
+        lines.extend(f"- {item}" for item in warnings)
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Records", ""])
+    for item in receipt.get("records", []):
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            f"- [{item.get('status')}] {item.get('decision')}: {item.get('character')} "
+            f"did_enter_roster={item.get('did_enter_roster')} did_write_rejected={item.get('did_write_rejected')} "
+            f"preview={item.get('preview_validation_status')}"
+        )
+        if item.get("error"):
+            lines.append(f"  - error: {item.get('error')}")
+    return "\n".join(lines) + "\n"
 
 
 def apply_review_decisions(
@@ -393,6 +481,7 @@ def apply_review_decisions(
                     "error": str(exc),
                 }
             )
+    update_roster_entry_status(records, index_result)
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": roster_index.now_iso(),
@@ -421,6 +510,14 @@ def apply_review_decisions(
         },
     }
     roster_dir.mkdir(parents=True, exist_ok=True)
+    receipt = build_apply_receipt(result, preview_data=preview_data)
+    receipt_json = roster_dir / "review_apply_receipt.json"
+    receipt_md = roster_dir / "review_apply_receipt.md"
+    write_json(receipt_json, receipt)
+    receipt_md.write_text(render_receipt_markdown(receipt), encoding="utf-8")
+    result["review_apply_receipt"] = receipt
+    result["receipt_json"] = str(receipt_json)
+    result["receipt_md"] = str(receipt_md)
     log_path = roster_dir / "review_log.json"
     write_json(log_path, result)
     result["output_json"] = str(log_path)
@@ -440,13 +537,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_arg_parser().parse_args()
+    effective_require_preview_ready = bool(args.require_preview_ready or args.preview_result)
     try:
         result = apply_review_decisions(
             normalized_dir=resolve_path(args.normalized_dir),
             decision_manifest=resolve_path(args.decision_manifest),
             roster_dir=resolve_path(args.roster_dir),
             preview_result=resolve_path(args.preview_result) if args.preview_result else None,
-            require_preview_ready=bool(args.require_preview_ready),
+            require_preview_ready=effective_require_preview_ready,
         )
     except ReviewDecisionError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -458,6 +556,7 @@ def main() -> int:
     print(f"blocked_count: {summary['blocked_count']}")
     print(f"error_count: {summary['error_count']}")
     print(f"review_log: {result['output_json']}")
+    print(f"review_apply_receipt: {result['receipt_json']}")
     if result.get("roster_index"):
         print(f"roster_index: {result['roster_index']}")
     if result.get("previous_roster_index"):

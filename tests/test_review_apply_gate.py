@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -264,6 +265,28 @@ class ReviewApplyGateTests(unittest.TestCase):
             self.assertEqual(accepted["review_apply_audit"]["decision_manifest"], str(decision_path))
             self.assertEqual(accepted["review_apply_audit"]["preview_result"], str(preview_path))
             self.assertTrue(accepted["review_apply_audit"]["normalized_json_sha256"])
+            receipt = json.loads(Path(result["receipt_json"]).read_text(encoding="utf-8"))
+            self.assertEqual(receipt["schema_version"], "p2.5-lite-review-apply-receipt")
+            self.assertEqual(receipt["summary"]["did_enter_roster_count"], 1)
+            self.assertEqual(receipt["summary"]["preview_validated_count"], 1)
+            self.assertTrue(receipt["records"][0]["did_enter_roster"])
+
+    def test_reject_with_changed_manifest_preview_fails_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            normalized_dir, _normalized_path, inbox_path, run_path, decision_path = build_case(root, decision="reject")
+            preview_path = build_preview(root, decision_path=decision_path, inbox_path=inbox_path, run_path=run_path)
+            data = json.loads(decision_path.read_text(encoding="utf-8"))
+            data["decisions"][0]["note"] = "changed reject after preview"
+            write_json(decision_path, data)
+
+            with self.assertRaisesRegex(apply_tool.ReviewDecisionError, "decision_manifest hash"):
+                apply_tool.apply_review_decisions(
+                    normalized_dir=normalized_dir,
+                    decision_manifest=decision_path,
+                    roster_dir=root / "roster",
+                    preview_result=preview_path,
+                )
 
     def test_reject_without_preview_writes_rejected_not_roster_index(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -280,6 +303,11 @@ class ReviewApplyGateTests(unittest.TestCase):
             self.assertTrue(list((root / "roster" / "rejected").glob("*.json")))
             self.assertIsNone(result["roster_index"])
             self.assertFalse((root / "roster" / "roster_index.json").exists())
+            receipt = json.loads(Path(result["receipt_json"]).read_text(encoding="utf-8"))
+            self.assertEqual(receipt["summary"]["did_write_rejected_count"], 1)
+            self.assertEqual(receipt["summary"]["preview_not_provided_count"], 1)
+            self.assertTrue(receipt["records"][0]["did_write_rejected"])
+            self.assertIn("not_provided", " ".join(receipt["warnings"]))
 
     def test_pending_without_preview_writes_no_accepted_or_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -295,6 +323,38 @@ class ReviewApplyGateTests(unittest.TestCase):
             self.assertEqual(result["summary"]["pending_count"], 1)
             self.assertFalse((root / "roster" / "accepted").exists())
             self.assertFalse((root / "roster" / "rejected").exists())
+            receipt = json.loads(Path(result["receipt_json"]).read_text(encoding="utf-8"))
+            self.assertEqual(receipt["summary"]["pending_count"], 1)
+            self.assertEqual(receipt["summary"]["did_write_accepted_count"], 0)
+            self.assertEqual(receipt["summary"]["did_write_rejected_count"], 0)
+
+    def test_cli_preview_result_requires_ready_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            normalized_dir, _normalized_path, inbox_path, run_path, decision_path = build_case(root, decision="pending")
+            preview_path = build_preview(root, decision_path=decision_path, inbox_path=inbox_path, run_path=run_path)
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(APPLY_SCRIPT_PATH),
+                    "--normalized-dir",
+                    str(normalized_dir),
+                    "--decision-manifest",
+                    str(decision_path),
+                    "--roster-dir",
+                    str(root / "roster"),
+                    "--preview-result",
+                    str(preview_path),
+                ],
+                cwd=PROJECT_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("preview_result.preview_status", completed.stderr)
 
 
 if __name__ == "__main__":
