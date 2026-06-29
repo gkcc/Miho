@@ -275,6 +275,56 @@ def checklist_status_line(item: dict[str, Any]) -> str:
     return f"{status} · {item_type}"
 
 
+def int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def render_brief_overview(brief: dict[str, Any], brief_summary: dict[str, Any], warnings: list[Any]) -> str:
+    status = str(brief.get("brief_status") or "unknown").lower()
+    trusted = int_value(brief_summary.get("trusted_plan_count"))
+    pending = int_value(brief_summary.get("pending_review_count"))
+    ready_targets = int_value(brief_summary.get("ready_now_target_count"))
+    recording = int_value(brief_summary.get("needs_recording_target_count"))
+    watch_only = int_value(brief_summary.get("watch_only_target_count"))
+    warning_count = len(warnings)
+
+    if warning_count:
+        tone = "bad"
+        title = "先别采用建议"
+        body = "本轮数据清单缺失或不一致，页面只作为排查入口。先重跑 demo 或确认本轮产物来自同一次生成。"
+    elif status == "needs_review" or pending:
+        tone = "warn"
+        title = f"先复核 {pending or '待确认'} 张快照"
+        body = "还有解析快照没有进入已确认角色库；确认前不会把这些角色当作可用练度。"
+    elif trusted or ready_targets:
+        tone = "ok"
+        title = "可以看本地建议"
+        body = f"当前有 {ready_targets or trusted} 个可尝试目标。它仍然只是本地 demo 建议，不会自动写正式数据库。"
+    elif recording:
+        tone = "warn"
+        title = "先补录练度"
+        body = f"{recording} 个目标缺少关键角色或练度快照，补齐后再生成可尝试方案。"
+    elif watch_only:
+        tone = "warn"
+        title = "目前只适合观察"
+        body = f"{watch_only} 个目标只有观察价值，还不能作为今天的操作建议。"
+    else:
+        tone = "muted"
+        title = "暂无可执行事项"
+        body = "当前没有可信建议或待复核项；可以先补充官方分享图或重跑本地演示流程。"
+
+    return (
+        f'<div class="brief-overview {e(tone)}">'
+        '<span>一眼结论</span>'
+        f"<strong>{e(title)}</strong>"
+        f"<p>{e(body)}</p>"
+        "</div>"
+    )
+
+
 def brief_evidence_rows(evidence: dict[str, Any]) -> str:
     rows = []
     for label, key in (
@@ -458,37 +508,37 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
         {link("demo_doctor.json", doctor.get("output_json"))}
       </div>
       <div class="input-grid">
-        <div><span>doctor status</span><strong>{e(status)}</strong></div>
+        <div><span>诊断状态</span><strong>{e(human_status(status))}</strong></div>
         <div><span>诊断结论</span><strong>{e(doctor.get("headline") or "N/A")}</strong></div>
         <div><span>下一步</span><strong>{e(action_label(doctor.get("primary_next_action")))}</strong></div>
-        <div><span>try_now 允许</span><strong>{e(bool_text(doctor.get("try_now_allowed")))}</strong></div>
+        <div><span>允许尝试</span><strong>{e(bool_text(doctor.get("try_now_allowed")))}</strong></div>
         <div><span>需要重跑</span><strong>{e(bool_text(doctor.get("rerun_required")))}</strong></div>
         <div><span>需要复核</span><strong>{e(bool_text(doctor.get("review_required")))}</strong></div>
-        <div><span>需要 safe apply</span><strong>{e(bool_text(doctor.get("safe_apply_required")))}</strong></div>
-        <div><span>refresh</span><strong>{e(doctor_summary.get("refresh_status", "N/A"))}</strong></div>
-        <div><span>brief</span><strong>{e(doctor_summary.get("brief_status", "N/A"))}</strong></div>
-        <div><span>checklist</span><strong>{e(doctor_summary.get("checklist_status", "N/A"))}</strong></div>
-        <div><span>preview</span><strong>{e(doctor_summary.get("preview_status", "N/A"))}</strong></div>
-        <div><span>apply</span><strong>{e(doctor_summary.get("apply_status", "N/A"))}</strong></div>
-        <div><span>诊断证据</span><strong>{e(evidence.get("status", "N/A"))}</strong></div>
-        <div><span>strict_status</span><strong>{e(evidence.get("strict_status", "N/A"))}</strong></div>
-        <div><span>preview/apply</span><strong>{e(evidence.get("matched_preview_apply", "N/A"))}</strong></div>
-        <div><span>refresh command</span><strong>{e(evidence.get("matched_refresh_command", "N/A"))}</strong></div>
-        <div><span>preview run</span><strong>{e(evidence.get("matched_run_manifest", "N/A"))}</strong></div>
-        <div><span>action contract</span><strong>{e(action_contract.get("primary_next_action", "N/A"))}</strong></div>
+        <div><span>需要安全应用</span><strong>{e(bool_text(doctor.get("safe_apply_required")))}</strong></div>
+        <div><span>刷新状态</span><strong>{e(human_status(doctor_summary.get("refresh_status", "N/A")))}</strong></div>
+        <div><span>简报状态</span><strong>{e(human_status(doctor_summary.get("brief_status", "N/A")))}</strong></div>
+        <div><span>清单状态</span><strong>{e(human_status(doctor_summary.get("checklist_status", "N/A")))}</strong></div>
+        <div><span>复核预览</span><strong>{e(human_status(doctor_summary.get("preview_status", "N/A")))}</strong></div>
+        <div><span>应用回执</span><strong>{e(human_status(doctor_summary.get("apply_status", "N/A")))}</strong></div>
+        <div><span>诊断证据</span><strong>{e(human_status(evidence.get("status", "N/A")))}</strong></div>
+        <div><span>严格状态</span><strong>{e(human_status(evidence.get("strict_status", "N/A")))}</strong></div>
+        <div><span>预览-应用一致</span><strong>{e(bool_text(evidence.get("matched_preview_apply")))}</strong></div>
+        <div><span>重跑命令一致</span><strong>{e(bool_text(evidence.get("matched_refresh_command")))}</strong></div>
+        <div><span>运行清单一致</span><strong>{e(bool_text(evidence.get("matched_run_manifest")))}</strong></div>
+        <div><span>动作边界</span><strong>{e(action_label(action_contract.get("primary_next_action")))}</strong></div>
         <div><span>launcher 允许</span><strong>{e(bool_text(action_contract.get("allowed_for_launcher")))}</strong></div>
-        <div><span>writes roster</span><strong>{e(bool_text(action_contract.get("writes_roster")))}</strong></div>
+        <div><span>会写角色库</span><strong>{e(bool_text(action_contract.get("writes_roster")))}</strong></div>
         <div><span>需人工确认</span><strong>{e(bool_text(action_contract.get("requires_manual_confirmation")))}</strong></div>
-        <div><span>pending review</span><strong>{e(doctor_summary.get("pending_review_count", "N/A"))}</strong></div>
-        <div><span>ready try_now</span><strong>{e(doctor_summary.get("ready_try_now_count", "N/A"))}</strong></div>
-        <div><span>run manifest</span><strong>{e(doctor_summary.get("run_manifest_exists", "N/A"))}</strong></div>
+        <div><span>待复核快照</span><strong>{e(doctor_summary.get("pending_review_count", "N/A"))}</strong></div>
+        <div><span>可尝试项</span><strong>{e(doctor_summary.get("ready_try_now_count", "N/A"))}</strong></div>
+        <div><span>运行清单</span><strong>{e(bool_text(doctor_summary.get("run_manifest_exists")))}</strong></div>
       </div>
       {status_copy}
       {list_block("阻断原因", blockers, "errors")}
       {list_block("诊断警告", warnings, "warnings")}
       {list_block("证据阻断", evidence_blockers, "errors")}
       {list_block("证据警告", evidence_warnings, "warnings")}
-      {list_block("action contract", [action_contract.get("reason")] if action_contract.get("reason") else [], "warnings")}
+      {list_block("动作边界说明", [action_contract.get("reason")] if action_contract.get("reason") else [], "warnings")}
       {body}
     </section>
     """
@@ -648,7 +698,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
         <div><span>follow_up.doctor_status</span><strong>{e(follow_up.get("doctor_status") or "N/A")}</strong></div>
         <div><span>follow_up.primary_next_action</span><strong>{e(action_label(follow_action))}</strong></div>
         <div><span>follow_up.try_now_allowed</span><strong>{e(bool_text(follow_up.get("try_now_allowed")))}</strong></div>
-        <div><span>follow_up.strict_status</span><strong>{e(follow_up.get("strict_status") or "N/A")}</strong></div>
+        <div><span>follow-up 严格状态</span><strong>{e(human_status(follow_up.get("strict_status") or "N/A"))}</strong></div>
         <div><span>follow_up.updated_after_rerun</span><strong>{e(bool_text(follow_up.get("updated_after_rerun")))}</strong></div>
       </div>
       {status_note}
@@ -1232,7 +1282,17 @@ def render_final_brief(summary: dict[str, Any]) -> str:
     top_cards = brief.get("top_cards") if isinstance(brief.get("top_cards"), list) else []
     warnings = brief.get("warnings") if isinstance(brief.get("warnings"), list) else []
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>简报警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>为什么不能直接用</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    overview = render_brief_overview(brief, brief_summary, warnings)
+    artifact_links = f"""
+      <details class="artifact-links">
+        <summary>查看原始产物</summary>
+        <div class="links">
+          {link("简报 Markdown", brief.get("output_md"))}
+          {link("简报 JSON", brief.get("output_json"))}
+        </div>
+      </details>
+    """
     if brief.get("error"):
         body = f'<div class="errors"><strong>简报生成失败</strong><ul><li>{he(brief.get("error"))}</li></ul></div>'
     elif not top_cards:
@@ -1288,22 +1348,20 @@ def render_final_brief(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel final-brief">
       <h2>今日作战简报</h2>
-      <p class="muted-line">先看这一块就够了：它告诉你现在能不能行动、卡在哪里、下一步该点开哪个复核页。技术路径和命令默认折叠。</p>
-      <div class="links">
-        {link("简报 Markdown", brief.get("output_md"))}
-        {link("简报 JSON", brief.get("output_json"))}
-      </div>
+      <p class="muted-line">先看这一块就够了：它只回答“现在能不能用、卡在哪里、下一步点哪里”。命令和技术证据默认折叠。</p>
+      {overview}
       <div class="input-grid">
-        <div><span>当前状态</span><strong>{e(status_text)}</strong></div>
-        <div><span>可信建议</span><strong>{e(brief_summary.get("trusted_plan_count", "N/A"))}</strong></div>
-        <div><span>待人工复核</span><strong>{e(brief_summary.get("pending_review_count", "N/A"))}</strong></div>
+        <div><span>总判断</span><strong>{e(status_text)}</strong></div>
+        <div><span>可直接行动</span><strong>{e(brief_summary.get("trusted_plan_count", "N/A"))}</strong></div>
+        <div><span>待确认快照</span><strong>{e(brief_summary.get("pending_review_count", "N/A"))}</strong></div>
         <div><span>可尝试目标</span><strong>{e(brief_summary.get("ready_now_target_count", "N/A"))}</strong></div>
-        <div><span>待补录目标</span><strong>{e(brief_summary.get("needs_recording_target_count", "N/A"))}</strong></div>
-        <div><span>仅观察</span><strong>{e(brief_summary.get("watch_only_target_count", "N/A"))}</strong></div>
+        <div><span>缺练度目标</span><strong>{e(brief_summary.get("needs_recording_target_count", "N/A"))}</strong></div>
+        <div><span>仅观察目标</span><strong>{e(brief_summary.get("watch_only_target_count", "N/A"))}</strong></div>
       </div>
       {status_note}
       {warning_block}
       {body}
+      {artifact_links}
     </section>
     """
 
@@ -1681,17 +1739,17 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
         {link("endgame_plan.json", plan.get("output_json"))}
       </div>
       <div class="input-grid">
-        <div><span>targets</span><strong>{e(plan_summary.get("target_count", "N/A"))}</strong></div>
-        <div><span>ready now</span><strong>{e(plan_summary.get("ready_now_count", "N/A"))}</strong></div>
-        <div><span>needs review</span><strong>{e(plan_summary.get("needs_review_count", "N/A"))}</strong></div>
-        <div><span>needs recording</span><strong>{e(plan_summary.get("needs_recording_count", "N/A"))}</strong></div>
-        <div><span>watch only</span><strong>{e(plan_summary.get("watch_only_count", "N/A"))}</strong></div>
-        <div><span>stale/unverified</span><strong>{e(plan_summary.get("stale_or_unverified_count", "N/A"))}</strong></div>
-        <div><span>trust</span><strong>{e(plan.get("plan_trust_level", "N/A"))}</strong></div>
-        <div><span>trusted plans</span><strong>{e(plan_summary.get("trusted_plan_count", "N/A"))}</strong></div>
-        <div><span>warning plans</span><strong>{e(plan_summary.get("warning_plan_count", "N/A"))}</strong></div>
-        <div><span>blocked plans</span><strong>{e(plan_summary.get("blocked_plan_count", "N/A"))}</strong></div>
-        <div><span>artifact consistent</span><strong>{e(plan_summary.get("artifact_consistent", "N/A"))}</strong></div>
+        <div><span>目标数</span><strong>{e(plan_summary.get("target_count", "N/A"))}</strong></div>
+        <div><span>可直接尝试</span><strong>{e(plan_summary.get("ready_now_count", "N/A"))}</strong></div>
+        <div><span>需先复核</span><strong>{e(plan_summary.get("needs_review_count", "N/A"))}</strong></div>
+        <div><span>需补录</span><strong>{e(plan_summary.get("needs_recording_count", "N/A"))}</strong></div>
+        <div><span>仅观察</span><strong>{e(plan_summary.get("watch_only_count", "N/A"))}</strong></div>
+        <div><span>过期/未验证</span><strong>{e(plan_summary.get("stale_or_unverified_count", "N/A"))}</strong></div>
+        <div><span>可信等级</span><strong>{e(human_status(plan.get("plan_trust_level", "N/A")))}</strong></div>
+        <div><span>可信方案</span><strong>{e(plan_summary.get("trusted_plan_count", "N/A"))}</strong></div>
+        <div><span>警告方案</span><strong>{e(plan_summary.get("warning_plan_count", "N/A"))}</strong></div>
+        <div><span>阻断方案</span><strong>{e(plan_summary.get("blocked_plan_count", "N/A"))}</strong></div>
+        <div><span>产物一致</span><strong>{e(bool_text(plan_summary.get("artifact_consistent")))}</strong></div>
       </div>
       {warning_block}
       {body}
@@ -2083,6 +2141,16 @@ def render_html(summary: dict[str, Any]) -> str:
     .errors {{ border: 1px solid #ffc0ba; background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px; }}
     .plan-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .brief-list {{ display: grid; gap: 10px; margin-top: 12px; }}
+    .brief-overview {{ margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #f8fbff; }}
+    .brief-overview span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .brief-overview strong {{ display: block; margin-top: 4px; font-size: 22px; line-height: 1.25; }}
+    .brief-overview p {{ margin: 8px 0 0; color: var(--muted); line-height: 1.5; }}
+    .brief-overview.ok {{ border-color: #a7e0bd; background: var(--ok-bg); }}
+    .brief-overview.warn {{ border-color: #f6cf7c; background: var(--warn-bg); }}
+    .brief-overview.bad {{ border-color: #ffc0ba; background: var(--bad-bg); }}
+    .brief-overview.ok strong {{ color: var(--ok); }}
+    .brief-overview.warn strong {{ color: var(--warn); }}
+    .brief-overview.bad strong {{ color: var(--bad); }}
     .plan-item {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) 72px; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
     .brief-card {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) minmax(118px, 160px); gap: 12px; align-items: start; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; }}
     .brief-card-head {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }}
@@ -2093,6 +2161,8 @@ def render_html(summary: dict[str, Any]) -> str:
     .brief-links {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }}
     .brief-details {{ margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }}
     .command-details {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
+    .artifact-links {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
+    .artifact-links .links {{ margin-top: 8px; }}
     .brief-evidence {{ margin: 8px 0; padding: 0; display: grid; gap: 6px; list-style: none; }}
     .brief-evidence li {{ display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }}
     .brief-evidence strong {{ color: var(--text); }}

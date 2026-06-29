@@ -36,7 +36,7 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
 if ($ShowHelp) {
     Write-Host "Miho Demo Shortcut Installer"
     Write-Host ""
-    Write-Host "Default: create desktop shortcuts for Miho Demo and Miho Demo Fresh OCR."
+    Write-Host "Default: create desktop shortcuts for Miho Demo, Miho Demo Fresh OCR, and MihoProbe CLI when available."
     Write-Host "Usage: scripts\install_miho_demo_shortcut.bat"
     Write-Host "Test output: scripts\install_miho_demo_shortcut.bat --output-dir <dir>"
     Write-Host "Skip fresh OCR shortcut: scripts\install_miho_demo_shortcut.bat --no-fresh-shortcut"
@@ -45,6 +45,7 @@ if ($ShowHelp) {
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $RunBat = (Resolve-Path (Join-Path $PSScriptRoot "run_miho_demo.bat")).Path
+$CliBat = Join-Path $PSScriptRoot "open_miho_probe_cli.bat"
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = [Environment]::GetFolderPath("Desktop")
@@ -60,13 +61,14 @@ $IconPath = Join-Path $env:SystemRoot "System32\shell32.dll"
 function New-MihoShortcut {
     param(
         [string]$Name,
+        [string]$TargetPath,
         [string]$Arguments,
         [string]$Description
     )
 
     $ShortcutPath = Join-Path $ShortcutDir "$Name.lnk"
     $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-    $Shortcut.TargetPath = $RunBat
+    $Shortcut.TargetPath = $TargetPath
     $Shortcut.Arguments = $Arguments
     $Shortcut.WorkingDirectory = $RepoRoot
     $Shortcut.Description = $Description
@@ -78,6 +80,7 @@ function New-MihoShortcut {
 if (-not $FreshOnly) {
     New-MihoShortcut `
         -Name "Miho Demo" `
+        -TargetPath $RunBat `
         -Arguments "" `
         -Description "Open the cached Miho dashboard immediately, or run fresh OCR if no dashboard exists."
 }
@@ -85,8 +88,18 @@ if (-not $FreshOnly) {
 if (-not $NoFreshShortcut) {
     New-MihoShortcut `
         -Name "Miho Demo Fresh OCR" `
+        -TargetPath $RunBat `
         -Arguments "--fresh" `
         -Description "Run fresh PaddleOCR over local official share images under figs, then open the dashboard."
 }
 
+if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
+    New-MihoShortcut `
+        -Name "MihoProbe CLI" `
+        -TargetPath $CliBat `
+        -Arguments "" `
+        -Description "Open the local MihoProbe executable command shell help."
+}
+
 Write-Host "Done. Main shortcut opens cached dashboard first and does not rerun OCR when cache exists."
+Write-Host "If MihoProbe CLI was not created, build dist\MihoProbe.exe first and rerun this installer."

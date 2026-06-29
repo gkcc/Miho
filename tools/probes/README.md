@@ -720,9 +720,10 @@ python tools/probes/miho_probe_cli.py diff --old old_normalized.json --new new_n
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_miho_probe_exe.ps1
+scripts/install_miho_demo_shortcut.bat
 ```
 
-该脚本使用 PyInstaller 构建 `MihoProbe.exe` 命令壳。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
+该脚本使用 PyInstaller 构建 `dist/MihoProbe.exe` 命令壳。`build/`、`dist/` 和 `MihoProbe.spec` 是本地构建产物，已在 `.gitignore` 中排除，不提交。构建后重新运行 shortcut installer，会在桌面补一个 `MihoProbe CLI` 入口。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
 
 ### P1.2 本地培养优先级 planner probe
 

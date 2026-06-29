@@ -37,3 +37,6 @@ app-profile/
 *.har
 __pycache__/
 *.pyc
+build/
+dist/
+MihoProbe.spec

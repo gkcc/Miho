@@ -1,0 +1,23 @@
+@echo off
+set "EXE=%~dp0..\dist\MihoProbe.exe"
+set "KEEP_OPEN=1"
+if "%~1"=="--help-only" set "KEEP_OPEN=0"
+if not exist "%EXE%" (
+  echo Missing dist\MihoProbe.exe.
+  echo Build it first:
+  echo   powershell -ExecutionPolicy Bypass -File scripts\build_miho_probe_exe.ps1
+  echo.
+  pause
+  exit /b 1
+)
+
+echo MihoProbe executable command shell
+echo.
+"%EXE%" --help
+echo.
+echo Common examples:
+echo   dist\MihoProbe.exe demo --images-dir figs --open
+echo   dist\MihoProbe.exe demo --parsed-dir data\probes\parsed --latest-only --open
+echo   dist\MihoProbe.exe normalize --parsed data\probes\parsed\xxx.json
+echo.
+if "%KEEP_OPEN%"=="1" cmd /k

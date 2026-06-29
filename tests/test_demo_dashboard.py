@@ -201,6 +201,50 @@ class DemoDashboardTests(unittest.TestCase):
             "这张解析结果还没人工确认：确认前不能当作已拥有练度，也不会进入可尝试队伍。",
         )
 
+    def test_final_brief_first_layer_is_reader_friendly(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["final_brief"] = {
+            "brief_status": "needs_review",
+            "output_json": "data/probes/demo/final_brief/final_brief.json",
+            "output_md": "data/probes/demo/final_brief/final_brief.md",
+            "summary": {
+                "trusted_plan_count": 0,
+                "pending_review_count": 2,
+                "ready_now_target_count": 0,
+                "needs_recording_target_count": 0,
+                "watch_only_target_count": 1,
+            },
+            "warnings": ["缺少 run_manifest；无法确认本轮产物是否同批生成。"],
+            "top_cards": [
+                {
+                    "rank": 1,
+                    "card_type": "data_warning",
+                    "title": "先确认本轮数据一致性",
+                    "reason": "run_manifest 显示输入缺失、错批或无法确认；这里不会把方案当作可信 ready。",
+                    "evidence": {"artifact": "data/probes/demo/run_manifest.json"},
+                    "command_hint": "python tools/probes/run_demo_pipeline.py --images-dir figs --open",
+                    "warnings": [],
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("一眼结论", html)
+        self.assertIn("先别采用建议", html)
+        self.assertIn("为什么不能直接用", html)
+        self.assertIn("总判断", html)
+        self.assertIn("可直接行动", html)
+        self.assertIn("待确认快照", html)
+        self.assertIn("查看原始产物", html)
+        self.assertIn("技术细节", html)
+        self.assertIn("python tools/probes/run_demo_pipeline.py --images-dir figs --open", html)
+        self.assertNotIn("Brief Warning", html)
+        self.assertNotIn("brief status", html)
+        self.assertNotIn("trusted ready", html)
+        self.assertNotIn("pending review", html)
+        self.assertNotIn("watch only", html)
+
     def test_dashboard_shows_final_brief_before_details(self) -> None:
         summary = {
             "overall": {
@@ -429,14 +473,14 @@ class DemoDashboardTests(unittest.TestCase):
 
         self.assertIn("当前状态诊断", html)
         self.assertIn("诊断结论", html)
-        self.assertIn("needs_rerun", html)
+        self.assertIn("需重跑", html)
         self.assertIn("不建议执行 try_now", html)
         self.assertIn("诊断证据", html)
-        self.assertIn("strict_status", html)
+        self.assertIn("严格状态", html)
         self.assertIn("needs_apply", html)
-        self.assertIn("action contract", html)
+        self.assertIn("动作边界说明", html)
         self.assertIn("launcher 允许", html)
-        self.assertIn("writes roster", html)
+        self.assertIn("会写角色库", html)
         self.assertIn("demo rerun command is safe to print", html)
         self.assertIn("apply_receipt_preview_result_sha256_mismatch", html)
         self.assertIn("ready_try_now_not_actionable_under_current_doctor_status", html)

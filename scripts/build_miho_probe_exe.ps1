@@ -8,7 +8,7 @@ if (-not $Python) {
 
 Push-Location $RepoRoot
 try {
-    & $Python.Source -m PyInstaller tools/probes/miho_probe_cli.py --name MihoProbe --onefile
+    & $Python.Source -m PyInstaller tools/probes/miho_probe_cli.py --name MihoProbe --onefile --clean --noconfirm
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
