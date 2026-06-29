@@ -216,7 +216,7 @@ ZZZ_AGENT_CARD_REGIONS: tuple[RegionSpec, ...] = (
     RegionSpec("skill_levels", (0.315, 0.292, 0.985, 0.365), "six skill level icons"),
     RegionSpec("equipment", (0.015, 0.365, 0.985, 0.485), "W-Engine summary and set hit count"),
     RegionSpec("equipment_level", (0.120, 0.415, 0.230, 0.455), "W-Engine level value"),
-    RegionSpec("equipment_rank", (0.850, 0.385, 0.965, 0.455), "W-Engine rank value"),
+    RegionSpec("equipment_rank", (0.825, 0.365, 0.970, 0.455), "W-Engine rank value"),
     RegionSpec("drive_disc_1", (0.025, 0.470, 0.335, 0.675), "drive disc slot 1"),
     RegionSpec("drive_disc_2", (0.345, 0.470, 0.665, 0.675), "drive disc slot 2"),
     RegionSpec("drive_disc_3", (0.665, 0.470, 0.985, 0.675), "drive disc slot 3"),
@@ -523,6 +523,51 @@ def block_center(block: dict[str, Any]) -> tuple[float, float]:
 def block_in_box(block: dict[str, Any], box: dict[str, int]) -> bool:
     center_x, center_y = block_center(block)
     return box["left"] <= center_x <= box["right"] and box["top"] <= center_y <= box["bottom"]
+
+
+def visual_rank_from_crop(image: Any, region_box: dict[str, int]) -> tuple[str | None, dict[str, float]]:
+    # ZZZ share cards render A/S as colored art glyphs; OCR often sees no text at all.
+    crop = image.crop((region_box["left"], region_box["top"], region_box["right"], region_box["bottom"])).convert("RGB")
+    pixels = list(crop.getdata())
+    if not pixels:
+        return None, {"orange": 0.0, "purple": 0.0}
+    total = len(pixels)
+    orange = 0
+    purple = 0
+    for red, green, blue in pixels:
+        if red > 150 and 70 < green < 195 and blue < 95 and red > green + 25:
+            orange += 1
+        if red > 120 and blue > 120 and green < 115 and abs(red - blue) < 130:
+            purple += 1
+    orange_ratio = orange / total
+    purple_ratio = purple / total
+    if purple_ratio >= 0.025 and purple_ratio > orange_ratio * 1.6:
+        return "A", {"orange": round(orange_ratio, 4), "purple": round(purple_ratio, 4)}
+    if orange_ratio >= 0.02 and orange_ratio > purple_ratio * 1.4:
+        return "S", {"orange": round(orange_ratio, 4), "purple": round(purple_ratio, 4)}
+    return None, {"orange": round(orange_ratio, 4), "purple": round(purple_ratio, 4)}
+
+
+def visual_rank_block_for_region(image: Any, *, region_name: str, region_box: dict[str, int]) -> dict[str, Any] | None:
+    rank, scores = visual_rank_from_crop(image, region_box)
+    if not rank:
+        return None
+    return {
+        "text": rank,
+        "region": region_name,
+        "box": {
+            "left": region_box["left"],
+            "top": region_box["top"],
+            "width": region_box["width"],
+            "height": region_box["height"],
+        },
+        "ocr_confidence_raw": None,
+        "candidate_entities": ["rank"],
+        "confidence": 0.01,
+        "uncertain": True,
+        "visual_rank_fallback": True,
+        "visual_rank_scores": scores,
+    }
 
 
 def parse_tesseract_blocks(
@@ -926,6 +971,14 @@ def run_ocr(image_path: Path, *, engine: str, lang: str, game: str | None, layou
         )
         preprocess_info = dict(preprocess_info)
         preprocess_info.setdefault("engine_used", engine)
+        if spec.name in {"character_rank", "equipment_rank"} and not any(
+            rank_from_block_text(str(block.get("text", "")), rank_region=True) for block in blocks
+        ):
+            visual_block = visual_rank_block_for_region(image, region_name=spec.name, region_box=region_box)
+            if visual_block:
+                blocks.append(visual_block)
+                preprocess_info["visual_rank_fallback"] = visual_block["text"]
+                preprocess_info["visual_rank_scores"] = visual_block["visual_rank_scores"]
         all_blocks.extend(blocks)
         layout_regions.append(
             {

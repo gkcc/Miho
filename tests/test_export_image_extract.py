@@ -175,6 +175,45 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertEqual(draft["character"]["rank"]["value"], "A")
         self.assertEqual(draft["character"]["rank"]["source_region"], "character_card")
 
+    def test_visual_rank_fallback_classifies_purple_a(self) -> None:
+        image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
+        box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
+        for x in range(box["left"] + 10, box["right"] - 10):
+            for y in range(box["top"] + 10, box["bottom"] - 10):
+                image.putpixel((x, y), (210, 55, 235))
+
+        block = probe.visual_rank_block_for_region(image, region_name="character_rank", region_box=box)
+
+        self.assertIsNotNone(block)
+        assert block is not None
+        self.assertEqual(block["text"], "A")
+        self.assertTrue(block["visual_rank_fallback"])
+
+        draft = probe.build_extracted_draft(
+            game="zzz",
+            layout="zzz-agent-card",
+            blocks=[ocr_block("潘引壶 LV.55", "character_card", 70, 260, 150, 30), block],
+            layout_regions=zzz_layout_regions(),
+            image_info={"width": IMAGE_WIDTH, "height": IMAGE_HEIGHT},
+        )
+
+        self.assertEqual(draft["character"]["rank"]["value"], "A")
+        self.assertEqual(draft["character"]["rank"]["source_region"], "character_rank")
+
+    def test_visual_rank_fallback_classifies_orange_s(self) -> None:
+        image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
+        box = probe.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), IMAGE_WIDTH, IMAGE_HEIGHT)
+        for x in range(box["left"] + 16, box["right"] - 16):
+            for y in range(box["top"] + 16, box["bottom"] - 16):
+                image.putpixel((x, y), (245, 145, 20))
+
+        block = probe.visual_rank_block_for_region(image, region_name="equipment_rank", region_box=box)
+
+        self.assertIsNotNone(block)
+        assert block is not None
+        self.assertEqual(block["text"], "S")
+        self.assertGreater(block["visual_rank_scores"]["orange"], block["visual_rank_scores"]["purple"])
+
     def test_build_result_from_replay_reuses_text_blocks_without_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
