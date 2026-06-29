@@ -13,8 +13,8 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_VERSION = "p2.2-lite-action-checklist"
-DECISION_TEMPLATE_SCHEMA = "p2.2-lite-review-decisions-template"
+SCHEMA_VERSION = "p2.4-lite-action-checklist"
+DECISION_TEMPLATE_SCHEMA = "p2.4-lite-review-decisions-template"
 MAX_CHECKLIST_ITEMS = 5
 
 
@@ -117,9 +117,15 @@ def review_template(
         for item in as_list(review_inbox.get("pending")):
             if not isinstance(item, dict):
                 continue
+            normalized_json = item.get("normalized_json")
+            normalized_path = resolve_path(str(normalized_json)) if normalized_json else None
+            normalized_hash = sha256_file(normalized_path)
+            if normalized_json and normalized_hash is None:
+                template_warnings.append(f"normalized_json 不存在，无法计算 hash：{normalized_json}")
             decisions.append(
                 {
-                    "normalized_json": item.get("normalized_json"),
+                    "normalized_json": normalized_json,
+                    "normalized_json_sha256": normalized_hash,
                     "decision": "pending",
                     "character": item.get("character"),
                     "review_html": item.get("review_html"),
@@ -236,6 +242,17 @@ def preview_command_for(template_path: Path, review_inbox: Path | None, run_mani
     return " ".join(parts)
 
 
+def safe_apply_command_for(template_path: Path) -> str:
+    return (
+        "python tools/probes/apply_review_decisions.py "
+        "--normalized-dir data/probes/demo/normalized "
+        f'--decision-manifest "{template_path}" '
+        "--roster-dir data/probes/roster "
+        '--preview-result "data/probes/demo/review_preview/review_decision_preview.json" '
+        "--require-preview-ready"
+    )
+
+
 def render_markdown(result: dict[str, Any]) -> str:
     lines = ["# 执行清单", "", "## 今天最多 5 件事", ""]
     items = as_list(result.get("items"))
@@ -250,6 +267,9 @@ def render_markdown(result: dict[str, Any]) -> str:
     lines.extend(["", "## Review Decision Preview", ""])
     lines.append("先预览，再 apply；preview 不写 accepted/rejected。")
     lines.append(f"- {result.get('preview_command')}")
+    lines.extend(["", "## Safe Apply", ""])
+    lines.append("apply 必须携带 preview_result，且 preview 必须 ready 或 ready_with_override。")
+    lines.append(f"- {result.get('safe_apply_command')}")
     warnings = as_list(result.get("warnings"))
     if warnings:
         lines.extend(["", "## Warnings", ""])
@@ -305,6 +325,7 @@ def build_action_checklist(
     )
     write_json(template_path, template)
     preview_command = preview_command_for(template_path, review_inbox, run_manifest, review_data)
+    safe_apply_command = safe_apply_command_for(template_path)
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": now_iso(),
@@ -327,6 +348,7 @@ def build_action_checklist(
         "hidden_item_count": hidden_item_count,
         "review_decisions_template": str(template_path),
         "preview_command": preview_command,
+        "safe_apply_command": safe_apply_command,
         "output_json": str(checklist_path),
         "output_md": str(markdown_path),
         "warnings": warnings,

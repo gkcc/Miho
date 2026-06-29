@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -21,6 +22,8 @@ import build_roster_index as roster_index  # noqa: E402
 
 
 SCHEMA_VERSION = "p1.4-lite-review-decisions"
+APPLY_AUDIT_SCHEMA = "p2.4-lite-review-apply-audit"
+READY_PREVIEW_STATUSES = {"ready", "ready_with_override"}
 
 
 class ReviewDecisionError(RuntimeError):
@@ -49,6 +52,28 @@ def load_json(path: Path) -> dict[str, Any]:
 def write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def sha256_file(path: Path | None) -> str | None:
+    if path is None or not path.exists():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def path_keys(value: Any) -> set[str]:
+    if not value:
+        return set()
+    text = str(value)
+    keys = {text}
+    try:
+        keys.add(str(resolve_path(text)))
+    except OSError:
+        pass
+    return keys
 
 
 def field_value(item: Any) -> Any:
@@ -102,7 +127,142 @@ def target_path_for(snapshot: dict[str, Any], source_path: Path, target_dir: Pat
     return target_dir / f"{safe_name(character_name(snapshot))}_{safe_name(source_path.stem)}.json"
 
 
-def apply_decision_item(decision: dict[str, Any], normalized_dir: Path, roster_dir: Path) -> dict[str, Any]:
+def accept_decisions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [item for item in items if str(item.get("decision") or "pending").lower() == "accept"]
+
+
+def preview_item_key(item: dict[str, Any]) -> set[str]:
+    keys = path_keys(item.get("normalized_json"))
+    input_info = item.get("input") if isinstance(item.get("input"), dict) else {}
+    keys.update(path_keys(input_info.get("normalized_json")))
+    return keys
+
+
+def preview_items_by_path(preview_result: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    lookup: dict[str, dict[str, Any]] = {}
+    raw_items = preview_result.get("items") if isinstance(preview_result.get("items"), list) else []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        for key in preview_item_key(item):
+            lookup[key] = item
+    return lookup
+
+
+def decision_note(decision: dict[str, Any]) -> str:
+    return str(decision.get("note") or decision.get("override_reason") or "").strip()
+
+
+def validate_preview_gate(
+    *,
+    decisions: list[dict[str, Any]],
+    decision_manifest: Path,
+    preview_result: Path | None,
+    require_preview_ready: bool,
+) -> tuple[dict[str, Any] | None, dict[str, dict[str, Any]]]:
+    accepts = accept_decisions(decisions)
+    if not accepts and not require_preview_ready:
+        return None, {}
+    if preview_result is None:
+        reason = "--preview-result is required"
+        if accepts:
+            reason = "accept decisions require --preview-result"
+        raise ReviewDecisionError(reason)
+    preview_data = load_json(preview_result)
+    preview_status = str(preview_data.get("preview_status") or "").lower()
+    if require_preview_ready and preview_status not in READY_PREVIEW_STATUSES:
+        raise ReviewDecisionError(f"preview_result.preview_status must be ready/ready_with_override, got {preview_status or 'missing'}")
+    if accepts and preview_status not in READY_PREVIEW_STATUSES:
+        raise ReviewDecisionError(f"accept decisions require ready preview_result, got {preview_status or 'missing'}")
+
+    input_info = preview_data.get("input") if isinstance(preview_data.get("input"), dict) else {}
+    expected_manifest_hash = input_info.get("decision_manifest_sha256")
+    actual_manifest_hash = sha256_file(decision_manifest)
+    if expected_manifest_hash and actual_manifest_hash and str(expected_manifest_hash) != str(actual_manifest_hash):
+        raise ReviewDecisionError("decision_manifest hash does not match preview_result")
+    if not expected_manifest_hash:
+        raise ReviewDecisionError("preview_result missing decision_manifest_sha256")
+
+    source_check = preview_data.get("source_check") if isinstance(preview_data.get("source_check"), dict) else {}
+    if source_check.get("stale_template") or source_check.get("review_inbox_match") is False or source_check.get("run_manifest_match") is False:
+        raise ReviewDecisionError("preview_result source_check is stale or mismatched")
+    for source_name in ("review_inbox", "run_manifest"):
+        source_value = input_info.get(source_name)
+        expected_source_hash = input_info.get(f"{source_name}_sha256")
+        if source_value and expected_source_hash:
+            actual_source_hash = sha256_file(resolve_path(str(source_value)))
+            if not actual_source_hash or str(actual_source_hash) != str(expected_source_hash):
+                raise ReviewDecisionError(f"{source_name} changed after preview")
+
+    items_by_path = preview_items_by_path(preview_data)
+    accept_preview: dict[str, dict[str, Any]] = {}
+    for decision in accepts:
+        source_path = normalized_path_from_decision(decision, PROJECT_ROOT)
+        preview_item = None
+        for key in path_keys(source_path):
+            preview_item = items_by_path.get(key)
+            if preview_item:
+                break
+        if preview_item is None:
+            raise ReviewDecisionError(f"preview_result missing item for accepted normalized_json: {source_path}")
+        status = str(preview_item.get("decision_status") or "").lower()
+        if status == "blocked":
+            raise ReviewDecisionError(f"preview item is blocked for {source_path}: {'; '.join(str(item) for item in preview_item.get('blockers', []))}")
+        if status == "needs_review" and not decision_note(decision):
+            raise ReviewDecisionError(f"preview item needs_review and has no override note: {source_path}")
+        if status not in READY_PREVIEW_STATUSES:
+            raise ReviewDecisionError(f"preview item is not ready for accepted normalized_json: {source_path}")
+        if preview_item.get("normalized_hash_match") is not True:
+            raise ReviewDecisionError(f"normalized_json hash mismatch in preview_result: {source_path}")
+        expected_normalized_hash = preview_item.get("normalized_json_sha256_actual") or preview_item.get("normalized_json_sha256_expected")
+        actual_normalized_hash = sha256_file(source_path)
+        if not expected_normalized_hash or not actual_normalized_hash or str(expected_normalized_hash) != str(actual_normalized_hash):
+            raise ReviewDecisionError(f"normalized_json changed after preview: {source_path}")
+        if decision.get("normalized_json_sha256") and str(decision.get("normalized_json_sha256")) != str(actual_normalized_hash):
+            raise ReviewDecisionError(f"decision normalized_json_sha256 does not match current file: {source_path}")
+        accept_preview[str(source_path)] = preview_item
+    return preview_data, accept_preview
+
+
+def apply_audit(
+    *,
+    decision_manifest: Path,
+    preview_result_path: Path | None,
+    preview_result: dict[str, Any] | None,
+    source_path: Path,
+    preview_item: dict[str, Any] | None,
+    decision: dict[str, Any],
+) -> dict[str, Any] | None:
+    if preview_result_path is None or preview_result is None:
+        return None
+    input_info = preview_result.get("input") if isinstance(preview_result.get("input"), dict) else {}
+    status = str((preview_item or {}).get("decision_status") or "")
+    note = decision_note(decision)
+    return {
+        "schema_version": APPLY_AUDIT_SCHEMA,
+        "decision_manifest": str(decision_manifest),
+        "decision_manifest_sha256": sha256_file(decision_manifest),
+        "preview_result": str(preview_result_path),
+        "preview_result_sha256": sha256_file(preview_result_path),
+        "run_manifest": input_info.get("run_manifest"),
+        "run_manifest_sha256": input_info.get("run_manifest_sha256"),
+        "normalized_json_sha256": sha256_file(source_path),
+        "applied_at": roster_index.now_iso(),
+        "override_used": status == "ready_with_override",
+        "override_note": note if status == "ready_with_override" else "",
+    }
+
+
+def apply_decision_item(
+    decision: dict[str, Any],
+    normalized_dir: Path,
+    roster_dir: Path,
+    *,
+    decision_manifest: Path,
+    preview_result_path: Path | None = None,
+    preview_result: dict[str, Any] | None = None,
+    preview_item: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     source_path = normalized_path_from_decision(decision, normalized_dir)
     snapshot = load_json(source_path)
     decision_value = str(decision.get("decision") or "pending").lower()
@@ -139,6 +299,16 @@ def apply_decision_item(decision: dict[str, Any], normalized_dir: Path, roster_d
             record["status"] = "blocked"
             record["error"] = "; ".join(unsafe)
             return record
+        audit = apply_audit(
+            decision_manifest=decision_manifest,
+            preview_result_path=preview_result_path,
+            preview_result=preview_result,
+            source_path=source_path,
+            preview_item=preview_item,
+            decision=decision,
+        )
+        if audit:
+            snapshot["review_apply_audit"] = audit
         target_dir = roster_dir / "accepted"
     else:
         target_dir = roster_dir / "rejected"
@@ -171,11 +341,39 @@ def backup_existing_roster_index(roster_dir: Path) -> str | None:
     return str(target)
 
 
-def apply_review_decisions(*, normalized_dir: Path, decision_manifest: Path, roster_dir: Path) -> dict[str, Any]:
+def apply_review_decisions(
+    *,
+    normalized_dir: Path,
+    decision_manifest: Path,
+    roster_dir: Path,
+    preview_result: Path | None = None,
+    require_preview_ready: bool = False,
+) -> dict[str, Any]:
     if not normalized_dir.exists():
         raise ReviewDecisionError(f"Normalized directory does not exist: {normalized_dir}")
     manifest = load_json(decision_manifest)
-    records = [apply_decision_item(item, normalized_dir, roster_dir) for item in decision_items(manifest)]
+    items = decision_items(manifest)
+    preview_data, accept_preview = validate_preview_gate(
+        decisions=items,
+        decision_manifest=decision_manifest,
+        preview_result=preview_result,
+        require_preview_ready=require_preview_ready,
+    )
+    records = []
+    for item in items:
+        source_path = normalized_path_from_decision(item, normalized_dir)
+        preview_item = accept_preview.get(str(source_path))
+        records.append(
+            apply_decision_item(
+                item,
+                normalized_dir,
+                roster_dir,
+                decision_manifest=decision_manifest,
+                preview_result_path=preview_result,
+                preview_result=preview_data,
+                preview_item=preview_item,
+            )
+        )
     accepted_dir = roster_dir / "accepted"
     index_result = None
     previous_roster_index = None
@@ -201,6 +399,10 @@ def apply_review_decisions(*, normalized_dir: Path, decision_manifest: Path, ros
         "input": {
             "normalized_dir": str(normalized_dir),
             "decision_manifest": str(decision_manifest),
+            "decision_manifest_sha256": sha256_file(decision_manifest),
+            "preview_result": str(preview_result) if preview_result else None,
+            "preview_result_sha256": sha256_file(preview_result) if preview_result else None,
+            "require_preview_ready": require_preview_ready,
             "roster_dir": str(roster_dir),
         },
         "summary": {
@@ -213,6 +415,10 @@ def apply_review_decisions(*, normalized_dir: Path, decision_manifest: Path, ros
         "records": records,
         "previous_roster_index": previous_roster_index,
         "roster_index": index_result.get("output_json") if isinstance(index_result, dict) else None,
+        "review_apply_gate": {
+            "status": "ready" if preview_data and preview_data.get("preview_status") in READY_PREVIEW_STATUSES else "not_required",
+            "preview_status": preview_data.get("preview_status") if isinstance(preview_data, dict) else None,
+        },
     }
     roster_dir.mkdir(parents=True, exist_ok=True)
     log_path = roster_dir / "review_log.json"
@@ -227,6 +433,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--normalized-dir", required=True, help="Directory containing candidate normalized snapshots.")
     parser.add_argument("--decision-manifest", required=True, help="Local review_decisions.json. Do not commit it.")
     parser.add_argument("--roster-dir", required=True, help="Roster output directory with accepted/rejected/index files.")
+    parser.add_argument("--preview-result", default=None, help="Required for accept decisions. Generated by preview_review_decisions.py.")
+    parser.add_argument("--require-preview-ready", action="store_true", help="Fail unless preview_result status is ready/ready_with_override.")
     return parser
 
 
@@ -237,6 +445,8 @@ def main() -> int:
             normalized_dir=resolve_path(args.normalized_dir),
             decision_manifest=resolve_path(args.decision_manifest),
             roster_dir=resolve_path(args.roster_dir),
+            preview_result=resolve_path(args.preview_result) if args.preview_result else None,
+            require_preview_ready=bool(args.require_preview_ready),
         )
     except ReviewDecisionError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

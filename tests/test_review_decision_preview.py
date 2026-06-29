@@ -76,6 +76,7 @@ def decision_manifest(
     run_manifest_path: Path,
     note: str = "",
     review_hash: str | None = None,
+    normalized_hash: str | None = None,
 ) -> dict:
     return {
         "schema_version": "p2.2-lite-review-decisions-template",
@@ -86,6 +87,7 @@ def decision_manifest(
         "decisions": [
             {
                 "normalized_json": str(normalized_path),
+                "normalized_json_sha256": normalized_hash if normalized_hash is not None else sha256(normalized_path),
                 "decision": decision,
                 "character": "雅",
                 "review_html": "data/probes/demo/case_review.html",
@@ -106,6 +108,7 @@ class ReviewDecisionPreviewTests(unittest.TestCase):
         normalized_in_pending: bool = True,
         note: str = "",
         review_hash: str | None = None,
+        normalized_hash: str | None = None,
     ) -> dict:
         normalized_path = write_json(root / "normalized" / "miyabi.json", snapshot_data or snapshot())
         pending_path = normalized_path if normalized_in_pending else root / "normalized" / "other.json"
@@ -122,6 +125,7 @@ class ReviewDecisionPreviewTests(unittest.TestCase):
                 run_manifest_path=run_path,
                 note=note,
                 review_hash=review_hash,
+                normalized_hash=normalized_hash,
             ),
         )
         return preview_tool.preview_review_decisions(
@@ -141,6 +145,15 @@ class ReviewDecisionPreviewTests(unittest.TestCase):
             self.assertFalse(result["source_check"]["review_inbox_match"])
             self.assertTrue(result["source_check"]["stale_template"])
             self.assertIn("template_source_mismatch", result["items"][0]["blockers"])
+
+    def test_normalized_hash_mismatch_blocks_accept(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build_preview(root, decision="accept", normalized_hash="bad")
+
+            self.assertEqual(result["preview_status"], "blocked")
+            self.assertFalse(result["items"][0]["normalized_hash_match"])
+            self.assertIn("normalized_json_sha256 mismatch", result["items"][0]["blockers"])
 
     def test_accept_normalized_not_in_pending_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -179,12 +192,27 @@ class ReviewDecisionPreviewTests(unittest.TestCase):
             self.assertEqual(result["items"][0]["decision_status"], "needs_review")
             self.assertFalse(result["items"][0]["would_enter_roster"])
 
+    def test_accept_with_quality_blockers_and_note_is_ready_with_override(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build_preview(
+                root,
+                decision="accept",
+                snapshot_data=snapshot(blockers=["low_trusted_field_count"]),
+                note="人工确认可信字段足够，允许覆盖普通质量提示",
+            )
+
+            self.assertEqual(result["preview_status"], "ready_with_override")
+            self.assertEqual(result["items"][0]["decision_status"], "ready_with_override")
+            self.assertTrue(result["items"][0]["would_enter_roster"])
+
     def test_safe_accept_is_preview_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             result = self.build_preview(root, decision="accept")
 
             self.assertEqual(result["preview_status"], "ready")
+            self.assertTrue(result["items"][0]["normalized_hash_match"])
             self.assertTrue(result["items"][0]["would_enter_roster"])
             self.assertEqual(result["summary"]["would_update_roster_count"], 1)
             self.assertFalse((root / "accepted").exists())

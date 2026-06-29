@@ -506,12 +506,12 @@ data/probes/demo/action_checklist/review_decisions_template.json
 
 * 只展示最多 5 件事，超出的数量写入 `hidden_item_count`；
 * 有 `data_warning` 或 run manifest warning 时，`checklist_status=blocked`，所有 `try_now` 都不能是 `ready`；
-* `review_snapshot` 会写入 `review_decisions_template.json`，默认 `decision=pending`，不会自动 accept；
+* `review_snapshot` 会写入 `review_decisions_template.json`，默认 `decision=pending`，并记录每个 `normalized_json_sha256`，不会自动 accept；
 * `record_character` 只提示补录官方分享图，不会创建 owned/accepted roster；
 * `watch_only` 必须显示“不是抽卡建议”；
 * pending/catalog/candidate 标记不得进入 ready `try_now`。
 
-P2.3-lite 复核决策预览单独生成命令：
+P2.4-lite 复核决策预览与安全应用：
 
 ```powershell
 python tools/probes/preview_review_decisions.py `
@@ -531,33 +531,50 @@ data/probes/demo/review_preview/review_decision_preview.md
 
 preview 规则：
 
-* `review_decisions_template.json` 会记录 `source_review_inbox_sha256` 和 `source_run_manifest_sha256`，preview 会用当前文件重新计算并阻断 stale / 错批 template；
+* `review_decisions_template.json` 会记录 `source_review_inbox_sha256`、`source_run_manifest_sha256` 和每个 `normalized_json_sha256`，preview 会用当前文件重新计算并阻断 stale / 错批 template；
+* preview 输出会记录 `decision_manifest_sha256`、`normalized_json_sha256_expected`、`normalized_json_sha256_actual` 和 `normalized_hash_match`；
 * `decision=accept` 但 `normalized_json` 不在当前 `review_inbox.pending` 中时必须 blocked；
 * `decision=accept` 遇到 `review_status=FAIL`、`invalid_candidate` 或 `invalid_field_count>0` 时必须 blocked；
-* `decision=accept` 且存在质量 blocker 时，必须填写 `note` 或 `override_reason`，否则只进入 `needs_review`；
+* `decision=accept` 且存在普通质量 blocker 时，必须填写 `note` 或 `override_reason`，否则只进入 `needs_review`；填写后为 `ready_with_override`；
 * `decision=pending` / `decision=reject` 不会进入 accepted roster；
 * preview 只输出 `would_enter_roster` / `would_replace_existing` 预览，不写 accepted/rejected，也不调用 apply。
 
-P1.4-lite 练度更新收件箱与已确认 Box Index：
+accept 决策必须使用 safe apply，不能绕过 preview：
 
 ```powershell
 python tools/probes/apply_review_decisions.py `
   --normalized-dir data/probes/demo/normalized `
-  --decision-manifest data/probes/review_decisions.json `
-  --roster-dir data/probes/roster
+  --decision-manifest data/probes/demo/action_checklist/review_decisions_template.json `
+  --roster-dir data/probes/roster `
+  --preview-result data/probes/demo/review_preview/review_decision_preview.json `
+  --require-preview-ready
+```
 
+safe apply 规则：
+
+* 只要存在 `decision=accept`，没有 `--preview-result` 就会失败；
+* `preview_status` 必须是 `ready` 或 `ready_with_override`；
+* `decision_manifest_sha256` 必须和 preview 时一致；
+* 每个 accepted `normalized_json` 的当前 SHA256 必须和 preview 时一致；
+* accepted snapshot 会写入 `review_apply_audit`，记录 decision manifest、preview result、run manifest 和 normalized snapshot 的 hash；
+* `decision=reject` / `decision=pending` 不会进入 accepted roster，可不依赖 preview。
+
+P1.4-lite 练度更新收件箱与已确认 Box Index：
+
+```powershell
 python tools/probes/build_roster_index.py `
   --accepted-dir data/probes/roster/accepted `
   --output-dir data/probes/roster
 ```
 
-`data/probes/review_decisions.json` 是本地人工验收清单，不提交。建议格式：
+`review_decisions_template.json` 可以直接本地编辑，也可以复制成 `data/probes/review_decisions.json`。无论用哪个文件，preview 和 apply 的 `--decision-manifest` 必须是同一个路径，否则会因为 `decision_manifest_sha256` 不一致而失败。该清单不提交。建议格式：
 
 ```json
 {
   "decisions": [
     {
       "normalized_json": "data/probes/demo/normalized/example_normalized.json",
+      "normalized_json_sha256": "先由 review_decisions_template.json 生成，不要手填错误 hash",
       "decision": "accept",
       "note": "人工确认角色、音擎和驱动盘关键字段可用"
     }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -46,6 +47,43 @@ def normalized_snapshot(name: str, *, review_status: str = "PASS", invalid_count
     }
 
 
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def write_preview_result(root: Path, *, decision_manifest: Path, accepted_path: Path) -> Path:
+    preview_path = root / "review_preview" / "review_decision_preview.json"
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    preview_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "p2.4-lite-review-decision-preview",
+                "preview_status": "ready",
+                "input": {
+                    "decision_manifest": str(decision_manifest),
+                    "decision_manifest_sha256": sha256(decision_manifest),
+                    "run_manifest": None,
+                    "run_manifest_sha256": None,
+                },
+                "items": [
+                    {
+                        "normalized_json": str(accepted_path),
+                        "decision": "accept",
+                        "decision_status": "ready",
+                        "normalized_json_sha256_expected": sha256(accepted_path),
+                        "normalized_json_sha256_actual": sha256(accepted_path),
+                        "normalized_hash_match": True,
+                        "blockers": [],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return preview_path
+
+
 def accepted_snapshot(name: str, *, level: str, accepted_at: str, source_name: str) -> dict:
     snapshot = normalized_snapshot(name)
     snapshot["character"]["level"]["value"] = level
@@ -61,7 +99,7 @@ def accepted_snapshot(name: str, *, level: str, accepted_at: str, source_name: s
 
 
 class RosterIndexTests(unittest.TestCase):
-    def test_apply_review_decisions_accepts_rejects_and_blocks_unsafe_accepts(self) -> None:
+    def test_apply_review_decisions_accepts_rejects_and_pending_with_preview_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             normalized_dir = root / "normalized"
@@ -69,23 +107,22 @@ class RosterIndexTests(unittest.TestCase):
             normalized_dir.mkdir()
             accept_path = normalized_dir / "miyabi.json"
             reject_path = normalized_dir / "koleda.json"
-            fail_path = normalized_dir / "bad.json"
-            invalid_path = normalized_dir / "invalid.json"
             pending_path = normalized_dir / "pending.json"
             accept_path.write_text(json.dumps(normalized_snapshot("星见雅"), ensure_ascii=False), encoding="utf-8")
             reject_path.write_text(json.dumps(normalized_snapshot("珂蕾妲"), ensure_ascii=False), encoding="utf-8")
-            fail_path.write_text(json.dumps(normalized_snapshot("坏结果", review_status="FAIL"), ensure_ascii=False), encoding="utf-8")
-            invalid_path.write_text(json.dumps(normalized_snapshot("泛词结果", invalid_count=1), ensure_ascii=False), encoding="utf-8")
             pending_path.write_text(json.dumps(normalized_snapshot("待定"), ensure_ascii=False), encoding="utf-8")
             manifest_path = root / "review_decisions.json"
             manifest_path.write_text(
                 json.dumps(
                     {
                         "decisions": [
-                            {"normalized_json": str(accept_path), "decision": "accept", "note": "人工确认通过"},
+                            {
+                                "normalized_json": str(accept_path),
+                                "normalized_json_sha256": sha256(accept_path),
+                                "decision": "accept",
+                                "note": "人工确认通过",
+                            },
                             {"normalized_json": str(reject_path), "decision": "reject", "note": "截图不是当前角色"},
-                            {"normalized_json": str(fail_path), "decision": "accept", "note": "不能通过"},
-                            {"normalized_json": str(invalid_path), "decision": "accept", "note": "不能通过"},
                             {"normalized_json": str(pending_path), "decision": "pending", "note": "稍后看"},
                         ]
                     },
@@ -93,16 +130,19 @@ class RosterIndexTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            preview_path = write_preview_result(root, decision_manifest=manifest_path, accepted_path=accept_path)
 
             result = decision_tool.apply_review_decisions(
                 normalized_dir=normalized_dir,
                 decision_manifest=manifest_path,
                 roster_dir=roster_dir,
+                preview_result=preview_path,
+                require_preview_ready=True,
             )
 
             self.assertEqual(result["summary"]["accepted_count"], 1)
             self.assertEqual(result["summary"]["rejected_count"], 1)
-            self.assertEqual(result["summary"]["blocked_count"], 2)
+            self.assertEqual(result["summary"]["blocked_count"], 0)
             self.assertEqual(result["summary"]["pending_count"], 1)
             self.assertEqual(result["summary"]["error_count"], 0)
             self.assertTrue(Path(result["output_json"]).exists())
@@ -122,10 +162,6 @@ class RosterIndexTests(unittest.TestCase):
             self.assertEqual(roster_index["characters"][0]["name"], "星见雅")
             self.assertEqual(roster_index["characters"][0]["review_status"], "accepted")
             self.assertTrue(Path(roster_index["output_md"]).exists())
-
-            blocked_errors = " ".join(str(item.get("error")) for item in result["records"] if item.get("status") == "blocked")
-            self.assertIn("review_status=FAIL cannot be accepted", blocked_errors)
-            self.assertIn("invalid_candidate fields cannot be accepted", blocked_errors)
 
     def test_build_roster_index_requires_existing_accepted_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -220,16 +256,28 @@ class RosterIndexTests(unittest.TestCase):
             manifest_path = root / "review_decisions.json"
             manifest_path.write_text(
                 json.dumps(
-                    {"decisions": [{"normalized_json": str(accept_path), "decision": "accept", "note": "人工确认通过"}]},
+                    {
+                        "decisions": [
+                            {
+                                "normalized_json": str(accept_path),
+                                "normalized_json_sha256": sha256(accept_path),
+                                "decision": "accept",
+                                "note": "人工确认通过",
+                            }
+                        ]
+                    },
                     ensure_ascii=False,
                 ),
                 encoding="utf-8",
             )
+            preview_path = write_preview_result(root, decision_manifest=manifest_path, accepted_path=accept_path)
 
             result = decision_tool.apply_review_decisions(
                 normalized_dir=normalized_dir,
                 decision_manifest=manifest_path,
                 roster_dir=roster_dir,
+                preview_result=preview_path,
+                require_preview_ready=True,
             )
 
             self.assertIsNotNone(result["previous_roster_index"])

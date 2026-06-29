@@ -206,6 +206,7 @@ class DemoDashboardTests(unittest.TestCase):
                 "output_md": "data/probes/demo/action_checklist/action_checklist.md",
                 "review_decisions_template": "data/probes/demo/action_checklist/review_decisions_template.json",
                 "preview_command": "python tools/probes/preview_review_decisions.py --decision-manifest data/probes/demo/action_checklist/review_decisions_template.json",
+                "safe_apply_command": "python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized --decision-manifest data/probes/demo/action_checklist/review_decisions_template.json --roster-dir data/probes/roster --preview-result data/probes/demo/review_preview/review_decision_preview.json --require-preview-ready",
                 "summary": {"item_count": 1, "ready_count": 1, "needs_review_count": 0, "blocked_count": 0, "hidden_item_count": 0},
                 "items": [
                     {
@@ -240,6 +241,9 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("review_decisions_template.json", html)
         self.assertIn("review_decision_preview.md", html)
         self.assertIn("先预览，再 apply", html)
+        self.assertIn("Safe Apply", html)
+        self.assertIn("--require-preview-ready", html)
+        self.assertIn("not_applied", html)
         self.assertIn("可先尝试：危局强袭战", html)
         self.assertLess(html.index("今日作战简报"), html.index("输入模式"))
         self.assertLess(html.index("今日作战简报"), html.index("执行清单"))
@@ -825,7 +829,7 @@ class DemoDashboardTests(unittest.TestCase):
                     ],
                     "accepted": [],
                     "rejected": [],
-                    "decision_command": "python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized --decision-manifest data/probes/review_decisions.json --roster-dir data/probes/roster",
+                    "decision_command": "python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized --decision-manifest data/probes/review_decisions.json --roster-dir data/probes/roster --preview-result data/probes/demo/review_preview/review_decision_preview.json --require-preview-ready",
                 },
             }
 
@@ -860,6 +864,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("待确认快照", html)
             self.assertIn("已接收快照", html)
             self.assertIn("apply_review_decisions.py", html)
+            self.assertIn("--preview-result", html)
             self.assertIn("tier_snapshot", html)
             self.assertIn("Tier / 保值观察", html)
             self.assertIn("已有高保值", html)
@@ -1231,6 +1236,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("今日作战简报", dashboard_html)
             self.assertIn("执行清单", dashboard_html)
             self.assertIn("先预览，再 apply", dashboard_html)
+            self.assertIn("Safe Apply", dashboard_html)
+            self.assertIn("--require-preview-ready", dashboard_html)
             self.assertIn("今天先做什么", dashboard_html)
             self.assertIn("培养优先级候选", dashboard_html)
             self.assertIn("下一步行动", dashboard_html)

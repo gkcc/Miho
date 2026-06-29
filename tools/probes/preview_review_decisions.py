@@ -13,7 +13,8 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_VERSION = "p2.3-lite-review-decision-preview"
+SCHEMA_VERSION = "p2.4-lite-review-decision-preview"
+READY_STATUSES = {"ready", "ready_with_override"}
 
 
 class ReviewPreviewError(RuntimeError):
@@ -206,6 +207,9 @@ def preview_item(
     decision_value = str(decision.get("decision") or "pending").lower()
     normalized_json = decision.get("normalized_json")
     source_path, snapshot, load_error = load_snapshot(normalized_json)
+    expected_hash = decision.get("normalized_json_sha256")
+    actual_hash = sha256_file(source_path)
+    hash_match = bool(expected_hash and actual_hash and str(expected_hash) == str(actual_hash))
     pending = None
     for key in path_keys(normalized_json):
         pending = pending_by_path.get(key)
@@ -223,6 +227,12 @@ def preview_item(
     if stale_template and decision_value == "accept":
         status = "blocked"
         blockers.append("template_source_mismatch")
+    if decision_value == "accept" and not expected_hash:
+        status = "blocked"
+        blockers.append("normalized_json_sha256 missing")
+    elif decision_value == "accept" and not hash_match:
+        status = "blocked"
+        blockers.append("normalized_json_sha256 mismatch")
     if decision_value == "accept" and pending is None:
         status = "blocked"
         blockers.append("normalized_json is not in current review_inbox.pending")
@@ -242,12 +252,16 @@ def preview_item(
             status = "needs_review"
             warnings.append("quality blockers 存在，accept 前需要填写 note 或 override_reason。")
         elif manual_blockers and note and status != "blocked":
+            status = "ready_with_override"
             warnings.append("quality blockers 由 note/override_reason 解释，仅作为 dry-run 预览。")
-    would_enter = decision_value == "accept" and status == "ready"
+    would_enter = decision_value == "accept" and status in READY_STATUSES
     return {
         "character": character,
         "decision": "pending" if decision_value == "" else decision_value,
         "normalized_json": str(source_path) if source_path else normalized_json,
+        "normalized_json_sha256_expected": expected_hash,
+        "normalized_json_sha256_actual": actual_hash,
+        "normalized_hash_match": hash_match,
         "review_html": decision.get("review_html") or (pending or {}).get("review_html"),
         "decision_status": status,
         "would_enter_roster": would_enter,
@@ -264,6 +278,8 @@ def preview_status(source: dict[str, Any], items: list[dict[str, Any]]) -> str:
         return "blocked"
     if any(item.get("decision_status") in {"needs_review", "pending"} for item in items):
         return "needs_review"
+    if any(item.get("decision_status") == "ready_with_override" for item in items):
+        return "ready_with_override"
     return "ready"
 
 
@@ -277,6 +293,7 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"- preview_status: {result.get('preview_status')}",
         f"- accept_count: {summary.get('accept_count', 0)}",
         f"- blocked_accept_count: {summary.get('blocked_accept_count', 0)}",
+        f"- override_accept_count: {summary.get('override_accept_count', 0)}",
         f"- would_update_roster_count: {summary.get('would_update_roster_count', 0)}",
         "",
         "## Source Check",
@@ -301,6 +318,7 @@ def render_markdown(result: dict[str, Any]) -> str:
             f"- [{item.get('decision_status')}] {item.get('decision')}: {item.get('character')} "
             f"would_enter_roster={item.get('would_enter_roster')}"
         )
+        lines.append(f"  - normalized_hash_match: {item.get('normalized_hash_match')}")
         for blocker in as_list(item.get("blockers")):
             lines.append(f"  - blocker: {blocker}")
         for warning in as_list(item.get("warnings")):
@@ -309,11 +327,12 @@ def render_markdown(result: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def next_apply_command(decision_manifest: Path) -> str:
+def next_apply_command(decision_manifest: Path, preview_result: Path) -> str:
     return (
-        "确认 preview 后，再手动运行 apply_review_decisions.py；"
+        "确认 preview 后，再手动运行 safe apply；"
         f"示例：python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized "
-        f'--decision-manifest "{decision_manifest}" --roster-dir data/probes/roster'
+        f'--decision-manifest "{decision_manifest}" --roster-dir data/probes/roster '
+        f'--preview-result "{preview_result}" --require-preview-ready'
     )
 
 
@@ -342,6 +361,7 @@ def preview_review_decisions(
         "reject_count": sum(1 for item in items if item.get("decision") == "reject"),
         "pending_count": sum(1 for item in items if item.get("decision") == "pending"),
         "blocked_accept_count": sum(1 for item in items if item.get("decision") == "accept" and item.get("decision_status") == "blocked"),
+        "override_accept_count": sum(1 for item in items if item.get("decision") == "accept" and item.get("decision_status") == "ready_with_override"),
         "would_update_roster_count": sum(1 for item in items if item.get("would_enter_roster")),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -353,14 +373,18 @@ def preview_review_decisions(
         "preview_status": preview_status(source, items),
         "input": {
             "decision_manifest": str(decision_manifest),
+            "decision_manifest_sha256": sha256_file(decision_manifest),
             "review_inbox": str(review_inbox),
+            "review_inbox_sha256": sha256_file(review_inbox),
             "run_manifest": str(run_manifest) if run_manifest else None,
+            "run_manifest_sha256": sha256_file(run_manifest),
             "roster_index": str(roster_index) if roster_index else None,
+            "roster_index_sha256": sha256_file(roster_index),
         },
         "source_check": source,
         "summary": summary,
         "items": items,
-        "next_command": next_apply_command(decision_manifest),
+        "next_command": next_apply_command(decision_manifest, json_path),
         "output_json": str(json_path),
         "output_md": str(md_path),
     }
@@ -398,6 +422,7 @@ def main() -> int:
     print(f"reject_count: {summary['reject_count']}")
     print(f"pending_count: {summary['pending_count']}")
     print(f"blocked_accept_count: {summary['blocked_accept_count']}")
+    print(f"override_accept_count: {summary['override_accept_count']}")
     print(f"would_update_roster_count: {summary['would_update_roster_count']}")
     print(f"output_json: {result['output_json']}")
     print(f"output_md: {result['output_md']}")

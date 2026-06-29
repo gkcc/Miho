@@ -1469,7 +1469,11 @@ def build_review_inbox(cases: list[dict[str, Any]], roster_dir: Path) -> dict[st
         "pending": pending_items,
         "accepted": accepted_items,
         "rejected": rejected_items,
-        "decision_command": "python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized --decision-manifest data/probes/review_decisions.json --roster-dir data/probes/roster",
+        "decision_command": (
+            "python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized "
+            "--decision-manifest data/probes/review_decisions.json --roster-dir data/probes/roster "
+            "--preview-result data/probes/demo/review_preview/review_decision_preview.json --require-preview-ready"
+        ),
     }
 
 

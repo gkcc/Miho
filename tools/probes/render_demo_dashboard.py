@@ -66,9 +66,21 @@ def rel_label(value: Any) -> str:
 
 def status_class(value: Any) -> str:
     text = str(value or "").lower()
-    if text in {"pass", "done", "ok", "true", "generated", "ready_for_review", "trusted", "consistent"}:
+    if text in {"pass", "done", "ok", "true", "generated", "ready_for_review", "trusted", "consistent", "applied"}:
         return "ok"
-    if text in {"needs_review", "needs-review", "requires_review", "missing_expected", "uncertain", "skipped", "n/a", "warning", "ready_with_pending"}:
+    if text in {
+        "needs_review",
+        "needs-review",
+        "requires_review",
+        "missing_expected",
+        "uncertain",
+        "skipped",
+        "n/a",
+        "warning",
+        "ready_with_pending",
+        "ready_with_override",
+        "not_applied",
+    }:
         return "warn"
     if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure"}:
         return "bad"
@@ -703,6 +715,8 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
     checklist_summary = checklist.get("summary") if isinstance(checklist.get("summary"), dict) else {}
     preview = summary.get("review_decision_preview") if isinstance(summary.get("review_decision_preview"), dict) else {}
     preview_summary = preview.get("summary") if isinstance(preview.get("summary"), dict) else {}
+    safe_apply = safe_apply_status(summary)
+    safe_command = checklist.get("safe_apply_command") or preview.get("next_command") or ""
     items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
     warnings = checklist.get("warnings") if isinstance(checklist.get("warnings"), list) else []
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
@@ -757,6 +771,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
       <div class="input-grid">
         <div><span>checklist status</span><strong>{e(checklist.get("checklist_status") or "N/A")}</strong></div>
         <div><span>preview status</span><strong>{e(preview.get("preview_status") or "N/A")}</strong></div>
+        <div><span>safe apply</span><strong>{e(safe_apply)}</strong></div>
         <div><span>items</span><strong>{e(checklist_summary.get("item_count", "N/A"))}</strong></div>
         <div><span>ready</span><strong>{e(checklist_summary.get("ready_count", "N/A"))}</strong></div>
         <div><span>needs review</span><strong>{e(checklist_summary.get("needs_review_count", "N/A"))}</strong></div>
@@ -765,10 +780,22 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
         <div><span>would update roster</span><strong>{e(preview_summary.get("would_update_roster_count", "N/A"))}</strong></div>
       </div>
       <p class="muted-line">Review Decision Preview：先预览，再 apply；preview 不写 accepted/rejected。{e(checklist.get("preview_command") or "")}</p>
+      <p class="muted-line">Safe Apply：{e(safe_apply)}。{e(safe_command)}</p>
       {warning_block}
       {body}
     </section>
     """
+
+
+def safe_apply_status(summary: dict[str, Any]) -> str:
+    apply_info = summary.get("review_apply") if isinstance(summary.get("review_apply"), dict) else {}
+    if apply_info and not apply_info.get("error") and apply_info.get("output_json"):
+        return "applied"
+    preview = summary.get("review_decision_preview") if isinstance(summary.get("review_decision_preview"), dict) else {}
+    preview_status = str(preview.get("preview_status") or "").lower()
+    if preview_status in {"blocked", "needs_review"}:
+        return "blocked"
+    return "not_applied"
 
 
 def render_roster_delta(summary: dict[str, Any]) -> str:
@@ -1138,11 +1165,13 @@ def render_html(summary: dict[str, Any]) -> str:
     final_info = summary.get("final_brief", {}) if isinstance(summary.get("final_brief"), dict) else {}
     checklist_info = summary.get("action_checklist", {}) if isinstance(summary.get("action_checklist"), dict) else {}
     preview_info = summary.get("review_decision_preview", {}) if isinstance(summary.get("review_decision_preview"), dict) else {}
+    safe_apply = safe_apply_status(summary)
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("简报状态", final_info.get("brief_status", "N/A") if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
         metric_card("清单状态", checklist_info.get("checklist_status", "N/A") if checklist_info else "N/A", status_class(checklist_info.get("checklist_status")) if checklist_info else "muted"),
         metric_card("复核预览", preview_info.get("preview_status", "N/A") if preview_info else "N/A", status_class(preview_info.get("preview_status")) if preview_info else "muted"),
+        metric_card("安全应用", safe_apply, status_class(safe_apply)),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
         metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),
