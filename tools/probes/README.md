@@ -559,7 +559,8 @@ safe apply 规则：
 * accepted snapshot 会写入 `review_apply_audit`，记录 decision manifest、preview result、run manifest 和 normalized snapshot 的 hash；
 * `decision=reject` / `decision=pending` 不会进入 accepted roster，可不依赖 preview；如果提供了 preview，apply 仍会校验 decision manifest、review inbox 和 run manifest hash；
 * CLI 只要传入 `--preview-result`，就会按 `--require-preview-ready` 的安全语义执行，避免误用非 ready preview；
-* apply 会额外写入 `data/probes/roster/review_apply_receipt.json/md`，每条记录包含 `did_write_accepted`、`did_write_rejected`、`did_enter_roster`、`preview_validation_status` 和 source hash。
+* apply 会额外写入 `data/probes/roster/review_apply_receipt.json/md`，每条记录包含 `did_write_accepted`、`did_write_rejected`、`did_enter_roster`、`preview_validation_status` 和 source hash；
+* demo pipeline 会读取该 receipt，并在 Dashboard 的“复核应用回执”面板展示应用结果，不需要先打开 JSON 才知道是否真正进入 roster。
 
 P1.4-lite 练度更新收件箱与已确认 Box Index：
 

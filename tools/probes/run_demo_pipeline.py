@@ -780,6 +780,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     final_info = summary.get("final_brief", {}) if isinstance(summary.get("final_brief"), dict) else {}
     checklist_info = summary.get("action_checklist", {}) if isinstance(summary.get("action_checklist"), dict) else {}
     preview_info = summary.get("review_decision_preview", {}) if isinstance(summary.get("review_decision_preview"), dict) else {}
+    apply_info = summary.get("review_apply", {}) if isinstance(summary.get("review_apply"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -870,6 +871,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(preview_info, dict) and preview_info.get("error")
             else "done"
             if isinstance(preview_info, dict) and preview_info.get("output_json")
+            else "skipped",
+        },
+        {
+            "name": "Review Apply Receipt",
+            "status": "failed"
+            if isinstance(apply_info, dict) and apply_info.get("error")
+            else "done"
+            if isinstance(apply_info, dict) and apply_info.get("apply_status") in {"applied", "applied_with_warnings"}
             else "skipped",
         },
     ]
@@ -1484,6 +1493,46 @@ def build_review_inbox(cases: list[dict[str, Any]], roster_dir: Path) -> dict[st
     }
 
 
+def build_review_apply_summary(roster_dir: Path) -> dict[str, Any]:
+    receipt_json = roster_dir / "review_apply_receipt.json"
+    receipt_md = roster_dir / "review_apply_receipt.md"
+    review_log = roster_dir / "review_log.json"
+    base = {
+        "schema_version": "p2.6-lite-review-apply-dashboard",
+        "apply_status": "not_applied",
+        "output_json": str(receipt_json) if receipt_json.exists() else None,
+        "output_md": str(receipt_md) if receipt_md.exists() else None,
+        "review_log_json": str(review_log) if review_log.exists() else None,
+        "summary": {},
+        "records": [],
+        "warnings": [],
+    }
+    if not receipt_json.exists():
+        return base
+    try:
+        receipt = load_json(receipt_json)
+    except normalizer.NormalizeError as exc:
+        base["apply_status"] = "error"
+        base["error"] = str(exc)
+        return base
+    receipt_summary = receipt.get("summary") if isinstance(receipt.get("summary"), dict) else {}
+    records = receipt.get("records") if isinstance(receipt.get("records"), list) else []
+    warnings = receipt.get("warnings") if isinstance(receipt.get("warnings"), list) else []
+    base.update(
+        {
+            "apply_status": "applied_with_warnings" if warnings else "applied",
+            "receipt_schema_version": receipt.get("schema_version"),
+            "created_at": receipt.get("created_at"),
+            "input": receipt.get("input") if isinstance(receipt.get("input"), dict) else {},
+            "summary": receipt_summary,
+            "records": [item for item in records if isinstance(item, dict)][:8],
+            "hidden_record_count": max(0, len(records) - 8),
+            "warnings": warnings,
+        }
+    )
+    return base
+
+
 def build_target_refresh(target_source_manifest: Path | None, output_dir: Path) -> dict[str, Any] | None:
     if target_source_manifest is None:
         return None
@@ -1676,6 +1725,7 @@ def run_pipeline(
     review_inbox["output_json"] = str(review_inbox_path)
     write_json(review_inbox_path, review_inbox)
     summary["review_inbox"] = review_inbox
+    summary["review_apply"] = build_review_apply_summary(active_roster_dir)
     summary["pipeline_steps"] = pipeline_steps(summary)
     roster_index_for_replay = Path(str(review_inbox["roster_index_json"])) if review_inbox.get("roster_index_json") else active_roster_index
     tier_info = build_demo_tier_watchlist(

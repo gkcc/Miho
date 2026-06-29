@@ -80,6 +80,7 @@ def status_class(value: Any) -> str:
         "ready_with_pending",
         "ready_with_override",
         "not_applied",
+        "applied_with_warnings",
     }:
         return "warn"
     if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure"}:
@@ -807,6 +808,79 @@ def safe_apply_status(summary: dict[str, Any]) -> str:
     return "not_applied"
 
 
+def render_review_apply(summary: dict[str, Any]) -> str:
+    review_apply = summary.get("review_apply")
+    if not isinstance(review_apply, dict):
+        inbox = summary.get("review_inbox") if isinstance(summary.get("review_inbox"), dict) else {}
+        if not inbox.get("review_apply_receipt_json") and not inbox.get("review_apply_receipt_md"):
+            return ""
+        review_apply = {
+            "apply_status": safe_apply_status(summary),
+            "output_json": inbox.get("review_apply_receipt_json"),
+            "output_md": inbox.get("review_apply_receipt_md"),
+            "review_log_json": inbox.get("review_log_json"),
+            "summary": {},
+            "records": [],
+        }
+    receipt_summary = review_apply.get("summary") if isinstance(review_apply.get("summary"), dict) else {}
+    records = review_apply.get("records") if isinstance(review_apply.get("records"), list) else []
+    warnings = review_apply.get("warnings") if isinstance(review_apply.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Apply Receipt Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if review_apply.get("error"):
+        body = f'<div class="errors"><strong>Review apply receipt failed</strong><ul><li>{e(review_apply.get("error"))}</li></ul></div>'
+    elif not records:
+        body = '<div class="empty">还没有 apply receipt；当前只是预览或待人工处理。</div>'
+    else:
+        rows = []
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            effect = []
+            if item.get("did_enter_roster"):
+                effect.append("进入 roster")
+            if item.get("did_write_accepted"):
+                effect.append("写 accepted")
+            if item.get("did_write_rejected"):
+                effect.append("写 rejected")
+            if not effect:
+                effect.append("无写入")
+            rows.append(
+                "<article class=\"resource-item\">"
+                f"<strong>{e(item.get('character'))}</strong>"
+                f"<span>{e(item.get('decision'))} · {e(item.get('status'))} · {e(' / '.join(effect))} · preview={e(item.get('preview_validation_status'))}</span>"
+                f"<em>{e(item.get('preview_decision_status') or item.get('normalized_json_sha256') or 'N/A')}</em>"
+                "</article>"
+            )
+        hidden = review_apply.get("hidden_record_count") or 0
+        hidden_text = f'<p class="muted-line">另有 {e(hidden)} 条 receipt record 未展示。</p>' if hidden else ""
+        body = f'<div class="resource-plan"><h3>应用回执记录</h3><div class="resource-list">{"".join(rows)}</div>{hidden_text}</div>'
+    return f"""
+    <section class="panel">
+      <h2>复核应用回执</h2>
+      <p class="muted-line">这里展示 apply 之后真实发生的副作用：是否写入 accepted/rejected、是否进入 roster index，以及是否经过 preview 校验。</p>
+      <div class="links">
+        {link("review_apply_receipt.md", review_apply.get("output_md"))}
+        {link("review_apply_receipt.json", review_apply.get("output_json"))}
+        {link("review_log.json", review_apply.get("review_log_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>apply status</span><strong>{e(review_apply.get("apply_status") or "not_applied")}</strong></div>
+        <div><span>accepted</span><strong>{e(receipt_summary.get("accepted_count", "N/A"))}</strong></div>
+        <div><span>rejected</span><strong>{e(receipt_summary.get("rejected_count", "N/A"))}</strong></div>
+        <div><span>pending</span><strong>{e(receipt_summary.get("pending_count", "N/A"))}</strong></div>
+        <div><span>entered roster</span><strong>{e(receipt_summary.get("did_enter_roster_count", "N/A"))}</strong></div>
+        <div><span>wrote accepted</span><strong>{e(receipt_summary.get("did_write_accepted_count", "N/A"))}</strong></div>
+        <div><span>wrote rejected</span><strong>{e(receipt_summary.get("did_write_rejected_count", "N/A"))}</strong></div>
+        <div><span>preview validated</span><strong>{e(receipt_summary.get("preview_validated_count", "N/A"))}</strong></div>
+        <div><span>preview missing</span><strong>{e(receipt_summary.get("preview_not_provided_count", "N/A"))}</strong></div>
+      </div>
+      {warning_block}
+      {body}
+    </section>
+    """
+
+
 def render_roster_delta(summary: dict[str, Any]) -> str:
     delta = summary.get("roster_delta")
     if not isinstance(delta, dict):
@@ -1174,6 +1248,8 @@ def render_html(summary: dict[str, Any]) -> str:
     final_info = summary.get("final_brief", {}) if isinstance(summary.get("final_brief"), dict) else {}
     checklist_info = summary.get("action_checklist", {}) if isinstance(summary.get("action_checklist"), dict) else {}
     preview_info = summary.get("review_decision_preview", {}) if isinstance(summary.get("review_decision_preview"), dict) else {}
+    apply_info = summary.get("review_apply", {}) if isinstance(summary.get("review_apply"), dict) else {}
+    apply_summary = apply_info.get("summary", {}) if isinstance(apply_info.get("summary"), dict) else {}
     safe_apply = safe_apply_status(summary)
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
@@ -1181,6 +1257,7 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("清单状态", checklist_info.get("checklist_status", "N/A") if checklist_info else "N/A", status_class(checklist_info.get("checklist_status")) if checklist_info else "muted"),
         metric_card("复核预览", preview_info.get("preview_status", "N/A") if preview_info else "N/A", status_class(preview_info.get("preview_status")) if preview_info else "muted"),
         metric_card("安全应用", safe_apply, status_class(safe_apply)),
+        metric_card("已进 Roster", apply_summary.get("did_enter_roster_count", "N/A") if apply_summary else "N/A", "ok" if apply_summary.get("did_enter_roster_count") else "muted"),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
         metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),
@@ -1230,6 +1307,7 @@ def render_html(summary: dict[str, Any]) -> str:
     steps = render_steps(summary.get("pipeline_steps", []))
     final_brief = render_final_brief(summary)
     action_checklist = render_action_checklist(summary)
+    review_apply = render_review_apply(summary)
     input_panel = render_input_panel(summary)
     update_panel = render_update_state(summary)
     snapshot_history = render_snapshot_history(summary)
@@ -1357,6 +1435,7 @@ def render_html(summary: dict[str, Any]) -> str:
     <section class="metrics">{''.join(metrics)}</section>
     {final_brief}
     {action_checklist}
+    {review_apply}
     {input_panel}
     {update_panel}
     {steps}

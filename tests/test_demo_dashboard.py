@@ -230,6 +230,35 @@ class DemoDashboardTests(unittest.TestCase):
                 "output_md": "data/probes/demo/review_preview/review_decision_preview.md",
                 "summary": {"would_update_roster_count": 1},
             },
+            "review_apply": {
+                "schema_version": "p2.6-lite-review-apply-dashboard",
+                "apply_status": "applied",
+                "output_json": "data/probes/roster/review_apply_receipt.json",
+                "output_md": "data/probes/roster/review_apply_receipt.md",
+                "review_log_json": "data/probes/roster/review_log.json",
+                "summary": {
+                    "accepted_count": 1,
+                    "rejected_count": 0,
+                    "pending_count": 0,
+                    "did_enter_roster_count": 1,
+                    "did_write_accepted_count": 1,
+                    "did_write_rejected_count": 0,
+                    "preview_validated_count": 1,
+                    "preview_not_provided_count": 0,
+                },
+                "records": [
+                    {
+                        "character": "星见雅",
+                        "decision": "accept",
+                        "status": "accepted",
+                        "did_enter_roster": True,
+                        "did_write_accepted": True,
+                        "did_write_rejected": False,
+                        "preview_validation_status": "validated",
+                    }
+                ],
+                "warnings": [],
+            },
         }
 
         html = dashboard_tool.render_html(summary)
@@ -243,7 +272,9 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("先预览，再 apply", html)
         self.assertIn("Safe Apply", html)
         self.assertIn("--require-preview-ready", html)
-        self.assertIn("not_applied", html)
+        self.assertIn("复核应用回执", html)
+        self.assertIn("进入 roster", html)
+        self.assertIn("review_apply_receipt.md", html)
         self.assertIn("可先尝试：危局强袭战", html)
         self.assertLess(html.index("今日作战简报"), html.index("输入模式"))
         self.assertLess(html.index("今日作战简报"), html.index("执行清单"))
@@ -873,6 +904,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("review_apply_receipt.md", html)
             self.assertIn("safe apply", html)
             self.assertIn("applied", html)
+            self.assertIn("复核应用回执", html)
             self.assertIn("tier_snapshot", html)
             self.assertIn("Tier / 保值观察", html)
             self.assertIn("已有高保值", html)
@@ -1239,6 +1271,9 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["review_decision_preview"]["output_json"]).exists())
             self.assertTrue(Path(summary["review_decision_preview"]["output_md"]).exists())
             self.assertIn("Review Decision Preview", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("review_apply", summary)
+            self.assertEqual(summary["review_apply"]["apply_status"], "not_applied")
+            self.assertIn("Review Apply Receipt", {item["name"] for item in summary["pipeline_steps"]})
             self.assertEqual(summary["review_inbox"]["pending_count"], 1)
             self.assertEqual(summary["review_inbox"]["safe_apply_status"], "not_applied")
             self.assertEqual(summary["team_cards"]["summary"]["pending_snapshot_count"], 1)
