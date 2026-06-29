@@ -80,6 +80,7 @@ def status_class(value: Any) -> str:
         "ready_to_try",
         "executed",
         "printed",
+        "current",
     }:
         return "ok"
     if text in {
@@ -100,7 +101,7 @@ def status_class(value: Any) -> str:
         "executed_with_followup_warning",
     }:
         return "warn"
-    if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply", "needs_rerun"}:
+    if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply", "needs_rerun", "stale"}:
         return "bad"
     return "muted"
 
@@ -304,24 +305,45 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
             follow_blockers.extend(follow_up[key])
     status = str(report.get("launcher_status") or "unknown")
     follow_action = str(follow_up.get("primary_next_action") or "N/A")
+    freshness = str(report.get("launcher_report_freshness") or "unknown")
+    freshness_current = freshness == "current"
+    freshness_note = ""
+    if freshness == "stale":
+        freshness_note = (
+            '<div class="errors"><strong>历史 launcher report，仅供审计</strong>'
+            "<ul><li>该 launcher report 不对应当前 demo_doctor；请重新运行 doctor_launcher 或打开 history report 审计，不要按其中 follow-up 下一步执行。</li></ul></div>"
+        )
+    elif freshness == "unknown":
+        freshness_note = (
+            '<div class="warnings"><strong>launcher report freshness 未知</strong>'
+            "<ul><li>当前无法证明该 launcher report 对应本次 Dashboard；只按历史记录审计，不把 follow-up 当成当前操作建议。</li></ul></div>"
+        )
+    elif report.get("report_is_initial_doctor_state"):
+        freshness_note = (
+            '<div class="warnings"><strong>launcher report 匹配启动前 doctor</strong>'
+            "<ul><li>该 report 与当前 demo_doctor 匹配，但匹配的是 initial doctor 状态；follow-up 仍需结合下方状态复核。</li></ul></div>"
+        )
     status_note = ""
-    if status == "blocked":
+    if freshness_current and status == "blocked":
         status_note = (
             '<div class="errors"><strong>启动器已阻断</strong>'
             "<ul><li>本次没有执行 rerun；请先处理 blockers 后再考虑重跑。</li></ul></div>"
         )
-    elif status == "executed_with_followup_warning":
+    elif freshness_current and status == "executed_with_followup_warning":
         status_note = (
             '<div class="warnings"><strong>重跑完成但 follow-up 需要复核</strong>'
             "<ul><li>先检查 warnings、blockers 和 follow-up 状态，不要把它当成可直接操作的命令。</li></ul></div>"
         )
-    elif status == "executed":
+    elif freshness_current and status == "executed":
         status_note = (
             '<div class="warnings"><strong>启动器已执行安全重跑</strong>'
             "<ul><li>这里仅展示执行记录；Dashboard 不会触发任何工具动作。</li></ul></div>"
         )
+    status_note = freshness_note + status_note
     follow_note = ""
-    if follow_action == "try_now" and follow_up.get("try_now_allowed"):
+    if not freshness_current:
+        follow_note = ""
+    elif follow_action == "try_now" and follow_up.get("try_now_allowed"):
         follow_note = (
             '<div class="warnings"><strong>游戏内可尝试</strong>'
             "<ul><li>只读提示：按执行清单去游戏内尝试；Dashboard 不触发工具动作。</li></ul></div>"
@@ -350,11 +372,17 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
       </div>
       <div class="input-grid">
         <div><span>launcher_status</span><strong>{e(status)}</strong></div>
+        <div><span>launcher report freshness</span><strong>{e(freshness)}</strong></div>
+        <div><span>matches_current_doctor</span><strong>{e(bool_text(report.get("matches_current_doctor")))}</strong></div>
+        <div><span>freshness_match_source</span><strong>{e(report.get("freshness_match_source") or "N/A")}</strong></div>
         <div><span>executed</span><strong>{e(bool_text(report.get("executed")))}</strong></div>
         <div><span>returncode</span><strong>{e(report.get("returncode") if report.get("returncode") is not None else "N/A")}</strong></div>
         <div><span>command_script_resolved</span><strong>{e(report.get("command_script_resolved") or "N/A")}</strong></div>
         <div><span>rerun_started_at</span><strong>{e(report.get("rerun_started_at") or "N/A")}</strong></div>
         <div><span>rerun_finished_at</span><strong>{e(report.get("rerun_finished_at") or "N/A")}</strong></div>
+        <div><span>current_demo_doctor_sha256</span><strong>{e(report.get("current_demo_doctor_sha256") or "N/A")}</strong></div>
+        <div><span>report.initial_doctor_sha256</span><strong>{e(report.get("report_initial_doctor_sha256") or "N/A")}</strong></div>
+        <div><span>report.follow_up.sha256</span><strong>{e(report.get("report_follow_up_sha256") or "N/A")}</strong></div>
         <div><span>follow_up.loaded</span><strong>{e(bool_text(follow_up.get("loaded")))}</strong></div>
         <div><span>follow_up.doctor_status</span><strong>{e(follow_up.get("doctor_status") or "N/A")}</strong></div>
         <div><span>follow_up.primary_next_action</span><strong>{e(action_label(follow_action))}</strong></div>
@@ -366,6 +394,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
       {follow_note}
       {list_block("launcher blockers", blockers, "errors")}
       {list_block("launcher warnings", warnings, "warnings")}
+      {list_block("freshness warnings", report.get("freshness_warnings") if isinstance(report.get("freshness_warnings"), list) else [], "warnings")}
       {list_block("follow-up warnings", follow_warnings, "warnings")}
       {list_block("follow-up blockers", follow_blockers, "errors")}
     </section>

@@ -174,6 +174,22 @@ def dashboard_minimal_summary() -> dict:
     }
 
 
+def write_demo_doctor(output_dir: Path, doctor: dict | None = None) -> str:
+    doctor_dir = output_dir / "demo_doctor"
+    doctor_dir.mkdir(parents=True, exist_ok=True)
+    doctor_path = doctor_dir / "demo_doctor.json"
+    doctor_path.write_text(json.dumps(doctor or {"doctor_status": "ready_to_try"}, ensure_ascii=False), encoding="utf-8")
+    return pipeline_tool.sha256_file(doctor_path)
+
+
+def write_launcher_report(output_dir: Path, report: dict) -> Path:
+    launcher_dir = output_dir / "launcher"
+    launcher_dir.mkdir(parents=True, exist_ok=True)
+    report_path = launcher_dir / "launcher_report.json"
+    report_path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    return report_path
+
+
 class DemoDashboardTests(unittest.TestCase):
     def test_dashboard_shows_final_brief_before_details(self) -> None:
         summary = {
@@ -245,6 +261,13 @@ class DemoDashboardTests(unittest.TestCase):
             "launcher_report": {
                 "schema_version": "p3.5-lite-dashboard-launcher-report",
                 "loaded": True,
+                "launcher_report_freshness": "current",
+                "matches_current_doctor": True,
+                "freshness_match_source": "follow_up",
+                "current_demo_doctor_sha256": "a" * 64,
+                "report_initial_doctor_sha256": "b" * 64,
+                "report_follow_up_sha256": "a" * 64,
+                "freshness_warnings": [],
                 "launcher_status": "executed_with_followup_warning",
                 "executed": True,
                 "returncode": 0,
@@ -408,6 +431,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("demo_doctor.json", html)
         self.assertIn("启动器执行记录", html)
         self.assertIn("executed_with_followup_warning", html)
+        self.assertIn("launcher report freshness", html)
+        self.assertIn("freshness_match_source", html)
         self.assertIn("command_script_resolved", html)
         self.assertIn("rerun_started_at", html)
         self.assertIn("follow_up.doctor_status", html)
@@ -454,6 +479,9 @@ class DemoDashboardTests(unittest.TestCase):
         summary = dashboard_minimal_summary()
         summary["launcher_report"] = {
             "loaded": True,
+            "launcher_report_freshness": "current",
+            "matches_current_doctor": True,
+            "freshness_match_source": "initial_doctor",
             "launcher_status": "blocked",
             "executed": False,
             "returncode": None,
@@ -482,6 +510,10 @@ class DemoDashboardTests(unittest.TestCase):
         summary = dashboard_minimal_summary()
         summary["launcher_report"] = {
             "loaded": True,
+            "launcher_report_freshness": "current",
+            "matches_current_doctor": True,
+            "freshness_match_source": "follow_up",
+            "freshness_warnings": [],
             "launcher_status": "executed",
             "executed": True,
             "returncode": 0,
@@ -516,6 +548,132 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("launcher_report_ready.json", html)
         self.assertNotIn("执行 try_now", html)
         self.assertNotIn("自动 apply", html)
+
+    def test_launcher_report_summary_marks_followup_hash_current(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "demo"
+            current_sha = write_demo_doctor(output_dir)
+            write_launcher_report(
+                output_dir,
+                {
+                    "launcher_status": "executed",
+                    "executed": True,
+                    "warnings": [],
+                    "blockers": [],
+                    "follow_up": {"sha256": current_sha, "doctor_status": "ready_to_try"},
+                    "output_history_json": str(output_dir / "launcher" / "history" / "launcher_report_current.json"),
+                },
+            )
+
+            report = pipeline_tool.build_launcher_report_summary(output_dir)
+
+            self.assertIsNotNone(report)
+            assert report is not None
+            self.assertEqual(report["launcher_report_freshness"], "current")
+            self.assertTrue(report["matches_current_doctor"])
+            self.assertEqual(report["freshness_match_source"], "follow_up")
+            self.assertEqual(report["current_demo_doctor_sha256"], current_sha)
+            self.assertEqual(report["report_follow_up_sha256"], current_sha)
+            self.assertEqual(report["freshness_warnings"], [])
+
+    def test_launcher_report_summary_marks_initial_hash_current(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "demo"
+            current_sha = write_demo_doctor(output_dir)
+            write_launcher_report(
+                output_dir,
+                {
+                    "launcher_status": "printed",
+                    "executed": False,
+                    "initial_doctor_sha256": current_sha,
+                    "warnings": [],
+                    "blockers": [],
+                    "follow_up": {},
+                },
+            )
+
+            report = pipeline_tool.build_launcher_report_summary(output_dir)
+
+            self.assertIsNotNone(report)
+            assert report is not None
+            self.assertEqual(report["launcher_report_freshness"], "current")
+            self.assertTrue(report["matches_current_doctor"])
+            self.assertEqual(report["freshness_match_source"], "initial_doctor")
+            self.assertTrue(report["report_is_initial_doctor_state"])
+            self.assertEqual(report["report_initial_doctor_sha256"], current_sha)
+
+    def test_launcher_report_summary_marks_stale_and_dashboard_suppresses_action_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "demo"
+            write_demo_doctor(output_dir, {"doctor_status": "blocked"})
+            write_launcher_report(
+                output_dir,
+                {
+                    "launcher_status": "executed",
+                    "executed": True,
+                    "initial_doctor_sha256": "a" * 64,
+                    "warnings": [],
+                    "blockers": [],
+                    "output_history_json": str(output_dir / "launcher" / "history" / "launcher_report_stale.json"),
+                    "follow_up": {
+                        "sha256": "b" * 64,
+                        "loaded": True,
+                        "doctor_status": "ready_to_try",
+                        "primary_next_action": "try_now",
+                        "try_now_allowed": True,
+                    },
+                },
+            )
+            report = pipeline_tool.build_launcher_report_summary(output_dir)
+            summary = dashboard_minimal_summary()
+            summary["launcher_report"] = report
+
+            html = dashboard_tool.render_html(summary)
+
+            self.assertIsNotNone(report)
+            assert report is not None
+            self.assertEqual(report["launcher_report_freshness"], "stale")
+            self.assertFalse(report["matches_current_doctor"])
+            self.assertIn("launcher_report_not_for_current_dashboard", report["freshness_warnings"])
+            self.assertIn("launcher_report_not_for_current_dashboard", html)
+            self.assertIn("历史 launcher report，仅供审计", html)
+            self.assertIn("launcher_report_stale.json", html)
+            self.assertNotIn("游戏内可尝试", html)
+            self.assertNotIn("按执行清单去游戏内尝试", html)
+
+    def test_launcher_report_unknown_hash_keeps_history_link_and_suppresses_action_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "demo"
+            write_demo_doctor(output_dir)
+            write_launcher_report(
+                output_dir,
+                {
+                    "launcher_status": "executed",
+                    "executed": True,
+                    "warnings": [],
+                    "blockers": [],
+                    "output_history_json": str(output_dir / "launcher" / "history" / "launcher_report_unknown.json"),
+                    "follow_up": {
+                        "loaded": True,
+                        "doctor_status": "ready_to_try",
+                        "primary_next_action": "try_now",
+                        "try_now_allowed": True,
+                    },
+                },
+            )
+            report = pipeline_tool.build_launcher_report_summary(output_dir)
+            summary = dashboard_minimal_summary()
+            summary["launcher_report"] = report
+
+            html = dashboard_tool.render_html(summary)
+
+            self.assertIsNotNone(report)
+            assert report is not None
+            self.assertEqual(report["launcher_report_freshness"], "unknown")
+            self.assertIn("launcher_report_doctor_hash_missing", report["freshness_warnings"])
+            self.assertIn("launcher report freshness 未知", html)
+            self.assertIn("launcher_report_unknown.json", html)
+            self.assertNotIn("游戏内可尝试", html)
 
     def test_dashboard_html_contains_case_links_and_quality(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1299,13 +1457,17 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("Demo Doctor", steps)
             self.assertIn("launcher_report", summary)
             self.assertEqual(summary["launcher_report"]["launcher_status"], "executed")
+            self.assertEqual(summary["launcher_report"]["launcher_report_freshness"], "unknown")
+            self.assertIn("launcher_report_doctor_hash_missing", summary["launcher_report"]["freshness_warnings"])
             self.assertEqual(summary["launcher_report"]["follow_up"]["doctor_status"], "ready_to_try")
             self.assertTrue(Path(summary["demo_doctor"]["output_json"]).exists())
             self.assertTrue(Path(summary["dashboard_html"]).exists())
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
             self.assertIn("当前状态诊断", dashboard_html)
             self.assertIn("启动器执行记录", dashboard_html)
+            self.assertIn("launcher report freshness 未知", dashboard_html)
             self.assertIn("launcher_report_20260629.json", dashboard_html)
+            self.assertNotIn("游戏内可尝试", dashboard_html)
             self.assertIn("parsed found", dashboard_html)
             self.assertIn("parsed used", dashboard_html)
             self.assertIn("requires_review 不代表解析失败", dashboard_html)

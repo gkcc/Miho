@@ -36,7 +36,7 @@ python tools/probes/run_demo_pipeline.py `
 
 P3.4-lite 可在安全重跑成功后追加 `--follow-up-doctor data/probes/demo/demo_doctor/demo_doctor.json`。launcher 只读取重跑后的新 doctor，并在 report 里写入 `rerun_started_at`、`rerun_finished_at`、`command_script_resolved`、`follow_up.sha256`、`follow_up.changed_from_initial_doctor`、`follow_up.mtime_epoch`、`follow_up.updated_after_rerun`、`follow_up.doctor_status`、`follow_up.primary_next_action`、`follow_up.try_now_allowed`、`follow_up.strict_status`、`follow_up.evidence_status`、`follow_up.evidence_blockers`、`follow_up.blocking_reasons` 和相关 warnings；即使 follow-up 显示 `needs_apply` 或 `try_now`，launcher 也只打印下一步，不执行后续动作。follow-up doctor 缺失、JSON 损坏、不是对象、未更新、mtime 早于 rerun 开始或 blocked 会产生 `executed_with_followup_warning`，默认不把成功重跑判失败；脚本验收可加 `--fail-on-followup-warning` 让这些 follow-up warning 返回非零。launcher 会保留 latest `launcher_report.json/md`，并追加写入 `launcher/history/launcher_report_<timestamp>.json/md`。
 
-P3.5-lite 起，demo pipeline 如果发现 `data/probes/demo/launcher/launcher_report.json`，Dashboard 会只读展示“启动器执行记录”：`launcher_status`、`executed`、`returncode`、canonical script path、rerun 起止时间、follow-up doctor 状态、warnings/blockers 和 history report 链接。这个面板只展示证据，不提供 safe apply、try_now 或任何写 roster 的执行入口。
+P3.5-lite 起，demo pipeline 如果发现 `data/probes/demo/launcher/launcher_report.json`，Dashboard 会只读展示“启动器执行记录”：`launcher_status`、`executed`、`returncode`、canonical script path、rerun 起止时间、follow-up doctor 状态、warnings/blockers 和 history report 链接。P3.6-lite 会用 latest launcher report 里的 `initial_doctor_sha256` / `follow_up.sha256` 对比当前 `demo_doctor.json`，并显示 `launcher_report_freshness=current/stale/unknown`；只有匹配当前 Dashboard 时才展示 follow-up 的当前操作态。stale/unknown report 只作为历史审计，不展示“游戏内可尝试”，也不提供 safe apply、try_now 或任何写 roster 的执行入口。
 
 ## Tier Snapshot 草案
 

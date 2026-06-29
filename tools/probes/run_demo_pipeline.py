@@ -48,6 +48,8 @@ DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 UPDATE_STATE_FILENAME = "update_state.json"
 LAUNCHER_REPORT_DIRNAME = "launcher"
 LAUNCHER_REPORT_FILENAME = "launcher_report.json"
+DEMO_DOCTOR_DIRNAME = "demo_doctor"
+DEMO_DOCTOR_FILENAME = "demo_doctor.json"
 SNAPSHOT_HISTORY_DIRNAME = "snapshot_history"
 TARGET_REFRESH_DIRNAME = "targets"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -1575,6 +1577,47 @@ def string_list(value: Any) -> list[str]:
     return [str(item) for item in value]
 
 
+def launcher_freshness_for_report(output_dir: Path, report: dict[str, Any]) -> dict[str, Any]:
+    doctor_path = output_dir / DEMO_DOCTOR_DIRNAME / DEMO_DOCTOR_FILENAME
+    current_sha = ""
+    warnings: list[str] = []
+    if doctor_path.exists():
+        try:
+            current_sha = sha256_file(doctor_path)
+        except OSError as exc:
+            warnings.append(f"current_demo_doctor_sha256_unavailable: {exc}")
+    else:
+        warnings.append("current_demo_doctor_missing_for_launcher_freshness")
+    follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
+    initial_sha = str(report.get("initial_doctor_sha256") or "")
+    follow_up_sha = str(follow_up.get("sha256") or "")
+    match_source = ""
+    if current_sha and follow_up_sha == current_sha:
+        freshness = "current"
+        match_source = "follow_up"
+    elif current_sha and initial_sha == current_sha:
+        freshness = "current"
+        match_source = "initial_doctor"
+    elif current_sha and (initial_sha or follow_up_sha):
+        freshness = "stale"
+        warnings.append("launcher_report_not_for_current_dashboard")
+    else:
+        freshness = "unknown"
+        if not initial_sha and not follow_up_sha:
+            warnings.append("launcher_report_doctor_hash_missing")
+    return {
+        "launcher_report_freshness": freshness,
+        "current_demo_doctor_json": str(doctor_path),
+        "current_demo_doctor_sha256": current_sha,
+        "report_initial_doctor_sha256": initial_sha,
+        "report_follow_up_sha256": follow_up_sha,
+        "matches_current_doctor": freshness == "current",
+        "freshness_match_source": match_source,
+        "report_is_initial_doctor_state": match_source == "initial_doctor",
+        "freshness_warnings": warnings,
+    }
+
+
 def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
     report_path = output_dir / LAUNCHER_REPORT_DIRNAME / LAUNCHER_REPORT_FILENAME
     if not report_path.exists():
@@ -1594,8 +1637,12 @@ def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
         base["warnings"] = [f"launcher_report_unreadable: {exc}"]
         return base
     follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
+    freshness = launcher_freshness_for_report(output_dir, report)
+    report_warnings = string_list(report.get("warnings"))
+    freshness_warnings = string_list(freshness.get("freshness_warnings"))
     base.update(
         {
+            "schema_version": "p3.6-lite-dashboard-launcher-report",
             "loaded": True,
             "source_schema_version": report.get("schema_version"),
             "launcher_status": report.get("launcher_status"),
@@ -1604,7 +1651,7 @@ def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
             "command_script_resolved": report.get("command_script_resolved"),
             "rerun_started_at": report.get("rerun_started_at"),
             "rerun_finished_at": report.get("rerun_finished_at"),
-            "warnings": string_list(report.get("warnings")),
+            "warnings": report_warnings + freshness_warnings,
             "blockers": string_list(report.get("blockers")),
             "output_json": report.get("output_json") or str(report_path),
             "output_md": report.get("output_md"),
@@ -1624,6 +1671,7 @@ def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
             },
         }
     )
+    base.update(freshness)
     return base
 
 
