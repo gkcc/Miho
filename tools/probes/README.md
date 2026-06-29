@@ -374,7 +374,7 @@ data/probes/demo/snapshot_history/index.json
 * Dashboard 会显示“练度更新收件箱”：demo normalized snapshot 是 OCR/解析候选，只有进入 accepted roster 的 snapshot 才能作为已确认 box。
 * Team card 里的 `pending_snapshot` 只是待确认解析候选，`catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 accepted roster 中的 `owned_snapshot` 才能作为可用练度证据。
 * Tier watchlist 会标记 `verified` / `stale` / `unverified` / `low_trust`。只有 verified 且属于 accepted roster 的高保值信号能辅助队伍排序；stale/unverified/low_trust 只能作为弱参考。
-* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md` 和 `final_brief.json/md`，并在 Dashboard 顶部显示“今日作战简报”。简报是 demo 的第一阅读层，用于回答“今天先做什么”；如果 run manifest 缺失或错批，会先显示数据警告。方案包和简报只聚合本地证据，用于区分 `try_now` / `review_snapshot` / `record_character` / `watch_only` / `data_warning`，不是抽卡建议，也不是自动通关保证。
+* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`、`final_brief.json/md` 和 `action_checklist.json/md`，并在 Dashboard 顶部显示“今日作战简报”和“执行清单”。简报和清单是 demo 的第一阅读层，用于回答“今天先做什么”；如果 run manifest 缺失或错批，会先显示数据警告，并阻断可执行 `try_now`。方案包、简报和清单只聚合本地证据，用于区分 `try_now` / `review_snapshot` / `record_character` / `watch_only` / `data_warning`，不是抽卡建议，也不是自动通关保证。
 
 P0.9 replay batch 验收命令：
 
@@ -482,6 +482,34 @@ data/probes/demo/final_brief/final_brief.md
 * pending snapshot 只能生成 `review_snapshot`；
 * 缺少已确认快照的已拥有角色只能生成 `record_character`；
 * catalog candidate / watch only 只能生成 `watch_only`，并必须显示“不是抽卡建议”。
+
+P2.2-lite 执行清单与复核模板单独生成命令：
+
+```powershell
+python tools/probes/build_action_checklist.py `
+  --final-brief data/probes/demo/final_brief/final_brief.json `
+  --review-inbox data/probes/demo/review_inbox.json `
+  --endgame-plan data/probes/demo/endgame_plan/endgame_plan.json `
+  --run-manifest data/probes/demo/run_manifest.json `
+  --output-dir data/probes/demo/action_checklist
+```
+
+输出：
+
+```text
+data/probes/demo/action_checklist/action_checklist.json
+data/probes/demo/action_checklist/action_checklist.md
+data/probes/demo/action_checklist/review_decisions_template.json
+```
+
+执行清单规则：
+
+* 只展示最多 5 件事，超出的数量写入 `hidden_item_count`；
+* 有 `data_warning` 或 run manifest warning 时，`checklist_status=blocked`，所有 `try_now` 都不能是 `ready`；
+* `review_snapshot` 会写入 `review_decisions_template.json`，默认 `decision=pending`，不会自动 accept；
+* `record_character` 只提示补录官方分享图，不会创建 owned/accepted roster；
+* `watch_only` 必须显示“不是抽卡建议”；
+* pending/catalog/candidate 标记不得进入 ready `try_now`。
 
 P1.4-lite 练度更新收件箱与已确认 Box Index：
 

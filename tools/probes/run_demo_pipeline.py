@@ -23,6 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import build_action_cards as action_cards  # noqa: E402
+import build_action_checklist as action_checklist  # noqa: E402
 import build_endgame_plan as endgame_plan  # noqa: E402
 import build_final_brief as final_brief  # noqa: E402
 import build_run_manifest as run_manifest  # noqa: E402
@@ -776,6 +777,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     endgame_info = summary.get("endgame_plan", {}) if isinstance(summary.get("endgame_plan"), dict) else {}
     manifest_info = summary.get("run_manifest", {}) if isinstance(summary.get("run_manifest"), dict) else {}
     final_info = summary.get("final_brief", {}) if isinstance(summary.get("final_brief"), dict) else {}
+    checklist_info = summary.get("action_checklist", {}) if isinstance(summary.get("action_checklist"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -850,6 +852,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(final_info, dict) and final_info.get("error")
             else "done"
             if isinstance(final_info, dict) and final_info.get("output_json")
+            else "skipped",
+        },
+        {
+            "name": "Action Checklist",
+            "status": "failed"
+            if isinstance(checklist_info, dict) and checklist_info.get("error")
+            else "done"
+            if isinstance(checklist_info, dict) and checklist_info.get("output_json")
             else "skipped",
         },
     ]
@@ -1306,6 +1316,37 @@ def build_demo_final_brief(
         }
 
 
+def build_demo_action_checklist(
+    *,
+    output_dir: Path,
+    final_brief_path: Path,
+    review_inbox_path: Path | None = None,
+    endgame_plan_path: Path | None = None,
+    run_manifest_path: Path | None = None,
+) -> dict[str, Any] | None:
+    if not final_brief_path.exists():
+        return None
+    try:
+        return action_checklist.build_action_checklist(
+            output_dir=output_dir / "action_checklist",
+            final_brief=final_brief_path,
+            review_inbox=review_inbox_path if review_inbox_path and review_inbox_path.exists() else None,
+            endgame_plan=endgame_plan_path if endgame_plan_path and endgame_plan_path.exists() else None,
+            run_manifest=run_manifest_path if run_manifest_path and run_manifest_path.exists() else None,
+        )
+    except action_checklist.ActionChecklistError as exc:
+        return {
+            "schema_version": action_checklist.SCHEMA_VERSION,
+            "input": {
+                "final_brief": str(final_brief_path),
+                "review_inbox": str(review_inbox_path) if review_inbox_path else None,
+                "endgame_plan": str(endgame_plan_path) if endgame_plan_path else None,
+                "run_manifest": str(run_manifest_path) if run_manifest_path else None,
+            },
+            "error": str(exc),
+        }
+
+
 def review_decision_source(path: Path) -> str | None:
     try:
         data = load_json(path)
@@ -1709,6 +1750,29 @@ def run_pipeline(
         if final_brief_info.get("error"):
             summary.setdefault("warnings", []).append(f"Final brief failed: {final_brief_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
+    final_brief_path = (
+        Path(str(final_brief_info["output_json"]))
+        if isinstance(final_brief_info, dict) and final_brief_info.get("output_json")
+        else None
+    )
+    action_checklist_info = (
+        build_demo_action_checklist(
+            output_dir=output_dir,
+            final_brief_path=final_brief_path,
+            review_inbox_path=review_inbox_path,
+            endgame_plan_path=endgame_plan_path,
+            run_manifest_path=run_manifest_path,
+        )
+        if final_brief_path is not None
+        else None
+    )
+    if action_checklist_info is not None:
+        summary["action_checklist"] = action_checklist_info
+        if action_checklist_info.get("warnings"):
+            summary.setdefault("warnings", []).extend(action_checklist_info["warnings"])
+        if action_checklist_info.get("error"):
+            summary.setdefault("warnings", []).append(f"Action checklist failed: {action_checklist_info['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
     summary_path = output_dir / "demo_summary.json"
     write_json(summary_path, summary)
     dashboard_path = output_dir / "index.html"
@@ -1839,6 +1903,11 @@ def main() -> int:
     if isinstance(summary.get("final_brief"), dict):
         print(f"final_brief_status: {summary['final_brief'].get('brief_status')}")
         print(f"final_brief_top_card_count: {len(summary['final_brief'].get('top_cards', []))}")
+    if isinstance(summary.get("action_checklist"), dict):
+        checklist_summary = summary["action_checklist"].get("summary", {})
+        print(f"action_checklist_status: {summary['action_checklist'].get('checklist_status')}")
+        if isinstance(checklist_summary, dict):
+            print(f"action_checklist_item_count: {checklist_summary.get('item_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0

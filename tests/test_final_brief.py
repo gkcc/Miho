@@ -101,6 +101,41 @@ def ready_endgame_plan() -> dict:
     }
 
 
+def many_ready_endgame_plan(count: int = 6) -> dict:
+    plans = []
+    for index in range(count):
+        plans.append(
+            {
+                "target": f"危局强袭战 {index}",
+                "plan_status": "ready_now",
+                "plan_trust_level": "trusted",
+                "recommended_line": "全员来自 accepted roster，可先尝试一次。",
+                "evidence": {"target_source": "local", "target_hash": f"hash{index}"},
+                "team_candidates": [
+                    {
+                        "members": [
+                            {"character": "星见雅", "source_class": "owned_snapshot", "source_class_effective": "owned_snapshot"},
+                        ],
+                        "rank_reason": "本地确认队伍。",
+                    }
+                ],
+            }
+        )
+    return {
+        "schema_version": "p2.0-lite-endgame-plan",
+        "summary": {
+            "target_count": count,
+            "ready_now_count": count,
+            "needs_review_count": 0,
+            "needs_recording_count": 0,
+            "watch_only_count": 0,
+            "trusted_plan_count": count,
+            "warning_plan_count": 0,
+        },
+        "target_plans": plans,
+    }
+
+
 def mixed_endgame_plan() -> dict:
     return {
         "schema_version": "p2.0-lite-endgame-plan",
@@ -169,7 +204,9 @@ class FinalBriefTests(unittest.TestCase):
 
             self.assertNotEqual(result["brief_status"], "ready")
             self.assertEqual(result["top_cards"][0]["card_type"], "data_warning")
+            self.assertNotIn("try_now", {item["card_type"] for item in result["top_cards"]})
             self.assertIn("team_cards", " ".join(result["red_flags"]))
+            self.assertNotIn("demo_manifest.json", " ".join(result["next_commands"]))
 
     def test_pending_snapshot_is_review_snapshot_not_try_now(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -182,7 +219,31 @@ class FinalBriefTests(unittest.TestCase):
 
             self.assertEqual(result["brief_status"], "needs_review")
             self.assertEqual(result["top_cards"][0]["card_type"], "review_snapshot")
+            self.assertEqual(result["top_cards"][0]["evidence"]["normalized_json"], "data/probes/demo/case_normalized.json")
             self.assertNotIn("try_now", {item["card_type"] for item in result["top_cards"]})
+
+    def test_ready_with_pending_is_not_plain_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(root, inbox=review_inbox(pending=True), endgame=ready_endgame_plan())
+
+            self.assertEqual(result["brief_status"], "ready_with_pending")
+            self.assertIn("try_now", {item["card_type"] for item in result["top_cards"]})
+            self.assertIn("review_snapshot", {item["card_type"] for item in result["top_cards"]})
+
+    def test_top_cards_are_capped_and_hidden_count_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            endgame = many_ready_endgame_plan()
+            mixed = mixed_endgame_plan()
+            endgame["target_plans"].extend(mixed["target_plans"])
+            endgame["summary"]["needs_recording_count"] = 1
+            endgame["summary"]["watch_only_count"] = 1
+            result = self.build(root, inbox=review_inbox(pending=True), endgame=endgame)
+
+            self.assertLessEqual(len(result["top_cards"]), 5)
+            self.assertGreater(result["hidden_card_count"], 0)
+            self.assertGreater(result["summary"]["hidden_card_count"], 0)
 
     def test_needs_recording_and_watch_only_cards_are_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

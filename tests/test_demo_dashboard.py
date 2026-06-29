@@ -199,15 +199,41 @@ class DemoDashboardTests(unittest.TestCase):
                 ],
                 "warnings": [],
             },
+            "action_checklist": {
+                "schema_version": "p2.2-lite-action-checklist",
+                "checklist_status": "ready",
+                "output_json": "data/probes/demo/action_checklist/action_checklist.json",
+                "output_md": "data/probes/demo/action_checklist/action_checklist.md",
+                "review_decisions_template": "data/probes/demo/action_checklist/review_decisions_template.json",
+                "summary": {"item_count": 1, "ready_count": 1, "needs_review_count": 0, "blocked_count": 0, "hidden_item_count": 0},
+                "items": [
+                    {
+                        "rank": 1,
+                        "item_type": "try_now",
+                        "status": "ready",
+                        "title": "可先尝试：危局强袭战",
+                        "target": "危局强袭战",
+                        "character": "星见雅、苍角",
+                        "evidence": {"artifact": "data/probes/demo/endgame_plan/endgame_plan.json", "target_hash": "abcdef123456"},
+                        "command_hint": "打开 Dashboard 的本期高难方案。",
+                        "warnings": [],
+                    }
+                ],
+                "warnings": [],
+            },
         }
 
         html = dashboard_tool.render_html(summary)
 
         self.assertIn("今日作战简报", html)
+        self.assertIn("执行清单", html)
         self.assertIn("今天先做什么", html)
         self.assertIn("final_brief.md", html)
+        self.assertIn("review_decisions_template.json", html)
         self.assertIn("可先尝试：危局强袭战", html)
         self.assertLess(html.index("今日作战简报"), html.index("输入模式"))
+        self.assertLess(html.index("今日作战简报"), html.index("执行清单"))
+        self.assertLess(html.index("执行清单"), html.index("输入模式"))
 
     def test_dashboard_html_contains_case_links_and_quality(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1181,9 +1207,15 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["final_brief"]["output_json"]).exists())
             self.assertTrue(Path(summary["final_brief"]["output_md"]).exists())
             self.assertNotEqual(summary["final_brief"]["brief_status"], "ready")
+            self.assertIn("action_checklist", summary)
+            self.assertTrue(Path(summary["action_checklist"]["output_json"]).exists())
+            self.assertTrue(Path(summary["action_checklist"]["output_md"]).exists())
+            self.assertTrue(Path(summary["action_checklist"]["review_decisions_template"]).exists())
+            self.assertIn("Action Checklist", {item["name"] for item in summary["pipeline_steps"]})
             self.assertEqual(summary["review_inbox"]["pending_count"], 1)
             self.assertEqual(summary["team_cards"]["summary"]["pending_snapshot_count"], 1)
             self.assertIn("今日作战简报", dashboard_html)
+            self.assertIn("执行清单", dashboard_html)
             self.assertIn("今天先做什么", dashboard_html)
             self.assertIn("培养优先级候选", dashboard_html)
             self.assertIn("下一步行动", dashboard_html)

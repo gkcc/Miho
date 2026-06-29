@@ -68,7 +68,7 @@ def status_class(value: Any) -> str:
     text = str(value or "").lower()
     if text in {"pass", "done", "ok", "true", "generated", "ready_for_review", "trusted", "consistent"}:
         return "ok"
-    if text in {"needs_review", "needs-review", "requires_review", "missing_expected", "uncertain", "skipped", "n/a", "warning"}:
+    if text in {"needs_review", "needs-review", "requires_review", "missing_expected", "uncertain", "skipped", "n/a", "warning", "ready_with_pending"}:
         return "warn"
     if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure"}:
         return "bad"
@@ -696,6 +696,74 @@ def render_final_brief(summary: dict[str, Any]) -> str:
     """
 
 
+def render_action_checklist(summary: dict[str, Any]) -> str:
+    checklist = summary.get("action_checklist")
+    if not isinstance(checklist, dict):
+        return ""
+    checklist_summary = checklist.get("summary") if isinstance(checklist.get("summary"), dict) else {}
+    items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
+    warnings = checklist.get("warnings") if isinstance(checklist.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Checklist Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if checklist.get("error"):
+        body = f'<div class="errors"><strong>Action checklist failed</strong><ul><li>{e(checklist.get("error"))}</li></ul></div>'
+    elif not items:
+        body = '<div class="empty">暂无执行项。</div>'
+    else:
+        rows = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+            item_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
+            warning_text = "；".join(str(warning) for warning in item_warnings if warning)
+            evidence_text = " · ".join(
+                str(part)
+                for part in (
+                    rel_label(evidence.get("review_html")) or evidence.get("review_html"),
+                    rel_label(evidence.get("normalized_json")) or evidence.get("normalized_json"),
+                    evidence.get("target_hash"),
+                    rel_label(evidence.get("artifact")) or evidence.get("artifact"),
+                )
+                if part
+            )
+            rows.append(
+                "<article class=\"brief-card\">"
+                f"<div class=\"plan-rank\">#{e(item.get('rank'))}</div>"
+                "<div>"
+                f"<h3>{e(item.get('title'))}</h3>"
+                f"<p>{e(item.get('status'))} · {e(item.get('item_type'))}</p>"
+                f"<span>target: {e(item.get('target') or 'N/A')} · character: {e(item.get('character') or 'N/A')}</span>"
+                f"<span>evidence: {e(evidence_text or 'N/A')}</span>"
+                f"<span>{e(warning_text or '无额外警告')}</span>"
+                "</div>"
+                f"<strong>{e(item.get('command_hint') or '查看详情')}</strong>"
+                "</article>"
+            )
+        body = '<div class="brief-list">' + "".join(rows) + "</div>"
+    return f"""
+    <section class="panel action-checklist">
+      <h2>执行清单</h2>
+      <p class="muted-line">从今日作战简报生成的最多 5 件事；pending 只会生成复核模板，watch_only 不是抽卡建议。</p>
+      <div class="links">
+        {link("action_checklist.md", checklist.get("output_md"))}
+        {link("action_checklist.json", checklist.get("output_json"))}
+        {link("review_decisions_template.json", checklist.get("review_decisions_template"))}
+      </div>
+      <div class="input-grid">
+        <div><span>checklist status</span><strong>{e(checklist.get("checklist_status") or "N/A")}</strong></div>
+        <div><span>items</span><strong>{e(checklist_summary.get("item_count", "N/A"))}</strong></div>
+        <div><span>ready</span><strong>{e(checklist_summary.get("ready_count", "N/A"))}</strong></div>
+        <div><span>needs review</span><strong>{e(checklist_summary.get("needs_review_count", "N/A"))}</strong></div>
+        <div><span>blocked</span><strong>{e(checklist_summary.get("blocked_count", "N/A"))}</strong></div>
+        <div><span>hidden</span><strong>{e(checklist_summary.get("hidden_item_count", "N/A"))}</strong></div>
+      </div>
+      {warning_block}
+      {body}
+    </section>
+    """
+
+
 def render_roster_delta(summary: dict[str, Any]) -> str:
     delta = summary.get("roster_delta")
     if not isinstance(delta, dict):
@@ -1061,9 +1129,11 @@ def render_html(summary: dict[str, Any]) -> str:
     endgame_info = summary.get("endgame_plan", {}) if isinstance(summary.get("endgame_plan"), dict) else {}
     endgame_summary = endgame_info.get("summary", {}) if isinstance(endgame_info.get("summary"), dict) else {}
     final_info = summary.get("final_brief", {}) if isinstance(summary.get("final_brief"), dict) else {}
+    checklist_info = summary.get("action_checklist", {}) if isinstance(summary.get("action_checklist"), dict) else {}
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("简报状态", final_info.get("brief_status", "N/A") if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
+        metric_card("清单状态", checklist_info.get("checklist_status", "N/A") if checklist_info else "N/A", status_class(checklist_info.get("checklist_status")) if checklist_info else "muted"),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
         metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),
@@ -1112,6 +1182,7 @@ def render_html(summary: dict[str, Any]) -> str:
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
     final_brief = render_final_brief(summary)
+    action_checklist = render_action_checklist(summary)
     input_panel = render_input_panel(summary)
     update_panel = render_update_state(summary)
     snapshot_history = render_snapshot_history(summary)
@@ -1238,6 +1309,7 @@ def render_html(summary: dict[str, Any]) -> str:
   <main>
     <section class="metrics">{''.join(metrics)}</section>
     {final_brief}
+    {action_checklist}
     {input_panel}
     {update_panel}
     {steps}

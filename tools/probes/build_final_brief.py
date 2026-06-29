@@ -14,6 +14,7 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = "p2.1-lite-final-brief"
 MAX_READY_NOW_CARDS = 3
+MAX_TOP_CARDS = 5
 
 
 class FinalBriefError(RuntimeError):
@@ -195,7 +196,12 @@ def review_snapshot_cards(rank: int, review_inbox: dict[str, Any] | None, review
                 title=f"复核 {character} 的解析快照",
                 reason="pending snapshot 尚未进入 accepted roster；确认前不能进入 try_now。",
                 character=character,
-                evidence={"source": item.get("review_html"), "artifact": str(review_inbox_path) if review_inbox_path else None},
+                evidence={
+                    "source": item.get("review_html"),
+                    "review_html": item.get("review_html"),
+                    "normalized_json": item.get("normalized_json"),
+                    "artifact": str(review_inbox_path) if review_inbox_path else None,
+                },
                 command_hint=command,
                 warnings=blockers,
             )
@@ -252,10 +258,12 @@ def watch_only_cards(rank: int, endgame_plan: dict[str, Any] | None, endgame_pla
     return result
 
 
-def status_from_cards(cards: list[dict[str, Any]], trusted_ready_count: int, data_warnings: list[str]) -> str:
+def status_from_cards(cards: list[dict[str, Any]], trusted_ready_count: int, data_warnings: list[str], pending_count: int) -> str:
     if data_warnings:
         return "needs_review"
     if trusted_ready_count > 0:
+        if pending_count > 0:
+            return "ready_with_pending"
         return "ready"
     if cards:
         return "needs_review"
@@ -334,9 +342,10 @@ def build_final_brief(
     if manifest_warnings:
         candidate_cards.append(data_warning_card(rank, manifest_warnings, run_manifest))
         rank += 1
-    for plan in ready_plans[:MAX_READY_NOW_CARDS]:
-        candidate_cards.append(try_now_card(rank, plan, endgame_plan))
-        rank += 1
+    if not manifest_warnings:
+        for plan in ready_plans[:MAX_READY_NOW_CARDS]:
+            candidate_cards.append(try_now_card(rank, plan, endgame_plan))
+            rank += 1
     for item in review_snapshot_cards(rank, review_data, review_inbox):
         candidate_cards.append(item)
         rank += 1
@@ -346,7 +355,9 @@ def build_final_brief(
     for item in watch_only_cards(rank, endgame_data, endgame_plan):
         candidate_cards.append(item)
         rank += 1
-    top_cards = candidate_cards
+    hidden_card_count = max(0, len(candidate_cards) - MAX_TOP_CARDS)
+    summary["hidden_card_count"] = hidden_card_count
+    top_cards = candidate_cards[:MAX_TOP_CARDS]
     for index, item in enumerate(top_cards, start=1):
         item["rank"] = index
 
@@ -355,12 +366,12 @@ def build_final_brief(
     if isinstance(review_data, dict) and review_data.get("decision_command"):
         next_commands.append(str(review_data["decision_command"]))
     if manifest_warnings:
-        next_commands.append("python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.json --clean-demo")
+        next_commands.append("重新运行 demo pipeline，并确认 run_manifest 中的输入产物来自同一批生成。")
 
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": now_iso(),
-        "brief_status": status_from_cards(top_cards, len(ready_plans), manifest_warnings),
+        "brief_status": status_from_cards(top_cards, len(ready_plans), manifest_warnings, review_pending_count),
         "input": {
             "run_manifest": str(run_manifest) if run_manifest else None,
             "roster_index": str(roster_index) if roster_index else None,
@@ -371,6 +382,7 @@ def build_final_brief(
         },
         "summary": summary,
         "top_cards": top_cards,
+        "hidden_card_count": hidden_card_count,
         "red_flags": red_flags,
         "next_commands": next_commands,
         "warnings": red_flags,
