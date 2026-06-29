@@ -706,6 +706,7 @@ python tools/probes/build_roster_delta.py `
 CLI 壳：
 
 ```powershell
+python tools/probes/miho_probe_cli.py dashboard --no-open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --target-source-manifest data/probes/targets/endgame_sources_manifest.json --open
@@ -716,14 +717,14 @@ python tools/probes/miho_probe_cli.py normalize --parsed data/probes/parsed/xxx.
 python tools/probes/miho_probe_cli.py diff --old old_normalized.json --new new_normalized.json
 ```
 
-可选 EXE 壳：
+可选 EXE 入口：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build_miho_probe_exe.ps1
 scripts/install_miho_demo_shortcut.bat
 ```
 
-该脚本使用 PyInstaller 构建 `dist/MihoProbe.exe` 命令壳。`build/`、`dist/` 和 `MihoProbe.spec` 是本地构建产物，已在 `.gitignore` 中排除，不提交。构建后重新运行 shortcut installer，会在桌面补一个 `MihoProbe CLI` 入口。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
+该脚本使用 PyInstaller 构建 `dist/MihoProbe.exe`。无参数运行或执行 `dist\MihoProbe.exe dashboard --open` 会打开缓存 Dashboard，不重新 OCR；Fresh OCR 仍走 `Miho Demo Fresh OCR`。`build/`、`dist/` 和 `MihoProbe.spec` 是本地构建产物，已在 `.gitignore` 中排除，不提交。构建后重新运行 shortcut installer，会在桌面补 `MihoProbe` 和 `MihoProbe CLI` 入口。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
 
 ### P1.2 本地培养优先级 planner probe
 

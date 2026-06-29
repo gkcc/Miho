@@ -12,7 +12,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
-    Write-Host "Built dist\MihoProbe.exe. P1.1 treats this as a local command shell only; a real release package is P1.2+."
+    Write-Host "Built dist\MihoProbe.exe. Double-click or run without args to open the cached local dashboard; Fresh OCR remains a separate shortcut."
 }
 finally {
     Pop-Location

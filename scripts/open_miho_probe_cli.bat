@@ -11,13 +11,17 @@ if not exist "%EXE%" (
   exit /b 1
 )
 
-echo MihoProbe executable command shell
+echo MihoProbe local dashboard entry
 echo.
-"%EXE%" --help
+"%EXE%" dashboard --open
 echo.
 echo Common examples:
+echo   dist\MihoProbe.exe dashboard --open
 echo   dist\MihoProbe.exe demo --images-dir figs --open
 echo   dist\MihoProbe.exe demo --parsed-dir data\probes\parsed --latest-only --open
 echo   dist\MihoProbe.exe normalize --parsed data\probes\parsed\xxx.json
+echo.
+echo Full help:
+"%EXE%" --help
 echo.
 if "%KEEP_OPEN%"=="1" cmd /k

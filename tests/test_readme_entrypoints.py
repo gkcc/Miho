@@ -45,6 +45,16 @@ class ReadmeEntrypointTests(unittest.TestCase):
         ):
             self.assertIn(marker, launcher)
 
+    def test_shortcut_installer_exposes_app_like_exe_entry(self) -> None:
+        installer = (PROJECT_ROOT / "scripts" / "install_miho_demo_shortcut.ps1").read_text(encoding="utf-8")
+        opener = (PROJECT_ROOT / "scripts" / "open_miho_probe_cli.bat").read_text(encoding="utf-8")
+
+        self.assertIn('-Name "MihoProbe"', installer)
+        self.assertIn("dist\\MihoProbe.exe", installer)
+        self.assertIn("dashboard --open", installer)
+        self.assertIn("MihoProbe local dashboard entry", opener)
+        self.assertIn("dashboard --open", opener)
+
 
 if __name__ == "__main__":
     unittest.main()
