@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import webbrowser
 from pathlib import Path
 from typing import Any
@@ -2015,7 +2016,14 @@ def run_pipeline(
         state = load_update_state(active_state_file)
         update_records, selected_images = image_update_records(image_files(active_images_dir), state, new_only)
         input_info["update_state"] = build_update_summary(active_state_file, update_records)
-        for image_path in selected_images:
+        total_images = len(selected_images)
+        if total_images:
+            print(f"[Miho Demo] Fresh OCR: {total_images} image(s) selected from {active_images_dir}", flush=True)
+        else:
+            print(f"[Miho Demo] Fresh OCR: no new image selected from {active_images_dir}", flush=True)
+        for index, image_path in enumerate(selected_images, start=1):
+            started_at = time.perf_counter()
+            print(f"[Miho Demo] OCR {index}/{total_images}: {image_path.name}", flush=True)
             cases.append(
                 process_image_case(
                     image_path,
@@ -2027,6 +2035,8 @@ def run_pipeline(
                     layout=layout,
                 )
             )
+            elapsed = time.perf_counter() - started_at
+            print(f"[Miho Demo] OCR {index}/{total_images} done in {elapsed:.1f}s: {image_path.name}", flush=True)
         write_update_state(active_state_file, state, update_records, cases)
         input_info["update_state"] = build_update_summary(active_state_file, update_records, cases)
 

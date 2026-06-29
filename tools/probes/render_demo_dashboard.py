@@ -42,6 +42,42 @@ def e(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
+def humanize_text(value: Any) -> str:
+    text = "" if value is None else str(value)
+    replacements = (
+        ("Demo pipeline", "本地演示流程"),
+        ("demo pipeline", "本地演示流程"),
+        ("Dashboard", "页面"),
+        ("expected", "验收对照"),
+        ("accepted roster", "已确认角色库"),
+        ("accepted", "已确认"),
+        ("roster", "角色库"),
+        ("run_manifest", "运行清单"),
+        ("requires_review", "待人工确认"),
+        ("pending snapshot", "待确认快照"),
+        ("needs_review", "待复核"),
+        ("data_warning", "数据警告"),
+        ("blocked", "已阻断"),
+        ("try_now", "可尝试"),
+        ("ready", "就绪"),
+        ("case", "图片项"),
+        ("Case", "图片项"),
+    )
+    for old, new in replacements:
+        text = text.replace(old, new)
+    text = text.replace("图片项 卡片", "图片卡片")
+    text = text.replace("本地演示流程 已", "本地演示流程已")
+    text = text.replace("已生成 页面", "已生成页面")
+    text = text.replace("部分 图片项", "部分图片项")
+    text = text.replace("图片项 失败", "图片项失败")
+    text = text.replace("打开 图片", "打开图片")
+    return text
+
+
+def he(value: Any) -> str:
+    return e(humanize_text(value))
+
+
 def file_href(value: Any) -> str:
     if not value:
         return ""
@@ -120,6 +156,83 @@ def metric_card(label: str, value: Any, tone: str = "muted") -> str:
     return f'<div class="metric {e(tone)}"><span>{e(label)}</span><strong>{e(value)}</strong></div>'
 
 
+def summary_card(label: str, title: Any, body: Any, tone: str = "muted") -> str:
+    return (
+        f'<article class="summary-card {e(tone)}">'
+        f"<span>{e(label)}</span>"
+        f"<strong>{e(title)}</strong>"
+        f"<p>{e(body)}</p>"
+        "</article>"
+    )
+
+
+def human_status(value: Any) -> str:
+    text = str(value or "").lower()
+    labels = {
+        "ready": "就绪",
+        "ready_to_try": "可尝试",
+        "needs_review": "待复核",
+        "requires_review": "待复核",
+        "needs_rerun": "需重跑",
+        "needs_apply": "需应用复核",
+        "not_applied": "未应用",
+        "applied": "已应用",
+        "blocked": "已阻断",
+        "warning": "有警告",
+        "trusted": "可信",
+        "failed": "失败",
+        "fail": "失败",
+        "has_parse_failure": "有解析失败",
+        "stale_after_apply": "应用后已过期",
+        "unknown": "未知",
+        "n/a": "无",
+    }
+    return labels.get(text, str(value or "N/A"))
+
+
+def brief_card_type_label(value: Any) -> str:
+    text = str(value or "").lower()
+    labels = {
+        "data_warning": "数据一致性",
+        "review_snapshot": "人工复核",
+        "try_now": "可尝试",
+        "needs_recording": "待录入",
+        "watch_only": "仅观察",
+    }
+    return labels.get(text, str(value or "事项"))
+
+
+def brief_action_label(item: dict[str, Any]) -> str:
+    card_type = str(item.get("card_type") or "").lower()
+    if card_type == "data_warning":
+        return "先处理数据一致性"
+    if card_type == "review_snapshot":
+        return "打开复核页确认"
+    if card_type == "try_now":
+        return "可按本地清单试一次"
+    if card_type == "needs_recording":
+        return "先补录练度数据"
+    if card_type == "watch_only":
+        return "仅观察，不行动"
+    return "查看详情"
+
+
+def brief_evidence_rows(evidence: dict[str, Any]) -> str:
+    rows = []
+    for label, key in (
+        ("复核页", "review_html"),
+        ("来源", "source"),
+        ("标准化结果", "normalized_json"),
+        ("产物", "artifact"),
+        ("hash", "hash"),
+    ):
+        value = evidence.get(key)
+        if not value:
+            continue
+        rows.append(f"<li><strong>{e(label)}</strong><span>{e(rel_label(value))}</span></li>")
+    return "".join(rows) or "<li><strong>证据</strong><span>N/A</span></li>"
+
+
 def basename(value: Any) -> str:
     if not value:
         return ""
@@ -183,16 +296,28 @@ def bool_text(value: Any) -> str:
 
 def action_label(value: Any) -> str:
     labels = {
-        "rerun_demo_pipeline": "重跑 demo pipeline",
-        "safe_apply_review_decisions": "人工 safe apply",
-        "review_snapshots": "复核 pending 快照",
-        "try_now": "按执行清单尝试",
-        "review_dashboard": "查看 Dashboard 明细",
-        "rebuild_run_manifest": "重建 run_manifest",
+        "rerun_demo_pipeline": "重跑演示流程",
+        "safe_apply_review_decisions": "人工确认后应用",
+        "review_snapshots": "复核待确认快照",
+        "try_now": "按清单试一次",
+        "review_dashboard": "查看页面明细",
+        "rebuild_run_manifest": "重建运行清单",
         "resolve_blockers": "处理阻断项",
     }
     text = str(value or "unknown")
     return labels.get(text, text)
+
+
+def source_mode_label(value: Any) -> str:
+    labels = {
+        "ocr_fresh_image": "新图片识别模式",
+        "OCR fresh image mode": "新图片识别模式",
+        "parsed_replay": "解析结果回放模式",
+        "parsed replay mode": "解析结果回放模式",
+        "manifest_controlled": "清单受控回放模式",
+        "manifest controlled mode": "清单受控回放模式",
+    }
+    return labels.get(str(value or ""), str(value or "未知模式"))
 
 
 def list_block(title: str, items: list[Any], css_class: str) -> str:
@@ -235,12 +360,12 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
     if status == "needs_rerun":
         status_copy = (
             '<div class="errors"><strong>不建议执行 try_now</strong>'
-            "<ul><li>当前建议可能没有吸收最新 apply 或刷新状态未知；先重跑 demo pipeline。</li></ul></div>"
+            "<ul><li>当前建议可能没有吸收最新人工应用结果，或刷新状态未知；先重跑演示流程。</li></ul></div>"
         )
     elif status == "needs_apply":
         status_copy = (
             '<div class="warnings"><strong>需要人工应用复核决定</strong>'
-            "<ul><li>Preview 已 ready，但还没有安全应用回执；先执行 safe apply 后再重跑 demo。</li></ul></div>"
+            "<ul><li>复核预览已就绪，但还没有安全应用回执；先人工确认后应用，再重跑演示流程。</li></ul></div>"
         )
     elif status == "ready_to_try":
         status_copy = (
@@ -250,7 +375,7 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel demo-doctor">
       <h2>当前状态诊断</h2>
-      <p class="muted-line">先给一个总判断：现在该重跑、复核、safe apply，还是可以按清单试一次。watch_only 不会升级成 try_now。</p>
+      <p class="muted-line">先给一个总判断：现在该重跑、复核、人工应用，还是可以按清单试一次。仅观察项不会升级成可尝试项。</p>
       <div class="links">
         {link("demo_doctor.md", doctor.get("output_md"))}
         {link("demo_doctor.json", doctor.get("output_json"))}
@@ -404,7 +529,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
         )
     elif follow_action == "safe_apply_review_decisions" or follow_up.get("doctor_status") == "needs_apply":
         follow_note = (
-            '<div class="warnings"><strong>safe apply 需要人工确认</strong>'
+            '<div class="warnings"><strong>应用复核结果前需要人工确认</strong>'
             "<ul><li>请先查看 preview 和 apply 边界；Dashboard 只展示状态。</li></ul></div>"
         )
     elif follow_action and follow_action != "N/A":
@@ -536,7 +661,7 @@ def render_input_panel(summary: dict[str, Any]) -> str:
     input_info = summary.get("input", {}) if isinstance(summary.get("input"), dict) else {}
     warnings = summary.get("warnings", []) if isinstance(summary.get("warnings"), list) else []
     source_mode = input_info.get("source_mode") or "unknown mode"
-    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warnings_block = f'<div class="warnings"><strong>Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     return f"""
     <section class="panel input-panel">
@@ -616,7 +741,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     error = plan.get("error")
     items = plan.get("top_plan_items") if isinstance(plan.get("top_plan_items"), list) else []
     warnings = plan.get("warnings") if isinstance(plan.get("warnings"), list) else []
-    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>Planner Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     resource = plan.get("resource_plan") if isinstance(plan.get("resource_plan"), dict) else {}
     source_status = plan.get("target_source_status") if isinstance(plan.get("target_source_status"), dict) else {}
@@ -963,7 +1088,7 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
     affected = refresh.get("affected_artifacts") if isinstance(refresh.get("affected_artifacts"), list) else []
     warnings = refresh.get("warnings") if isinstance(refresh.get("warnings"), list) else []
     next_action = str(action_state.get("primary_next_action") or "unknown")
-    next_action_label = "重跑 demo pipeline" if next_action == "rerun_demo_pipeline" else next_action
+    next_action_label = action_label(next_action) if next_action else "N/A"
     try_now_allowed = action_state.get("try_now_allowed")
     try_now_text = "未知" if try_now_allowed is None else "是" if try_now_allowed else "否"
     rerun_required = action_state.get("rerun_required")
@@ -987,12 +1112,12 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
     if refresh.get("refresh_status") == "stale_after_apply":
         stale_copy = (
             '<div class="errors"><strong>当前简报可能过期</strong>'
-            "<ul><li>Safe apply 已改变 accepted roster；当前高难方案/今日简报可能仍基于旧 box。请重跑 demo pipeline 后再执行 try_now。</li></ul></div>"
+            "<ul><li>人工应用已经改变已确认 roster；当前高难方案/今日简报可能仍基于旧 box。请重跑演示流程后再执行可尝试项。</li></ul></div>"
         )
     elif refresh.get("refresh_status") == "unknown":
         stale_copy = (
             '<div class="errors"><strong>刷新状态无法确认</strong>'
-            "<ul><li>无法确认当前 Dashboard 是否已吸收最新 apply；请重跑 demo pipeline 后再执行 try_now。</li></ul></div>"
+            "<ul><li>无法确认当前页面是否已吸收最新人工应用结果；请重跑演示流程后再执行可尝试项。</li></ul></div>"
         )
     return f"""
     <section class="panel refresh-status">
@@ -1029,10 +1154,10 @@ def render_final_brief(summary: dict[str, Any]) -> str:
     brief_summary = brief.get("summary") if isinstance(brief.get("summary"), dict) else {}
     top_cards = brief.get("top_cards") if isinstance(brief.get("top_cards"), list) else []
     warnings = brief.get("warnings") if isinstance(brief.get("warnings"), list) else []
-    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Brief Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>简报警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if brief.get("error"):
-        body = f'<div class="errors"><strong>Final brief failed</strong><ul><li>{e(brief.get("error"))}</li></ul></div>'
+        body = f'<div class="errors"><strong>简报生成失败</strong><ul><li>{he(brief.get("error"))}</li></ul></div>'
     elif not top_cards:
         body = '<div class="empty">暂无可执行事项；先补齐本地确认数据。</div>'
     else:
@@ -1043,45 +1168,63 @@ def render_final_brief(summary: dict[str, Any]) -> str:
             evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
             item_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
             warning_text = "；".join(str(warning) for warning in item_warnings if warning)
-            evidence_text = " · ".join(
-                str(part)
-                for part in (
-                    rel_label(evidence.get("source")) or evidence.get("source"),
-                    evidence.get("hash"),
-                    rel_label(evidence.get("artifact")) or evidence.get("artifact"),
-                )
-                if part
+            card_type = brief_card_type_label(item.get("card_type"))
+            target_line = []
+            if item.get("target"):
+                target_line.append(f"目标：{item.get('target')}")
+            if item.get("character"):
+                target_line.append(f"角色：{item.get('character')}")
+            quick_links = []
+            review_href = evidence.get("review_html") or evidence.get("source")
+            if review_href:
+                quick_links.append(link("打开复核页", review_href))
+            if evidence.get("normalized_json"):
+                quick_links.append(link("标准化 JSON", evidence.get("normalized_json")))
+            details = (
+                "<details class=\"brief-details\"><summary>技术细节</summary>"
+                f"<ul class=\"brief-evidence\">{brief_evidence_rows(evidence)}</ul>"
+                f"<pre class=\"command-block\"><code>{e(item.get('command_hint') or '无命令提示')}</code></pre>"
+                "</details>"
             )
             rows.append(
                 "<article class=\"brief-card\">"
                 f"<div class=\"plan-rank\">#{e(item.get('rank'))}</div>"
                 "<div>"
-                f"<h3>{e(item.get('title'))}</h3>"
-                f"<p>{e(item.get('reason'))}</p>"
-                f"<span>{e(item.get('card_type'))} · target: {e(item.get('target') or 'N/A')} · character: {e(item.get('character') or 'N/A')}</span>"
-                f"<span>evidence: {e(evidence_text or 'N/A')}</span>"
-                f"<span>{e(warning_text or '无额外警告')}</span>"
+                f"<div class=\"brief-card-head\"><span class=\"badge muted\">{e(card_type)}</span><h3>{he(item.get('title'))}</h3></div>"
+                f"<p>{he(item.get('reason'))}</p>"
+                f"<span>{he(' · '.join(target_line) or '本项不绑定具体目标/角色')}</span>"
+                f"<div class=\"brief-links\">{''.join(quick_links) or '<span class=\"missing\">暂无可打开证据</span>'}</div>"
+                f"{'<span>警告：' + he(warning_text) + '</span>' if warning_text else ''}"
+                f"{details}"
                 "</div>"
-                f"<strong>{e(item.get('command_hint') or '查看详情')}</strong>"
+                f"<strong>{e(brief_action_label(item))}</strong>"
                 "</article>"
             )
         body = '<div class="brief-list">' + "".join(rows) + "</div>"
+    status_text = human_status(brief.get("brief_status") or "N/A")
+    status_note = ""
+    if str(brief.get("brief_status") or "").lower() == "needs_review":
+        status_note = (
+            '<div class="warnings"><strong>当前不能直接按配队行动</strong>'
+            "<ul><li>还有解析快照待人工确认。先打开复核页看图和字段，确认后再进入已确认角色库。</li></ul></div>"
+        )
     return f"""
     <section class="panel final-brief">
       <h2>今日作战简报</h2>
-      <p class="muted-line">今天先做什么。这里是 demo 的第一阅读层，只使用本地已生成产物，不代表抽卡建议或自动通关保证。</p>
+      <p class="muted-line">先看这一块就够了：它告诉你现在能不能行动、卡在哪里、下一步该点开哪个复核页。技术路径和命令默认折叠。</p>
       <div class="links">
-        {link("final_brief.md", brief.get("output_md"))}
-        {link("final_brief.json", brief.get("output_json"))}
+        {link("简报 Markdown", brief.get("output_md"))}
+        {link("简报 JSON", brief.get("output_json"))}
       </div>
       <div class="input-grid">
-        <div><span>brief status</span><strong>{e(brief.get("brief_status") or "N/A")}</strong></div>
-        <div><span>trusted ready</span><strong>{e(brief_summary.get("trusted_plan_count", "N/A"))}</strong></div>
-        <div><span>pending review</span><strong>{e(brief_summary.get("pending_review_count", "N/A"))}</strong></div>
-        <div><span>ready targets</span><strong>{e(brief_summary.get("ready_now_target_count", "N/A"))}</strong></div>
-        <div><span>needs recording</span><strong>{e(brief_summary.get("needs_recording_target_count", "N/A"))}</strong></div>
-        <div><span>watch only</span><strong>{e(brief_summary.get("watch_only_target_count", "N/A"))}</strong></div>
+        <div><span>当前状态</span><strong>{e(status_text)}</strong></div>
+        <div><span>可信建议</span><strong>{e(brief_summary.get("trusted_plan_count", "N/A"))}</strong></div>
+        <div><span>待人工复核</span><strong>{e(brief_summary.get("pending_review_count", "N/A"))}</strong></div>
+        <div><span>可尝试目标</span><strong>{e(brief_summary.get("ready_now_target_count", "N/A"))}</strong></div>
+        <div><span>待补录目标</span><strong>{e(brief_summary.get("needs_recording_target_count", "N/A"))}</strong></div>
+        <div><span>仅观察</span><strong>{e(brief_summary.get("watch_only_target_count", "N/A"))}</strong></div>
       </div>
+      {status_note}
       {warning_block}
       {body}
     </section>
@@ -1699,6 +1842,49 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("需补录队伍", team_summary.get("needs_recording_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("needs_recording_count") else "muted"),
         metric_card("候选队伍", team_summary.get("catalog_candidate_count", "N/A") if team_summary else "N/A", "warn" if team_summary.get("catalog_candidate_count") else "muted"),
     ]
+    demo_status = str(overall.get("demo_status") or "")
+    doctor_status = str(doctor_info.get("doctor_status") or "") if doctor_info else ""
+    can_act_now = (
+        demo_status.lower() in {"ready", "pass", "ok"}
+        and doctor_status.lower() in {"ready", "trusted", "ok", ""}
+        and safe_apply not in {"blocked", "stale_after_apply"}
+    )
+    parse_fail_count = int(parse_counts.get("FAIL", 0) or 0)
+    parse_pass_count = int(parse_counts.get("PASS", 0) or 0)
+    expected_fail_count = int(expected_counts.get("FAIL", 0) or 0)
+    manual_review_count = int(overall.get("requires_manual_review_count", 0) or 0)
+    case_count = int(overall.get("case_count", 0) or 0)
+    ready_count = int(endgame_summary.get("ready_now_count", 0) or 0) if endgame_summary else 0
+    review_target_count = int(endgame_summary.get("needs_review_count", 0) or 0) if endgame_summary else 0
+    status_title = "可以按建议行动" if can_act_now else "暂不能直接采用"
+    status_body = (
+        "本轮数据已通过门禁，可以继续看下方建议。"
+        if can_act_now
+        else "当前还有解析失败、复核未完成或运行清单不一致，先按下一步处理。"
+    )
+    next_action = action_label(doctor_info.get("primary_next_action")) if doctor_info else "查看页面明细"
+    top_cards = [
+        summary_card("当前结论", status_title, status_body, "ok" if can_act_now else "bad"),
+        summary_card("下一步", next_action, f"模式：{source_mode_label(input_info.get('source_mode'))}", status_class(doctor_status)),
+        summary_card(
+            "解析概况",
+            f"{parse_pass_count}/{case_count} 张可用",
+            f"解析失败 {parse_fail_count}，验收对照未通过 {expected_fail_count}，平均通过率 {average_pass_rate}。",
+            "bad" if parse_fail_count or expected_fail_count else "ok",
+        ),
+        summary_card(
+            "人工门禁",
+            f"{manual_review_count} 个待确认",
+            "即使识别成功，也必须人工确认后才会进入本地角色库。",
+            "warn" if manual_review_count else "ok",
+        ),
+        summary_card(
+            "高难建议",
+            f"{ready_count} 个可尝试",
+            f"{review_target_count} 个目标仍需先复核练度或队伍数据。",
+            "ok" if ready_count and not review_target_count else "warn" if review_target_count else "muted",
+        ),
+    ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
     demo_doctor_panel = render_demo_doctor(summary)
@@ -1725,7 +1911,7 @@ def render_html(summary: dict[str, Any]) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Miho 本地练度识别体验台</title>
+  <title>米游社练度识别体验台</title>
   <style>
     :root {{
       --bg: #f5f7fb;
@@ -1747,6 +1933,15 @@ def render_html(summary: dict[str, Any]) -> str:
     header h1 {{ margin: 0 0 8px; font-size: 30px; letter-spacing: 0; }}
     header p {{ margin: 0; color: #cbd5e1; max-width: 980px; }}
     main {{ padding: 22px; display: grid; gap: 18px; }}
+    .top-summary {{ display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }}
+    .summary-card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); min-width: 0; }}
+    .summary-card span {{ display: block; color: var(--muted); font-size: 13px; }}
+    .summary-card strong {{ display: block; margin-top: 6px; font-size: 22px; line-height: 1.25; overflow-wrap: anywhere; }}
+    .summary-card p {{ margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }}
+    .summary-card.ok strong {{ color: var(--ok); }} .summary-card.warn strong {{ color: var(--warn); }} .summary-card.bad strong {{ color: var(--bad); }}
+    .debug-drawer {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); }}
+    .debug-drawer > summary {{ font-size: 16px; }}
+    .debug-content {{ display: grid; gap: 18px; margin-top: 14px; }}
     .metrics {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }}
     .metric {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; box-shadow: var(--shadow); }}
     .metric span {{ display: block; color: var(--muted); font-size: 13px; }}
@@ -1787,11 +1982,18 @@ def render_html(summary: dict[str, Any]) -> str:
     .plan-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .brief-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .plan-item {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) 72px; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
-    .brief-card {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) minmax(120px, 220px); gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; }}
+    .brief-card {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) minmax(150px, 220px); gap: 12px; align-items: start; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; }}
+    .brief-card-head {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }}
     .brief-card h3 {{ margin: 0 0 4px; font-size: 16px; }}
     .brief-card p {{ margin: 0 0 4px; color: var(--text); }}
     .brief-card span {{ display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }}
-    .brief-card > strong {{ color: var(--warn); text-align: right; overflow-wrap: anywhere; }}
+    .brief-card > strong {{ color: var(--warn); text-align: right; overflow-wrap: anywhere; font-size: 14px; line-height: 1.35; }}
+    .brief-links {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }}
+    .brief-details {{ margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }}
+    .brief-evidence {{ margin: 8px 0; padding: 0; display: grid; gap: 6px; list-style: none; }}
+    .brief-evidence li {{ display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }}
+    .brief-evidence strong {{ color: var(--text); }}
+    .badge.muted {{ background: #e2e8f0; color: #334155; }}
     .plan-rank {{ display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #e9f8ef; color: var(--ok); font-weight: 900; }}
     .plan-item h3 {{ margin: 0 0 4px; font-size: 16px; }}
     .plan-item p {{ margin: 0 0 4px; color: var(--text); }}
@@ -1812,6 +2014,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .empty {{ padding: 24px; color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }}
     @media (max-width: 900px) {{
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .top-summary {{ grid-template-columns: 1fr; }}
       .steps {{ grid-template-columns: 1fr; }}
       .input-grid {{ grid-template-columns: 1fr; }}
       .case-grid {{ grid-template-columns: 1fr; }}
@@ -1828,33 +2031,39 @@ def render_html(summary: dict[str, Any]) -> str:
 </head>
 <body>
   <header>
-    <h1>Miho 本地练度识别体验台</h1>
-    <p>{e(conclusion)}</p>
-    <p>当前 P1.1 仍是本地 demo。即使解析通过，也不会自动导入；requires_review 不代表解析失败，而是人工确认安全门禁。</p>
+    <h1>米游社练度识别体验台</h1>
+    <p>{he(conclusion)}</p>
+    <p>当前仍是本地演示流程。即使解析通过，也只进入人工确认区，不会自动写入正式数据。</p>
   </header>
     <main>
-    <section class="metrics">{''.join(metrics)}</section>
-    {demo_doctor_panel}
-    {update_command_panel}
-    {launcher_report_panel}
-    {refresh_status_panel}
+    <section class="top-summary">{''.join(top_cards)}</section>
     {final_brief}
     {action_checklist}
-    {review_apply}
-    {input_panel}
-    {update_panel}
-    {steps}
-    {target_refresh}
-    {snapshot_history}
-    {review_inbox}
-    {run_manifest}
     {endgame_plan}
-    {roster_delta}
     {tier_watchlist}
     {action_cards}
     {team_cards}
     {training_plan}
     <section class="panel"><h2>Case 卡片</h2><div class="case-grid">{cards}</div></section>
+    <details class="debug-drawer">
+      <summary>调试与产物明细</summary>
+      <div class="debug-content">
+        <section class="metrics">{''.join(metrics)}</section>
+        {demo_doctor_panel}
+        {update_command_panel}
+        {launcher_report_panel}
+        {refresh_status_panel}
+        {review_apply}
+        {input_panel}
+        {update_panel}
+        {steps}
+        {target_refresh}
+        {snapshot_history}
+        {review_inbox}
+        {run_manifest}
+        {roster_delta}
+      </div>
+    </details>
   </main>
 </body>
 </html>
