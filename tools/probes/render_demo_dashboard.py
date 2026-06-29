@@ -44,6 +44,42 @@ def e(value: Any) -> str:
 
 def humanize_text(value: Any) -> str:
     text = "" if value is None else str(value)
+    sentence_replacements = (
+        (
+            "run_manifest 显示输入缺失、错批或无法确认；这里不会把方案当作可信 ready。",
+            "本轮数据来源对不上：暂时不能把配队建议当作可用结果。",
+        ),
+        (
+            "运行清单 显示输入缺失、错批或无法确认；这里不会把方案当作可信 就绪。",
+            "本轮数据来源对不上：暂时不能把配队建议当作可用结果。",
+        ),
+        (
+            "缺少 run_manifest；无法确认本轮产物是否同批生成。",
+            "缺少本轮运行清单：这批 OCR、复核预览和建议可能不是同一次生成，先重跑 demo。",
+        ),
+        (
+            "缺少 运行清单；无法确认本轮产物是否同批生成。",
+            "缺少本轮运行清单：这批 OCR、复核预览和建议可能不是同一次生成，先重跑 demo。",
+        ),
+        (
+            "pending snapshot 尚未进入 accepted roster；确认前不能进入 try_now。",
+            "这张解析结果还没人工确认：确认前不能当作已拥有练度，也不会进入可尝试队伍。",
+        ),
+        (
+            "待确认快照 尚未进入 已确认角色库；确认前不能进入 可尝试。",
+            "这张解析结果还没人工确认：确认前不能当作已拥有练度，也不会进入可尝试队伍。",
+        ),
+        (
+            "重新运行 demo pipeline，或确认 run_manifest 中的输入产物来自同一批生成。",
+            "重新运行 scripts/run_miho_demo.bat --fresh，或检查本轮运行清单是否同批生成。",
+        ),
+        (
+            "打开 Dashboard 的本期高难方案，按该队伍先试一次。",
+            "打开下方“本期高难方案”，确认队伍后再尝试。",
+        ),
+    )
+    for old, new in sentence_replacements:
+        text = text.replace(old, new)
     replacements = (
         ("Demo pipeline", "本地演示流程"),
         ("demo pipeline", "本地演示流程"),
@@ -264,6 +300,14 @@ def command_details(title: str, commands: list[tuple[str, Any]]) -> str:
     if not rows:
         return ""
     return f"<details class=\"command-details\"><summary>{e(title)}</summary>{''.join(rows)}</details>"
+
+
+def command_hint_text(value: Any) -> str:
+    text = str(value or "无命令提示")
+    stripped = text.lstrip().lower()
+    if stripped.startswith(("python ", "powershell ", "scripts\\", "scripts/")) or ".py" in stripped:
+        return e(text)
+    return he(text)
 
 
 def basename(value: Any) -> str:
@@ -1216,7 +1260,7 @@ def render_final_brief(summary: dict[str, Any]) -> str:
             details = (
                 "<details class=\"brief-details\"><summary>技术细节</summary>"
                 f"<ul class=\"brief-evidence\">{brief_evidence_rows(evidence)}</ul>"
-                f"<pre class=\"command-block\"><code>{e(item.get('command_hint') or '无命令提示')}</code></pre>"
+                f"<pre class=\"command-block\"><code>{command_hint_text(item.get('command_hint'))}</code></pre>"
                 "</details>"
             )
             rows.append(
@@ -1313,7 +1357,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
             details = (
                 '<details class="brief-details"><summary>技术细节</summary>'
                 f'<ul class="brief-evidence">{"".join(detail_rows) or "<li><strong>证据</strong><span>N/A</span></li>"}</ul>'
-                f'<pre class="command-block"><code>{e(item.get("command_hint") or "无命令提示")}</code></pre>'
+                f'<pre class="command-block"><code>{command_hint_text(item.get("command_hint"))}</code></pre>'
                 "</details>"
             )
             rows.append(

@@ -191,6 +191,16 @@ def write_launcher_report(output_dir: Path, report: dict) -> Path:
 
 
 class DemoDashboardTests(unittest.TestCase):
+    def test_humanize_text_explains_internal_gate_terms(self) -> None:
+        self.assertEqual(
+            dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),
+            "缺少本轮运行清单：这批 OCR、复核预览和建议可能不是同一次生成，先重跑 demo。",
+        )
+        self.assertEqual(
+            dashboard_tool.humanize_text("pending snapshot 尚未进入 accepted roster；确认前不能进入 try_now。"),
+            "这张解析结果还没人工确认：确认前不能当作已拥有练度，也不会进入可尝试队伍。",
+        )
+
     def test_dashboard_shows_final_brief_before_details(self) -> None:
         summary = {
             "overall": {
