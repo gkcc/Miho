@@ -617,11 +617,13 @@ class DoctorLauncherTests(unittest.TestCase):
             dashboard_path = root / "index.html"
             refreshed_summary = json.loads(summary_path.read_text(encoding="utf-8"))
             dashboard_html = dashboard_path.read_text(encoding="utf-8")
+            launcher_report_json = json.loads(Path(report["output_json"]).read_text(encoding="utf-8"))
             self.assertEqual(exit_code, 0)
             self.assertEqual(report["dashboard_refresh"]["status"], "refreshed")
             self.assertTrue(report["dashboard_refresh"]["inferred_dashboard_paths"])
             self.assertTrue(report["dashboard_refresh"]["summary_updated"])
             self.assertTrue(report["dashboard_refresh"]["dashboard_rendered"])
+            self.assertTrue(launcher_report_json["dashboard_refresh"]["dashboard_rendered"])
             self.assertTrue(dashboard_path.exists())
             self.assertIn("launcher_report", refreshed_summary)
             self.assertEqual(refreshed_summary["launcher_report"]["launcher_status"], "printed")
@@ -629,6 +631,8 @@ class DoctorLauncherTests(unittest.TestCase):
             self.assertTrue(refreshed_summary["launcher_report"]["dashboard_refresh"]["summary_updated"])
             self.assertTrue(refreshed_summary["launcher_report"]["dashboard_refresh"]["dashboard_rendered"])
             self.assertIn("启动器执行记录", dashboard_html)
+            self.assertIn("dashboard_rendered", dashboard_html)
+            self.assertIn("refreshed", dashboard_html)
 
     def test_refresh_dashboard_uses_explicit_summary_and_html_with_custom_launcher_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -676,12 +680,29 @@ class DoctorLauncherTests(unittest.TestCase):
         self.assertIn("dashboard_refresh_path_inferred_from_custom_launcher_output", report["warnings"])
         self.assertIn("launcher_report", refreshed_summary)
 
+    def test_refresh_dashboard_warns_when_custom_output_dir_is_named_launcher(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            write_json(root / "other" / "demo_summary.json", demo_summary_json())
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                output_dir=root / "other" / "launcher",
+                refresh_dashboard=True,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(report["dashboard_refresh"]["inferred_dashboard_paths"])
+        self.assertIn("dashboard_refresh_path_inferred_from_custom_launcher_output", report["dashboard_refresh"]["warnings"])
+
     def test_refresh_dashboard_render_failure_records_partial_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
             write_json(root / "demo_summary.json", demo_summary_json())
             output_dir = root / "launcher"
+            dashboard_path = root / "index.html"
             demo_pipeline = launcher_tool.import_demo_pipeline_module()
             original_render_dashboard = demo_pipeline.dashboard.render_dashboard
 
@@ -697,11 +718,13 @@ class DoctorLauncherTests(unittest.TestCase):
                 )
             finally:
                 demo_pipeline.dashboard.render_dashboard = original_render_dashboard
+            dashboard_exists = dashboard_path.exists()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(report["dashboard_refresh"]["status"], "failed")
         self.assertTrue(report["dashboard_refresh"]["summary_updated"])
         self.assertFalse(report["dashboard_refresh"]["dashboard_rendered"])
+        self.assertFalse(dashboard_exists)
         self.assertTrue(any("dashboard_refresh_failed" in item for item in report["dashboard_refresh"]["warnings"]))
         self.assertTrue(any("dashboard_refresh_failed" in item for item in report["warnings"]))
 

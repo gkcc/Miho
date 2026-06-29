@@ -237,12 +237,20 @@ def dashboard_refresh_record(
     status: str,
     dashboard_summary_path: Path | None = None,
     dashboard_html_path: Path | None = None,
+    expected_launcher_output_dir: Path | None = None,
 ) -> dict[str, Any]:
     inferred = dashboard_summary_path is None
     summary_path = dashboard_summary_path or launcher_output_dir.parent / "demo_summary.json"
     html_path = dashboard_html_path or summary_path.parent / "index.html"
     warnings: list[str] = []
-    if inferred and launcher_output_dir.name != "launcher":
+    if attempted and inferred and expected_launcher_output_dir is not None:
+        try:
+            inferred_from_custom_output = launcher_output_dir.resolve() != expected_launcher_output_dir.resolve()
+        except (OSError, RuntimeError, ValueError):
+            inferred_from_custom_output = launcher_output_dir != expected_launcher_output_dir
+    else:
+        inferred_from_custom_output = attempted and inferred and launcher_output_dir.name != "launcher"
+    if inferred_from_custom_output:
         warnings.append("dashboard_refresh_path_inferred_from_custom_launcher_output")
     return {
         "attempted": attempted,
@@ -262,6 +270,7 @@ def refresh_dashboard_after_launcher(
     *,
     dashboard_summary_path: Path | None = None,
     dashboard_html_path: Path | None = None,
+    expected_launcher_output_dir: Path | None = None,
 ) -> dict[str, Any]:
     refresh = dashboard_refresh_record(
         launcher_output_dir,
@@ -269,6 +278,7 @@ def refresh_dashboard_after_launcher(
         status="refreshed",
         dashboard_summary_path=dashboard_summary_path,
         dashboard_html_path=dashboard_html_path,
+        expected_launcher_output_dir=expected_launcher_output_dir,
     )
     summary_path = Path(str(refresh["summary_json"]))
     dashboard_path = Path(str(refresh["dashboard_html"]))
@@ -300,15 +310,31 @@ def refresh_dashboard_after_launcher(
         summary["dashboard_html"] = str(dashboard_path)
         write_json(summary_path, summary)
         refresh["summary_updated"] = True
-        demo_pipeline.dashboard.render_dashboard(summary, dashboard_path)
         refresh["dashboard_rendered"] = True
-        launcher_report = summary.get("launcher_report") if isinstance(summary.get("launcher_report"), dict) else {}
-        if launcher_report:
-            launcher_report["dashboard_refresh"] = refresh
+        report["dashboard_refresh"] = refresh
+        write_launcher_report_files(report)
+        launcher_summary = demo_pipeline.build_launcher_report_summary(summary_path.parent, report_path=Path(str(report["output_json"])))
+        if launcher_summary is not None:
+            summary["launcher_report"] = launcher_summary
         write_json(summary_path, summary)
+        demo_pipeline.dashboard.render_dashboard(summary, dashboard_path)
     except Exception as exc:  # pragma: no cover - defensive boundary for a CLI helper.
         refresh["status"] = "failed"
+        refresh["dashboard_rendered"] = False
         refresh["warnings"].append(f"dashboard_refresh_failed: {exc}")
+        report["dashboard_refresh"] = refresh
+        try:
+            write_launcher_report_files(report)
+        except OSError:
+            pass
+        if refresh.get("summary_updated") and "summary" in locals():
+            launcher_report = summary.get("launcher_report") if isinstance(summary.get("launcher_report"), dict) else {}
+            if launcher_report:
+                launcher_report["dashboard_refresh"] = refresh
+                try:
+                    write_json(summary_path, summary)
+                except OSError:
+                    pass
     report["dashboard_refresh"] = refresh
     return refresh
 
@@ -571,6 +597,7 @@ def launch_doctor(
         status="skipped",
         dashboard_summary_path=dashboard_summary_path,
         dashboard_html_path=dashboard_html_path,
+        expected_launcher_output_dir=default_output_dir(doctor_path),
     )
     write_launcher_report_files(report)
     if refresh_dashboard:
@@ -579,6 +606,7 @@ def launch_doctor(
             report,
             dashboard_summary_path=dashboard_summary_path,
             dashboard_html_path=dashboard_html_path,
+            expected_launcher_output_dir=default_output_dir(doctor_path),
         )
         report["dashboard_refresh"] = refresh
         if refresh.get("warnings"):

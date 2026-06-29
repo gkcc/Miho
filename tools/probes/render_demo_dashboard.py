@@ -386,6 +386,8 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
         <div><span>rerun_started_at</span><strong>{e(report.get("rerun_started_at") or "N/A")}</strong></div>
         <div><span>rerun_finished_at</span><strong>{e(report.get("rerun_finished_at") or "N/A")}</strong></div>
         <div><span>dashboard_refresh</span><strong>{e(dashboard_refresh.get("status") or "N/A")}</strong></div>
+        <div><span>summary_updated</span><strong>{e(bool_text(dashboard_refresh.get("summary_updated")))}</strong></div>
+        <div><span>dashboard_rendered</span><strong>{e(bool_text(dashboard_refresh.get("dashboard_rendered")))}</strong></div>
         <div><span>current_demo_doctor_sha256</span><strong>{e(report.get("current_demo_doctor_sha256") or "N/A")}</strong></div>
         <div><span>report.initial_doctor_sha256</span><strong>{e(report.get("report_initial_doctor_sha256") or "N/A")}</strong></div>
         <div><span>report.follow_up.sha256</span><strong>{e(report.get("report_follow_up_sha256") or "N/A")}</strong></div>
