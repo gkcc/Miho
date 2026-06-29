@@ -23,7 +23,20 @@
 
 ## 体验入口
 
-打开当前本地 demo：
+第一次使用，先装桌面快捷方式：
+
+```powershell
+scripts/install_miho_demo_shortcut.bat
+```
+
+它会在桌面创建两个入口：
+
+- `Miho Demo`：优先秒开已经生成的 Dashboard；如果没有缓存，才会跑一次 OCR。
+- `Miho Demo Fresh OCR`：重新识别 `figs/` 下的官方分享图，完成后打开 Dashboard。
+
+这只是当前 probe 阶段的一键入口，不是正式 Tauri 桌面应用，也不会自动登录、读取 token 或写正式数据库。
+
+也可以直接从命令行打开当前本地 demo：
 
 ```powershell
 scripts/run_miho_demo.bat
