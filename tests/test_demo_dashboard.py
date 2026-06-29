@@ -205,6 +205,7 @@ class DemoDashboardTests(unittest.TestCase):
                 "output_json": "data/probes/demo/action_checklist/action_checklist.json",
                 "output_md": "data/probes/demo/action_checklist/action_checklist.md",
                 "review_decisions_template": "data/probes/demo/action_checklist/review_decisions_template.json",
+                "preview_command": "python tools/probes/preview_review_decisions.py --decision-manifest data/probes/demo/action_checklist/review_decisions_template.json",
                 "summary": {"item_count": 1, "ready_count": 1, "needs_review_count": 0, "blocked_count": 0, "hidden_item_count": 0},
                 "items": [
                     {
@@ -221,6 +222,13 @@ class DemoDashboardTests(unittest.TestCase):
                 ],
                 "warnings": [],
             },
+            "review_decision_preview": {
+                "schema_version": "p2.3-lite-review-decision-preview",
+                "preview_status": "ready",
+                "output_json": "data/probes/demo/review_preview/review_decision_preview.json",
+                "output_md": "data/probes/demo/review_preview/review_decision_preview.md",
+                "summary": {"would_update_roster_count": 1},
+            },
         }
 
         html = dashboard_tool.render_html(summary)
@@ -230,6 +238,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("今天先做什么", html)
         self.assertIn("final_brief.md", html)
         self.assertIn("review_decisions_template.json", html)
+        self.assertIn("review_decision_preview.md", html)
+        self.assertIn("先预览，再 apply", html)
         self.assertIn("可先尝试：危局强袭战", html)
         self.assertLess(html.index("今日作战简报"), html.index("输入模式"))
         self.assertLess(html.index("今日作战简报"), html.index("执行清单"))
@@ -1212,10 +1222,15 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["action_checklist"]["output_md"]).exists())
             self.assertTrue(Path(summary["action_checklist"]["review_decisions_template"]).exists())
             self.assertIn("Action Checklist", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("review_decision_preview", summary)
+            self.assertTrue(Path(summary["review_decision_preview"]["output_json"]).exists())
+            self.assertTrue(Path(summary["review_decision_preview"]["output_md"]).exists())
+            self.assertIn("Review Decision Preview", {item["name"] for item in summary["pipeline_steps"]})
             self.assertEqual(summary["review_inbox"]["pending_count"], 1)
             self.assertEqual(summary["team_cards"]["summary"]["pending_snapshot_count"], 1)
             self.assertIn("今日作战简报", dashboard_html)
             self.assertIn("执行清单", dashboard_html)
+            self.assertIn("先预览，再 apply", dashboard_html)
             self.assertIn("今天先做什么", dashboard_html)
             self.assertIn("培养优先级候选", dashboard_html)
             self.assertIn("下一步行动", dashboard_html)

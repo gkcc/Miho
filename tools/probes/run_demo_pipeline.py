@@ -30,6 +30,7 @@ import build_run_manifest as run_manifest  # noqa: E402
 import build_roster_delta as roster_delta  # noqa: E402
 import build_team_cards as team_cards  # noqa: E402
 import build_tier_watchlist as tier_watchlist  # noqa: E402
+import preview_review_decisions as review_preview  # noqa: E402
 import normalize_export_parse as normalizer  # noqa: E402
 import plan_training_priorities as planner  # noqa: E402
 import prepare_endgame_targets as target_intake  # noqa: E402
@@ -778,6 +779,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     manifest_info = summary.get("run_manifest", {}) if isinstance(summary.get("run_manifest"), dict) else {}
     final_info = summary.get("final_brief", {}) if isinstance(summary.get("final_brief"), dict) else {}
     checklist_info = summary.get("action_checklist", {}) if isinstance(summary.get("action_checklist"), dict) else {}
+    preview_info = summary.get("review_decision_preview", {}) if isinstance(summary.get("review_decision_preview"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -860,6 +862,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(checklist_info, dict) and checklist_info.get("error")
             else "done"
             if isinstance(checklist_info, dict) and checklist_info.get("output_json")
+            else "skipped",
+        },
+        {
+            "name": "Review Decision Preview",
+            "status": "failed"
+            if isinstance(preview_info, dict) and preview_info.get("error")
+            else "done"
+            if isinstance(preview_info, dict) and preview_info.get("output_json")
             else "skipped",
         },
     ]
@@ -1347,6 +1357,38 @@ def build_demo_action_checklist(
         }
 
 
+def build_demo_review_decision_preview(
+    *,
+    output_dir: Path,
+    action_checklist_info: dict[str, Any],
+    review_inbox_path: Path,
+    run_manifest_path: Path | None,
+    roster_index_path: Path | None = None,
+) -> dict[str, Any] | None:
+    template = action_checklist_info.get("review_decisions_template") if isinstance(action_checklist_info, dict) else None
+    if not template or not review_inbox_path.exists():
+        return None
+    try:
+        return review_preview.preview_review_decisions(
+            decision_manifest=Path(str(template)),
+            review_inbox=review_inbox_path,
+            run_manifest=run_manifest_path if run_manifest_path and run_manifest_path.exists() else None,
+            roster_index=roster_index_path if roster_index_path and roster_index_path.exists() else None,
+            output_dir=output_dir / "review_preview",
+        )
+    except review_preview.ReviewPreviewError as exc:
+        return {
+            "schema_version": review_preview.SCHEMA_VERSION,
+            "input": {
+                "decision_manifest": str(template),
+                "review_inbox": str(review_inbox_path),
+                "run_manifest": str(run_manifest_path),
+                "roster_index": str(roster_index_path) if roster_index_path else None,
+            },
+            "error": str(exc),
+        }
+
+
 def review_decision_source(path: Path) -> str | None:
     try:
         data = load_json(path)
@@ -1773,6 +1815,22 @@ def run_pipeline(
         if action_checklist_info.get("error"):
             summary.setdefault("warnings", []).append(f"Action checklist failed: {action_checklist_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
+    review_preview_info = (
+        build_demo_review_decision_preview(
+            output_dir=output_dir,
+            action_checklist_info=action_checklist_info,
+            review_inbox_path=review_inbox_path,
+            run_manifest_path=run_manifest_path,
+            roster_index_path=roster_index_for_replay if roster_index_for_replay.exists() else None,
+        )
+        if isinstance(action_checklist_info, dict)
+        else None
+    )
+    if review_preview_info is not None:
+        summary["review_decision_preview"] = review_preview_info
+        if review_preview_info.get("error"):
+            summary.setdefault("warnings", []).append(f"Review decision preview failed: {review_preview_info['error']}")
+        summary["pipeline_steps"] = pipeline_steps(summary)
     summary_path = output_dir / "demo_summary.json"
     write_json(summary_path, summary)
     dashboard_path = output_dir / "index.html"
@@ -1908,6 +1966,11 @@ def main() -> int:
         print(f"action_checklist_status: {summary['action_checklist'].get('checklist_status')}")
         if isinstance(checklist_summary, dict):
             print(f"action_checklist_item_count: {checklist_summary.get('item_count', 0)}")
+    if isinstance(summary.get("review_decision_preview"), dict):
+        preview_summary = summary["review_decision_preview"].get("summary", {})
+        print(f"review_preview_status: {summary['review_decision_preview'].get('preview_status')}")
+        if isinstance(preview_summary, dict):
+            print(f"review_preview_would_update_roster_count: {preview_summary.get('would_update_roster_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0

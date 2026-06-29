@@ -125,6 +125,10 @@ class ActionChecklistTests(unittest.TestCase):
             self.assertEqual(result["items"][0]["evidence"]["normalized_json"], "data/probes/demo/case_normalized.json")
             self.assertEqual(template["decisions"][0]["decision"], "pending")
             self.assertNotEqual(template["decisions"][0]["decision"], "accept")
+            self.assertTrue(template["source_review_inbox_sha256"])
+            self.assertTrue(template["source_run_manifest_sha256"])
+            self.assertIn("action_checklist.json", template["source_action_checklist"])
+            self.assertIn("preview_review_decisions.py", result["preview_command"])
 
     def test_watch_only_keeps_non_gacha_warning(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

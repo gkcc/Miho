@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -51,6 +52,16 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def sha256_file(path: Path | None) -> str | None:
+    if path is None or not path.exists():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
@@ -92,8 +103,16 @@ def pending_by_character(review_inbox: dict[str, Any] | None) -> dict[str, dict[
     return result
 
 
-def review_template(review_inbox: dict[str, Any] | None, review_inbox_path: Path | None) -> dict[str, Any]:
+def review_template(
+    review_inbox: dict[str, Any] | None,
+    review_inbox_path: Path | None,
+    *,
+    run_manifest_path: Path | None,
+    action_checklist_path: Path,
+    final_brief_path: Path,
+) -> dict[str, Any]:
     decisions = []
+    template_warnings = []
     if isinstance(review_inbox, dict):
         for item in as_list(review_inbox.get("pending")):
             if not isinstance(item, dict):
@@ -108,10 +127,20 @@ def review_template(review_inbox: dict[str, Any] | None, review_inbox_path: Path
                     "blockers": as_list(item.get("blockers")),
                 }
             )
+    else:
+        template_warnings.append("review_inbox 缺失，无法生成待复核快照决策。")
     return {
         "schema_version": DECISION_TEMPLATE_SCHEMA,
         "created_at": now_iso(),
         "source_review_inbox": str(review_inbox_path) if review_inbox_path else None,
+        "source_review_inbox_sha256": sha256_file(review_inbox_path),
+        "source_run_manifest": str(run_manifest_path) if run_manifest_path else None,
+        "source_run_manifest_sha256": sha256_file(run_manifest_path),
+        "source_final_brief": str(final_brief_path),
+        "source_final_brief_sha256": sha256_file(final_brief_path),
+        "source_action_checklist": str(action_checklist_path),
+        "template_warning": "; ".join(template_warnings) if template_warnings else None,
+        "template_warnings": template_warnings,
         "decisions": decisions,
     }
 
@@ -185,6 +214,28 @@ def checklist_status(items: list[dict[str, Any]], data_warning_present: bool) ->
     return "blocked"
 
 
+def preview_command_for(template_path: Path, review_inbox: Path | None, run_manifest: Path | None, review_data: dict[str, Any] | None) -> str:
+    roster_index = None
+    if isinstance(review_data, dict) and review_data.get("roster_index_json"):
+        roster_index = str(review_data.get("roster_index_json"))
+    roster_index = roster_index or "data/probes/roster/roster_index.json"
+    parts = [
+        "python tools/probes/preview_review_decisions.py",
+        f'--decision-manifest "{template_path}"',
+    ]
+    if review_inbox:
+        parts.append(f'--review-inbox "{review_inbox}"')
+    if run_manifest:
+        parts.append(f'--run-manifest "{run_manifest}"')
+    parts.extend(
+        [
+            f'--roster-index "{roster_index}"',
+            '--output-dir "data/probes/demo/review_preview"',
+        ]
+    )
+    return " ".join(parts)
+
+
 def render_markdown(result: dict[str, Any]) -> str:
     lines = ["# 执行清单", "", "## 今天最多 5 件事", ""]
     items = as_list(result.get("items"))
@@ -196,6 +247,9 @@ def render_markdown(result: dict[str, Any]) -> str:
         lines.append(f"- [{item.get('status')}] {item.get('item_type')}: {item.get('title')}")
     lines.extend(["", "## Review Decision Template", ""])
     lines.append(f"- {result.get('review_decisions_template')}")
+    lines.extend(["", "## Review Decision Preview", ""])
+    lines.append("先预览，再 apply；preview 不写 accepted/rejected。")
+    lines.append(f"- {result.get('preview_command')}")
     warnings = as_list(result.get("warnings"))
     if warnings:
         lines.extend(["", "## Warnings", ""])
@@ -242,8 +296,15 @@ def build_action_checklist(
     template_path = output_dir / "review_decisions_template.json"
     checklist_path = output_dir / "action_checklist.json"
     markdown_path = output_dir / "action_checklist.md"
-    template = review_template(review_data, review_inbox)
+    template = review_template(
+        review_data,
+        review_inbox,
+        run_manifest_path=run_manifest,
+        action_checklist_path=checklist_path,
+        final_brief_path=final_brief,
+    )
     write_json(template_path, template)
+    preview_command = preview_command_for(template_path, review_inbox, run_manifest, review_data)
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": now_iso(),
@@ -265,6 +326,7 @@ def build_action_checklist(
         "items": items,
         "hidden_item_count": hidden_item_count,
         "review_decisions_template": str(template_path),
+        "preview_command": preview_command,
         "output_json": str(checklist_path),
         "output_md": str(markdown_path),
         "warnings": warnings,

@@ -374,7 +374,7 @@ data/probes/demo/snapshot_history/index.json
 * Dashboard 会显示“练度更新收件箱”：demo normalized snapshot 是 OCR/解析候选，只有进入 accepted roster 的 snapshot 才能作为已确认 box。
 * Team card 里的 `pending_snapshot` 只是待确认解析候选，`catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 accepted roster 中的 `owned_snapshot` 才能作为可用练度证据。
 * Tier watchlist 会标记 `verified` / `stale` / `unverified` / `low_trust`。只有 verified 且属于 accepted roster 的高保值信号能辅助队伍排序；stale/unverified/low_trust 只能作为弱参考。
-* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`、`final_brief.json/md` 和 `action_checklist.json/md`，并在 Dashboard 顶部显示“今日作战简报”和“执行清单”。简报和清单是 demo 的第一阅读层，用于回答“今天先做什么”；如果 run manifest 缺失或错批，会先显示数据警告，并阻断可执行 `try_now`。方案包、简报和清单只聚合本地证据，用于区分 `try_now` / `review_snapshot` / `record_character` / `watch_only` / `data_warning`，不是抽卡建议，也不是自动通关保证。
+* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`、`final_brief.json/md`、`action_checklist.json/md` 和 `review_decision_preview.json/md`，并在 Dashboard 顶部显示“今日作战简报”和“执行清单”。简报和清单是 demo 的第一阅读层，用于回答“今天先做什么”；如果 run manifest 缺失或错批，会先显示数据警告，并阻断可执行 `try_now`。方案包、简报、清单和 preview 只聚合本地证据，用于区分 `try_now` / `review_snapshot` / `record_character` / `watch_only` / `data_warning`，不是抽卡建议，也不是自动通关保证。
 
 P0.9 replay batch 验收命令：
 
@@ -510,6 +510,33 @@ data/probes/demo/action_checklist/review_decisions_template.json
 * `record_character` 只提示补录官方分享图，不会创建 owned/accepted roster；
 * `watch_only` 必须显示“不是抽卡建议”；
 * pending/catalog/candidate 标记不得进入 ready `try_now`。
+
+P2.3-lite 复核决策预览单独生成命令：
+
+```powershell
+python tools/probes/preview_review_decisions.py `
+  --decision-manifest data/probes/demo/action_checklist/review_decisions_template.json `
+  --review-inbox data/probes/demo/review_inbox.json `
+  --run-manifest data/probes/demo/run_manifest.json `
+  --roster-index data/probes/roster/roster_index.json `
+  --output-dir data/probes/demo/review_preview
+```
+
+输出：
+
+```text
+data/probes/demo/review_preview/review_decision_preview.json
+data/probes/demo/review_preview/review_decision_preview.md
+```
+
+preview 规则：
+
+* `review_decisions_template.json` 会记录 `source_review_inbox_sha256` 和 `source_run_manifest_sha256`，preview 会用当前文件重新计算并阻断 stale / 错批 template；
+* `decision=accept` 但 `normalized_json` 不在当前 `review_inbox.pending` 中时必须 blocked；
+* `decision=accept` 遇到 `review_status=FAIL`、`invalid_candidate` 或 `invalid_field_count>0` 时必须 blocked；
+* `decision=accept` 且存在质量 blocker 时，必须填写 `note` 或 `override_reason`，否则只进入 `needs_review`；
+* `decision=pending` / `decision=reject` 不会进入 accepted roster；
+* preview 只输出 `would_enter_roster` / `would_replace_existing` 预览，不写 accepted/rejected，也不调用 apply。
 
 P1.4-lite 练度更新收件箱与已确认 Box Index：
 

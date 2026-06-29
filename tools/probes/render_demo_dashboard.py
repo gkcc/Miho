@@ -701,6 +701,8 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
     if not isinstance(checklist, dict):
         return ""
     checklist_summary = checklist.get("summary") if isinstance(checklist.get("summary"), dict) else {}
+    preview = summary.get("review_decision_preview") if isinstance(summary.get("review_decision_preview"), dict) else {}
+    preview_summary = preview.get("summary") if isinstance(preview.get("summary"), dict) else {}
     items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
     warnings = checklist.get("warnings") if isinstance(checklist.get("warnings"), list) else []
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
@@ -749,15 +751,20 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
         {link("action_checklist.md", checklist.get("output_md"))}
         {link("action_checklist.json", checklist.get("output_json"))}
         {link("review_decisions_template.json", checklist.get("review_decisions_template"))}
+        {link("review_decision_preview.md", preview.get("output_md"))}
+        {link("review_decision_preview.json", preview.get("output_json"))}
       </div>
       <div class="input-grid">
         <div><span>checklist status</span><strong>{e(checklist.get("checklist_status") or "N/A")}</strong></div>
+        <div><span>preview status</span><strong>{e(preview.get("preview_status") or "N/A")}</strong></div>
         <div><span>items</span><strong>{e(checklist_summary.get("item_count", "N/A"))}</strong></div>
         <div><span>ready</span><strong>{e(checklist_summary.get("ready_count", "N/A"))}</strong></div>
         <div><span>needs review</span><strong>{e(checklist_summary.get("needs_review_count", "N/A"))}</strong></div>
         <div><span>blocked</span><strong>{e(checklist_summary.get("blocked_count", "N/A"))}</strong></div>
         <div><span>hidden</span><strong>{e(checklist_summary.get("hidden_item_count", "N/A"))}</strong></div>
+        <div><span>would update roster</span><strong>{e(preview_summary.get("would_update_roster_count", "N/A"))}</strong></div>
       </div>
+      <p class="muted-line">Review Decision Preview：先预览，再 apply；preview 不写 accepted/rejected。{e(checklist.get("preview_command") or "")}</p>
       {warning_block}
       {body}
     </section>
@@ -1130,10 +1137,12 @@ def render_html(summary: dict[str, Any]) -> str:
     endgame_summary = endgame_info.get("summary", {}) if isinstance(endgame_info.get("summary"), dict) else {}
     final_info = summary.get("final_brief", {}) if isinstance(summary.get("final_brief"), dict) else {}
     checklist_info = summary.get("action_checklist", {}) if isinstance(summary.get("action_checklist"), dict) else {}
+    preview_info = summary.get("review_decision_preview", {}) if isinstance(summary.get("review_decision_preview"), dict) else {}
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("简报状态", final_info.get("brief_status", "N/A") if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
         metric_card("清单状态", checklist_info.get("checklist_status", "N/A") if checklist_info else "N/A", status_class(checklist_info.get("checklist_status")) if checklist_info else "muted"),
+        metric_card("复核预览", preview_info.get("preview_status", "N/A") if preview_info else "N/A", status_class(preview_info.get("preview_status")) if preview_info else "muted"),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
         metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),

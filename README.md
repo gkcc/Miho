@@ -30,7 +30,7 @@ python tools/probes/run_demo_pipeline.py `
 
 人工确认后可生成本次 box 变化影响报告。`apply_review_decisions.py` 会在重建当前 `roster_index.json` 前，把旧 index 备份到 `data/probes/roster/history/`；demo pipeline 检测到 previous/current roster index 时，会生成 `roster_delta.json/md` 并在 Dashboard 展示“本次练度更新影响”。该 delta 只比较 accepted roster 当前保留版本，不包含 pending snapshot、rejected snapshot 或 catalog candidate。
 
-如果已有 accepted roster 和 team cards，demo pipeline 还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`、`final_brief.json/md` 和 `action_checklist.json/md`。Dashboard 顶部会优先展示“今日作战简报”和“执行清单”，这是 demo 的第一阅读层，用来回答“今天先做什么”。简报和清单只聚合本地 run manifest、accepted roster、review inbox、roster delta、本期高难方案和本地 tier / 保值观察；如果 run manifest 缺失或错批，会先显示数据警告，并阻断可执行 `try_now`。它不是抽卡建议，不输出“必抽 / 建议抽 / 跳过”，也不保证自动通关；`pending_snapshot`、`catalog_candidate`、stale/unverified tier、错批产物或缺少 target evidence 都不能提升为可信 `try_now`。待复核快照只会生成 `review_decisions_template.json`，默认 `decision=pending`，不会自动 accept。
+如果已有 accepted roster 和 team cards，demo pipeline 还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`、`final_brief.json/md`、`action_checklist.json/md` 和 `review_decision_preview.json/md`。Dashboard 顶部会优先展示“今日作战简报”和“执行清单”，这是 demo 的第一阅读层，用来回答“今天先做什么”。简报和清单只聚合本地 run manifest、accepted roster、review inbox、roster delta、本期高难方案和本地 tier / 保值观察；如果 run manifest 缺失或错批，会先显示数据警告，并阻断可执行 `try_now`。它不是抽卡建议，不输出“必抽 / 建议抽 / 跳过”，也不保证自动通关；`pending_snapshot`、`catalog_candidate`、stale/unverified tier、错批产物或缺少 target evidence 都不能提升为可信 `try_now`。待复核快照只会生成 `review_decisions_template.json`，默认 `decision=pending`，不会自动 accept；人工改成 accept 前必须先跑 `preview_review_decisions.py`，确认 template/run hash 未错批，且 preview 只显示 `would_enter_roster`，不会写 accepted/rejected。
 
 ## Tier Snapshot 草案
 
