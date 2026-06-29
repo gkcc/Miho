@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import shlex
@@ -11,7 +12,7 @@ import time
 from typing import Any, Callable
 
 
-SCHEMA_VERSION = "p3.2-lite-doctor-launcher"
+SCHEMA_VERSION = "p3.3-lite-doctor-launcher"
 FORBIDDEN_COMMAND_FRAGMENTS = ("&", "|", ";", "`", "$(", ">", "<")
 FORBIDDEN_SCRIPT_SUFFIXES = (".bat", ".cmd", ".ps1", ".sh")
 FORBIDDEN_TOOL_NAMES = ("apply_review_decisions.py", "preview_review_decisions.py")
@@ -19,6 +20,18 @@ FORBIDDEN_TOOL_NAMES = ("apply_review_decisions.py", "preview_review_decisions.p
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def history_timestamp() -> str:
+    return datetime.now(timezone.utc).astimezone().strftime("%Y%m%d_%H%M%S_%f%z")
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -38,6 +51,12 @@ def default_output_dir(doctor_path: Path) -> Path:
     if doctor_path.parent.name == "demo_doctor":
         return doctor_path.parent.parent / "launcher"
     return doctor_path.parent / "launcher"
+
+
+def as_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
 
 
 def command_for_action(doctor: dict[str, Any], primary_next_action: str) -> str | None:
@@ -122,25 +141,60 @@ def markdown_report(report: dict[str, Any]) -> str:
     follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
     if follow_up:
         lines.extend(["## Follow-up Doctor", ""])
-        for key in ("doctor_path", "loaded", "doctor_status", "primary_next_action", "try_now_allowed", "strict_status"):
+        for key in (
+            "doctor_path",
+            "loaded",
+            "sha256",
+            "changed_from_initial_doctor",
+            "doctor_status",
+            "primary_next_action",
+            "try_now_allowed",
+            "strict_status",
+            "evidence_status",
+        ):
             lines.append(f"- {key}: {follow_up.get(key)}")
-        follow_up_warnings = follow_up.get("warnings") if isinstance(follow_up.get("warnings"), list) else []
-        for item in follow_up_warnings:
-            lines.append(f"- warning: {item}")
+        for label, key in (
+            ("evidence_blocker", "evidence_blockers"),
+            ("evidence_warning", "evidence_warnings"),
+            ("blocking_reason", "blocking_reasons"),
+            ("doctor_warning", "doctor_warnings"),
+            ("warning", "warnings"),
+        ):
+            items = follow_up.get(key) if isinstance(follow_up.get(key), list) else []
+            for item in items:
+                lines.append(f"- {label}: {item}")
         lines.append("")
     return "\n".join(lines)
 
 
-def summarize_follow_up_doctor(doctor_path: Path) -> dict[str, Any]:
+def summarize_follow_up_doctor(doctor_path: Path, *, initial_doctor_sha256: str | None) -> dict[str, Any]:
     follow_up: dict[str, Any] = {
         "doctor_path": str(doctor_path),
         "loaded": False,
+        "sha256": None,
+        "changed_from_initial_doctor": None,
         "doctor_status": None,
         "primary_next_action": None,
         "try_now_allowed": None,
         "strict_status": None,
+        "evidence_status": None,
+        "evidence_blockers": [],
+        "evidence_warnings": [],
+        "blocking_reasons": [],
+        "doctor_warnings": [],
         "warnings": [],
     }
+    try:
+        follow_up_sha256 = file_sha256(doctor_path)
+    except OSError as exc:
+        follow_up["warnings"].append(f"follow_up_doctor_unavailable: {exc}")
+        return follow_up
+    follow_up["sha256"] = follow_up_sha256
+    if initial_doctor_sha256:
+        changed = follow_up_sha256 != initial_doctor_sha256
+        follow_up["changed_from_initial_doctor"] = changed
+        if not changed:
+            follow_up["warnings"].append("follow_up_doctor_not_changed_after_rerun")
     try:
         doctor = load_json(doctor_path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -154,9 +208,29 @@ def summarize_follow_up_doctor(doctor_path: Path) -> dict[str, Any]:
             "primary_next_action": doctor.get("primary_next_action"),
             "try_now_allowed": doctor.get("try_now_allowed"),
             "strict_status": evidence.get("strict_status") or evidence.get("status"),
+            "evidence_status": evidence.get("status"),
+            "evidence_blockers": as_string_list(evidence.get("blockers")),
+            "evidence_warnings": as_string_list(evidence.get("warnings")),
+            "blocking_reasons": as_string_list(doctor.get("blocking_reasons")),
+            "doctor_warnings": as_string_list(doctor.get("warnings")),
         }
     )
     return follow_up
+
+
+def follow_up_has_warning(follow_up: dict[str, Any]) -> bool:
+    if not follow_up.get("loaded"):
+        return True
+    if follow_up.get("warnings"):
+        return True
+    if follow_up.get("strict_status") == "blocked" or follow_up.get("evidence_status") == "blocked":
+        return True
+    return bool(
+        follow_up.get("evidence_blockers")
+        or follow_up.get("evidence_warnings")
+        or follow_up.get("blocking_reasons")
+        or follow_up.get("doctor_warnings")
+    )
 
 
 def build_blockers(
@@ -194,6 +268,7 @@ def launch_doctor(
     output_dir: Path | None = None,
     execute_rerun: bool = False,
     fail_on_blocked: bool = False,
+    fail_on_followup_warning: bool = False,
     follow_up_doctor_path: Path | None = None,
     argv: list[str] | None = None,
     runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
@@ -201,6 +276,7 @@ def launch_doctor(
     started_monotonic = time.monotonic()
     started_at = now_iso()
     doctor = load_json(doctor_path)
+    initial_doctor_sha256 = file_sha256(doctor_path)
     action_contract = doctor.get("action_contract") if isinstance(doctor.get("action_contract"), dict) else {}
     evidence = doctor.get("evidence_check") if isinstance(doctor.get("evidence_check"), dict) else {}
     primary_next_action = str(doctor.get("primary_next_action") or action_contract.get("primary_next_action") or "unknown")
@@ -240,10 +316,21 @@ def launch_doctor(
         launcher_status = "blocked"
     follow_up: dict[str, Any] | None = None
     if execute_rerun and executed and returncode == 0 and follow_up_doctor_path is not None:
-        follow_up = summarize_follow_up_doctor(follow_up_doctor_path)
-        if not follow_up.get("loaded"):
+        follow_up = summarize_follow_up_doctor(follow_up_doctor_path, initial_doctor_sha256=initial_doctor_sha256)
+        if follow_up_has_warning(follow_up):
             launcher_status = "executed_with_followup_warning"
-            warnings.append("follow_up_doctor_unavailable")
+            if not follow_up.get("loaded"):
+                warnings.append("follow_up_doctor_unavailable")
+            if follow_up.get("warnings"):
+                warnings.extend(as_string_list(follow_up.get("warnings")))
+            if follow_up.get("strict_status") == "blocked" or follow_up.get("evidence_status") == "blocked":
+                warnings.append("follow_up_doctor_blocked")
+            if follow_up.get("evidence_warnings"):
+                warnings.append("follow_up_evidence_warning")
+            if follow_up.get("blocking_reasons"):
+                warnings.append("follow_up_blocking_reasons")
+            if follow_up.get("doctor_warnings"):
+                warnings.append("follow_up_doctor_warning")
 
     reason = str(action_contract.get("reason") or "")
     finished_at = now_iso()
@@ -255,6 +342,7 @@ def launch_doctor(
         "argv": argv or [],
         "cwd": str(Path.cwd()),
         "python_executable": sys.executable,
+        "initial_doctor_sha256": initial_doctor_sha256,
         "launcher_status": launcher_status,
         "doctor_status": doctor.get("doctor_status"),
         "headline": doctor.get("headline"),
@@ -275,14 +363,26 @@ def launch_doctor(
     out_dir = output_dir or default_output_dir(doctor_path)
     json_path = out_dir / "launcher_report.json"
     md_path = out_dir / "launcher_report.md"
+    history_dir = out_dir / "history"
+    history_stem = f"launcher_report_{history_timestamp()}"
+    history_json_path = history_dir / f"{history_stem}.json"
+    history_md_path = history_dir / f"{history_stem}.md"
     report["output_json"] = str(json_path)
     report["output_md"] = str(md_path)
+    report["output_history_json"] = str(history_json_path)
+    report["output_history_md"] = str(history_md_path)
     write_json(json_path, report)
+    write_json(history_json_path, report)
     md_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.write_text(markdown_report(report), encoding="utf-8")
+    report_markdown = markdown_report(report)
+    md_path.write_text(report_markdown, encoding="utf-8")
+    history_md_path.parent.mkdir(parents=True, exist_ok=True)
+    history_md_path.write_text(report_markdown, encoding="utf-8")
 
     if launcher_status == "blocked" or (executed and returncode not in (0, None)):
         exit_code = 2 if returncode in (0, None) else int(returncode)
+    elif fail_on_followup_warning and follow_up is not None and follow_up_has_warning(follow_up):
+        exit_code = 2
     else:
         exit_code = 0
     return exit_code, report
@@ -296,6 +396,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     mode.add_argument("--print-command", action="store_true", help="Explicitly print/report the command without executing it.")
     mode.add_argument("--execute-rerun", action="store_true", help="Execute only an allowed rerun_demo_pipeline action.")
     parser.add_argument("--fail-on-blocked", action="store_true", help="Return non-zero when the launcher report contains blockers.")
+    parser.add_argument(
+        "--fail-on-followup-warning",
+        action="store_true",
+        help="Return non-zero when follow-up doctor is missing, damaged, unchanged, blocked, or otherwise warning-worthy.",
+    )
     parser.add_argument("--follow-up-doctor", default=None, help="Read this demo_doctor.json after a successful rerun and report the next state.")
     return parser
 
@@ -311,6 +416,7 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
             output_dir=output_dir,
             execute_rerun=bool(args.execute_rerun),
             fail_on_blocked=bool(args.fail_on_blocked),
+            fail_on_followup_warning=bool(args.fail_on_followup_warning),
             follow_up_doctor_path=follow_up_doctor,
             argv=argv if argv is not None else sys.argv[1:],
             runner=runner,
@@ -327,13 +433,18 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
     print(f"reason: {report.get('reason') or 'N/A'}")
     print(f"launcher_report_json: {report.get('output_json')}")
     print(f"launcher_report_md: {report.get('output_md')}")
+    print(f"launcher_report_history_json: {report.get('output_history_json')}")
+    print(f"launcher_report_history_md: {report.get('output_history_md')}")
     follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
     if follow_up:
         print(f"follow_up_loaded: {follow_up.get('loaded')}")
+        print(f"follow_up_sha256: {follow_up.get('sha256')}")
+        print(f"follow_up_changed_from_initial_doctor: {follow_up.get('changed_from_initial_doctor')}")
         print(f"follow_up_doctor_status: {follow_up.get('doctor_status')}")
         print(f"follow_up_primary_next_action: {follow_up.get('primary_next_action')}")
         print(f"follow_up_try_now_allowed: {follow_up.get('try_now_allowed')}")
         print(f"follow_up_strict_status: {follow_up.get('strict_status')}")
+        print(f"follow_up_evidence_status: {follow_up.get('evidence_status')}")
     if report.get("blockers"):
         print("blockers:")
         for item in report["blockers"]:

@@ -34,7 +34,7 @@ python tools/probes/run_demo_pipeline.py `
 
 `tools/probes/doctor_launcher.py` 是 P3.0-lite 的安全引导器：默认只读取 `demo_doctor.json`、打印下一步和生成 `launcher_report.json/md`。只有显式 `--execute-rerun`，且 `primary_next_action=rerun_demo_pipeline`、`action_contract.allowed_for_launcher=true`、`writes_roster=false`、`requires_manual_confirmation=false`、`evidence_check.strict_status` 非 `blocked`，并且命令白名单确认为 `python tools/probes/run_demo_pipeline.py ...` 时，才允许执行重跑命令；它永远不会执行 safe apply、try_now、`.bat/.cmd/.ps1/.sh` 或任何写 roster 动作。`--fail-on-blocked` 可让只打印模式在发现 blocker 时返回非零，适合脚本验收。
 
-P3.2-lite 可在安全重跑成功后追加 `--follow-up-doctor data/probes/demo/demo_doctor/demo_doctor.json`。launcher 只读取重跑后的新 doctor 并在 report 里写入 `follow_up.doctor_status`、`follow_up.primary_next_action`、`follow_up.try_now_allowed` 和 `follow_up.strict_status`；即使 follow-up 显示 `needs_apply` 或 `try_now`，launcher 也只打印下一步，不执行后续动作。follow-up doctor 缺失或损坏只会产生 `executed_with_followup_warning`，不把重跑本身判失败。
+P3.3-lite 可在安全重跑成功后追加 `--follow-up-doctor data/probes/demo/demo_doctor/demo_doctor.json`。launcher 只读取重跑后的新 doctor，并在 report 里写入 `follow_up.sha256`、`follow_up.changed_from_initial_doctor`、`follow_up.doctor_status`、`follow_up.primary_next_action`、`follow_up.try_now_allowed`、`follow_up.strict_status`、`follow_up.evidence_status`、`follow_up.evidence_blockers`、`follow_up.blocking_reasons` 和相关 warnings；即使 follow-up 显示 `needs_apply` 或 `try_now`，launcher 也只打印下一步，不执行后续动作。follow-up doctor 缺失、损坏、未更新或 blocked 会产生 `executed_with_followup_warning`，默认不把成功重跑判失败；脚本验收可加 `--fail-on-followup-warning` 让这些 follow-up warning 返回非零。launcher 会保留 latest `launcher_report.json/md`，并追加写入 `launcher/history/launcher_report_<timestamp>.json/md`。
 
 ## Tier Snapshot 草案
 
