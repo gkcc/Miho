@@ -1,52 +1,74 @@
 # Miho
 
-本仓库当前仍处于本地 probe / demo 阶段，不初始化完整 Tauri 工程，不自动导入正式数据库。
+本项目是一个本地优先的游戏练度跟踪与规划桌面应用原型。当前阶段只做本地 probe / demo：验证米游社官方分享图能否稳定解析、人工确认后能否形成本地 box、再生成高难配队和培养建议。
 
-## Demo 与验收入口
+现在还不是正式桌面软件：不初始化完整 Tauri 工程，不自动登录，不读取 cookie/token，不写正式数据库。
 
-成品体验入口：
+## 现在能做什么
+
+- 从官方分享图或已有 parsed JSON 生成本地 Dashboard。
+- 用 expected diff 回放 3 张以上官方分享图，检查解析准确率。
+- 把解析结果放进人工复核区，确认后再进入本地 accepted roster。
+- 基于本地 roster、目标配置和本地 tier snapshot 生成候选行动卡、队伍卡、今日简报。
+- 在 Dashboard 中展示“现在能不能行动、卡在哪里、下一步点哪个复核页”。
+
+## 现在不能做什么
+
+- 不能自动登录米游社。
+- 不能读取或保存 cookie、token、stoken、ltoken。
+- 不能控制游戏客户端。
+- 不能把 OCR 结果直接写入正式数据库。
+- 不能把真实图片、UID、OCR 原始结果或 `data/probes/` 产物提交到 Git。
+- 不能把 tier list 或高难出场率当作联网实时数据，当前只支持本地快照。
+
+## 体验入口
+
+打开当前本地 demo：
 
 ```powershell
 scripts/run_miho_demo.bat
 ```
 
-准确率验收使用 manifest，不要扫描整个 `data/probes/parsed`：
+只打开已经生成的 Dashboard，不重新 OCR：
+
+```powershell
+scripts/run_miho_demo.bat --open-only
+```
+
+重新跑官方分享图 OCR：
+
+```powershell
+scripts/run_miho_demo.bat --fresh
+```
+
+如果 `--fresh` 等很久，先看命令行是否打印了 `[Miho Demo] OCR 1/N...`。PaddleOCR 第一次加载模型会慢；普通验收优先用 `--open-only` 看现有 Dashboard。
+
+## 准确率验收
+
+P0.9 解析准确率不要扫整个历史目录，必须用 manifest：
 
 ```powershell
 python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json
 ```
 
-本地 demo 可以额外传入 tier / 保值快照，用于把本地 tier list 观察项和已确认 Box 对齐：
+通过口径：
+
+- 3 张图平均 pass rate 达标。
+- 每张图不能低于门槛。
+- 不允许 character / equipment 全错还通过。
+- 不允许 drive disc 主副词条全缺还通过。
+
+生成单张分享图解析验收页：
 
 ```powershell
-python tools/probes/run_demo_pipeline.py `
-  --parsed-dir data/probes/parsed `
-  --latest-only `
-  --tier-snapshot data/probes/tier/zzz_tier_snapshot.json `
-  --tier-stale-days 60
+python tools/probes/review_export_image.py --image "C:\path\to\share.jpg" --engine paddle --lang chi_sim+eng --write-crops --open
 ```
 
-`--tier-snapshot` 只读取本地 JSON，不联网抓取，不生成最终抽取建议。只有 `data/probes/roster/roster_index.json` 中的 accepted roster 才会被标记为已确认拥有练度；demo normalized snapshot 仍然需要人工确认。同一角色多次人工确认时，roster index 只保留 `accepted_at` 最新的一份作为当前 box，旧快照会写入 `duplicates` / `superseded_snapshots` 供追溯。若同时生成 action cards / team cards，tier / 保值信号只用于解释、降级本地行动优先级，或辅助已确认队伍排序，避免为了短期奖励继续加码低保值角色。`stale` / `unverified` tier 只能作为弱参考，不会提升队伍排序。
+更多 probe 命令放在 [tools/probes/README.md](tools/probes/README.md)。
 
-人工确认后可生成本次 box 变化影响报告。`apply_review_decisions.py` 会在重建当前 `roster_index.json` 前，把旧 index 备份到 `data/probes/roster/history/`；demo pipeline 检测到 previous/current roster index 时，会生成 `roster_delta.json/md` 并在 Dashboard 展示“本次练度更新影响”。该 delta 只比较 accepted roster 当前保留版本，不包含 pending snapshot、rejected snapshot 或 catalog candidate。
+## 本地 tier snapshot
 
-如果已有 accepted roster 和 team cards，demo pipeline 还会生成 `demo_command.json/md` 记录本次可回放命令，再生成 `run_manifest.json`、`endgame_plan.json/md`、`refresh_status.json/md`、`final_brief.json/md`、`action_checklist.json/md`、`review_decision_preview.json/md` 和 `demo_doctor.json/md`。Dashboard 顶部会先展示“当前状态诊断”，如果存在 latest launcher report 则紧接着展示“启动器执行记录”，再展示“刷新状态”“今日作战简报”和“执行清单”：apply receipt 只证明复核决策产生了副作用，不代表高难方案已经基于最新 roster 重算；如果 receipt 比 run manifest 新、当前 roster hash 与 run manifest 不一致，或刷新状态为 `unknown`，`refresh_status` 会把 `try_now` 降级/阻断，并显示真实重跑命令。`demo_doctor` 会把 refresh、preview、apply、review inbox 和 checklist 合成一个下一步判断：需要重跑、需要复核、需要 safe apply，或可以执行 try_now；同时用 `evidence_check.status` 和 `evidence_check.strict_status` 校验当前 preview、apply receipt、run_manifest 和 demo command 是否来自同一批证据。旧 apply receipt、缺失 preview/decision hash、decision hash 错批、preview/run manifest 错批或不可回放的重跑命令会把诊断降级为 `needs_apply` 或 `blocked`；`action_contract` 会明确下一步是否只读、是否写 roster、是否需要人工确认、是否允许后续 launcher 只打印/执行。简报和清单只聚合本地 run manifest、accepted roster、review inbox、roster delta、本期高难方案和本地 tier / 保值观察；如果 run manifest 缺失、错批、refresh stale/unknown，会先显示数据警告，并阻断可执行 `try_now`。它不是抽卡建议，不输出“必抽 / 建议抽 / 跳过”，也不保证自动通关；`pending_snapshot`、`catalog_candidate`、stale/unverified tier、错批产物、stale/unknown apply refresh 或缺少 target evidence 都不能提升为可信 `try_now`。待复核快照只会生成 `review_decisions_template.json`，默认 `decision=pending`，不会自动 accept；人工改成 accept 前必须先跑 `preview_review_decisions.py`，确认 template/run/normalized hash 未错批，且 preview 只显示 `would_enter_roster`，不会写 accepted/rejected。真正 apply 时必须带同一个 decision manifest 对应的 `--preview-result` 和 `--require-preview-ready`；accepted snapshot 会写入 `review_apply_audit` 供追溯，apply 还会写 `review_apply_receipt.json/md`。demo pipeline 会读取 receipt 并在 Dashboard 的“复核应用回执”面板展示每条 decision 是否写入 accepted/rejected、是否进入 roster index、是否经过 preview 校验。
-
-`tools/probes/doctor_launcher.py` 是 P3.0-lite 的安全引导器：默认只读取 `demo_doctor.json`、打印下一步和生成 `launcher_report.json/md`。只有显式 `--execute-rerun`，且 `primary_next_action=rerun_demo_pipeline`、`action_contract.allowed_for_launcher=true`、`writes_roster=false`、`requires_manual_confirmation=false`、`evidence_check.strict_status` 非 `blocked`，并且命令白名单确认为 `python tools/probes/run_demo_pipeline.py ...` 时，才允许执行重跑命令；P3.4-lite 还会把脚本路径 canonicalize，要求它 resolve 后等于当前仓库内的 `tools/probes/run_demo_pipeline.py`，否则阻断为 `launcher_command_path_not_canonical`。launcher 永远不会执行 safe apply、try_now、`.bat/.cmd/.ps1/.sh` 或任何写 roster 动作。`--fail-on-blocked` 可让只打印模式在发现 blocker 时返回非零，适合脚本验收。
-
-P3.4-lite 可在安全重跑成功后追加 `--follow-up-doctor data/probes/demo/demo_doctor/demo_doctor.json`。launcher 只读取重跑后的新 doctor，并在 report 里写入 `rerun_started_at`、`rerun_finished_at`、`command_script_resolved`、`follow_up.sha256`、`follow_up.changed_from_initial_doctor`、`follow_up.mtime_epoch`、`follow_up.updated_after_rerun`、`follow_up.doctor_status`、`follow_up.primary_next_action`、`follow_up.try_now_allowed`、`follow_up.strict_status`、`follow_up.evidence_status`、`follow_up.evidence_blockers`、`follow_up.blocking_reasons` 和相关 warnings；即使 follow-up 显示 `needs_apply` 或 `try_now`，launcher 也只打印下一步，不执行后续动作。follow-up doctor 缺失、JSON 损坏、不是对象、未更新、mtime 早于 rerun 开始或 blocked 会产生 `executed_with_followup_warning`，默认不把成功重跑判失败；脚本验收可加 `--fail-on-followup-warning` 让这些 follow-up warning 返回非零。launcher 会保留 latest `launcher_report.json/md`，并追加写入 `launcher/history/launcher_report_<timestamp>.json/md`。
-
-P3.5-lite 起，demo pipeline 如果发现 `data/probes/demo/launcher/launcher_report.json`，Dashboard 会只读展示“启动器执行记录”：`launcher_status`、`executed`、`returncode`、canonical script path、rerun 起止时间、follow-up doctor 状态、warnings/blockers 和 history report 链接。P3.6-lite 会用 latest launcher report 里的 `initial_doctor_sha256` / `follow_up.sha256` 对比当前 `demo_doctor.json`，并显示 `launcher_report_freshness=current/stale/unknown`；P3.6-fix 进一步区分 `follow_up_matches_current_doctor` 和 `launcher_report_operation_state`，只有 `follow_up.sha256` 本身匹配当前 doctor 时才展示 follow-up 的当前操作态。仅 `initial_doctor_sha256` 匹配时，report 仍可视为当前 Dashboard 的历史审计记录，但 follow-up 只能审计，不能显示“游戏内可尝试”或 safe apply 操作态。stale/unknown report 也只作为历史审计，不提供 safe apply、try_now 或任何写 roster 的执行入口。
-
-P3.7-lite 起，`doctor_launcher.py` 可在写入 latest launcher report 后追加 `--refresh-dashboard`。该参数只读取既有 `data/probes/demo/demo_summary.json`，重新注入 latest launcher report，并调用 Dashboard renderer 生成 `data/probes/demo/index.html`；它不会重跑 demo pipeline、不会 OCR、不会 normalize、不会 planner、不会写 roster，也不会执行 safe apply 或 try_now。P3.7-fix 支持用 `--dashboard-summary` / `--dashboard-html` 显式指定刷新目标；未指定时仍按 launcher output dir 的 parent 推断，并在自定义 launcher output dir 下记录 `dashboard_refresh_path_inferred_from_custom_launcher_output`。P3.7-fix2 会让 latest launcher report、`demo_summary.json` 和 `index.html` 都展示同一份最终 `dashboard_refresh` 状态。缺失或损坏的 `demo_summary.json` 只会把 `dashboard_refresh.status` 标成 `warning` 并写入 launcher report，不改变 rerun 本身的成功/失败口径；summary 写入成功但 HTML 渲染失败时，report 会区分 `summary_updated=true` 和 `dashboard_rendered=false`。
-
-P3.8-lite 起，launcher 默认不清理历史报告；只有显式传入 `--max-history N` 时，才会在当前 `--output-dir` 下清理 `history/launcher_report_*.json` 和 `history/launcher_report_*.md`。清理按同名 stem 成组，保留最新 N 组，并保证本次刚生成的 history report 不会被删；非 `launcher_report_*` 文件、其他目录和 probe 输出不会被触碰。latest `launcher_report.json` 会写入 `history_retention.attempted`、`max_history`、`kept_count`、`deleted_files` 和 `warnings`，便于判断平均状态是否被历史垃圾影响。
-
-P3.9-lite 起，demo pipeline 会生成 `data/probes/demo/update_command/update_command.json/md`，Dashboard 会在“当前状态诊断”和“启动器执行记录”之间展示“本地更新命令”。该命令只在 `demo_doctor.primary_next_action=rerun_demo_pipeline`、`action_contract.allowed_for_launcher=true`、`writes_roster=false`、`requires_manual_confirmation=false`、`evidence_check.strict_status` 非 `blocked` 且 `demo_command.safe_to_rerun=true` 时标记为 `ready`；否则只展示 blockers，不给可运行语义。ready 命令固定走 `doctor_launcher.py --execute-rerun --follow-up-doctor --refresh-dashboard --dashboard-summary --dashboard-html --max-history 30`，用于刷新 accepted roster 相关本地建议、终局方案、tier watchlist 展示和 Dashboard 可视化。它不会读取登录态、不会联网抓 tier / 高难数据、不会 safe apply、不会触发 try_now、不会写正式数据库。
-
-## Tier Snapshot 草案
-
-本地 tier snapshot 可以使用如下结构：
+本地 tier snapshot 只作为“保值/高优先级”弱信号，不是抽卡建议。示例：
 
 ```json
 {
@@ -73,4 +95,31 @@ P3.9-lite 起，demo pipeline 会生成 `data/probes/demo/update_command/update_
 }
 ```
 
-真实图片、UID、OCR 原始结果、cookie/token、账号标识和本地账号数据不得提交。
+运行 demo 时可传入本地 tier 快照：
+
+```powershell
+python tools/probes/run_demo_pipeline.py `
+  --parsed-dir data/probes/parsed `
+  --latest-only `
+  --tier-snapshot data/probes/tier/zzz_tier_snapshot.json `
+  --tier-stale-days 60 `
+  --open
+```
+
+## 文档入口
+
+- 技术栈与边界：[docs/adr/0001-tech-stack-selection.md](docs/adr/0001-tech-stack-selection.md)、[docs/adr/0002-mvp-boundary-and-module-layering.md](docs/adr/0002-mvp-boundary-and-module-layering.md)、[docs/adr/0003-local-data-model-and-snapshot-strategy.md](docs/adr/0003-local-data-model-and-snapshot-strategy.md)
+- 米游社 APP 探针边界：[docs/spikes/0001-miyoushe-app-feasibility.md](docs/spikes/0001-miyoushe-app-feasibility.md)
+- 分享图解析结果记录：[docs/notes/share-image-parsing-result.md](docs/notes/share-image-parsing-result.md)
+- Codex/GPT 对抗协作协议：[docs/notes/codex-gpt-adversarial-loop.md](docs/notes/codex-gpt-adversarial-loop.md)
+
+## 安全边界
+
+永远不要提交：
+
+- `data/probes/` 里的真实探针产物。
+- 真实分享图、UID、账号标识。
+- OCR 原始结果、登录态文件、APP profile、浏览器 profile。
+- cookie、token、stoken、ltoken、`.env`、数据库文件。
+
+当前仓库只提交代码、测试、文档和脱敏 mock。
