@@ -33,6 +33,7 @@ import build_roster_delta as roster_delta  # noqa: E402
 import build_refresh_status as refresh_status  # noqa: E402
 import build_team_cards as team_cards  # noqa: E402
 import build_tier_watchlist as tier_watchlist  # noqa: E402
+import build_update_command as update_command  # noqa: E402
 import preview_review_decisions as review_preview  # noqa: E402
 import normalize_export_parse as normalizer  # noqa: E402
 import plan_training_priorities as planner  # noqa: E402
@@ -791,6 +792,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     refresh_info = summary.get("refresh_status", {}) if isinstance(summary.get("refresh_status"), dict) else {}
     demo_command_info = summary.get("demo_command", {}) if isinstance(summary.get("demo_command"), dict) else {}
     doctor_info = summary.get("demo_doctor", {}) if isinstance(summary.get("demo_doctor"), dict) else {}
+    update_command_info = summary.get("update_command", {}) if isinstance(summary.get("update_command"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -911,6 +913,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(doctor_info, dict) and doctor_info.get("error")
             else doctor_info.get("doctor_status", "skipped")
             if isinstance(doctor_info, dict)
+            else "skipped",
+        },
+        {
+            "name": "Update Command",
+            "status": "failed"
+            if isinstance(update_command_info, dict) and update_command_info.get("error")
+            else update_command_info.get("status", "skipped")
+            if isinstance(update_command_info, dict)
             else "skipped",
         },
     ]
@@ -1826,6 +1836,44 @@ def build_demo_doctor_summary(
         }
 
 
+def build_demo_update_command_summary(
+    *,
+    output_dir: Path,
+    demo_doctor_path: Path | None,
+    demo_command_path: Path | None,
+) -> dict[str, Any]:
+    if demo_doctor_path is None or demo_command_path is None:
+        return {
+            "schema_version": update_command.SCHEMA_VERSION,
+            "status": "blocked",
+            "command": None,
+            "argv": [],
+            "blockers": ["missing_demo_doctor_or_demo_command"],
+            "warnings": [],
+            "output_json": None,
+            "output_md": None,
+        }
+    try:
+        return update_command.build_update_command(
+            output_dir=output_dir,
+            demo_doctor=demo_doctor_path,
+            demo_command=demo_command_path,
+            max_history=update_command.DEFAULT_MAX_HISTORY,
+        )
+    except update_command.UpdateCommandError as exc:
+        return {
+            "schema_version": update_command.SCHEMA_VERSION,
+            "status": "blocked",
+            "command": None,
+            "argv": [],
+            "blockers": [str(exc)],
+            "warnings": [str(exc)],
+            "error": str(exc),
+            "output_json": None,
+            "output_md": None,
+        }
+
+
 def build_target_refresh(target_source_manifest: Path | None, output_dir: Path) -> dict[str, Any] | None:
     if target_source_manifest is None:
         return None
@@ -2267,6 +2315,21 @@ def run_pipeline(
         summary.setdefault("warnings", []).extend(demo_doctor_info["warnings"])
     if demo_doctor_info.get("error"):
         summary.setdefault("warnings", []).append(f"Demo doctor failed: {demo_doctor_info['error']}")
+    summary["pipeline_steps"] = pipeline_steps(summary)
+    update_command_info = build_demo_update_command_summary(
+        output_dir=output_dir,
+        demo_doctor_path=Path(str(demo_doctor_info["output_json"]))
+        if isinstance(demo_doctor_info, dict) and demo_doctor_info.get("output_json")
+        else None,
+        demo_command_path=Path(str(demo_command_info["output_json"]))
+        if isinstance(demo_command_info, dict) and demo_command_info.get("output_json")
+        else None,
+    )
+    summary["update_command"] = update_command_info
+    if update_command_info.get("warnings"):
+        summary.setdefault("warnings", []).extend(update_command_info["warnings"])
+    if update_command_info.get("error"):
+        summary.setdefault("warnings", []).append(f"Update command failed: {update_command_info['error']}")
     summary["pipeline_steps"] = pipeline_steps(summary)
     launcher_report_info = build_launcher_report_summary(output_dir)
     if launcher_report_info is not None:

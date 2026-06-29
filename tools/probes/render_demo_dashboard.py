@@ -77,6 +77,7 @@ def status_class(value: Any) -> str:
         "consistent",
         "applied",
         "fresh",
+        "ready",
         "ready_to_try",
         "executed",
         "printed",
@@ -287,6 +288,56 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
       {list_block("证据警告", evidence_warnings, "warnings")}
       {list_block("action contract", [action_contract.get("reason")] if action_contract.get("reason") else [], "warnings")}
       {body}
+    </section>
+    """
+
+
+def render_update_command(summary: dict[str, Any]) -> str:
+    command_pack = summary.get("update_command")
+    if not isinstance(command_pack, dict):
+        return ""
+    status = str(command_pack.get("status") or "unknown")
+    command = command_pack.get("command")
+    updates = command_pack.get("updates") if isinstance(command_pack.get("updates"), list) else []
+    does_not_update = command_pack.get("does_not_update") if isinstance(command_pack.get("does_not_update"), list) else []
+    blockers = command_pack.get("blockers") if isinstance(command_pack.get("blockers"), list) else []
+    warnings = command_pack.get("warnings") if isinstance(command_pack.get("warnings"), list) else []
+    command_block = ""
+    if status == "ready" and command:
+        command_block = (
+            '<div class="resource-plan"><h3>可复制命令</h3>'
+            f'<pre class="command-block"><code>{e(command)}</code></pre>'
+            "<p class=\"muted-line\">这条命令只调用安全 launcher：重跑本地 demo、读取 follow-up doctor、刷新 Dashboard，并保留最近 launcher history。</p></div>"
+        )
+    else:
+        command_block = (
+            '<div class="errors"><strong>当前不可作为本地更新命令运行</strong>'
+            "<ul><li>请先处理 blockers；Dashboard 只展示诊断，不触发工具动作。</li></ul></div>"
+        )
+    update_items = "".join(f"<li>{e(item)}</li>" for item in updates) or "<li>N/A</li>"
+    not_items = "".join(f"<li>{e(item)}</li>" for item in does_not_update) or "<li>N/A</li>"
+    return f"""
+    <section class="panel update-command">
+      <h2>本地更新命令</h2>
+      <p class="muted-line">把当前安全链路沉淀成一条可复制命令；它不是抽卡建议，也不会变更账号、登录态、在线数据或正式数据库。</p>
+      <div class="links">
+        {link("update_command.md", command_pack.get("output_md"))}
+        {link("update_command.json", command_pack.get("output_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>status</span><strong>{e(status)}</strong></div>
+        <div><span>max_history</span><strong>{e(command_pack.get("input", {}).get("max_history") if isinstance(command_pack.get("input"), dict) else "N/A")}</strong></div>
+        <div><span>schema</span><strong>{e(command_pack.get("schema_version") or "N/A")}</strong></div>
+      </div>
+      {command_block}
+      <div class="resource-plan">
+        <h3>会刷新</h3>
+        <ul>{update_items}</ul>
+        <h3>不会刷新</h3>
+        <ul>{not_items}</ul>
+      </div>
+      {list_block("阻断原因", blockers, "errors")}
+      {list_block("警告", warnings, "warnings")}
     </section>
     """
 
@@ -1575,6 +1626,7 @@ def render_html(summary: dict[str, Any]) -> str:
     apply_info = summary.get("review_apply", {}) if isinstance(summary.get("review_apply"), dict) else {}
     apply_summary = apply_info.get("summary", {}) if isinstance(apply_info.get("summary"), dict) else {}
     doctor_info = summary.get("demo_doctor", {}) if isinstance(summary.get("demo_doctor"), dict) else {}
+    update_command_info = summary.get("update_command", {}) if isinstance(summary.get("update_command"), dict) else {}
     launcher_info = summary.get("launcher_report", {}) if isinstance(summary.get("launcher_report"), dict) else {}
     refresh_info = summary.get("refresh_status", {}) if isinstance(summary.get("refresh_status"), dict) else {}
     refresh_summary = refresh_info.get("summary", {}) if isinstance(refresh_info.get("summary"), dict) else {}
@@ -1582,6 +1634,7 @@ def render_html(summary: dict[str, Any]) -> str:
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("当前诊断", doctor_info.get("doctor_status", "N/A") if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
+        metric_card("本地更新命令", update_command_info.get("status", "N/A") if update_command_info else "N/A", status_class(update_command_info.get("status")) if update_command_info else "muted"),
         metric_card("诊断下一步", action_label(doctor_info.get("primary_next_action")) if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
         metric_card(
             "诊断证据",
@@ -1649,6 +1702,7 @@ def render_html(summary: dict[str, Any]) -> str:
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
     demo_doctor_panel = render_demo_doctor(summary)
+    update_command_panel = render_update_command(summary)
     launcher_report_panel = render_launcher_report(summary)
     refresh_status_panel = render_refresh_status(summary)
     final_brief = render_final_brief(summary)
@@ -1750,6 +1804,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .resource-item {{ display: grid; grid-template-columns: 150px minmax(0, 1fr) 64px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }}
     .resource-item span {{ color: var(--muted); overflow-wrap: anywhere; }}
     .resource-item em {{ font-style: normal; color: var(--warn); font-weight: 900; text-align: right; }}
+    .command-block {{ margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #0f172a; color: #e2e8f0; overflow-wrap: anywhere; white-space: pre-wrap; }}
     .history-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .history-item {{ display: grid; grid-template-columns: minmax(120px, 1fr) 90px 90px minmax(220px, 2fr); gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
     .history-item span {{ display: block; color: var(--muted); font-size: 12px; }}
@@ -1780,6 +1835,7 @@ def render_html(summary: dict[str, Any]) -> str:
     <main>
     <section class="metrics">{''.join(metrics)}</section>
     {demo_doctor_panel}
+    {update_command_panel}
     {launcher_report_panel}
     {refresh_status_panel}
     {final_brief}

@@ -479,6 +479,79 @@ class DemoDashboardTests(unittest.TestCase):
 
         self.assertNotIn("启动器执行记录", html)
 
+    def test_dashboard_update_command_ready_is_copy_only(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["demo_doctor"] = {
+            "doctor_status": "needs_rerun",
+            "primary_next_action": "rerun_demo_pipeline",
+            "try_now_allowed": False,
+            "action_contract": {"allowed_for_launcher": True, "writes_roster": False, "requires_manual_confirmation": False},
+            "evidence_check": {"status": "trusted", "strict_status": "trusted"},
+        }
+        summary["update_command"] = {
+            "schema_version": "p3.9-lite-update-command",
+            "status": "ready",
+            "command": "python tools/probes/doctor_launcher.py --doctor data/probes/demo/demo_doctor/demo_doctor.json --execute-rerun --follow-up-doctor data/probes/demo/demo_doctor/demo_doctor.json --refresh-dashboard --dashboard-summary data/probes/demo/demo_summary.json --dashboard-html data/probes/demo/index.html --max-history 30",
+            "argv": ["python", "tools/probes/doctor_launcher.py"],
+            "updates": ["accepted roster based local suggestions", "endgame plan", "tier watchlist view", "dashboard visualization"],
+            "does_not_update": ["official account data", "tokens/cookies/login state", "online tier data", "formal database"],
+            "blockers": [],
+            "warnings": [],
+            "input": {"max_history": 30},
+            "output_json": "data/probes/demo/update_command/update_command.json",
+            "output_md": "data/probes/demo/update_command/update_command.md",
+        }
+        summary["launcher_report"] = {
+            "loaded": True,
+            "launcher_report_freshness": "current",
+            "matches_current_doctor": True,
+            "follow_up_matches_current_doctor": False,
+            "launcher_status": "printed",
+            "executed": False,
+            "blockers": [],
+            "warnings": [],
+            "follow_up": {},
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("本地更新命令", html)
+        self.assertIn("可复制命令", html)
+        self.assertIn("--refresh-dashboard", html)
+        self.assertIn("--dashboard-summary", html)
+        self.assertIn("--dashboard-html", html)
+        self.assertIn("--max-history 30", html)
+        self.assertIn("update_command.json", html)
+        self.assertIn("不会刷新", html)
+        self.assertIn("official account data", html)
+        self.assertNotIn("<button", html)
+        self.assertNotIn("自动 apply", html)
+        self.assertLess(html.index("<h2>当前状态诊断</h2>"), html.index("<h2>本地更新命令</h2>"))
+        self.assertLess(html.index("<h2>本地更新命令</h2>"), html.index("<h2>启动器执行记录</h2>"))
+
+    def test_dashboard_update_command_blocked_does_not_show_runnable_copy(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["update_command"] = {
+            "schema_version": "p3.9-lite-update-command",
+            "status": "blocked",
+            "command": None,
+            "argv": [],
+            "updates": [],
+            "does_not_update": [],
+            "blockers": ["primary_next_action_not_rerun_demo_pipeline"],
+            "warnings": [],
+            "input": {"max_history": 30},
+            "output_json": "data/probes/demo/update_command/update_command.json",
+            "output_md": "data/probes/demo/update_command/update_command.md",
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("本地更新命令", html)
+        self.assertIn("当前不可作为本地更新命令运行", html)
+        self.assertIn("primary_next_action_not_rerun_demo_pipeline", html)
+        self.assertNotIn("<h3>可复制命令</h3>", html)
+
     def test_dashboard_launcher_report_shows_blockers(self) -> None:
         summary = dashboard_minimal_summary()
         summary["launcher_report"] = {
@@ -1556,6 +1629,10 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(steps["Review Inbox"], "done")
             self.assertIn("demo_doctor", summary)
             self.assertIn("Demo Doctor", steps)
+            self.assertIn("update_command", summary)
+            self.assertEqual(summary["update_command"]["status"], "blocked")
+            self.assertTrue(Path(summary["update_command"]["output_json"]).exists())
+            self.assertIn("Update Command", steps)
             self.assertIn("launcher_report", summary)
             self.assertEqual(summary["launcher_report"]["launcher_status"], "executed")
             self.assertEqual(summary["launcher_report"]["launcher_report_freshness"], "unknown")
@@ -1565,6 +1642,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["dashboard_html"]).exists())
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
             self.assertIn("当前状态诊断", dashboard_html)
+            self.assertIn("本地更新命令", dashboard_html)
+            self.assertIn("当前不可作为本地更新命令运行", dashboard_html)
             self.assertIn("启动器执行记录", dashboard_html)
             self.assertIn("launcher report freshness 未知", dashboard_html)
             self.assertIn("launcher_report_20260629.json", dashboard_html)

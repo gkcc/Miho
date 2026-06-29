@@ -627,6 +627,28 @@ python tools/probes/doctor_launcher.py `
 
 默认不清理历史；只有显式传入 `--max-history` 时，launcher 才会在当前 `--output-dir` 的 `history/` 目录里清理 `launcher_report_*.json` 和 `launcher_report_*.md`。JSON/Markdown 按相同 stem 成组，保留最新 N 组，并额外保护本次刚生成的 history report；孤立的 JSON 或 Markdown 也按同一 stem 作为一组处理。非 `launcher_report_*` 文件不会删除，其他 demo/probe 目录也不会触碰。latest report 会写入 `history_retention.attempted`、`history_retention.max_history`、`history_retention.kept_count`、`history_retention.deleted_files` 和 `history_retention.warnings`。
 
+P3.9-lite 会生成一个可审计的本地更新命令包：
+
+```text
+data/probes/demo/update_command/update_command.json
+data/probes/demo/update_command/update_command.md
+```
+
+ready 时命令形态固定为：
+
+```powershell
+python tools/probes/doctor_launcher.py `
+  --doctor data/probes/demo/demo_doctor/demo_doctor.json `
+  --execute-rerun `
+  --follow-up-doctor data/probes/demo/demo_doctor/demo_doctor.json `
+  --refresh-dashboard `
+  --dashboard-summary data/probes/demo/demo_summary.json `
+  --dashboard-html data/probes/demo/index.html `
+  --max-history 30
+```
+
+生成 ready 的前提是：当前 doctor 下一步必须是 `rerun_demo_pipeline`，launcher action contract 允许执行，动作不写 roster、不需要人工确认，`evidence_check.strict_status` 不是 `blocked`，且 `demo_command.safe_to_rerun=true`。否则 `update_command.status=blocked`，Dashboard 只展示 blockers，不展示“可复制命令”。该命令只刷新本地 demo 建议、终局方案、tier watchlist 视图和 Dashboard；它不读取登录态，不联网拉 tier / 出场率 / 高难数据，不 safe apply，不触发 try_now，不写正式数据库。
+
 P3.5-lite Dashboard 会读取已存在的 latest `data/probes/demo/launcher/launcher_report.json`，并在“当前状态诊断”之后展示“启动器执行记录”。该面板显示 `launcher_status`、`executed`、`returncode`、`command_script_resolved`、rerun 起止时间、follow-up doctor 状态、warnings/blockers 和 history report 链接；它只是只读证据面板，不提供 safe apply、try_now、自动 accept 或任何写 roster 的入口。P3.6-lite 还会计算当前 `demo_doctor.json` 的 sha256，并与 report 的 `initial_doctor_sha256` / `follow_up.sha256` 对齐：`launcher_report_freshness=current` 只代表 report 与当前 Dashboard 相关。P3.6-fix 只有在 `follow_up_matches_current_doctor=true`、也就是 `follow_up.sha256` 本身命中当前 doctor 时，才展示“游戏内可尝试”或 safe apply 的当前操作态；仅 `initial_doctor_sha256` 命中时，follow-up 只作为审计信息展示。`stale` 或 `unknown` 也只保留历史审计提示。
 
 P1.4-lite 练度更新收件箱与已确认 Box Index：
