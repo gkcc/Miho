@@ -140,6 +140,41 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertIn("drive_disc_sub_stats", coverage["matched_fields"])
         self.assertIn(coverage["coverage_level"], {"medium", "high"})
 
+    def test_character_rank_uses_avatar_rank_region_alias(self) -> None:
+        blocks = [
+            ocr_block("星见雅 LV.60", "character_card", 70, 260, 150, 30),
+            ocr_block("AU", "character_rank", 45, 220, 80, 80),
+        ]
+
+        draft = probe.build_extracted_draft(
+            game="zzz",
+            layout="zzz-agent-card",
+            blocks=blocks,
+            layout_regions=zzz_layout_regions(),
+            image_info={"width": IMAGE_WIDTH, "height": IMAGE_HEIGHT},
+        )
+
+        self.assertEqual(draft["character"]["rank"]["value"], "A")
+        self.assertEqual(draft["character"]["rank"]["source_region"], "character_rank")
+        self.assertEqual(draft["character"]["rank"]["evidence"], ["AU"])
+
+    def test_character_rank_falls_back_to_card_artistic_alias(self) -> None:
+        blocks = [
+            ocr_block("星见雅 LV.60", "character_card", 70, 260, 150, 30),
+            ocr_block("AU", "character_card", 45, 220, 80, 80),
+        ]
+
+        draft = probe.build_extracted_draft(
+            game="zzz",
+            layout="zzz-agent-card",
+            blocks=blocks,
+            layout_regions=zzz_layout_regions(),
+            image_info={"width": IMAGE_WIDTH, "height": IMAGE_HEIGHT},
+        )
+
+        self.assertEqual(draft["character"]["rank"]["value"], "A")
+        self.assertEqual(draft["character"]["rank"]["source_region"], "character_card")
+
     def test_build_result_from_replay_reuses_text_blocks_without_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -277,15 +312,30 @@ class ExportImageExtractTests(unittest.TestCase):
             crop_outputs = result["crop_outputs"]
             crop_names = {Path(item["path"]).name for item in crop_outputs}
             self.assertIn("character_name.png", crop_names)
+            self.assertIn("character_rank.png", crop_names)
             self.assertIn("stat_hp.png", crop_names)
             self.assertIn("skill_1.png", crop_names)
             self.assertIn("equipment_name.png", crop_names)
             self.assertIn("drive_disc_1_main_stat.png", crop_names)
             self.assertTrue(list(crop_dir.rglob("character_name.png")))
+            self.assertTrue(list(crop_dir.rglob("character_rank.png")))
             self.assertTrue(list(crop_dir.rglob("stat_hp.png")))
             self.assertTrue(list(crop_dir.rglob("skill_1.png")))
             self.assertTrue(list(crop_dir.rglob("equipment_name.png")))
             self.assertTrue(list(crop_dir.rglob("drive_disc_1_main_stat.png")))
+
+    def test_crop_specs_disc_fallback_uses_drive_disc_region_names(self) -> None:
+        specs = probe.crop_specs(
+            game="zzz",
+            layout="zzz-agent-card",
+            layout_regions=[],
+            image_info={"width": IMAGE_WIDTH, "height": IMAGE_HEIGHT},
+        )
+
+        by_name = {item["filename"]: item for item in specs}
+
+        self.assertLess(by_name["character_rank.png"]["box"]["width"], by_name["character_name.png"]["box"]["width"])
+        self.assertGreater(by_name["drive_disc_1_main_stat.png"]["box"]["top"], 1000)
 
     def test_paddle_preprocess_profiles_include_p0_8_variants(self) -> None:
         image = Image.new("RGB", (80, 40), "white")

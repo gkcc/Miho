@@ -217,6 +217,28 @@ def brief_action_label(item: dict[str, Any]) -> str:
     return "查看详情"
 
 
+def checklist_action_label(item: dict[str, Any]) -> str:
+    item_type = str(item.get("item_type") or "").lower()
+    status = str(item.get("status") or "").lower()
+    if status in {"blocked", "data_warning"} or item_type == "data_warning":
+        return "先修数据"
+    if item_type == "review_snapshot" or status in {"needs_review", "pending"}:
+        return "打开复核页"
+    if item_type == "try_now" or status in {"ready", "ready_to_try"}:
+        return "可按清单尝试"
+    if item_type == "needs_recording":
+        return "先补录"
+    if item_type == "watch_only":
+        return "仅观察"
+    return "查看详情"
+
+
+def checklist_status_line(item: dict[str, Any]) -> str:
+    status = human_status(item.get("status"))
+    item_type = brief_card_type_label(item.get("item_type"))
+    return f"{status} · {item_type}"
+
+
 def brief_evidence_rows(evidence: dict[str, Any]) -> str:
     rows = []
     for label, key in (
@@ -231,6 +253,17 @@ def brief_evidence_rows(evidence: dict[str, Any]) -> str:
             continue
         rows.append(f"<li><strong>{e(label)}</strong><span>{e(rel_label(value))}</span></li>")
     return "".join(rows) or "<li><strong>证据</strong><span>N/A</span></li>"
+
+
+def command_details(title: str, commands: list[tuple[str, Any]]) -> str:
+    rows = []
+    for label, command in commands:
+        if not command:
+            continue
+        rows.append(f"<p>{e(label)}</p><pre class=\"command-block\"><code>{e(command)}</code></pre>")
+    if not rows:
+        return ""
+    return f"<details class=\"command-details\"><summary>{e(title)}</summary>{''.join(rows)}</details>"
 
 
 def basename(value: Any) -> str:
@@ -1243,9 +1276,9 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
     items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
     warnings = checklist.get("warnings") if isinstance(checklist.get("warnings"), list) else []
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Checklist Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>清单警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if checklist.get("error"):
-        body = f'<div class="errors"><strong>Action checklist failed</strong><ul><li>{e(checklist.get("error"))}</li></ul></div>'
+        body = f'<div class="errors"><strong>执行清单生成失败</strong><ul><li>{e(checklist.get("error"))}</li></ul></div>'
     elif not items:
         body = '<div class="empty">暂无执行项。</div>'
     else:
@@ -1256,30 +1289,55 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
             evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
             item_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
             warning_text = "；".join(str(warning) for warning in item_warnings if warning)
-            evidence_text = " · ".join(
-                str(part)
-                for part in (
-                    rel_label(evidence.get("review_html")) or evidence.get("review_html"),
-                    rel_label(evidence.get("normalized_json")) or evidence.get("normalized_json"),
-                    evidence.get("target_hash"),
-                    rel_label(evidence.get("artifact")) or evidence.get("artifact"),
-                )
-                if part
+            target_bits = []
+            if item.get("target"):
+                target_bits.append(f"目标：{item.get('target')}")
+            if item.get("character"):
+                target_bits.append(f"角色：{item.get('character')}")
+            quick_links = []
+            if evidence.get("review_html"):
+                quick_links.append(link("打开复核页", evidence.get("review_html")))
+            if evidence.get("normalized_json"):
+                quick_links.append(link("标准化 JSON", evidence.get("normalized_json")))
+            if evidence.get("artifact"):
+                quick_links.append(link("相关产物", evidence.get("artifact")))
+            detail_rows = []
+            for label, value in (
+                ("复核页", evidence.get("review_html")),
+                ("标准化结果", evidence.get("normalized_json")),
+                ("目标 hash", evidence.get("target_hash")),
+                ("产物", evidence.get("artifact")),
+            ):
+                if value:
+                    detail_rows.append(f"<li><strong>{e(label)}</strong><span>{e(rel_label(value) or value)}</span></li>")
+            details = (
+                '<details class="brief-details"><summary>技术细节</summary>'
+                f'<ul class="brief-evidence">{"".join(detail_rows) or "<li><strong>证据</strong><span>N/A</span></li>"}</ul>'
+                f'<pre class="command-block"><code>{e(item.get("command_hint") or "无命令提示")}</code></pre>'
+                "</details>"
             )
             rows.append(
                 "<article class=\"brief-card\">"
                 f"<div class=\"plan-rank\">#{e(item.get('rank'))}</div>"
                 "<div>"
-                f"<h3>{e(item.get('title'))}</h3>"
-                f"<p>{e(item.get('status'))} · {e(item.get('item_type'))}</p>"
-                f"<span>target: {e(item.get('target') or 'N/A')} · character: {e(item.get('character') or 'N/A')}</span>"
-                f"<span>evidence: {e(evidence_text or 'N/A')}</span>"
-                f"<span>{e(warning_text or '无额外警告')}</span>"
+                f"<h3>{he(item.get('title'))}</h3>"
+                f"<p>{he(checklist_status_line(item))}</p>"
+                f"<span>{he(' · '.join(target_bits) or '本项不绑定具体目标/角色')}</span>"
+                f"<div class=\"brief-links\">{''.join(quick_links) or '<span class=\"missing\">暂无可打开证据</span>'}</div>"
+                f"{'<span>警告：' + he(warning_text) + '</span>' if warning_text else ''}"
+                f"{details}"
                 "</div>"
-                f"<strong>{e(item.get('command_hint') or '查看详情')}</strong>"
+                f"<strong>{e(checklist_action_label(item))}</strong>"
                 "</article>"
             )
         body = '<div class="brief-list">' + "".join(rows) + "</div>"
+    command_block = command_details(
+        "复核命令（确认后再复制）",
+        [
+            ("预览命令", checklist.get("preview_command")),
+            (f"应用命令：{safe_apply}", safe_command),
+        ],
+    )
     return f"""
     <section class="panel action-checklist">
       <h2>执行清单</h2>
@@ -1292,18 +1350,18 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
         {link("review_decision_preview.json", preview.get("output_json"))}
       </div>
       <div class="input-grid">
-        <div><span>checklist status</span><strong>{e(checklist.get("checklist_status") or "N/A")}</strong></div>
-        <div><span>preview status</span><strong>{e(preview.get("preview_status") or "N/A")}</strong></div>
-        <div><span>safe apply</span><strong>{e(safe_apply)}</strong></div>
-        <div><span>items</span><strong>{e(checklist_summary.get("item_count", "N/A"))}</strong></div>
-        <div><span>ready</span><strong>{e(checklist_summary.get("ready_count", "N/A"))}</strong></div>
-        <div><span>needs review</span><strong>{e(checklist_summary.get("needs_review_count", "N/A"))}</strong></div>
-        <div><span>blocked</span><strong>{e(checklist_summary.get("blocked_count", "N/A"))}</strong></div>
-        <div><span>hidden</span><strong>{e(checklist_summary.get("hidden_item_count", "N/A"))}</strong></div>
-        <div><span>would update roster</span><strong>{e(preview_summary.get("would_update_roster_count", "N/A"))}</strong></div>
+        <div><span>清单状态</span><strong>{e(human_status(checklist.get("checklist_status") or "N/A"))}</strong></div>
+        <div><span>预览状态</span><strong>{e(human_status(preview.get("preview_status") or "N/A"))}</strong></div>
+        <div><span>安全应用</span><strong>{e(human_status(safe_apply))}</strong></div>
+        <div><span>事项数</span><strong>{e(checklist_summary.get("item_count", "N/A"))}</strong></div>
+        <div><span>可执行</span><strong>{e(checklist_summary.get("ready_count", "N/A"))}</strong></div>
+        <div><span>待复核</span><strong>{e(checklist_summary.get("needs_review_count", "N/A"))}</strong></div>
+        <div><span>已阻断</span><strong>{e(checklist_summary.get("blocked_count", "N/A"))}</strong></div>
+        <div><span>隐藏项</span><strong>{e(checklist_summary.get("hidden_item_count", "N/A"))}</strong></div>
+        <div><span>将写入角色库</span><strong>{e(preview_summary.get("would_update_roster_count", "N/A"))}</strong></div>
       </div>
-      <p class="muted-line">Review Decision Preview：先预览，再 apply；preview 不写 accepted/rejected。{e(checklist.get("preview_command") or "")}</p>
-      <p class="muted-line">Safe Apply：{e(safe_apply)}。{e(safe_command)}</p>
+      <p class="muted-line">复核决策必须先预览，再人工应用；预览不会写 accepted/rejected。</p>
+      {command_block}
       {warning_block}
       {body}
     </section>
@@ -1982,14 +2040,15 @@ def render_html(summary: dict[str, Any]) -> str:
     .plan-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .brief-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .plan-item {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) 72px; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
-    .brief-card {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) minmax(150px, 220px); gap: 12px; align-items: start; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; }}
+    .brief-card {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) minmax(118px, 160px); gap: 12px; align-items: start; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; }}
     .brief-card-head {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }}
     .brief-card h3 {{ margin: 0 0 4px; font-size: 16px; }}
     .brief-card p {{ margin: 0 0 4px; color: var(--text); }}
     .brief-card span {{ display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }}
-    .brief-card > strong {{ color: var(--warn); text-align: right; overflow-wrap: anywhere; font-size: 14px; line-height: 1.35; }}
+    .brief-card > strong {{ color: var(--warn); text-align: center; overflow-wrap: normal; word-break: keep-all; font-size: 14px; line-height: 1.35; border: 1px solid #f6cf7c; background: var(--warn-bg); border-radius: 8px; padding: 8px; }}
     .brief-links {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }}
     .brief-details {{ margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }}
+    .command-details {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
     .brief-evidence {{ margin: 8px 0; padding: 0; display: grid; gap: 6px; list-style: none; }}
     .brief-evidence li {{ display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }}
     .brief-evidence strong {{ color: var(--text); }}
@@ -2006,7 +2065,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .resource-item {{ display: grid; grid-template-columns: 150px minmax(0, 1fr) 64px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }}
     .resource-item span {{ color: var(--muted); overflow-wrap: anywhere; }}
     .resource-item em {{ font-style: normal; color: var(--warn); font-weight: 900; text-align: right; }}
-    .command-block {{ margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #0f172a; color: #e2e8f0; overflow-wrap: anywhere; white-space: pre-wrap; }}
+    .command-block {{ margin: 6px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #0f172a; color: #e2e8f0; overflow-wrap: anywhere; white-space: pre-wrap; }}
     .history-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .history-item {{ display: grid; grid-template-columns: minmax(120px, 1fr) 90px 90px minmax(220px, 2fr); gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
     .history-item span {{ display: block; color: var(--muted); font-size: 12px; }}

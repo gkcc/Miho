@@ -211,6 +211,7 @@ class StatZone:
 ZZZ_AGENT_CARD_REGIONS: tuple[RegionSpec, ...] = (
     RegionSpec("header", (0.00, 0.00, 1.00, 0.085), "nickname and UID header"),
     RegionSpec("character_card", (0.015, 0.085, 0.315, 0.365), "agent portrait, name, level, rank"),
+    RegionSpec("character_rank", (0.030, 0.100, 0.120, 0.150), "agent avatar upper-left A/S rank glyph"),
     RegionSpec("core_stats", (0.315, 0.095, 0.985, 0.300), "core combat stats"),
     RegionSpec("skill_levels", (0.315, 0.292, 0.985, 0.365), "six skill level icons"),
     RegionSpec("equipment", (0.015, 0.365, 0.985, 0.485), "W-Engine summary and set hit count"),
@@ -909,7 +910,7 @@ def run_ocr(image_path: Path, *, engine: str, lang: str, game: str | None, layou
             config = "--psm 6 -c tessedit_char_whitelist=0123456789.%"
         elif spec.name == "equipment_level":
             config = "--psm 6 -c tessedit_char_whitelist=0123456789.LVlvOoiIwW"
-        elif spec.name == "equipment_rank":
+        elif spec.name in {"character_rank", "equipment_rank"}:
             config = "--psm 6 -c tessedit_char_whitelist=SABC"
         elif spec.name == "skill_levels":
             config = "--psm 6 -c tessedit_char_whitelist=0123456789.%"
@@ -1129,8 +1130,12 @@ def rank_from_block_text(text: str, *, rank_region: bool = False) -> str | None:
     if possible:
         return possible
     stripped = text.strip().upper()
-    if rank_region and stripped in {"5", "$"}:
-        return "S"
+    compact = re.sub(r"[^A-Z0-9$§]", "", stripped)
+    if rank_region:
+        if compact in {"5", "$", "§"}:
+            return "S"
+        if compact in {"AU", "AO", "A0", "4"}:
+            return "A"
     return None
 
 
@@ -1226,11 +1231,30 @@ def extract_character(blocks: list[dict[str, Any]]) -> dict[str, Any]:
     text = text_for_region(blocks, "character_card")
     name = best_cjk_name(text)
     level = first_lv(text)
-    rank = first_rank(text)
+    rank, rank_evidence, rank_source = None, [], "character_card"
+    rank_blocks = blocks_for_regions(blocks, {"character_rank"})
+    for block in sorted(rank_blocks, key=lambda item: float(item.get("confidence") or 0), reverse=True):
+        possible_rank = rank_from_block_text(str(block.get("text", "")), rank_region=True)
+        if possible_rank:
+            rank = possible_rank
+            rank_evidence = [block.get("text", "")]
+            rank_source = "character_rank"
+            break
+    if rank is None:
+        for block in blocks_for_region(blocks, "character_card"):
+            possible_rank = rank_from_block_text(str(block.get("text", "")), rank_region=True)
+            if possible_rank:
+                rank = possible_rank
+                rank_evidence = [block.get("text", "")]
+                rank_source = "character_card"
+                break
+    if rank is None:
+        rank = first_rank(text)
+        rank_evidence = [rank] if rank else []
     return {
         "name": field(name, uncertain=name is None, evidence=[name] if name else [], source_region="character_card"),
         "level": field(level, uncertain=level is None, evidence=[level] if level else [], source_region="character_card"),
-        "rank": field(rank, uncertain=rank is None, evidence=[rank] if rank else [], source_region="character_card"),
+        "rank": field(rank, uncertain=rank is None, evidence=rank_evidence, source_region=rank_source),
     }
 
 
@@ -1347,10 +1371,11 @@ def crop_specs(
         if box.get("width", 0) > 0 and box.get("height", 0) > 0:
             specs.append({"field_path": field_path, "filename": filename, "box": box})
 
+    region_spec_by_name = {spec.name: spec for spec in ZZZ_AGENT_CARD_REGIONS}
     character_box = ratio_box_to_pixels((0.015, 0.085, 0.315, 0.365), width, height)
     add("character.name", "character_name.png", character_box)
     add("character.level", "character_level.png", character_box)
-    add("character.rank", "character_rank.png", character_box)
+    add("character.rank", "character_rank.png", ratio_box_to_pixels(region_spec_by_name["character_rank"].box_ratio, width, height))
 
     for zone in ZZZ_CORE_STAT_ZONES:
         add(f"stats.{zone.field}", f"stat_{zone.field}.png", ratio_box_to_pixels(zone.box_ratio, width, height))
@@ -1366,7 +1391,7 @@ def crop_specs(
         region = region_by_name.get(f"drive_disc_{slot}", {})
         region_box = region.get("box")
         if not isinstance(region_box, dict):
-            region_box = ratio_box_to_pixels(ZZZ_AGENT_CARD_REGIONS[6 + slot].box_ratio, width, height)
+            region_box = ratio_box_to_pixels(region_spec_by_name[f"drive_disc_{slot}"].box_ratio, width, height)
         add(f"drive_discs[{slot}].set_name", f"drive_disc_{slot}_set_name.png", local_ratio_box(region_box, (0.035, 0.030, 0.780, 0.220)))
         add(f"drive_discs[{slot}].level", f"drive_disc_{slot}_level.png", local_ratio_box(region_box, (0.650, 0.020, 0.965, 0.220)))
         add(f"drive_discs[{slot}].main_stat", f"drive_disc_{slot}_main_stat.png", local_ratio_box(region_box, (0.035, 0.235, 0.965, 0.430)))
