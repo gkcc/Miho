@@ -75,6 +75,27 @@ def doctor_json(
     }
 
 
+def demo_summary_json() -> dict:
+    return {
+        "overall": {
+            "case_count": 0,
+            "parse_success_count": 0,
+            "review_status_counts": {},
+            "parse_status_counts": {},
+            "expected_status_counts": {},
+            "normalized_status_counts": {},
+            "import_status_counts": {},
+            "demo_status": "READY",
+            "average_pass_rate": None,
+            "normalized_count": 0,
+            "requires_manual_review_count": 0,
+            "conclusion": "demo",
+        },
+        "input": {"source_mode": "manifest controlled mode"},
+        "cases": [],
+    }
+
+
 class DoctorLauncherTests(unittest.TestCase):
     def test_default_rerun_only_prints_command(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -570,6 +591,63 @@ class DoctorLauncherTests(unittest.TestCase):
             self.assertIn("started_at", report)
             self.assertIn("finished_at", report)
             self.assertIn("duration_ms", report)
+
+    def test_refresh_dashboard_updates_summary_and_html_without_rerunning_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            summary_path = write_json(root / "demo_summary.json", demo_summary_json())
+            output_dir = root / "launcher"
+            demo_pipeline = launcher_tool.import_demo_pipeline_module()
+            original_run_pipeline = demo_pipeline.run_pipeline
+
+            def fail_run_pipeline(*args, **kwargs):  # noqa: ANN002, ANN003
+                raise AssertionError("refresh-dashboard must not rerun the demo pipeline")
+
+            demo_pipeline.run_pipeline = fail_run_pipeline
+            try:
+                exit_code, report = launcher_tool.launch_doctor(
+                    doctor_path=doctor_path,
+                    output_dir=output_dir,
+                    refresh_dashboard=True,
+                )
+            finally:
+                demo_pipeline.run_pipeline = original_run_pipeline
+
+            dashboard_path = root / "index.html"
+            refreshed_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            dashboard_html = dashboard_path.read_text(encoding="utf-8")
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(report["dashboard_refresh"]["status"], "refreshed")
+            self.assertTrue(dashboard_path.exists())
+            self.assertIn("launcher_report", refreshed_summary)
+            self.assertEqual(refreshed_summary["launcher_report"]["launcher_status"], "printed")
+            self.assertEqual(refreshed_summary["launcher_report"]["dashboard_refresh"]["status"], "refreshed")
+            self.assertIn("启动器执行记录", dashboard_html)
+
+    def test_refresh_dashboard_missing_summary_warns_without_failing_rerun(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            calls: list[list[str]] = []
+
+            def runner(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0)
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                output_dir=root / "launcher",
+                execute_rerun=True,
+                refresh_dashboard=True,
+                runner=runner,
+            )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(report["launcher_status"], "executed")
+        self.assertEqual(report["dashboard_refresh"]["status"], "warning")
+        self.assertIn("dashboard_refresh_summary_missing", report["dashboard_refresh"]["warnings"])
+        self.assertIn("dashboard_refresh_summary_missing", report["warnings"])
 
 
 if __name__ == "__main__":

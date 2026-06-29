@@ -38,6 +38,8 @@ P3.4-lite 可在安全重跑成功后追加 `--follow-up-doctor data/probes/demo
 
 P3.5-lite 起，demo pipeline 如果发现 `data/probes/demo/launcher/launcher_report.json`，Dashboard 会只读展示“启动器执行记录”：`launcher_status`、`executed`、`returncode`、canonical script path、rerun 起止时间、follow-up doctor 状态、warnings/blockers 和 history report 链接。P3.6-lite 会用 latest launcher report 里的 `initial_doctor_sha256` / `follow_up.sha256` 对比当前 `demo_doctor.json`，并显示 `launcher_report_freshness=current/stale/unknown`；P3.6-fix 进一步区分 `follow_up_matches_current_doctor` 和 `launcher_report_operation_state`，只有 `follow_up.sha256` 本身匹配当前 doctor 时才展示 follow-up 的当前操作态。仅 `initial_doctor_sha256` 匹配时，report 仍可视为当前 Dashboard 的历史审计记录，但 follow-up 只能审计，不能显示“游戏内可尝试”或 safe apply 操作态。stale/unknown report 也只作为历史审计，不提供 safe apply、try_now 或任何写 roster 的执行入口。
 
+P3.7-lite 起，`doctor_launcher.py` 可在写入 latest launcher report 后追加 `--refresh-dashboard`。该参数只读取既有 `data/probes/demo/demo_summary.json`，重新注入 latest launcher report，并调用 Dashboard renderer 生成 `data/probes/demo/index.html`；它不会重跑 demo pipeline、不会 OCR、不会 normalize、不会 planner、不会写 roster，也不会执行 safe apply 或 try_now。缺失或损坏的 `demo_summary.json` 只会把 `dashboard_refresh.status` 标成 `warning` 并写入 launcher report，不改变 rerun 本身的成功/失败口径。
+
 ## Tier Snapshot 草案
 
 本地 tier snapshot 可以使用如下结构：

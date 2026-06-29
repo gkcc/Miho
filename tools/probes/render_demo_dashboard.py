@@ -296,6 +296,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
     if not isinstance(report, dict):
         return ""
     follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
+    dashboard_refresh = report.get("dashboard_refresh") if isinstance(report.get("dashboard_refresh"), dict) else {}
     warnings = report.get("warnings") if isinstance(report.get("warnings"), list) else []
     blockers = report.get("blockers") if isinstance(report.get("blockers"), list) else []
     follow_warnings = follow_up.get("warnings") if isinstance(follow_up.get("warnings"), list) else []
@@ -384,6 +385,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
         <div><span>command_script_resolved</span><strong>{e(report.get("command_script_resolved") or "N/A")}</strong></div>
         <div><span>rerun_started_at</span><strong>{e(report.get("rerun_started_at") or "N/A")}</strong></div>
         <div><span>rerun_finished_at</span><strong>{e(report.get("rerun_finished_at") or "N/A")}</strong></div>
+        <div><span>dashboard_refresh</span><strong>{e(dashboard_refresh.get("status") or "N/A")}</strong></div>
         <div><span>current_demo_doctor_sha256</span><strong>{e(report.get("current_demo_doctor_sha256") or "N/A")}</strong></div>
         <div><span>report.initial_doctor_sha256</span><strong>{e(report.get("report_initial_doctor_sha256") or "N/A")}</strong></div>
         <div><span>report.follow_up.sha256</span><strong>{e(report.get("report_follow_up_sha256") or "N/A")}</strong></div>
@@ -399,6 +401,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
       {list_block("launcher blockers", blockers, "errors")}
       {list_block("launcher warnings", warnings, "warnings")}
       {list_block("freshness warnings", report.get("freshness_warnings") if isinstance(report.get("freshness_warnings"), list) else [], "warnings")}
+      {list_block("dashboard refresh warnings", dashboard_refresh.get("warnings") if isinstance(dashboard_refresh.get("warnings"), list) else [], "warnings")}
       {list_block("follow-up warnings", follow_warnings, "warnings")}
       {list_block("follow-up blockers", follow_blockers, "errors")}
     </section>

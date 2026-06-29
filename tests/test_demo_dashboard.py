@@ -534,6 +534,13 @@ class DemoDashboardTests(unittest.TestCase):
             "output_md": "data/probes/demo/launcher/launcher_report.md",
             "output_history_json": "data/probes/demo/launcher/history/launcher_report_ready.json",
             "output_history_md": "data/probes/demo/launcher/history/launcher_report_ready.md",
+            "dashboard_refresh": {
+                "attempted": True,
+                "status": "refreshed",
+                "summary_json": "data/probes/demo/demo_summary.json",
+                "dashboard_html": "data/probes/demo/index.html",
+                "warnings": [],
+            },
             "follow_up": {
                 "loaded": True,
                 "doctor_status": "ready_to_try",
@@ -552,6 +559,8 @@ class DemoDashboardTests(unittest.TestCase):
 
         self.assertIn("游戏内可尝试", html)
         self.assertIn("follow_up.primary_next_action", html)
+        self.assertIn("dashboard_refresh", html)
+        self.assertIn("refreshed", html)
         self.assertIn("按执行清单去游戏内尝试", html)
         self.assertIn("launcher_report_ready.json", html)
         self.assertNotIn("执行 try_now", html)
@@ -569,6 +578,13 @@ class DemoDashboardTests(unittest.TestCase):
                     "warnings": [],
                     "blockers": [],
                     "follow_up": {"sha256": current_sha, "doctor_status": "ready_to_try"},
+                    "dashboard_refresh": {
+                        "attempted": True,
+                        "status": "refreshed",
+                        "summary_json": str(output_dir / "demo_summary.json"),
+                        "dashboard_html": str(output_dir / "index.html"),
+                        "warnings": [],
+                    },
                     "output_history_json": str(output_dir / "launcher" / "history" / "launcher_report_current.json"),
                 },
             )
@@ -584,6 +600,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(report["freshness_match_source"], "follow_up")
             self.assertEqual(report["current_demo_doctor_sha256"], current_sha)
             self.assertEqual(report["report_follow_up_sha256"], current_sha)
+            self.assertEqual(report["dashboard_refresh"]["status"], "refreshed")
             self.assertEqual(report["freshness_warnings"], [])
 
     def test_launcher_report_summary_marks_initial_hash_current(self) -> None:

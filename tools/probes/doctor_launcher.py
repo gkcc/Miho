@@ -12,8 +12,9 @@ import time
 from typing import Any, Callable
 
 
-SCHEMA_VERSION = "p3.4-lite-doctor-launcher"
+SCHEMA_VERSION = "p3.7-lite-doctor-launcher"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = Path(__file__).resolve().parent
 RUN_DEMO_PIPELINE_SCRIPT = (PROJECT_ROOT / "tools" / "probes" / "run_demo_pipeline.py").resolve()
 FORBIDDEN_COMMAND_FRAGMENTS = ("&", "|", ";", "`", "$(", ">", "<")
 FORBIDDEN_SCRIPT_SUFFIXES = (".bat", ".cmd", ".ps1", ".sh")
@@ -187,7 +188,89 @@ def markdown_report(report: dict[str, Any]) -> str:
             for item in items:
                 lines.append(f"- {label}: {item}")
         lines.append("")
+    dashboard_refresh = report.get("dashboard_refresh") if isinstance(report.get("dashboard_refresh"), dict) else {}
+    if dashboard_refresh:
+        lines.extend(["## Dashboard Refresh", ""])
+        for key in ("attempted", "status", "summary_json", "dashboard_html"):
+            lines.append(f"- {key}: {dashboard_refresh.get(key)}")
+        items = dashboard_refresh.get("warnings") if isinstance(dashboard_refresh.get("warnings"), list) else []
+        for item in items:
+            lines.append(f"- warning: {item}")
+        lines.append("")
     return "\n".join(lines)
+
+
+def write_launcher_report_files(report: dict[str, Any]) -> None:
+    json_path = Path(str(report["output_json"]))
+    md_path = Path(str(report["output_md"]))
+    history_json_path = Path(str(report["output_history_json"]))
+    history_md_path = Path(str(report["output_history_md"]))
+    write_json(json_path, report)
+    write_json(history_json_path, report)
+    report_markdown = markdown_report(report)
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text(report_markdown, encoding="utf-8")
+    history_md_path.parent.mkdir(parents=True, exist_ok=True)
+    history_md_path.write_text(report_markdown, encoding="utf-8")
+
+
+def import_demo_pipeline_module() -> Any:
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+    import run_demo_pipeline as demo_pipeline  # noqa: PLC0415
+
+    return demo_pipeline
+
+
+def dashboard_refresh_record(launcher_output_dir: Path, *, attempted: bool, status: str) -> dict[str, Any]:
+    demo_output_dir = launcher_output_dir.parent
+    return {
+        "attempted": attempted,
+        "status": status,
+        "summary_json": str(demo_output_dir / "demo_summary.json"),
+        "dashboard_html": str(demo_output_dir / "index.html"),
+        "warnings": [],
+    }
+
+
+def refresh_dashboard_after_launcher(launcher_output_dir: Path, report: dict[str, Any]) -> dict[str, Any]:
+    refresh = dashboard_refresh_record(launcher_output_dir, attempted=True, status="refreshed")
+    summary_path = Path(str(refresh["summary_json"]))
+    dashboard_path = Path(str(refresh["dashboard_html"]))
+    try:
+        summary = load_json(summary_path)
+    except FileNotFoundError:
+        refresh["status"] = "warning"
+        refresh["warnings"].append("dashboard_refresh_summary_missing")
+        return refresh
+    except json.JSONDecodeError as exc:
+        refresh["status"] = "warning"
+        refresh["warnings"].append(f"dashboard_refresh_summary_invalid_json: {exc}")
+        return refresh
+    except (OSError, ValueError) as exc:
+        refresh["status"] = "warning"
+        refresh["warnings"].append(f"dashboard_refresh_summary_unavailable: {exc}")
+        return refresh
+    try:
+        report["dashboard_refresh"] = refresh
+        write_launcher_report_files(report)
+        demo_pipeline = import_demo_pipeline_module()
+        launcher_summary = demo_pipeline.build_launcher_report_summary(launcher_output_dir.parent)
+        if launcher_summary is None:
+            refresh["status"] = "warning"
+            refresh["warnings"].append("dashboard_refresh_launcher_report_missing")
+            report["dashboard_refresh"] = refresh
+            return refresh
+        summary["launcher_report"] = launcher_summary
+        summary["dashboard_html"] = str(dashboard_path)
+        write_json(summary_path, summary)
+        demo_pipeline.dashboard.render_dashboard(summary, dashboard_path)
+        write_json(summary_path, summary)
+    except Exception as exc:  # pragma: no cover - defensive boundary for a CLI helper.
+        refresh["status"] = "failed"
+        refresh["warnings"].append(f"dashboard_refresh_failed: {exc}")
+    report["dashboard_refresh"] = refresh
+    return refresh
 
 
 def summarize_follow_up_doctor(
@@ -320,6 +403,7 @@ def launch_doctor(
     fail_on_blocked: bool = False,
     fail_on_followup_warning: bool = False,
     follow_up_doctor_path: Path | None = None,
+    refresh_dashboard: bool = False,
     argv: list[str] | None = None,
     runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
 ) -> tuple[int, dict[str, Any]]:
@@ -439,13 +523,15 @@ def launch_doctor(
     report["output_md"] = str(md_path)
     report["output_history_json"] = str(history_json_path)
     report["output_history_md"] = str(history_md_path)
-    write_json(json_path, report)
-    write_json(history_json_path, report)
-    md_path.parent.mkdir(parents=True, exist_ok=True)
-    report_markdown = markdown_report(report)
-    md_path.write_text(report_markdown, encoding="utf-8")
-    history_md_path.parent.mkdir(parents=True, exist_ok=True)
-    history_md_path.write_text(report_markdown, encoding="utf-8")
+    report["dashboard_refresh"] = dashboard_refresh_record(out_dir, attempted=False, status="skipped")
+    write_launcher_report_files(report)
+    if refresh_dashboard:
+        refresh = refresh_dashboard_after_launcher(out_dir, report)
+        report["dashboard_refresh"] = refresh
+        if refresh.get("warnings"):
+            warnings.extend(as_string_list(refresh.get("warnings")))
+            report["warnings"] = warnings
+        write_launcher_report_files(report)
 
     if launcher_status == "blocked" or (executed and returncode not in (0, None)):
         exit_code = 2 if returncode in (0, None) else int(returncode)
@@ -470,6 +556,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Return non-zero when follow-up doctor is missing, damaged, unchanged, blocked, or otherwise warning-worthy.",
     )
     parser.add_argument("--follow-up-doctor", default=None, help="Read this demo_doctor.json after a successful rerun and report the next state.")
+    parser.add_argument(
+        "--refresh-dashboard",
+        action="store_true",
+        help="After writing launcher_report, re-inject it into demo_summary.json and re-render index.html without rerunning the demo pipeline.",
+    )
     return parser
 
 
@@ -486,6 +577,7 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
             fail_on_blocked=bool(args.fail_on_blocked),
             fail_on_followup_warning=bool(args.fail_on_followup_warning),
             follow_up_doctor_path=follow_up_doctor,
+            refresh_dashboard=bool(args.refresh_dashboard),
             argv=argv if argv is not None else sys.argv[1:],
             runner=runner,
         )
@@ -506,6 +598,11 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
     print(f"launcher_report_md: {report.get('output_md')}")
     print(f"launcher_report_history_json: {report.get('output_history_json')}")
     print(f"launcher_report_history_md: {report.get('output_history_md')}")
+    dashboard_refresh = report.get("dashboard_refresh") if isinstance(report.get("dashboard_refresh"), dict) else {}
+    if dashboard_refresh:
+        print(f"dashboard_refresh_status: {dashboard_refresh.get('status')}")
+        print(f"dashboard_refresh_summary_json: {dashboard_refresh.get('summary_json')}")
+        print(f"dashboard_refresh_html: {dashboard_refresh.get('dashboard_html')}")
     follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
     if follow_up:
         print(f"follow_up_loaded: {follow_up.get('loaded')}")

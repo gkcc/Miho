@@ -1634,7 +1634,7 @@ def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
     if not report_path.exists():
         return None
     base: dict[str, Any] = {
-        "schema_version": "p3.6-fix-dashboard-launcher-report",
+        "schema_version": "p3.7-lite-dashboard-launcher-report",
         "report_path": str(report_path),
         "loaded": False,
         "warnings": [],
@@ -1648,12 +1648,13 @@ def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
         base["warnings"] = [f"launcher_report_unreadable: {exc}"]
         return base
     follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
+    dashboard_refresh = report.get("dashboard_refresh") if isinstance(report.get("dashboard_refresh"), dict) else {}
     freshness = launcher_freshness_for_report(output_dir, report)
     report_warnings = string_list(report.get("warnings"))
     freshness_warnings = string_list(freshness.get("freshness_warnings"))
     base.update(
         {
-            "schema_version": "p3.6-fix-dashboard-launcher-report",
+            "schema_version": "p3.7-lite-dashboard-launcher-report",
             "loaded": True,
             "source_schema_version": report.get("schema_version"),
             "launcher_status": report.get("launcher_status"),
@@ -1680,6 +1681,15 @@ def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
                 "evidence_blockers": string_list(follow_up.get("evidence_blockers")),
                 "blocking_reasons": string_list(follow_up.get("blocking_reasons")),
             },
+            "dashboard_refresh": {
+                "attempted": dashboard_refresh.get("attempted"),
+                "status": dashboard_refresh.get("status"),
+                "summary_json": dashboard_refresh.get("summary_json"),
+                "dashboard_html": dashboard_refresh.get("dashboard_html"),
+                "warnings": string_list(dashboard_refresh.get("warnings")),
+            }
+            if dashboard_refresh
+            else {},
         }
     )
     base.update(freshness)
