@@ -89,6 +89,22 @@ def artifact_warnings(run_manifest: dict[str, Any] | None) -> list[str]:
     return unique_warnings(warnings)
 
 
+def refresh_warnings(refresh_status: dict[str, Any] | None) -> list[str]:
+    if not isinstance(refresh_status, dict):
+        return []
+    status = str(refresh_status.get("refresh_status") or "")
+    if status != "stale_after_apply":
+        return []
+    reasons = as_list(refresh_status.get("stale_reasons"))
+    warnings = [
+        "Safe apply 已改变 accepted roster；当前高难方案/今日简报可能仍基于旧 box。请重跑 demo pipeline 后再执行 try_now。"
+    ]
+    if reasons:
+        warnings.append("刷新状态 stale_after_apply：" + "；".join(str(item) for item in reasons))
+    warnings.extend(as_list(refresh_status.get("warnings")))
+    return unique_warnings(warnings)
+
+
 def roster_character_count(roster_index: dict[str, Any] | None) -> int:
     if not isinstance(roster_index, dict):
         return 0
@@ -310,6 +326,7 @@ def build_final_brief(
     roster_delta: Path | None = None,
     endgame_plan: Path | None = None,
     tier_watchlist: Path | None = None,
+    refresh_status: Path | None = None,
 ) -> dict[str, Any]:
     review_data = load_optional_json(review_inbox)
     if review_inbox is not None and review_data is None:
@@ -319,8 +336,11 @@ def build_final_brief(
     delta_data = load_optional_json(roster_delta)
     endgame_data = load_optional_json(endgame_plan)
     tier_data = load_optional_json(tier_watchlist)
+    refresh_data = load_optional_json(refresh_status)
 
     manifest_warnings = artifact_warnings(manifest_data)
+    refresh_data_warnings = refresh_warnings(refresh_data)
+    data_warnings = unique_warnings(manifest_warnings + refresh_data_warnings)
     ready_plans = trusted_ready_plans(endgame_data)
     endgame_summary = endgame_data.get("summary") if isinstance(endgame_data, dict) and isinstance(endgame_data.get("summary"), dict) else {}
     review_pending_count = int(review_data.get("pending_count") or 0) if isinstance(review_data, dict) else 0
@@ -335,14 +355,20 @@ def build_final_brief(
         "warning_plan_count": int(endgame_summary.get("warning_plan_count") or 0),
         "roster_delta_change_count": len(as_list(delta_data.get("character_changes"))) if isinstance(delta_data, dict) else 0,
         "tier_watch_entry_count": len(as_list(tier_data.get("entries"))) if isinstance(tier_data, dict) else 0,
+        "refresh_status": refresh_data.get("refresh_status") if isinstance(refresh_data, dict) else "unknown",
+        "needs_demo_refresh": bool(
+            isinstance(refresh_data, dict)
+            and isinstance(refresh_data.get("summary"), dict)
+            and refresh_data["summary"].get("needs_demo_refresh")
+        ),
     }
 
     candidate_cards: list[dict[str, Any]] = []
     rank = 1
-    if manifest_warnings:
-        candidate_cards.append(data_warning_card(rank, manifest_warnings, run_manifest))
+    if data_warnings:
+        candidate_cards.append(data_warning_card(rank, data_warnings, run_manifest))
         rank += 1
-    if not manifest_warnings:
+    if not data_warnings:
         for plan in ready_plans[:MAX_READY_NOW_CARDS]:
             candidate_cards.append(try_now_card(rank, plan, endgame_plan))
             rank += 1
@@ -361,17 +387,19 @@ def build_final_brief(
     for index, item in enumerate(top_cards, start=1):
         item["rank"] = index
 
-    red_flags = unique_warnings(manifest_warnings + as_list(endgame_data.get("warnings") if isinstance(endgame_data, dict) else []))
+    red_flags = unique_warnings(data_warnings + as_list(endgame_data.get("warnings") if isinstance(endgame_data, dict) else []))
     next_commands = []
     if isinstance(review_data, dict) and review_data.get("decision_command"):
         next_commands.append(str(review_data["decision_command"]))
-    if manifest_warnings:
+    if data_warnings:
         next_commands.append("重新运行 demo pipeline，并确认 run_manifest 中的输入产物来自同一批生成。")
+    if isinstance(refresh_data, dict) and refresh_data.get("refresh_command"):
+        next_commands.append(str(refresh_data["refresh_command"]))
 
     result = {
         "schema_version": SCHEMA_VERSION,
         "created_at": now_iso(),
-        "brief_status": status_from_cards(top_cards, len(ready_plans), manifest_warnings, review_pending_count),
+        "brief_status": status_from_cards(top_cards, len(ready_plans), data_warnings, review_pending_count),
         "input": {
             "run_manifest": str(run_manifest) if run_manifest else None,
             "roster_index": str(roster_index) if roster_index else None,
@@ -379,6 +407,7 @@ def build_final_brief(
             "roster_delta": str(roster_delta) if roster_delta else None,
             "endgame_plan": str(endgame_plan) if endgame_plan else None,
             "tier_watchlist": str(tier_watchlist) if tier_watchlist else None,
+            "refresh_status": str(refresh_status) if refresh_status else None,
         },
         "summary": summary,
         "top_cards": top_cards,
@@ -405,6 +434,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--roster-delta", default=None, help="Optional roster_delta.json.")
     parser.add_argument("--endgame-plan", default=None, help="Optional endgame_plan.json.")
     parser.add_argument("--tier-watchlist", default=None, help="Optional tier_watchlist.json.")
+    parser.add_argument("--refresh-status", default=None, help="Optional refresh_status.json.")
     parser.add_argument("--output-dir", required=True, help="Output directory for final_brief.json/md.")
     return parser
 
@@ -419,6 +449,7 @@ def main() -> int:
             roster_delta=resolve_path(args.roster_delta) if args.roster_delta else None,
             endgame_plan=resolve_path(args.endgame_plan) if args.endgame_plan else None,
             tier_watchlist=resolve_path(args.tier_watchlist) if args.tier_watchlist else None,
+            refresh_status=resolve_path(args.refresh_status) if args.refresh_status else None,
             output_dir=resolve_path(args.output_dir),
         )
     except FinalBriefError as exc:

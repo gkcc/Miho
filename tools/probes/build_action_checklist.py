@@ -93,6 +93,22 @@ def manifest_warnings(run_manifest: dict[str, Any] | None) -> list[str]:
     return unique_strings(warnings)
 
 
+def refresh_warnings(refresh_status: dict[str, Any] | None) -> list[str]:
+    if not isinstance(refresh_status, dict):
+        return []
+    if refresh_status.get("refresh_status") != "stale_after_apply":
+        return []
+    reasons = as_list(refresh_status.get("stale_reasons"))
+    warnings = [
+        "blocked_by_stale_apply_receipt",
+        "Safe apply 已改变 accepted roster；当前执行清单可能仍基于旧 box。请重跑 demo pipeline 后再执行 try_now。",
+    ]
+    if reasons:
+        warnings.append("刷新状态 stale_after_apply：" + "；".join(str(item) for item in reasons))
+    warnings.extend(as_list(refresh_status.get("warnings")))
+    return unique_strings(warnings)
+
+
 def pending_by_character(review_inbox: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     result = {}
     if not isinstance(review_inbox, dict):
@@ -285,23 +301,26 @@ def build_action_checklist(
     review_inbox: Path | None = None,
     endgame_plan: Path | None = None,
     run_manifest: Path | None = None,
+    refresh_status: Path | None = None,
 ) -> dict[str, Any]:
     brief_data = load_json(final_brief)
     review_data = load_optional_json(review_inbox)
     endgame_data = load_optional_json(endgame_plan)
     manifest_data = load_optional_json(run_manifest)
+    refresh_data = load_optional_json(refresh_status)
     review_lookup = pending_by_character(review_data)
     run_warnings = manifest_warnings(manifest_data)
-    warnings = unique_strings(as_list(brief_data.get("warnings")) + run_warnings)
+    refresh_data_warnings = refresh_warnings(refresh_data)
+    warnings = unique_strings(as_list(brief_data.get("warnings")) + run_warnings + refresh_data_warnings)
     top_cards = [item for item in as_list(brief_data.get("top_cards")) if isinstance(item, dict)]
-    data_warning_present = bool(run_warnings) or any(card.get("card_type") == "data_warning" for card in top_cards)
+    data_warning_present = bool(run_warnings or refresh_data_warnings) or any(card.get("card_type") == "data_warning" for card in top_cards)
     if data_warning_present and not any(card.get("card_type") == "data_warning" for card in top_cards):
         top_cards.insert(
             0,
             {
                 "card_type": "data_warning",
                 "title": "先确认本轮数据一致性",
-                "reason": "run_manifest 显示输入缺失、错批或无法确认；执行清单会阻断 try_now。",
+                "reason": "run_manifest 或 refresh_status 显示输入缺失、错批、未刷新或无法确认；执行清单会阻断 try_now。",
                 "warnings": warnings,
                 "evidence": {"artifact": str(run_manifest) if run_manifest else None},
             },
@@ -335,6 +354,7 @@ def build_action_checklist(
             "review_inbox": str(review_inbox) if review_inbox else None,
             "endgame_plan": str(endgame_plan) if endgame_plan else None,
             "run_manifest": str(run_manifest) if run_manifest else None,
+            "refresh_status": str(refresh_status) if refresh_status else None,
         },
         "summary": {
             "item_count": len(items),
@@ -364,6 +384,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--review-inbox", default=None, help="Optional review_inbox.json.")
     parser.add_argument("--endgame-plan", default=None, help="Optional endgame_plan.json.")
     parser.add_argument("--run-manifest", default=None, help="Optional run_manifest.json.")
+    parser.add_argument("--refresh-status", default=None, help="Optional refresh_status.json.")
     parser.add_argument("--output-dir", required=True, help="Output directory for action_checklist artifacts.")
     return parser
 
@@ -376,6 +397,7 @@ def main() -> int:
             review_inbox=resolve_path(args.review_inbox) if args.review_inbox else None,
             endgame_plan=resolve_path(args.endgame_plan) if args.endgame_plan else None,
             run_manifest=resolve_path(args.run_manifest) if args.run_manifest else None,
+            refresh_status=resolve_path(args.refresh_status) if args.refresh_status else None,
             output_dir=resolve_path(args.output_dir),
         )
     except ActionChecklistError as exc:

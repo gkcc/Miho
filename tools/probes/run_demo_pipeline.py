@@ -28,6 +28,7 @@ import build_endgame_plan as endgame_plan  # noqa: E402
 import build_final_brief as final_brief  # noqa: E402
 import build_run_manifest as run_manifest  # noqa: E402
 import build_roster_delta as roster_delta  # noqa: E402
+import build_refresh_status as refresh_status  # noqa: E402
 import build_team_cards as team_cards  # noqa: E402
 import build_tier_watchlist as tier_watchlist  # noqa: E402
 import preview_review_decisions as review_preview  # noqa: E402
@@ -781,6 +782,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     checklist_info = summary.get("action_checklist", {}) if isinstance(summary.get("action_checklist"), dict) else {}
     preview_info = summary.get("review_decision_preview", {}) if isinstance(summary.get("review_decision_preview"), dict) else {}
     apply_info = summary.get("review_apply", {}) if isinstance(summary.get("review_apply"), dict) else {}
+    refresh_info = summary.get("refresh_status", {}) if isinstance(summary.get("refresh_status"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -879,6 +881,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(apply_info, dict) and apply_info.get("error")
             else "done"
             if isinstance(apply_info, dict) and apply_info.get("apply_status") in {"applied", "applied_with_warnings"}
+            else "skipped",
+        },
+        {
+            "name": "Refresh Status",
+            "status": "failed"
+            if isinstance(refresh_info, dict) and refresh_info.get("error")
+            else refresh_info.get("refresh_status", "skipped")
+            if isinstance(refresh_info, dict)
             else "skipped",
         },
     ]
@@ -1307,6 +1317,7 @@ def build_demo_final_brief(
     roster_delta_path: Path | None = None,
     endgame_plan_path: Path | None = None,
     tier_watchlist_path: Path | None = None,
+    refresh_status_path: Path | None = None,
 ) -> dict[str, Any] | None:
     if not review_inbox_path.exists():
         return None
@@ -1319,6 +1330,7 @@ def build_demo_final_brief(
             roster_delta=roster_delta_path if roster_delta_path and roster_delta_path.exists() else None,
             endgame_plan=endgame_plan_path if endgame_plan_path and endgame_plan_path.exists() else None,
             tier_watchlist=tier_watchlist_path if tier_watchlist_path and tier_watchlist_path.exists() else None,
+            refresh_status=refresh_status_path if refresh_status_path and refresh_status_path.exists() else None,
         )
     except final_brief.FinalBriefError as exc:
         return {
@@ -1330,6 +1342,7 @@ def build_demo_final_brief(
                 "roster_delta": str(roster_delta_path) if roster_delta_path else None,
                 "endgame_plan": str(endgame_plan_path) if endgame_plan_path else None,
                 "tier_watchlist": str(tier_watchlist_path) if tier_watchlist_path else None,
+                "refresh_status": str(refresh_status_path) if refresh_status_path else None,
             },
             "error": str(exc),
         }
@@ -1342,6 +1355,7 @@ def build_demo_action_checklist(
     review_inbox_path: Path | None = None,
     endgame_plan_path: Path | None = None,
     run_manifest_path: Path | None = None,
+    refresh_status_path: Path | None = None,
 ) -> dict[str, Any] | None:
     if not final_brief_path.exists():
         return None
@@ -1352,6 +1366,7 @@ def build_demo_action_checklist(
             review_inbox=review_inbox_path if review_inbox_path and review_inbox_path.exists() else None,
             endgame_plan=endgame_plan_path if endgame_plan_path and endgame_plan_path.exists() else None,
             run_manifest=run_manifest_path if run_manifest_path and run_manifest_path.exists() else None,
+            refresh_status=refresh_status_path if refresh_status_path and refresh_status_path.exists() else None,
         )
     except action_checklist.ActionChecklistError as exc:
         return {
@@ -1361,6 +1376,7 @@ def build_demo_action_checklist(
                 "review_inbox": str(review_inbox_path) if review_inbox_path else None,
                 "endgame_plan": str(endgame_plan_path) if endgame_plan_path else None,
                 "run_manifest": str(run_manifest_path) if run_manifest_path else None,
+                "refresh_status": str(refresh_status_path) if refresh_status_path else None,
             },
             "error": str(exc),
         }
@@ -1531,6 +1547,36 @@ def build_review_apply_summary(roster_dir: Path) -> dict[str, Any]:
         }
     )
     return base
+
+
+def build_demo_refresh_status(
+    *,
+    output_dir: Path,
+    review_apply_receipt: Path | None,
+    run_manifest_path: Path | None,
+    roster_index_path: Path | None,
+    final_brief_path: Path | None = None,
+    action_checklist_path: Path | None = None,
+) -> dict[str, Any]:
+    try:
+        return refresh_status.build_refresh_status(
+            output_dir=output_dir / "refresh_status",
+            review_apply_receipt=review_apply_receipt if review_apply_receipt and review_apply_receipt.exists() else None,
+            run_manifest=run_manifest_path if run_manifest_path and run_manifest_path.exists() else None,
+            roster_index=roster_index_path if roster_index_path and roster_index_path.exists() else None,
+            final_brief=final_brief_path if final_brief_path and final_brief_path.exists() else None,
+            action_checklist=action_checklist_path if action_checklist_path and action_checklist_path.exists() else None,
+        )
+    except refresh_status.RefreshStatusError as exc:
+        return {
+            "schema_version": refresh_status.SCHEMA_VERSION,
+            "refresh_status": "unknown",
+            "error": str(exc),
+            "output_json": None,
+            "output_md": None,
+            "summary": {"needs_demo_refresh": True},
+            "warnings": [str(exc)],
+        }
 
 
 def build_target_refresh(target_source_manifest: Path | None, output_dir: Path) -> dict[str, Any] | None:
@@ -1837,6 +1883,28 @@ def run_pipeline(
         if isinstance(endgame_plan_info, dict) and endgame_plan_info.get("output_json")
         else None
     )
+    review_apply_receipt_path = (
+        Path(str(summary["review_apply"]["output_json"]))
+        if isinstance(summary.get("review_apply"), dict) and summary["review_apply"].get("output_json")
+        else active_roster_dir / "review_apply_receipt.json"
+    )
+    refresh_status_info = build_demo_refresh_status(
+        output_dir=output_dir,
+        review_apply_receipt=review_apply_receipt_path,
+        run_manifest_path=run_manifest_path,
+        roster_index_path=roster_index_for_replay if roster_index_for_replay.exists() else None,
+    )
+    summary["refresh_status"] = refresh_status_info
+    if refresh_status_info.get("warnings"):
+        summary.setdefault("warnings", []).extend(refresh_status_info["warnings"])
+    if refresh_status_info.get("error"):
+        summary.setdefault("warnings", []).append(f"Refresh status failed: {refresh_status_info['error']}")
+    summary["pipeline_steps"] = pipeline_steps(summary)
+    refresh_status_path = (
+        Path(str(refresh_status_info["output_json"]))
+        if isinstance(refresh_status_info, dict) and refresh_status_info.get("output_json")
+        else None
+    )
     final_brief_info = build_demo_final_brief(
         output_dir=output_dir,
         review_inbox_path=review_inbox_path,
@@ -1845,6 +1913,7 @@ def run_pipeline(
         roster_delta_path=roster_delta_path,
         endgame_plan_path=endgame_plan_path,
         tier_watchlist_path=tier_watchlist_path,
+        refresh_status_path=refresh_status_path,
     )
     if final_brief_info is not None:
         summary["final_brief"] = final_brief_info
@@ -1865,6 +1934,7 @@ def run_pipeline(
             review_inbox_path=review_inbox_path,
             endgame_plan_path=endgame_plan_path,
             run_manifest_path=run_manifest_path,
+            refresh_status_path=refresh_status_path,
         )
         if final_brief_path is not None
         else None

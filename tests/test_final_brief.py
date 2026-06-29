@@ -173,17 +173,20 @@ class FinalBriefTests(unittest.TestCase):
         manifest: dict | None = None,
         inbox: dict | None = None,
         endgame: dict | None = None,
+        refresh: dict | None = None,
     ) -> dict:
         manifest_path = write_json(root / "run_manifest.json", manifest if manifest is not None else run_manifest())
         roster_path = write_json(root / "roster_index.json", roster_index())
         inbox_path = write_json(root / "review_inbox.json", inbox if inbox is not None else review_inbox())
         endgame_path = write_json(root / "endgame_plan.json", endgame if endgame is not None else ready_endgame_plan())
+        refresh_path = write_json(root / "refresh_status.json", refresh) if refresh is not None else None
         return brief_tool.build_final_brief(
             output_dir=root / "final_brief",
             run_manifest=manifest_path,
             roster_index=roster_path,
             review_inbox=inbox_path,
             endgame_plan=endgame_path,
+            refresh_status=refresh_path,
         )
 
     def test_consistent_manifest_and_trusted_ready_now_is_ready(self) -> None:
@@ -207,6 +210,28 @@ class FinalBriefTests(unittest.TestCase):
             self.assertNotIn("try_now", {item["card_type"] for item in result["top_cards"]})
             self.assertIn("team_cards", " ".join(result["red_flags"]))
             self.assertNotIn("demo_manifest.json", " ".join(result["next_commands"]))
+
+    def test_stale_refresh_status_blocks_try_now(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                refresh={
+                    "schema_version": "p2.7-lite-refresh-status",
+                    "refresh_status": "stale_after_apply",
+                    "summary": {"needs_demo_refresh": True},
+                    "stale_reasons": ["review_apply_receipt.created_at is newer than run_manifest.created_at"],
+                    "refresh_command": "python tools/probes/run_demo_pipeline.py --clean-demo",
+                    "warnings": [],
+                },
+            )
+
+            self.assertNotEqual(result["brief_status"], "ready")
+            self.assertEqual(result["top_cards"][0]["card_type"], "data_warning")
+            self.assertNotIn("try_now", {item["card_type"] for item in result["top_cards"]})
+            self.assertTrue(result["summary"]["needs_demo_refresh"])
+            self.assertIn("Safe apply 已改变 accepted roster", " ".join(result["warnings"]))
+            self.assertIn("--clean-demo", " ".join(result["next_commands"]))
 
     def test_pending_snapshot_is_review_snapshot_not_try_now(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

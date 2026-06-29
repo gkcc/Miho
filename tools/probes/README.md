@@ -374,7 +374,7 @@ data/probes/demo/snapshot_history/index.json
 * Dashboard 会显示“练度更新收件箱”：demo normalized snapshot 是 OCR/解析候选，只有进入 accepted roster 的 snapshot 才能作为已确认 box。
 * Team card 里的 `pending_snapshot` 只是待确认解析候选，`catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 accepted roster 中的 `owned_snapshot` 才能作为可用练度证据。
 * Tier watchlist 会标记 `verified` / `stale` / `unverified` / `low_trust`。只有 verified 且属于 accepted roster 的高保值信号能辅助队伍排序；stale/unverified/low_trust 只能作为弱参考。
-* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`、`final_brief.json/md`、`action_checklist.json/md` 和 `review_decision_preview.json/md`，并在 Dashboard 顶部显示“今日作战简报”和“执行清单”。简报和清单是 demo 的第一阅读层，用于回答“今天先做什么”；如果 run manifest 缺失或错批，会先显示数据警告，并阻断可执行 `try_now`。方案包、简报、清单和 preview 只聚合本地证据，用于区分 `try_now` / `review_snapshot` / `record_character` / `watch_only` / `data_warning`，不是抽卡建议，也不是自动通关保证。
+* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`、`refresh_status.json/md`、`final_brief.json/md`、`action_checklist.json/md` 和 `review_decision_preview.json/md`，并在 Dashboard 顶部按“刷新状态 -> 今日作战简报 -> 执行清单”显示。简报和清单是 demo 的第一阅读层，用于回答“今天先做什么”；如果 run manifest 缺失、错批，或 apply receipt 显示当前 demo 尚未吸收最新 accepted roster，`try_now` 会被阻断。方案包、简报、清单、refresh status 和 preview 只聚合本地证据，用于区分 `try_now` / `review_snapshot` / `record_character` / `watch_only` / `data_warning`，不是抽卡建议，也不是自动通关保证。
 
 P0.9 replay batch 验收命令：
 
@@ -560,7 +560,20 @@ safe apply 规则：
 * `decision=reject` / `decision=pending` 不会进入 accepted roster，可不依赖 preview；如果提供了 preview，apply 仍会校验 decision manifest、review inbox 和 run manifest hash；
 * CLI 只要传入 `--preview-result`，就会按 `--require-preview-ready` 的安全语义执行，避免误用非 ready preview；
 * apply 会额外写入 `data/probes/roster/review_apply_receipt.json/md`，每条记录包含 `did_write_accepted`、`did_write_rejected`、`did_enter_roster`、`preview_validation_status` 和 source hash；
-* demo pipeline 会读取该 receipt，并在 Dashboard 的“复核应用回执”面板展示应用结果，不需要先打开 JSON 才知道是否真正进入 roster。
+* demo pipeline 会读取该 receipt，并在 Dashboard 的“复核应用回执”面板展示应用结果，不需要先打开 JSON 才知道是否真正进入 roster；
+* demo pipeline 还会生成 `data/probes/demo/refresh_status/refresh_status.json/md`。如果 receipt 比 run manifest 新，或当前 `roster_index.json` SHA256 与 run manifest 记录不一致，`refresh_status=stale_after_apply`，Final Brief 和 Action Checklist 会阻断 `try_now`，提示先重跑 demo pipeline。
+
+手动检查刷新状态：
+
+```powershell
+python tools/probes/build_refresh_status.py `
+  --review-apply-receipt data/probes/roster/review_apply_receipt.json `
+  --run-manifest data/probes/demo/run_manifest.json `
+  --roster-index data/probes/roster/roster_index.json `
+  --final-brief data/probes/demo/final_brief/final_brief.json `
+  --action-checklist data/probes/demo/action_checklist/action_checklist.json `
+  --output-dir data/probes/demo/refresh_status
+```
 
 P1.4-lite 练度更新收件箱与已确认 Box Index：
 

@@ -66,14 +66,17 @@ class ActionChecklistTests(unittest.TestCase):
         brief: dict,
         inbox: dict | None = None,
         manifest: dict | None = None,
+        refresh: dict | None = None,
     ) -> dict:
         brief_path = write_json(root / "final_brief.json", brief)
         inbox_path = write_json(root / "review_inbox.json", inbox if inbox is not None else review_inbox())
         manifest_path = write_json(root / "run_manifest.json", manifest if manifest is not None else run_manifest())
+        refresh_path = write_json(root / "refresh_status.json", refresh) if refresh is not None else None
         return checklist_tool.build_action_checklist(
             final_brief=brief_path,
             review_inbox=inbox_path,
             run_manifest=manifest_path,
+            refresh_status=refresh_path,
             output_dir=root / "action_checklist",
         )
 
@@ -97,6 +100,54 @@ class ActionChecklistTests(unittest.TestCase):
             try_now = next(item for item in result["items"] if item["item_type"] == "try_now")
             self.assertEqual(try_now["status"], "blocked")
             self.assertIn("blocked_by_data_warning", try_now["warnings"])
+
+    def test_stale_refresh_status_blocks_try_now(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                brief=final_brief(
+                    [
+                        {"card_type": "try_now", "title": "可先尝试", "character": "星见雅"},
+                    ]
+                ),
+                refresh={
+                    "schema_version": "p2.7-lite-refresh-status",
+                    "refresh_status": "stale_after_apply",
+                    "summary": {"needs_demo_refresh": True},
+                    "stale_reasons": ["roster_index sha256 differs from run_manifest inputs.roster_index.sha256"],
+                    "warnings": [],
+                },
+            )
+
+            self.assertEqual(result["checklist_status"], "blocked")
+            self.assertEqual(result["items"][0]["item_type"], "data_warning")
+            try_now = next(item for item in result["items"] if item["item_type"] == "try_now")
+            self.assertEqual(try_now["status"], "blocked")
+            self.assertIn("blocked_by_data_warning", try_now["warnings"])
+            self.assertIn("blocked_by_stale_apply_receipt", " ".join(result["warnings"]))
+
+    def test_fresh_refresh_status_warning_does_not_block_try_now(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                brief=final_brief(
+                    [
+                        {"card_type": "try_now", "title": "可先尝试", "character": "星见雅"},
+                    ]
+                ),
+                refresh={
+                    "schema_version": "p2.7-lite-refresh-status",
+                    "refresh_status": "fresh",
+                    "summary": {"needs_demo_refresh": False},
+                    "warnings": ["receipt 只记录 rejected/pending 副作用，未改变 accepted roster。"],
+                },
+            )
+
+            self.assertEqual(result["checklist_status"], "ready")
+            self.assertEqual(result["items"][0]["item_type"], "try_now")
+            self.assertEqual(result["items"][0]["status"], "ready")
 
     def test_review_snapshot_generates_pending_decision_template(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

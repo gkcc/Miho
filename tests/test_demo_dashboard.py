@@ -172,6 +172,23 @@ class DemoDashboardTests(unittest.TestCase):
             },
             "input": {"source_mode": "manifest controlled mode"},
             "cases": [],
+            "refresh_status": {
+                "schema_version": "p2.7-lite-refresh-status",
+                "refresh_status": "stale_after_apply",
+                "output_json": "data/probes/demo/refresh_status/refresh_status.json",
+                "output_md": "data/probes/demo/refresh_status/refresh_status.md",
+                "summary": {
+                    "receipt_exists": True,
+                    "needs_demo_refresh": True,
+                    "did_enter_roster_count": 1,
+                    "did_write_accepted_count": 1,
+                    "did_write_rejected_count": 0,
+                },
+                "stale_reasons": ["review_apply_receipt.created_at is newer than run_manifest.created_at"],
+                "affected_artifacts": ["final_brief", "action_checklist"],
+                "refresh_command": "python tools/probes/run_demo_pipeline.py --clean-demo",
+                "warnings": [],
+            },
             "final_brief": {
                 "schema_version": "p2.1-lite-final-brief",
                 "brief_status": "ready",
@@ -264,6 +281,9 @@ class DemoDashboardTests(unittest.TestCase):
         html = dashboard_tool.render_html(summary)
 
         self.assertIn("今日作战简报", html)
+        self.assertIn("刷新状态", html)
+        self.assertIn("当前简报可能过期", html)
+        self.assertIn("stale_after_apply", html)
         self.assertIn("执行清单", html)
         self.assertIn("今天先做什么", html)
         self.assertIn("final_brief.md", html)
@@ -276,6 +296,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("进入 roster", html)
         self.assertIn("review_apply_receipt.md", html)
         self.assertIn("可先尝试：危局强袭战", html)
+        self.assertLess(html.index("刷新状态"), html.index("今日作战简报"))
         self.assertLess(html.index("今日作战简报"), html.index("输入模式"))
         self.assertLess(html.index("今日作战简报"), html.index("执行清单"))
         self.assertLess(html.index("执行清单"), html.index("输入模式"))
@@ -1274,6 +1295,11 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("review_apply", summary)
             self.assertEqual(summary["review_apply"]["apply_status"], "not_applied")
             self.assertIn("Review Apply Receipt", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("refresh_status", summary)
+            self.assertEqual(summary["refresh_status"]["refresh_status"], "not_applied")
+            self.assertTrue(Path(summary["refresh_status"]["output_json"]).exists())
+            self.assertTrue(Path(summary["refresh_status"]["output_md"]).exists())
+            self.assertIn("Refresh Status", {item["name"] for item in summary["pipeline_steps"]})
             self.assertEqual(summary["review_inbox"]["pending_count"], 1)
             self.assertEqual(summary["review_inbox"]["safe_apply_status"], "not_applied")
             self.assertEqual(summary["team_cards"]["summary"]["pending_snapshot_count"], 1)

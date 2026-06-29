@@ -66,7 +66,7 @@ def rel_label(value: Any) -> str:
 
 def status_class(value: Any) -> str:
     text = str(value or "").lower()
-    if text in {"pass", "done", "ok", "true", "generated", "ready_for_review", "trusted", "consistent", "applied"}:
+    if text in {"pass", "done", "ok", "true", "generated", "ready_for_review", "trusted", "consistent", "applied", "fresh"}:
         return "ok"
     if text in {
         "needs_review",
@@ -81,9 +81,10 @@ def status_class(value: Any) -> str:
         "ready_with_override",
         "not_applied",
         "applied_with_warnings",
+        "unknown",
     }:
         return "warn"
-    if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure"}:
+    if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply"}:
         return "bad"
     return "muted"
 
@@ -643,6 +644,58 @@ def render_review_inbox(summary: dict[str, Any]) -> str:
         <h3>待确认快照</h3>
         <div class="resource-list">{pending_block}</div>
       </div>
+    </section>
+    """
+
+
+def render_refresh_status(summary: dict[str, Any]) -> str:
+    refresh = summary.get("refresh_status")
+    if not isinstance(refresh, dict):
+        return ""
+    refresh_summary = refresh.get("summary") if isinstance(refresh.get("summary"), dict) else {}
+    reasons = refresh.get("stale_reasons") if isinstance(refresh.get("stale_reasons"), list) else []
+    affected = refresh.get("affected_artifacts") if isinstance(refresh.get("affected_artifacts"), list) else []
+    warnings = refresh.get("warnings") if isinstance(refresh.get("warnings"), list) else []
+    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>Refresh Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    if refresh.get("error"):
+        body = f'<div class="errors"><strong>Refresh status failed</strong><ul><li>{e(refresh.get("error"))}</li></ul></div>'
+    else:
+        reason_items = "".join(f"<li>{e(item)}</li>" for item in reasons) or "<li>无</li>"
+        affected_text = "、".join(str(item) for item in affected) if affected else "无"
+        body = f"""
+        <div class="resource-plan">
+          <h3>刷新判断</h3>
+          <ul>{reason_items}</ul>
+          <p class="muted-line">受影响产物：{e(affected_text)}</p>
+          <p class="muted-line">{e(refresh.get("refresh_command") or "")}</p>
+        </div>
+        """
+    stale_copy = ""
+    if refresh.get("refresh_status") == "stale_after_apply":
+        stale_copy = (
+            '<div class="errors"><strong>当前简报可能过期</strong>'
+            "<ul><li>Safe apply 已改变 accepted roster；当前高难方案/今日简报可能仍基于旧 box。请重跑 demo pipeline 后再执行 try_now。</li></ul></div>"
+        )
+    return f"""
+    <section class="panel refresh-status">
+      <h2>刷新状态</h2>
+      <p class="muted-line">先判断当前 Dashboard 是否已经吸收最新 review apply。这里不是解析结果，而是最终建议的新鲜度门禁。</p>
+      <div class="links">
+        {link("refresh_status.md", refresh.get("output_md"))}
+        {link("refresh_status.json", refresh.get("output_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>refresh status</span><strong>{e(refresh.get("refresh_status") or "unknown")}</strong></div>
+        <div><span>needs refresh</span><strong>{e(refresh_summary.get("needs_demo_refresh", "N/A"))}</strong></div>
+        <div><span>receipt exists</span><strong>{e(refresh_summary.get("receipt_exists", "N/A"))}</strong></div>
+        <div><span>entered roster</span><strong>{e(refresh_summary.get("did_enter_roster_count", "N/A"))}</strong></div>
+        <div><span>wrote accepted</span><strong>{e(refresh_summary.get("did_write_accepted_count", "N/A"))}</strong></div>
+        <div><span>wrote rejected</span><strong>{e(refresh_summary.get("did_write_rejected_count", "N/A"))}</strong></div>
+      </div>
+      {stale_copy}
+      {warning_block}
+      {body}
     </section>
     """
 
@@ -1250,9 +1303,13 @@ def render_html(summary: dict[str, Any]) -> str:
     preview_info = summary.get("review_decision_preview", {}) if isinstance(summary.get("review_decision_preview"), dict) else {}
     apply_info = summary.get("review_apply", {}) if isinstance(summary.get("review_apply"), dict) else {}
     apply_summary = apply_info.get("summary", {}) if isinstance(apply_info.get("summary"), dict) else {}
+    refresh_info = summary.get("refresh_status", {}) if isinstance(summary.get("refresh_status"), dict) else {}
+    refresh_summary = refresh_info.get("summary", {}) if isinstance(refresh_info.get("summary"), dict) else {}
     safe_apply = safe_apply_status(summary)
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
+        metric_card("刷新状态", refresh_info.get("refresh_status", "N/A") if refresh_info else "N/A", status_class(refresh_info.get("refresh_status")) if refresh_info else "muted"),
+        metric_card("需要重跑", refresh_summary.get("needs_demo_refresh", "N/A") if refresh_summary else "N/A", "bad" if refresh_summary.get("needs_demo_refresh") else "muted"),
         metric_card("简报状态", final_info.get("brief_status", "N/A") if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
         metric_card("清单状态", checklist_info.get("checklist_status", "N/A") if checklist_info else "N/A", status_class(checklist_info.get("checklist_status")) if checklist_info else "muted"),
         metric_card("复核预览", preview_info.get("preview_status", "N/A") if preview_info else "N/A", status_class(preview_info.get("preview_status")) if preview_info else "muted"),
@@ -1305,6 +1362,7 @@ def render_html(summary: dict[str, Any]) -> str:
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
+    refresh_status_panel = render_refresh_status(summary)
     final_brief = render_final_brief(summary)
     action_checklist = render_action_checklist(summary)
     review_apply = render_review_apply(summary)
@@ -1431,8 +1489,9 @@ def render_html(summary: dict[str, Any]) -> str:
     <p>{e(conclusion)}</p>
     <p>当前 P1.1 仍是本地 demo。即使解析通过，也不会自动导入；requires_review 不代表解析失败，而是人工确认安全门禁。</p>
   </header>
-  <main>
+    <main>
     <section class="metrics">{''.join(metrics)}</section>
+    {refresh_status_panel}
     {final_brief}
     {action_checklist}
     {review_apply}
