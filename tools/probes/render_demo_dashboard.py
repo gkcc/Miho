@@ -203,6 +203,7 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
         return ""
     doctor_summary = doctor.get("summary") if isinstance(doctor.get("summary"), dict) else {}
     evidence = doctor.get("evidence_check") if isinstance(doctor.get("evidence_check"), dict) else {}
+    action_contract = doctor.get("action_contract") if isinstance(doctor.get("action_contract"), dict) else {}
     commands = doctor.get("commands") if isinstance(doctor.get("commands"), dict) else {}
     blockers = doctor.get("blocking_reasons") if isinstance(doctor.get("blocking_reasons"), list) else []
     warnings = doctor.get("warnings") if isinstance(doctor.get("warnings"), list) else []
@@ -263,9 +264,14 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
         <div><span>preview</span><strong>{e(doctor_summary.get("preview_status", "N/A"))}</strong></div>
         <div><span>apply</span><strong>{e(doctor_summary.get("apply_status", "N/A"))}</strong></div>
         <div><span>诊断证据</span><strong>{e(evidence.get("status", "N/A"))}</strong></div>
+        <div><span>strict_status</span><strong>{e(evidence.get("strict_status", "N/A"))}</strong></div>
         <div><span>preview/apply</span><strong>{e(evidence.get("matched_preview_apply", "N/A"))}</strong></div>
         <div><span>refresh command</span><strong>{e(evidence.get("matched_refresh_command", "N/A"))}</strong></div>
         <div><span>preview run</span><strong>{e(evidence.get("matched_run_manifest", "N/A"))}</strong></div>
+        <div><span>action contract</span><strong>{e(action_contract.get("primary_next_action", "N/A"))}</strong></div>
+        <div><span>launcher 允许</span><strong>{e(bool_text(action_contract.get("allowed_for_launcher")))}</strong></div>
+        <div><span>writes roster</span><strong>{e(bool_text(action_contract.get("writes_roster")))}</strong></div>
+        <div><span>需人工确认</span><strong>{e(bool_text(action_contract.get("requires_manual_confirmation")))}</strong></div>
         <div><span>pending review</span><strong>{e(doctor_summary.get("pending_review_count", "N/A"))}</strong></div>
         <div><span>ready try_now</span><strong>{e(doctor_summary.get("ready_try_now_count", "N/A"))}</strong></div>
         <div><span>run manifest</span><strong>{e(doctor_summary.get("run_manifest_exists", "N/A"))}</strong></div>
@@ -275,6 +281,7 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
       {list_block("诊断警告", warnings, "warnings")}
       {list_block("证据阻断", evidence_blockers, "errors")}
       {list_block("证据警告", evidence_warnings, "warnings")}
+      {list_block("action contract", [action_contract.get("reason")] if action_contract.get("reason") else [], "warnings")}
       {body}
     </section>
     """

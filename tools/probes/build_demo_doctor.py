@@ -164,6 +164,7 @@ def build_evidence_check(
 ) -> dict[str, Any]:
     warnings: list[str] = []
     blockers: list[str] = []
+    strict_status = "trusted"
     matched_preview_apply: bool | None = None
     matched_refresh_command: bool | None = None
     matched_run_manifest: bool | None = None
@@ -178,17 +179,36 @@ def build_evidence_check(
     if preview_ready and preview_has_apply_work:
         if not isinstance(review_apply_receipt, dict):
             matched_preview_apply = False
+            strict_status = "needs_apply"
             warnings.append("apply_receipt_missing_for_ready_preview")
         else:
             matched_preview_apply = True
             expected_preview_hash = receipt_input.get("preview_result_sha256")
-            if expected_preview_hash and current_preview_hash and str(expected_preview_hash) != str(current_preview_hash):
+            if not expected_preview_hash:
                 matched_preview_apply = False
+                strict_status = "needs_apply"
+                warnings.append("apply_receipt_preview_result_sha256_missing")
+            elif not current_preview_hash:
+                matched_preview_apply = False
+                strict_status = "needs_apply"
+                warnings.append("current_review_preview_sha256_missing")
+            elif str(expected_preview_hash) != str(current_preview_hash):
+                matched_preview_apply = False
+                strict_status = "needs_apply"
                 warnings.append("apply_receipt_preview_result_sha256_mismatch")
             expected_decision_hash = receipt_input.get("decision_manifest_sha256")
             current_decision_hash = preview_input.get("decision_manifest_sha256")
-            if expected_decision_hash and current_decision_hash and str(expected_decision_hash) != str(current_decision_hash):
+            if not expected_decision_hash:
                 matched_preview_apply = False
+                strict_status = "blocked"
+                blockers.append("apply_receipt_decision_manifest_sha256_missing")
+            elif not current_decision_hash:
+                matched_preview_apply = False
+                strict_status = "blocked"
+                blockers.append("review_preview_decision_manifest_sha256_missing")
+            elif str(expected_decision_hash) != str(current_decision_hash):
+                matched_preview_apply = False
+                strict_status = "blocked"
                 blockers.append("apply_receipt_decision_manifest_sha256_mismatch")
 
     if isinstance(review_preview, dict) and isinstance(run_manifest, dict):
@@ -196,6 +216,7 @@ def build_evidence_check(
         if expected_run_hash and current_run_hash:
             matched_run_manifest = str(expected_run_hash) == str(current_run_hash)
             if not matched_run_manifest:
+                strict_status = "blocked"
                 blockers.append("review_preview_run_manifest_sha256_mismatch")
 
     if isinstance(refresh_status, dict) and isinstance(demo_command, dict):
@@ -204,15 +225,18 @@ def build_evidence_check(
         if refresh_cmd and command:
             matched_refresh_command = str(refresh_cmd) == str(command)
             if not matched_refresh_command:
+                strict_status = "blocked"
                 blockers.append("refresh_command_mismatch")
 
     status = "trusted"
     if blockers:
         status = "blocked"
+        strict_status = "blocked"
     elif warnings:
         status = "warning"
     return {
         "status": status,
+        "strict_status": strict_status,
         "matched_preview_apply": matched_preview_apply,
         "matched_refresh_command": matched_refresh_command,
         "matched_run_manifest": matched_run_manifest,
@@ -220,6 +244,68 @@ def build_evidence_check(
         "warnings": unique_strings(warnings),
         "blockers": unique_strings(blockers),
     }
+
+
+def build_action_contract(
+    *,
+    primary_next_action: str,
+    command_safe: bool | None,
+) -> dict[str, Any]:
+    base = {
+        "primary_next_action": primary_next_action,
+        "is_read_only": True,
+        "writes_roster": False,
+        "requires_manual_confirmation": False,
+        "allowed_for_launcher": False,
+        "reason": "no launcher action is available for this state",
+    }
+    if primary_next_action == "safe_apply_review_decisions":
+        return {
+            **base,
+            "is_read_only": False,
+            "writes_roster": True,
+            "requires_manual_confirmation": True,
+            "allowed_for_launcher": False,
+            "reason": "write action must be manually confirmed and is never auto-launched",
+        }
+    if primary_next_action == "rerun_demo_pipeline":
+        allowed = command_safe is True
+        return {
+            **base,
+            "is_read_only": False,
+            "writes_roster": False,
+            "requires_manual_confirmation": False,
+            "allowed_for_launcher": allowed,
+            "reason": "demo rerun command is safe to print" if allowed else "demo rerun command is not safe to replay",
+        }
+    if primary_next_action == "try_now":
+        return {
+            **base,
+            "is_read_only": True,
+            "writes_roster": False,
+            "requires_manual_confirmation": False,
+            "allowed_for_launcher": False,
+            "reason": "try_now is a user gameplay action, not a tool command",
+        }
+    if primary_next_action in {"review_snapshots", "review_dashboard"}:
+        return {
+            **base,
+            "requires_manual_confirmation": True,
+            "reason": "manual review is required before any command can be launched",
+        }
+    if primary_next_action == "repair_demo_command":
+        return {
+            **base,
+            "requires_manual_confirmation": True,
+            "reason": "demo command must be repaired before rerun can be launched",
+        }
+    if primary_next_action == "repair_evidence_mismatch":
+        return {
+            **base,
+            "requires_manual_confirmation": True,
+            "reason": "evidence mismatch must be repaired before launcher can trust the state",
+        }
+    return base
 
 
 def diagnose(
@@ -241,7 +327,7 @@ def diagnose(
     checklist_status = str(action_checklist.get("checklist_status") if isinstance(action_checklist, dict) else "missing")
     brief_status = str(final_brief.get("brief_status") if isinstance(final_brief, dict) else "missing")
     apply = apply_status(review_apply_receipt)
-    if evidence_check.get("matched_preview_apply") is False:
+    if evidence_check.get("matched_preview_apply") is False or evidence_check.get("strict_status") == "needs_apply":
         apply = "not_applied"
     run_missing = not isinstance(run_manifest, dict)
     command = command_state(refresh_status)
@@ -260,7 +346,7 @@ def diagnose(
     if has_watch_only(action_checklist, final_brief):
         warnings.append("watch_only_not_try_now")
 
-    if evidence_check.get("status") == "blocked":
+    if evidence_check.get("strict_status") == "blocked" or evidence_check.get("status") == "blocked":
         doctor_status = "blocked"
         primary_next_action = "repair_evidence_mismatch"
         headline = "诊断证据不一致，先修复错批产物"
@@ -304,6 +390,7 @@ def diagnose(
     if not try_now_allowed and has_ready_try_now(action_checklist):
         blocking_reasons.append("ready_try_now_not_actionable_under_current_doctor_status")
 
+    action_contract = build_action_contract(primary_next_action=primary_next_action, command_safe=command_safe)
     return {
         "doctor_status": doctor_status,
         "headline": headline,
@@ -331,6 +418,7 @@ def diagnose(
             "safe_apply": action_checklist.get("safe_apply_command") if isinstance(action_checklist, dict) else None,
         },
         "evidence_check": evidence_check,
+        "action_contract": action_contract,
         "blocking_reasons": unique_strings(blocking_reasons),
         "warnings": unique_strings(warnings),
     }
@@ -411,6 +499,7 @@ def build_demo_doctor(
 def render_markdown(result: dict[str, Any]) -> str:
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
     evidence = result.get("evidence_check") if isinstance(result.get("evidence_check"), dict) else {}
+    action_contract = result.get("action_contract") if isinstance(result.get("action_contract"), dict) else {}
     lines = [
         "# Demo 当前状态诊断",
         "",
@@ -421,6 +510,7 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"- rerun_required: {result.get('rerun_required')}",
         f"- safe_apply_required: {result.get('safe_apply_required')}",
         f"- evidence_status: {evidence.get('status', 'missing')}",
+        f"- strict_status: {evidence.get('strict_status', 'missing')}",
         "",
         "## Summary",
         "",
@@ -429,8 +519,19 @@ def render_markdown(result: dict[str, Any]) -> str:
         lines.append(f"- {key}: {value}")
     if evidence:
         lines.extend(["", "## Evidence Check", ""])
-        for key in ("status", "matched_preview_apply", "matched_refresh_command", "matched_run_manifest"):
+        for key in ("status", "strict_status", "matched_preview_apply", "matched_refresh_command", "matched_run_manifest"):
             lines.append(f"- {key}: {evidence.get(key)}")
+    if action_contract:
+        lines.extend(["", "## Action Contract", ""])
+        for key in (
+            "primary_next_action",
+            "is_read_only",
+            "writes_roster",
+            "requires_manual_confirmation",
+            "allowed_for_launcher",
+            "reason",
+        ):
+            lines.append(f"- {key}: {action_contract.get(key)}")
     commands = result.get("commands") if isinstance(result.get("commands"), dict) else {}
     lines.extend(["", "## Commands", ""])
     for key in ("rerun_demo", "preview", "safe_apply"):

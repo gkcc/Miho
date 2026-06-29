@@ -105,6 +105,9 @@ class DemoDoctorTests(unittest.TestCase):
         self.assertEqual(result["doctor_status"], "ready_to_try")
         self.assertTrue(result["try_now_allowed"])
         self.assertEqual(result["primary_next_action"], "try_now")
+        self.assertFalse(result["action_contract"]["allowed_for_launcher"])
+        self.assertFalse(result["action_contract"]["writes_roster"])
+        self.assertIn("user gameplay action", result["action_contract"]["reason"])
 
     def test_ready_preview_with_accepts_requires_safe_apply(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -120,7 +123,52 @@ class DemoDoctorTests(unittest.TestCase):
         self.assertTrue(result["safe_apply_required"])
         self.assertFalse(result["try_now_allowed"])
         self.assertEqual(result["evidence_check"]["status"], "warning")
+        self.assertEqual(result["evidence_check"]["strict_status"], "needs_apply")
         self.assertIn("apply_receipt_missing_for_ready_preview", result["evidence_check"]["warnings"])
+        self.assertFalse(result["action_contract"]["allowed_for_launcher"])
+        self.assertTrue(result["action_contract"]["writes_roster"])
+        self.assertTrue(result["action_contract"]["requires_manual_confirmation"])
+
+    def test_apply_receipt_missing_preview_hash_needs_apply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                refresh_status=refresh("fresh"),
+                action_checklist=checklist(item_type="review_snapshot"),
+                review_preview=preview(status="ready", accept_count=1, would_update=1),
+                review_apply_receipt={
+                    "schema_version": "p2.5-lite-review-apply-receipt",
+                    "input": {"decision_manifest_sha256": "decision-hash"},
+                },
+                run_manifest={"schema_version": "run"},
+            )
+        self.assertEqual(result["doctor_status"], "needs_apply")
+        self.assertEqual(result["evidence_check"]["status"], "warning")
+        self.assertEqual(result["evidence_check"]["strict_status"], "needs_apply")
+        self.assertFalse(result["evidence_check"]["matched_preview_apply"])
+        self.assertIn("apply_receipt_preview_result_sha256_missing", result["evidence_check"]["warnings"])
+
+    def test_apply_receipt_missing_decision_hash_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            preview_path = write_json(root / "review_preview.json", preview(status="ready", accept_count=1, would_update=1))
+            receipt = {
+                "schema_version": "p2.5-lite-review-apply-receipt",
+                "input": {"preview_result_sha256": sha256(preview_path)},
+            }
+            result = doctor_tool.build_demo_doctor(
+                output_dir=root / "doctor",
+                refresh_status=write_json(root / "refresh_status.json", refresh("fresh")),
+                action_checklist=write_json(root / "action_checklist.json", checklist(item_type="review_snapshot")),
+                review_preview=preview_path,
+                review_apply_receipt=write_json(root / "review_apply_receipt.json", receipt),
+                run_manifest=write_json(root / "run_manifest.json", {"schema_version": "run"}),
+            )
+        self.assertEqual(result["doctor_status"], "blocked")
+        self.assertEqual(result["primary_next_action"], "repair_evidence_mismatch")
+        self.assertEqual(result["evidence_check"]["strict_status"], "blocked")
+        self.assertIn("apply_receipt_decision_manifest_sha256_missing", result["evidence_check"]["blockers"])
 
     def test_old_apply_receipt_does_not_satisfy_current_preview(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -138,6 +186,7 @@ class DemoDoctorTests(unittest.TestCase):
             )
         self.assertEqual(result["doctor_status"], "needs_apply")
         self.assertEqual(result["evidence_check"]["status"], "warning")
+        self.assertEqual(result["evidence_check"]["strict_status"], "needs_apply")
         self.assertFalse(result["evidence_check"]["matched_preview_apply"])
         self.assertIn("apply_receipt_preview_result_sha256_mismatch", result["evidence_check"]["warnings"])
 
@@ -158,6 +207,7 @@ class DemoDoctorTests(unittest.TestCase):
         self.assertEqual(result["doctor_status"], "blocked")
         self.assertEqual(result["primary_next_action"], "repair_evidence_mismatch")
         self.assertEqual(result["evidence_check"]["status"], "blocked")
+        self.assertEqual(result["evidence_check"]["strict_status"], "blocked")
         self.assertIn("apply_receipt_decision_manifest_sha256_mismatch", result["evidence_check"]["blockers"])
 
     def test_preview_run_manifest_mismatch_blocks_doctor(self) -> None:
@@ -175,6 +225,7 @@ class DemoDoctorTests(unittest.TestCase):
             )
         self.assertEqual(result["doctor_status"], "blocked")
         self.assertFalse(result["evidence_check"]["matched_run_manifest"])
+        self.assertEqual(result["evidence_check"]["strict_status"], "blocked")
         self.assertIn("review_preview_run_manifest_sha256_mismatch", result["evidence_check"]["blockers"])
 
     def test_matching_apply_receipt_marks_preview_apply_trusted(self) -> None:
@@ -197,6 +248,7 @@ class DemoDoctorTests(unittest.TestCase):
                 run_manifest=run_path,
             )
         self.assertEqual(result["evidence_check"]["status"], "trusted")
+        self.assertEqual(result["evidence_check"]["strict_status"], "trusted")
         self.assertTrue(result["evidence_check"]["matched_preview_apply"])
 
     def test_pending_review_requires_manual_review(self) -> None:
@@ -245,6 +297,7 @@ class DemoDoctorTests(unittest.TestCase):
             )
         self.assertEqual(result["doctor_status"], "ready_to_try")
         self.assertIn("demo_command_not_safe_to_rerun", result["warnings"])
+        self.assertFalse(result["action_contract"]["allowed_for_launcher"])
 
     def test_stale_refresh_with_unsafe_command_blocks_repair_command(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -258,6 +311,22 @@ class DemoDoctorTests(unittest.TestCase):
         self.assertEqual(result["doctor_status"], "blocked")
         self.assertEqual(result["primary_next_action"], "repair_demo_command")
         self.assertFalse(result["try_now_allowed"])
+        self.assertFalse(result["action_contract"]["allowed_for_launcher"])
+        self.assertIn("repaired", result["action_contract"]["reason"])
+
+    def test_stale_refresh_with_safe_command_contract_allows_launcher_print(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                refresh_status=refresh("stale_after_apply", safe_to_rerun=True),
+                action_checklist=checklist(),
+                run_manifest={"schema_version": "run"},
+            )
+        self.assertEqual(result["primary_next_action"], "rerun_demo_pipeline")
+        self.assertTrue(result["action_contract"]["allowed_for_launcher"])
+        self.assertFalse(result["action_contract"]["writes_roster"])
+        self.assertFalse(result["action_contract"]["requires_manual_confirmation"])
 
     def test_ready_try_now_count_counts_all_ready_items(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

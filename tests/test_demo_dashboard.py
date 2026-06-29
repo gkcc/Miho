@@ -201,11 +201,20 @@ class DemoDashboardTests(unittest.TestCase):
                 },
                 "evidence_check": {
                     "status": "warning",
+                    "strict_status": "needs_apply",
                     "matched_preview_apply": False,
                     "matched_refresh_command": True,
                     "matched_run_manifest": True,
                     "warnings": ["apply_receipt_preview_result_sha256_mismatch"],
                     "blockers": [],
+                },
+                "action_contract": {
+                    "primary_next_action": "rerun_demo_pipeline",
+                    "is_read_only": False,
+                    "writes_roster": False,
+                    "requires_manual_confirmation": False,
+                    "allowed_for_launcher": True,
+                    "reason": "demo rerun command is safe to print",
                 },
                 "blocking_reasons": ["ready_try_now_not_actionable_under_current_doctor_status"],
                 "warnings": [],
@@ -339,6 +348,12 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("needs_rerun", html)
         self.assertIn("不建议执行 try_now", html)
         self.assertIn("诊断证据", html)
+        self.assertIn("strict_status", html)
+        self.assertIn("needs_apply", html)
+        self.assertIn("action contract", html)
+        self.assertIn("launcher 允许", html)
+        self.assertIn("writes roster", html)
+        self.assertIn("demo rerun command is safe to print", html)
         self.assertIn("apply_receipt_preview_result_sha256_mismatch", html)
         self.assertIn("ready_try_now_not_actionable_under_current_doctor_status", html)
         self.assertIn("demo_doctor.json", html)
