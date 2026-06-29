@@ -199,6 +199,14 @@ class DemoDashboardTests(unittest.TestCase):
                     "preview": "python tools/probes/preview_review_decisions.py --decision-manifest data/probes/demo/action_checklist/review_decisions_template.json",
                     "safe_apply": "python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized --decision-manifest data/probes/demo/action_checklist/review_decisions_template.json --roster-dir data/probes/roster --preview-result data/probes/demo/review_preview/review_decision_preview.json --require-preview-ready",
                 },
+                "evidence_check": {
+                    "status": "warning",
+                    "matched_preview_apply": False,
+                    "matched_refresh_command": True,
+                    "matched_run_manifest": True,
+                    "warnings": ["apply_receipt_preview_result_sha256_mismatch"],
+                    "blockers": [],
+                },
                 "blocking_reasons": ["ready_try_now_not_actionable_under_current_doctor_status"],
                 "warnings": [],
                 "output_json": "data/probes/demo/demo_doctor/demo_doctor.json",
@@ -330,6 +338,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("诊断结论", html)
         self.assertIn("needs_rerun", html)
         self.assertIn("不建议执行 try_now", html)
+        self.assertIn("诊断证据", html)
+        self.assertIn("apply_receipt_preview_result_sha256_mismatch", html)
         self.assertIn("ready_try_now_not_actionable_under_current_doctor_status", html)
         self.assertIn("demo_doctor.json", html)
         self.assertIn("今日作战简报", html)

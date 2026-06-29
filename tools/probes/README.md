@@ -335,7 +335,7 @@ data/probes/demo/snapshot_history/index.json
 
 `index.html` 是单文件静态 Dashboard，可以直接双击打开。Dashboard 会展示：
 
-* 顶部“当前状态诊断”：先判断下一步是重跑 demo、人工复核、safe apply，还是可以按执行清单 try_now；
+* 顶部“当前状态诊断”：先判断下一步是重跑 demo、人工复核、safe apply，还是可以按执行清单 try_now；同时显示 `诊断证据=trusted/warning/blocked`；
 * 图片 / parsed case 数；
 * 当前输入模式：`OCR fresh image mode`、`parsed replay mode` 或 `manifest controlled mode`；
 * parsed-dir 模式下发现了多少历史 parsed JSON、实际使用了多少；
@@ -375,7 +375,7 @@ data/probes/demo/snapshot_history/index.json
 * Dashboard 会显示“练度更新收件箱”：demo normalized snapshot 是 OCR/解析候选，只有进入 accepted roster 的 snapshot 才能作为已确认 box。
 * Team card 里的 `pending_snapshot` 只是待确认解析候选，`catalog_candidate` 不代表已拥有，`catalog_owned_missing_snapshot` 也不能算可出战练度；只有 accepted roster 中的 `owned_snapshot` 才能作为可用练度证据。
 * Tier watchlist 会标记 `verified` / `stale` / `unverified` / `low_trust`。只有 verified 且属于 accepted roster 的高保值信号能辅助队伍排序；stale/unverified/low_trust 只能作为弱参考。
-* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`、`refresh_status.json/md`、`final_brief.json/md`、`action_checklist.json/md`、`review_decision_preview.json/md` 和 `demo_doctor.json/md`，并在 Dashboard 顶部按“当前状态诊断 -> 刷新状态 -> 今日作战简报 -> 执行清单”显示。简报和清单是 demo 的第一阅读层，用于回答“今天先做什么”；`demo_doctor` 是 read-only 汇总，只决定当前下一步，不会重跑 OCR、不会 apply、不会改 roster。如果 run manifest 缺失、错批，或 apply receipt 显示当前 demo 尚未吸收最新 accepted roster，`try_now` 会被阻断。方案包、简报、清单、refresh status、preview 和 doctor 只聚合本地证据，用于区分 `try_now` / `review_snapshot` / `record_character` / `watch_only` / `data_warning`，不是抽卡建议，也不是自动通关保证。
+* 如果 accepted roster 和 team cards 都存在，还会先生成 `run_manifest.json`，再生成 `endgame_plan.json/md`、`refresh_status.json/md`、`final_brief.json/md`、`action_checklist.json/md`、`review_decision_preview.json/md` 和 `demo_doctor.json/md`，并在 Dashboard 顶部按“当前状态诊断 -> 刷新状态 -> 今日作战简报 -> 执行清单”显示。简报和清单是 demo 的第一阅读层，用于回答“今天先做什么”；`demo_doctor` 是 read-only 汇总，只决定当前下一步，不会重跑 OCR、不会 apply、不会改 roster。`evidence_check` 会比对当前 preview sha256、apply receipt 记录的 preview/decision sha256、当前 run_manifest sha256，以及 refresh command 与 demo_command 是否一致；旧 receipt、错批 preview/run_manifest、不可回放重跑命令会把诊断降级为 `needs_apply` 或 `blocked`。如果 run manifest 缺失、错批，或 apply receipt 显示当前 demo 尚未吸收最新 accepted roster，`try_now` 会被阻断。方案包、简报、清单、refresh status、preview 和 doctor 只聚合本地证据，用于区分 `try_now` / `review_snapshot` / `record_character` / `watch_only` / `data_warning`，不是抽卡建议，也不是自动通关保证。
 
 P0.9 replay batch 验收命令：
 
@@ -562,7 +562,7 @@ safe apply 规则：
 * CLI 只要传入 `--preview-result`，就会按 `--require-preview-ready` 的安全语义执行，避免误用非 ready preview；
 * apply 会额外写入 `data/probes/roster/review_apply_receipt.json/md`，每条记录包含 `did_write_accepted`、`did_write_rejected`、`did_enter_roster`、`preview_validation_status` 和 source hash；
 * demo pipeline 会读取该 receipt，并在 Dashboard 的“复核应用回执”面板展示应用结果，不需要先打开 JSON 才知道是否真正进入 roster；
-* demo pipeline 还会生成 `data/probes/demo/demo_command.json/md`、`data/probes/demo/refresh_status/refresh_status.json/md` 和 `data/probes/demo/demo_doctor/demo_doctor.json/md`。如果 receipt 比 run manifest 新、当前 `roster_index.json` SHA256 与 run manifest 记录不一致，或刷新状态无法确认，`refresh_status=stale_after_apply/unknown`，Final Brief、Action Checklist 和 Demo Doctor 会阻断 `try_now`，提示先按 `demo_command` 记录的真实命令重跑 demo pipeline。
+* demo pipeline 还会生成 `data/probes/demo/demo_command.json/md`、`data/probes/demo/refresh_status/refresh_status.json/md` 和 `data/probes/demo/demo_doctor/demo_doctor.json/md`。如果 receipt 比 run manifest 新、当前 `roster_index.json` SHA256 与 run manifest 记录不一致，或刷新状态无法确认，`refresh_status=stale_after_apply/unknown`，Final Brief、Action Checklist 和 Demo Doctor 会阻断 `try_now`，提示先按 `demo_command` 记录的真实命令重跑 demo pipeline；如果该命令本身 `safe_to_rerun=false`，Demo Doctor 会显示 `doctor_status=blocked` 和 `primary_next_action=repair_demo_command`。
 
 手动检查刷新状态：
 

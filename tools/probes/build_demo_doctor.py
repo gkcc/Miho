@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -53,6 +54,16 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def sha256_file(path: Path | None) -> str | None:
+    if path is None or not path.exists() or not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
@@ -68,13 +79,18 @@ def int_value(value: Any) -> int:
         return 0
 
 
-def has_ready_try_now(action_checklist: dict[str, Any] | None) -> bool:
+def ready_try_now_count(action_checklist: dict[str, Any] | None) -> int:
     if not isinstance(action_checklist, dict):
-        return False
-    for item in as_list(action_checklist.get("items")):
-        if isinstance(item, dict) and item.get("item_type") == "try_now" and item.get("status") == "ready":
-            return True
-    return False
+        return 0
+    return sum(
+        1
+        for item in as_list(action_checklist.get("items"))
+        if isinstance(item, dict) and item.get("item_type") == "try_now" and item.get("status") == "ready"
+    )
+
+
+def has_ready_try_now(action_checklist: dict[str, Any] | None) -> bool:
+    return ready_try_now_count(action_checklist) > 0
 
 
 def has_review_snapshot(action_checklist: dict[str, Any] | None) -> bool:
@@ -132,6 +148,80 @@ def refresh_command(refresh_status: dict[str, Any] | None, demo_command: dict[st
     return None
 
 
+def input_info(data: dict[str, Any] | None) -> dict[str, Any]:
+    raw = data.get("input") if isinstance(data, dict) else {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def build_evidence_check(
+    *,
+    refresh_status: dict[str, Any] | None,
+    review_preview: dict[str, Any] | None,
+    review_apply_receipt: dict[str, Any] | None,
+    run_manifest: dict[str, Any] | None,
+    demo_command: dict[str, Any] | None,
+    hashes: dict[str, str | None],
+) -> dict[str, Any]:
+    warnings: list[str] = []
+    blockers: list[str] = []
+    matched_preview_apply: bool | None = None
+    matched_refresh_command: bool | None = None
+    matched_run_manifest: bool | None = None
+
+    preview_input = input_info(review_preview)
+    receipt_input = input_info(review_apply_receipt)
+    current_preview_hash = hashes.get("review_preview")
+    current_run_hash = hashes.get("run_manifest")
+
+    preview_ready = isinstance(review_preview, dict) and str(review_preview.get("preview_status") or "") in {"ready", "ready_with_override"}
+    preview_has_apply_work = preview_accept_count(review_preview) > 0 or preview_would_update_count(review_preview) > 0
+    if preview_ready and preview_has_apply_work:
+        if not isinstance(review_apply_receipt, dict):
+            matched_preview_apply = False
+            warnings.append("apply_receipt_missing_for_ready_preview")
+        else:
+            matched_preview_apply = True
+            expected_preview_hash = receipt_input.get("preview_result_sha256")
+            if expected_preview_hash and current_preview_hash and str(expected_preview_hash) != str(current_preview_hash):
+                matched_preview_apply = False
+                warnings.append("apply_receipt_preview_result_sha256_mismatch")
+            expected_decision_hash = receipt_input.get("decision_manifest_sha256")
+            current_decision_hash = preview_input.get("decision_manifest_sha256")
+            if expected_decision_hash and current_decision_hash and str(expected_decision_hash) != str(current_decision_hash):
+                matched_preview_apply = False
+                blockers.append("apply_receipt_decision_manifest_sha256_mismatch")
+
+    if isinstance(review_preview, dict) and isinstance(run_manifest, dict):
+        expected_run_hash = preview_input.get("run_manifest_sha256")
+        if expected_run_hash and current_run_hash:
+            matched_run_manifest = str(expected_run_hash) == str(current_run_hash)
+            if not matched_run_manifest:
+                blockers.append("review_preview_run_manifest_sha256_mismatch")
+
+    if isinstance(refresh_status, dict) and isinstance(demo_command, dict):
+        refresh_cmd = refresh_status.get("refresh_command")
+        command = demo_command.get("command")
+        if refresh_cmd and command:
+            matched_refresh_command = str(refresh_cmd) == str(command)
+            if not matched_refresh_command:
+                blockers.append("refresh_command_mismatch")
+
+    status = "trusted"
+    if blockers:
+        status = "blocked"
+    elif warnings:
+        status = "warning"
+    return {
+        "status": status,
+        "matched_preview_apply": matched_preview_apply,
+        "matched_refresh_command": matched_refresh_command,
+        "matched_run_manifest": matched_run_manifest,
+        "artifact_hashes": {key: value for key, value in hashes.items() if value},
+        "warnings": unique_strings(warnings),
+        "blockers": unique_strings(blockers),
+    }
+
+
 def diagnose(
     *,
     refresh_status: dict[str, Any] | None,
@@ -142,6 +232,7 @@ def diagnose(
     review_apply_receipt: dict[str, Any] | None,
     run_manifest: dict[str, Any] | None,
     demo_command: dict[str, Any] | None,
+    evidence_check: dict[str, Any],
 ) -> dict[str, Any]:
     warnings: list[str] = []
     blocking_reasons: list[str] = []
@@ -150,6 +241,8 @@ def diagnose(
     checklist_status = str(action_checklist.get("checklist_status") if isinstance(action_checklist, dict) else "missing")
     brief_status = str(final_brief.get("brief_status") if isinstance(final_brief, dict) else "missing")
     apply = apply_status(review_apply_receipt)
+    if evidence_check.get("matched_preview_apply") is False:
+        apply = "not_applied"
     run_missing = not isinstance(run_manifest, dict)
     command = command_state(refresh_status)
     command_safe = command.get("safe_to_rerun")
@@ -158,12 +251,24 @@ def diagnose(
         blocking_reasons.append("missing_run_manifest")
     if not isinstance(refresh_status, dict):
         blocking_reasons.append("missing_refresh_status")
+    for item in as_list(evidence_check.get("blockers")):
+        blocking_reasons.append(str(item))
+    for item in as_list(evidence_check.get("warnings")):
+        warnings.append(str(item))
     if command_safe is False:
         warnings.append("demo_command_not_safe_to_rerun")
     if has_watch_only(action_checklist, final_brief):
         warnings.append("watch_only_not_try_now")
 
-    if refresh in {"stale_after_apply", "unknown"} or "missing_refresh_status" in blocking_reasons:
+    if evidence_check.get("status") == "blocked":
+        doctor_status = "blocked"
+        primary_next_action = "repair_evidence_mismatch"
+        headline = "诊断证据不一致，先修复错批产物"
+    elif (refresh in {"stale_after_apply", "unknown"} or "missing_refresh_status" in blocking_reasons) and command_safe is False:
+        doctor_status = "blocked"
+        primary_next_action = "repair_demo_command"
+        headline = "需要重跑，但 demo 命令不可回放"
+    elif refresh in {"stale_after_apply", "unknown"} or "missing_refresh_status" in blocking_reasons:
         doctor_status = "needs_rerun"
         primary_next_action = "rerun_demo_pipeline"
         headline = "先重跑 demo pipeline，刷新本轮建议"
@@ -214,7 +319,7 @@ def diagnose(
             "preview_status": preview_status,
             "apply_status": apply,
             "pending_review_count": pending_review_count(review_inbox),
-            "ready_try_now_count": 1 if has_ready_try_now(action_checklist) else 0,
+            "ready_try_now_count": ready_try_now_count(action_checklist),
             "preview_accept_count": preview_accept_count(review_preview),
             "preview_would_update_roster_count": preview_would_update_count(review_preview),
             "run_manifest_exists": isinstance(run_manifest, dict),
@@ -225,6 +330,7 @@ def diagnose(
             "preview": action_checklist.get("preview_command") if isinstance(action_checklist, dict) else None,
             "safe_apply": action_checklist.get("safe_apply_command") if isinstance(action_checklist, dict) else None,
         },
+        "evidence_check": evidence_check,
         "blocking_reasons": unique_strings(blocking_reasons),
         "warnings": unique_strings(warnings),
     }
@@ -259,6 +365,23 @@ def build_demo_doctor(
         review_apply_receipt=apply_data,
         run_manifest=run_data,
         demo_command=command_data,
+        evidence_check=build_evidence_check(
+            refresh_status=refresh_data,
+            review_preview=preview_data,
+            review_apply_receipt=apply_data,
+            run_manifest=run_data,
+            demo_command=command_data,
+            hashes={
+                "refresh_status": sha256_file(refresh_status),
+                "final_brief": sha256_file(final_brief),
+                "action_checklist": sha256_file(action_checklist),
+                "review_inbox": sha256_file(review_inbox),
+                "review_preview": sha256_file(review_preview),
+                "review_apply_receipt": sha256_file(review_apply_receipt),
+                "run_manifest": sha256_file(run_manifest),
+                "demo_command": sha256_file(demo_command),
+            },
+        ),
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "demo_doctor.json"
@@ -287,6 +410,7 @@ def build_demo_doctor(
 
 def render_markdown(result: dict[str, Any]) -> str:
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    evidence = result.get("evidence_check") if isinstance(result.get("evidence_check"), dict) else {}
     lines = [
         "# Demo 当前状态诊断",
         "",
@@ -296,12 +420,17 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"- try_now_allowed: {result.get('try_now_allowed')}",
         f"- rerun_required: {result.get('rerun_required')}",
         f"- safe_apply_required: {result.get('safe_apply_required')}",
+        f"- evidence_status: {evidence.get('status', 'missing')}",
         "",
         "## Summary",
         "",
     ]
     for key, value in summary.items():
         lines.append(f"- {key}: {value}")
+    if evidence:
+        lines.extend(["", "## Evidence Check", ""])
+        for key in ("status", "matched_preview_apply", "matched_refresh_command", "matched_run_manifest"):
+            lines.append(f"- {key}: {evidence.get(key)}")
     commands = result.get("commands") if isinstance(result.get("commands"), dict) else {}
     lines.extend(["", "## Commands", ""])
     for key in ("rerun_demo", "preview", "safe_apply"):

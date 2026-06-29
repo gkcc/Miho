@@ -202,9 +202,12 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
     if not isinstance(doctor, dict):
         return ""
     doctor_summary = doctor.get("summary") if isinstance(doctor.get("summary"), dict) else {}
+    evidence = doctor.get("evidence_check") if isinstance(doctor.get("evidence_check"), dict) else {}
     commands = doctor.get("commands") if isinstance(doctor.get("commands"), dict) else {}
     blockers = doctor.get("blocking_reasons") if isinstance(doctor.get("blocking_reasons"), list) else []
     warnings = doctor.get("warnings") if isinstance(doctor.get("warnings"), list) else []
+    evidence_blockers = evidence.get("blockers") if isinstance(evidence.get("blockers"), list) else []
+    evidence_warnings = evidence.get("warnings") if isinstance(evidence.get("warnings"), list) else []
     status = str(doctor.get("doctor_status") or "unknown")
     if doctor.get("error"):
         body = f'<div class="errors"><strong>Demo Doctor failed</strong><ul><li>{e(doctor.get("error"))}</li></ul></div>'
@@ -259,6 +262,10 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
         <div><span>checklist</span><strong>{e(doctor_summary.get("checklist_status", "N/A"))}</strong></div>
         <div><span>preview</span><strong>{e(doctor_summary.get("preview_status", "N/A"))}</strong></div>
         <div><span>apply</span><strong>{e(doctor_summary.get("apply_status", "N/A"))}</strong></div>
+        <div><span>诊断证据</span><strong>{e(evidence.get("status", "N/A"))}</strong></div>
+        <div><span>preview/apply</span><strong>{e(evidence.get("matched_preview_apply", "N/A"))}</strong></div>
+        <div><span>refresh command</span><strong>{e(evidence.get("matched_refresh_command", "N/A"))}</strong></div>
+        <div><span>preview run</span><strong>{e(evidence.get("matched_run_manifest", "N/A"))}</strong></div>
         <div><span>pending review</span><strong>{e(doctor_summary.get("pending_review_count", "N/A"))}</strong></div>
         <div><span>ready try_now</span><strong>{e(doctor_summary.get("ready_try_now_count", "N/A"))}</strong></div>
         <div><span>run manifest</span><strong>{e(doctor_summary.get("run_manifest_exists", "N/A"))}</strong></div>
@@ -266,6 +273,8 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
       {status_copy}
       {list_block("阻断原因", blockers, "errors")}
       {list_block("诊断警告", warnings, "warnings")}
+      {list_block("证据阻断", evidence_blockers, "errors")}
+      {list_block("证据警告", evidence_warnings, "warnings")}
       {body}
     </section>
     """
@@ -1443,6 +1452,11 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
         metric_card("当前诊断", doctor_info.get("doctor_status", "N/A") if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
         metric_card("诊断下一步", action_label(doctor_info.get("primary_next_action")) if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
+        metric_card(
+            "诊断证据",
+            doctor_info.get("evidence_check", {}).get("status", "N/A") if isinstance(doctor_info.get("evidence_check"), dict) else "N/A",
+            status_class(doctor_info.get("evidence_check", {}).get("status")) if isinstance(doctor_info.get("evidence_check"), dict) else "muted",
+        ),
         metric_card("try_now 允许", bool_text(doctor_info.get("try_now_allowed")) if doctor_info else "N/A", "ok" if doctor_info.get("try_now_allowed") else "bad" if doctor_info else "muted"),
         metric_card("刷新状态", refresh_info.get("refresh_status", "N/A") if refresh_info else "N/A", status_class(refresh_info.get("refresh_status")) if refresh_info else "muted"),
         metric_card("需要重跑", refresh_summary.get("needs_demo_refresh", "N/A") if refresh_summary else "N/A", "bad" if refresh_summary.get("needs_demo_refresh") else "muted"),
