@@ -205,6 +205,18 @@ def markdown_report(report: dict[str, Any]) -> str:
         for item in items:
             lines.append(f"- warning: {item}")
         lines.append("")
+    history_retention = report.get("history_retention") if isinstance(report.get("history_retention"), dict) else {}
+    if history_retention:
+        lines.extend(["## History Retention", ""])
+        for key in ("attempted", "max_history", "kept_count"):
+            lines.append(f"- {key}: {history_retention.get(key)}")
+        deleted_files = history_retention.get("deleted_files") if isinstance(history_retention.get("deleted_files"), list) else []
+        for item in deleted_files:
+            lines.append(f"- deleted_file: {item}")
+        items = history_retention.get("warnings") if isinstance(history_retention.get("warnings"), list) else []
+        for item in items:
+            lines.append(f"- warning: {item}")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -220,6 +232,80 @@ def write_launcher_report_files(report: dict[str, Any]) -> None:
     md_path.write_text(report_markdown, encoding="utf-8")
     history_md_path.parent.mkdir(parents=True, exist_ok=True)
     history_md_path.write_text(report_markdown, encoding="utf-8")
+
+
+def history_retention_record(*, attempted: bool, max_history: int | None = None) -> dict[str, Any]:
+    return {
+        "attempted": attempted,
+        "max_history": max_history,
+        "kept_count": None,
+        "deleted_files": [],
+        "warnings": [],
+    }
+
+
+def launcher_history_groups(history_dir: Path) -> dict[str, list[Path]]:
+    groups: dict[str, list[Path]] = {}
+    if not history_dir.exists():
+        return groups
+    for suffix in ("json", "md"):
+        for path in history_dir.glob(f"launcher_report_*.{suffix}"):
+            if path.is_file():
+                groups.setdefault(path.stem, []).append(path)
+    return groups
+
+
+def apply_history_retention(report: dict[str, Any], max_history: int | None) -> dict[str, Any]:
+    retention = history_retention_record(attempted=max_history is not None, max_history=max_history)
+    if max_history is None:
+        return retention
+    if max_history < 1:
+        retention["warnings"].append("history_retention_invalid_max_history")
+        return retention
+    history_json_value = str(report.get("output_history_json") or "")
+    if not history_json_value:
+        retention["warnings"].append("history_retention_missing_current_history_path")
+        return retention
+    history_json = Path(history_json_value)
+    history_dir = history_json.parent
+    current_stem = history_json.stem
+    groups = launcher_history_groups(history_dir)
+    if not groups:
+        retention["kept_count"] = 0
+        return retention
+
+    def group_sort_key(item: tuple[str, list[Path]]) -> tuple[float, str]:
+        stem, paths = item
+        mtimes = []
+        for path in paths:
+            try:
+                mtimes.append(path.stat().st_mtime)
+            except OSError:
+                continue
+        return (max(mtimes) if mtimes else 0.0, stem)
+
+    sorted_stems = [stem for stem, _paths in sorted(groups.items(), key=group_sort_key, reverse=True)]
+    keep = set(sorted_stems[:max_history])
+    if current_stem in groups and current_stem not in keep:
+        keep.add(current_stem)
+        if len(keep) > max_history:
+            for stem in reversed(sorted_stems):
+                if stem != current_stem and stem in keep:
+                    keep.remove(stem)
+                    break
+    deleted_files: list[str] = []
+    for stem, paths in groups.items():
+        if stem in keep:
+            continue
+        for path in paths:
+            try:
+                path.unlink()
+                deleted_files.append(str(path))
+            except OSError as exc:
+                retention["warnings"].append(f"history_retention_delete_failed: {path}: {exc}")
+    retention["kept_count"] = len(keep)
+    retention["deleted_files"] = deleted_files
+    return retention
 
 
 def import_demo_pipeline_module() -> Any:
@@ -472,6 +558,7 @@ def launch_doctor(
     refresh_dashboard: bool = False,
     dashboard_summary_path: Path | None = None,
     dashboard_html_path: Path | None = None,
+    max_history: int | None = None,
     argv: list[str] | None = None,
     runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
 ) -> tuple[int, dict[str, Any]]:
@@ -591,6 +678,7 @@ def launch_doctor(
     report["output_md"] = str(md_path)
     report["output_history_json"] = str(history_json_path)
     report["output_history_md"] = str(history_md_path)
+    report["history_retention"] = history_retention_record(attempted=False)
     report["dashboard_refresh"] = dashboard_refresh_record(
         out_dir,
         attempted=False,
@@ -613,6 +701,12 @@ def launch_doctor(
             warnings.extend(as_string_list(refresh.get("warnings")))
             report["warnings"] = warnings
         write_launcher_report_files(report)
+    retention = apply_history_retention(report, max_history)
+    report["history_retention"] = retention
+    if retention.get("warnings"):
+        warnings.extend(as_string_list(retention.get("warnings")))
+        report["warnings"] = warnings
+    write_launcher_report_files(report)
 
     if launcher_status == "blocked" or (executed and returncode not in (0, None)):
         exit_code = 2 if returncode in (0, None) else int(returncode)
@@ -644,6 +738,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dashboard-summary", default=None, help="Explicit demo_summary.json to refresh. Default: parent of launcher output dir.")
     parser.add_argument("--dashboard-html", default=None, help="Dashboard HTML output path. Default: index.html beside --dashboard-summary.")
+    parser.add_argument("--max-history", type=int, default=None, help="Keep only the newest N launcher history report groups in this output dir.")
     return parser
 
 
@@ -665,6 +760,7 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
             refresh_dashboard=bool(args.refresh_dashboard),
             dashboard_summary_path=dashboard_summary,
             dashboard_html_path=dashboard_html,
+            max_history=args.max_history,
             argv=argv if argv is not None else sys.argv[1:],
             runner=runner,
         )
@@ -690,6 +786,11 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
         print(f"dashboard_refresh_status: {dashboard_refresh.get('status')}")
         print(f"dashboard_refresh_summary_json: {dashboard_refresh.get('summary_json')}")
         print(f"dashboard_refresh_html: {dashboard_refresh.get('dashboard_html')}")
+    history_retention = report.get("history_retention") if isinstance(report.get("history_retention"), dict) else {}
+    if history_retention:
+        print(f"history_retention_attempted: {history_retention.get('attempted')}")
+        print(f"history_retention_kept_count: {history_retention.get('kept_count')}")
+        print(f"history_retention_deleted_count: {len(history_retention.get('deleted_files', [])) if isinstance(history_retention.get('deleted_files'), list) else 0}")
     follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
     if follow_up:
         print(f"follow_up_loaded: {follow_up.get('loaded')}")

@@ -96,6 +96,19 @@ def demo_summary_json() -> dict:
     }
 
 
+def write_history_file(path: Path, *, mtime: float) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}", encoding="utf-8")
+    os.utime(path, (mtime, mtime))
+    return path
+
+
+def history_stems(history_dir: Path) -> set[str]:
+    return {path.stem for path in history_dir.glob("launcher_report_*.json")} | {
+        path.stem for path in history_dir.glob("launcher_report_*.md")
+    }
+
+
 class DoctorLauncherTests(unittest.TestCase):
     def test_default_rerun_only_prints_command(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -591,6 +604,64 @@ class DoctorLauncherTests(unittest.TestCase):
             self.assertIn("started_at", report)
             self.assertIn("finished_at", report)
             self.assertIn("duration_ms", report)
+
+    def test_max_history_retains_newest_groups_and_current_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_dir = root / "launcher"
+            history_dir = output_dir / "history"
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            old_pair = "launcher_report_20000101_000000_000000+0000"
+            newest_pair = "launcher_report_20000102_000000_000000+0000"
+            orphan_json = "launcher_report_20000103_000000_000000+0000"
+            orphan_md = "launcher_report_20000104_000000_000000+0000"
+            write_history_file(history_dir / f"{old_pair}.json", mtime=100)
+            write_history_file(history_dir / f"{old_pair}.md", mtime=100)
+            write_history_file(history_dir / f"{newest_pair}.json", mtime=200)
+            write_history_file(history_dir / f"{newest_pair}.md", mtime=200)
+            write_history_file(history_dir / f"{orphan_json}.json", mtime=50)
+            write_history_file(history_dir / f"{orphan_md}.md", mtime=60)
+            unrelated = write_history_file(history_dir / "keep_me.txt", mtime=10)
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                output_dir=output_dir,
+                max_history=2,
+            )
+
+            current_stem = Path(report["output_history_json"]).stem
+            stems = history_stems(history_dir)
+            latest_report = json.loads(Path(report["output_json"]).read_text(encoding="utf-8"))
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn(current_stem, stems)
+            self.assertEqual(len(stems), 2)
+            self.assertNotIn(old_pair, stems)
+            self.assertNotIn(orphan_json, stems)
+            self.assertNotIn(orphan_md, stems)
+            self.assertTrue(unrelated.exists())
+            self.assertTrue(report["history_retention"]["attempted"])
+            self.assertEqual(report["history_retention"]["max_history"], 2)
+            self.assertEqual(report["history_retention"]["kept_count"], 2)
+            self.assertGreaterEqual(len(report["history_retention"]["deleted_files"]), 4)
+            self.assertTrue(latest_report["history_retention"]["attempted"])
+
+    def test_history_retention_is_skipped_without_max_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_dir = root / "launcher"
+            history_dir = output_dir / "history"
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            old_stem = "launcher_report_20000101_000000_000000+0000"
+            old_json = write_history_file(history_dir / f"{old_stem}.json", mtime=100)
+            old_md = write_history_file(history_dir / f"{old_stem}.md", mtime=100)
+
+            exit_code, report = launcher_tool.launch_doctor(doctor_path=doctor_path, output_dir=output_dir)
+
+            self.assertEqual(exit_code, 0)
+            self.assertFalse(report["history_retention"]["attempted"])
+            self.assertTrue(old_json.exists())
+            self.assertTrue(old_md.exists())
 
     def test_refresh_dashboard_updates_summary_and_html_without_rerunning_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

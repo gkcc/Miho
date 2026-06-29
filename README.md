@@ -40,6 +40,8 @@ P3.5-lite 起，demo pipeline 如果发现 `data/probes/demo/launcher/launcher_r
 
 P3.7-lite 起，`doctor_launcher.py` 可在写入 latest launcher report 后追加 `--refresh-dashboard`。该参数只读取既有 `data/probes/demo/demo_summary.json`，重新注入 latest launcher report，并调用 Dashboard renderer 生成 `data/probes/demo/index.html`；它不会重跑 demo pipeline、不会 OCR、不会 normalize、不会 planner、不会写 roster，也不会执行 safe apply 或 try_now。P3.7-fix 支持用 `--dashboard-summary` / `--dashboard-html` 显式指定刷新目标；未指定时仍按 launcher output dir 的 parent 推断，并在自定义 launcher output dir 下记录 `dashboard_refresh_path_inferred_from_custom_launcher_output`。P3.7-fix2 会让 latest launcher report、`demo_summary.json` 和 `index.html` 都展示同一份最终 `dashboard_refresh` 状态。缺失或损坏的 `demo_summary.json` 只会把 `dashboard_refresh.status` 标成 `warning` 并写入 launcher report，不改变 rerun 本身的成功/失败口径；summary 写入成功但 HTML 渲染失败时，report 会区分 `summary_updated=true` 和 `dashboard_rendered=false`。
 
+P3.8-lite 起，launcher 默认不清理历史报告；只有显式传入 `--max-history N` 时，才会在当前 `--output-dir` 下清理 `history/launcher_report_*.json` 和 `history/launcher_report_*.md`。清理按同名 stem 成组，保留最新 N 组，并保证本次刚生成的 history report 不会被删；非 `launcher_report_*` 文件、其他目录和 probe 输出不会被触碰。latest `launcher_report.json` 会写入 `history_retention.attempted`、`max_history`、`kept_count`、`deleted_files` 和 `warnings`，便于判断平均状态是否被历史垃圾影响。
+
 ## Tier Snapshot 草案
 
 本地 tier snapshot 可以使用如下结构：
