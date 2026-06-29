@@ -46,6 +46,8 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 UPDATE_STATE_FILENAME = "update_state.json"
+LAUNCHER_REPORT_DIRNAME = "launcher"
+LAUNCHER_REPORT_FILENAME = "launcher_report.json"
 SNAPSHOT_HISTORY_DIRNAME = "snapshot_history"
 TARGET_REFRESH_DIRNAME = "targets"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -1567,6 +1569,64 @@ def build_review_apply_summary(roster_dir: Path) -> dict[str, Any]:
     return base
 
 
+def string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
+    report_path = output_dir / LAUNCHER_REPORT_DIRNAME / LAUNCHER_REPORT_FILENAME
+    if not report_path.exists():
+        return None
+    base: dict[str, Any] = {
+        "schema_version": "p3.5-lite-dashboard-launcher-report",
+        "report_path": str(report_path),
+        "loaded": False,
+        "warnings": [],
+        "blockers": [],
+        "follow_up": {},
+    }
+    try:
+        report = load_json(report_path)
+    except normalizer.NormalizeError as exc:
+        base["error"] = str(exc)
+        base["warnings"] = [f"launcher_report_unreadable: {exc}"]
+        return base
+    follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
+    base.update(
+        {
+            "loaded": True,
+            "source_schema_version": report.get("schema_version"),
+            "launcher_status": report.get("launcher_status"),
+            "executed": report.get("executed"),
+            "returncode": report.get("returncode"),
+            "command_script_resolved": report.get("command_script_resolved"),
+            "rerun_started_at": report.get("rerun_started_at"),
+            "rerun_finished_at": report.get("rerun_finished_at"),
+            "warnings": string_list(report.get("warnings")),
+            "blockers": string_list(report.get("blockers")),
+            "output_json": report.get("output_json") or str(report_path),
+            "output_md": report.get("output_md"),
+            "output_history_json": report.get("output_history_json"),
+            "output_history_md": report.get("output_history_md"),
+            "follow_up": {
+                "loaded": follow_up.get("loaded"),
+                "doctor_status": follow_up.get("doctor_status"),
+                "primary_next_action": follow_up.get("primary_next_action"),
+                "try_now_allowed": follow_up.get("try_now_allowed"),
+                "strict_status": follow_up.get("strict_status"),
+                "updated_after_rerun": follow_up.get("updated_after_rerun"),
+                "warnings": string_list(follow_up.get("warnings")),
+                "doctor_warnings": string_list(follow_up.get("doctor_warnings")),
+                "evidence_blockers": string_list(follow_up.get("evidence_blockers")),
+                "blocking_reasons": string_list(follow_up.get("blocking_reasons")),
+            },
+        }
+    )
+    return base
+
+
 def build_demo_refresh_status(
     *,
     output_dir: Path,
@@ -2136,6 +2196,11 @@ def run_pipeline(
     if demo_doctor_info.get("error"):
         summary.setdefault("warnings", []).append(f"Demo doctor failed: {demo_doctor_info['error']}")
     summary["pipeline_steps"] = pipeline_steps(summary)
+    launcher_report_info = build_launcher_report_summary(output_dir)
+    if launcher_report_info is not None:
+        summary["launcher_report"] = launcher_report_info
+        if launcher_report_info.get("warnings"):
+            summary.setdefault("warnings", []).extend(launcher_report_info["warnings"])
     summary_path = output_dir / "demo_summary.json"
     write_json(summary_path, summary)
     dashboard_path = output_dir / "index.html"

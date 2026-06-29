@@ -153,6 +153,27 @@ def tier_snapshot_json() -> dict:
     }
 
 
+def dashboard_minimal_summary() -> dict:
+    return {
+        "overall": {
+            "case_count": 0,
+            "parse_success_count": 0,
+            "review_status_counts": {},
+            "parse_status_counts": {},
+            "expected_status_counts": {},
+            "normalized_status_counts": {},
+            "import_status_counts": {},
+            "demo_status": "READY",
+            "average_pass_rate": None,
+            "normalized_count": 0,
+            "requires_manual_review_count": 0,
+            "conclusion": "demo",
+        },
+        "input": {"source_mode": "manifest controlled mode"},
+        "cases": [],
+    }
+
+
 class DemoDashboardTests(unittest.TestCase):
     def test_dashboard_shows_final_brief_before_details(self) -> None:
         summary = {
@@ -220,6 +241,34 @@ class DemoDashboardTests(unittest.TestCase):
                 "warnings": [],
                 "output_json": "data/probes/demo/demo_doctor/demo_doctor.json",
                 "output_md": "data/probes/demo/demo_doctor/demo_doctor.md",
+            },
+            "launcher_report": {
+                "schema_version": "p3.5-lite-dashboard-launcher-report",
+                "loaded": True,
+                "launcher_status": "executed_with_followup_warning",
+                "executed": True,
+                "returncode": 0,
+                "command_script_resolved": str(PROJECT_ROOT / "tools" / "probes" / "run_demo_pipeline.py"),
+                "rerun_started_at": "2026-06-29T10:00:00+08:00",
+                "rerun_finished_at": "2026-06-29T10:00:03+08:00",
+                "warnings": ["follow_up_doctor_not_updated_after_rerun"],
+                "blockers": [],
+                "output_json": "data/probes/demo/launcher/launcher_report.json",
+                "output_md": "data/probes/demo/launcher/launcher_report.md",
+                "output_history_json": "data/probes/demo/launcher/history/launcher_report_20260629.json",
+                "output_history_md": "data/probes/demo/launcher/history/launcher_report_20260629.md",
+                "follow_up": {
+                    "loaded": True,
+                    "doctor_status": "needs_apply",
+                    "primary_next_action": "safe_apply_review_decisions",
+                    "try_now_allowed": False,
+                    "strict_status": "needs_apply",
+                    "updated_after_rerun": False,
+                    "warnings": ["follow_up_doctor_not_updated_after_rerun"],
+                    "doctor_warnings": [],
+                    "evidence_blockers": [],
+                    "blocking_reasons": ["preview_ready_but_apply_missing"],
+                },
             },
             "refresh_status": {
                 "schema_version": "p2.7-lite-refresh-status",
@@ -357,6 +406,15 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("apply_receipt_preview_result_sha256_mismatch", html)
         self.assertIn("ready_try_now_not_actionable_under_current_doctor_status", html)
         self.assertIn("demo_doctor.json", html)
+        self.assertIn("启动器执行记录", html)
+        self.assertIn("executed_with_followup_warning", html)
+        self.assertIn("command_script_resolved", html)
+        self.assertIn("rerun_started_at", html)
+        self.assertIn("follow_up.doctor_status", html)
+        self.assertIn("follow_up.updated_after_rerun", html)
+        self.assertIn("safe apply 需要人工确认", html)
+        self.assertIn("launcher_report_20260629.json", html)
+        self.assertIn("follow_up_doctor_not_updated_after_rerun", html)
         self.assertIn("今日作战简报", html)
         self.assertIn("刷新状态", html)
         self.assertIn("当前简报可能过期", html)
@@ -380,10 +438,84 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("review_apply_receipt.md", html)
         self.assertIn("可先尝试：危局强袭战", html)
         self.assertLess(html.index("当前状态诊断"), html.index("<h2>刷新状态</h2>"))
+        self.assertLess(html.index("当前状态诊断"), html.index("启动器执行记录"))
+        self.assertLess(html.index("启动器执行记录"), html.index("<h2>刷新状态</h2>"))
         self.assertLess(html.index("<h2>刷新状态</h2>"), html.index("今日作战简报"))
         self.assertLess(html.index("今日作战简报"), html.index("输入模式"))
         self.assertLess(html.index("今日作战简报"), html.index("执行清单"))
         self.assertLess(html.index("执行清单"), html.index("输入模式"))
+
+    def test_dashboard_hides_launcher_report_when_missing(self) -> None:
+        html = dashboard_tool.render_html(dashboard_minimal_summary())
+
+        self.assertNotIn("启动器执行记录", html)
+
+    def test_dashboard_launcher_report_shows_blockers(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["launcher_report"] = {
+            "loaded": True,
+            "launcher_status": "blocked",
+            "executed": False,
+            "returncode": None,
+            "command_script_resolved": str(PROJECT_ROOT / "outside" / "tools" / "probes" / "run_demo_pipeline.py"),
+            "rerun_started_at": None,
+            "rerun_finished_at": None,
+            "blockers": ["launcher_command_path_not_canonical"],
+            "warnings": [],
+            "output_json": "data/probes/demo/launcher/launcher_report.json",
+            "output_md": "data/probes/demo/launcher/launcher_report.md",
+            "output_history_json": "data/probes/demo/launcher/history/launcher_report_blocked.json",
+            "output_history_md": "data/probes/demo/launcher/history/launcher_report_blocked.md",
+            "follow_up": {},
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("启动器执行记录", html)
+        self.assertIn("启动器已阻断", html)
+        self.assertIn("launcher_command_path_not_canonical", html)
+        self.assertIn("launcher_report_blocked.json", html)
+        self.assertIn("executed", html)
+        self.assertIn(">否<", html)
+
+    def test_dashboard_launcher_ready_to_try_is_read_only(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["launcher_report"] = {
+            "loaded": True,
+            "launcher_status": "executed",
+            "executed": True,
+            "returncode": 0,
+            "command_script_resolved": str(PROJECT_ROOT / "tools" / "probes" / "run_demo_pipeline.py"),
+            "rerun_started_at": "2026-06-29T10:00:00+08:00",
+            "rerun_finished_at": "2026-06-29T10:00:02+08:00",
+            "blockers": [],
+            "warnings": [],
+            "output_json": "data/probes/demo/launcher/launcher_report.json",
+            "output_md": "data/probes/demo/launcher/launcher_report.md",
+            "output_history_json": "data/probes/demo/launcher/history/launcher_report_ready.json",
+            "output_history_md": "data/probes/demo/launcher/history/launcher_report_ready.md",
+            "follow_up": {
+                "loaded": True,
+                "doctor_status": "ready_to_try",
+                "primary_next_action": "try_now",
+                "try_now_allowed": True,
+                "strict_status": "trusted",
+                "updated_after_rerun": True,
+                "warnings": [],
+                "doctor_warnings": [],
+                "evidence_blockers": [],
+                "blocking_reasons": [],
+            },
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("游戏内可尝试", html)
+        self.assertIn("follow_up.primary_next_action", html)
+        self.assertIn("按执行清单去游戏内尝试", html)
+        self.assertIn("launcher_report_ready.json", html)
+        self.assertNotIn("执行 try_now", html)
+        self.assertNotIn("自动 apply", html)
 
     def test_dashboard_html_contains_case_links_and_quality(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1089,6 +1221,41 @@ class DemoDashboardTests(unittest.TestCase):
             parsed_path = parsed_dir / "case_a.json"
             parsed_path.write_text(json.dumps(parsed_json(), ensure_ascii=False), encoding="utf-8")
             parsed_path.with_name("case_a_review.html").write_text("<html>review</html>", encoding="utf-8")
+            launcher_dir = output_dir / "launcher"
+            launcher_dir.mkdir(parents=True)
+            (launcher_dir / "launcher_report.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p3.4-lite-doctor-launcher",
+                        "launcher_status": "executed",
+                        "executed": True,
+                        "returncode": 0,
+                        "command_script_resolved": str(PROJECT_ROOT / "tools" / "probes" / "run_demo_pipeline.py"),
+                        "rerun_started_at": "2026-06-29T10:00:00+08:00",
+                        "rerun_finished_at": "2026-06-29T10:00:02+08:00",
+                        "warnings": [],
+                        "blockers": [],
+                        "output_json": str(launcher_dir / "launcher_report.json"),
+                        "output_md": str(launcher_dir / "launcher_report.md"),
+                        "output_history_json": str(launcher_dir / "history" / "launcher_report_20260629.json"),
+                        "output_history_md": str(launcher_dir / "history" / "launcher_report_20260629.md"),
+                        "follow_up": {
+                            "loaded": True,
+                            "doctor_status": "ready_to_try",
+                            "primary_next_action": "try_now",
+                            "try_now_allowed": True,
+                            "strict_status": "trusted",
+                            "updated_after_rerun": True,
+                            "warnings": [],
+                            "doctor_warnings": [],
+                            "evidence_blockers": [],
+                            "blocking_reasons": [],
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
 
             original_subprocess_run = pipeline_tool.subprocess.run
 
@@ -1130,10 +1297,15 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(steps["Review Inbox"], "done")
             self.assertIn("demo_doctor", summary)
             self.assertIn("Demo Doctor", steps)
+            self.assertIn("launcher_report", summary)
+            self.assertEqual(summary["launcher_report"]["launcher_status"], "executed")
+            self.assertEqual(summary["launcher_report"]["follow_up"]["doctor_status"], "ready_to_try")
             self.assertTrue(Path(summary["demo_doctor"]["output_json"]).exists())
             self.assertTrue(Path(summary["dashboard_html"]).exists())
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
             self.assertIn("当前状态诊断", dashboard_html)
+            self.assertIn("启动器执行记录", dashboard_html)
+            self.assertIn("launcher_report_20260629.json", dashboard_html)
             self.assertIn("parsed found", dashboard_html)
             self.assertIn("parsed used", dashboard_html)
             self.assertIn("requires_review 不代表解析失败", dashboard_html)

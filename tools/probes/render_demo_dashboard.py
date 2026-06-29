@@ -78,6 +78,8 @@ def status_class(value: Any) -> str:
         "applied",
         "fresh",
         "ready_to_try",
+        "executed",
+        "printed",
     }:
         return "ok"
     if text in {
@@ -95,6 +97,7 @@ def status_class(value: Any) -> str:
         "applied_with_warnings",
         "unknown",
         "needs_apply",
+        "executed_with_followup_warning",
     }:
         return "warn"
     if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply", "needs_rerun"}:
@@ -283,6 +286,88 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
       {list_block("证据警告", evidence_warnings, "warnings")}
       {list_block("action contract", [action_contract.get("reason")] if action_contract.get("reason") else [], "warnings")}
       {body}
+    </section>
+    """
+
+
+def render_launcher_report(summary: dict[str, Any]) -> str:
+    report = summary.get("launcher_report")
+    if not isinstance(report, dict):
+        return ""
+    follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
+    warnings = report.get("warnings") if isinstance(report.get("warnings"), list) else []
+    blockers = report.get("blockers") if isinstance(report.get("blockers"), list) else []
+    follow_warnings = follow_up.get("warnings") if isinstance(follow_up.get("warnings"), list) else []
+    follow_blockers = []
+    for key in ("evidence_blockers", "blocking_reasons", "doctor_warnings"):
+        if isinstance(follow_up.get(key), list):
+            follow_blockers.extend(follow_up[key])
+    status = str(report.get("launcher_status") or "unknown")
+    follow_action = str(follow_up.get("primary_next_action") or "N/A")
+    status_note = ""
+    if status == "blocked":
+        status_note = (
+            '<div class="errors"><strong>启动器已阻断</strong>'
+            "<ul><li>本次没有执行 rerun；请先处理 blockers 后再考虑重跑。</li></ul></div>"
+        )
+    elif status == "executed_with_followup_warning":
+        status_note = (
+            '<div class="warnings"><strong>重跑完成但 follow-up 需要复核</strong>'
+            "<ul><li>先检查 warnings、blockers 和 follow-up 状态，不要把它当成可直接操作的命令。</li></ul></div>"
+        )
+    elif status == "executed":
+        status_note = (
+            '<div class="warnings"><strong>启动器已执行安全重跑</strong>'
+            "<ul><li>这里仅展示执行记录；Dashboard 不会触发任何工具动作。</li></ul></div>"
+        )
+    follow_note = ""
+    if follow_action == "try_now" and follow_up.get("try_now_allowed"):
+        follow_note = (
+            '<div class="warnings"><strong>游戏内可尝试</strong>'
+            "<ul><li>只读提示：按执行清单去游戏内尝试；Dashboard 不触发工具动作。</li></ul></div>"
+        )
+    elif follow_action == "safe_apply_review_decisions" or follow_up.get("doctor_status") == "needs_apply":
+        follow_note = (
+            '<div class="warnings"><strong>safe apply 需要人工确认</strong>'
+            "<ul><li>请先查看 preview 和 apply 边界；Dashboard 只展示状态。</li></ul></div>"
+        )
+    elif follow_action and follow_action != "N/A":
+        follow_note = (
+            '<div class="warnings"><strong>follow-up 下一步</strong>'
+            f"<ul><li>{e(action_label(follow_action))}</li></ul></div>"
+        )
+    if report.get("error"):
+        status_note += list_block("启动器报告读取错误", [report.get("error")], "errors")
+    return f"""
+    <section class="panel launcher-report">
+      <h2>启动器执行记录</h2>
+      <p class="muted-line">只读展示 latest launcher report：它说明启动器刚才做了什么、有没有阻断、follow-up doctor 是否可信。这里没有执行入口。</p>
+      <div class="links">
+        {link("launcher_report.md", report.get("output_md"))}
+        {link("launcher_report.json", report.get("output_json") or report.get("report_path"))}
+        {link("history_json", report.get("output_history_json"))}
+        {link("history_md", report.get("output_history_md"))}
+      </div>
+      <div class="input-grid">
+        <div><span>launcher_status</span><strong>{e(status)}</strong></div>
+        <div><span>executed</span><strong>{e(bool_text(report.get("executed")))}</strong></div>
+        <div><span>returncode</span><strong>{e(report.get("returncode") if report.get("returncode") is not None else "N/A")}</strong></div>
+        <div><span>command_script_resolved</span><strong>{e(report.get("command_script_resolved") or "N/A")}</strong></div>
+        <div><span>rerun_started_at</span><strong>{e(report.get("rerun_started_at") or "N/A")}</strong></div>
+        <div><span>rerun_finished_at</span><strong>{e(report.get("rerun_finished_at") or "N/A")}</strong></div>
+        <div><span>follow_up.loaded</span><strong>{e(bool_text(follow_up.get("loaded")))}</strong></div>
+        <div><span>follow_up.doctor_status</span><strong>{e(follow_up.get("doctor_status") or "N/A")}</strong></div>
+        <div><span>follow_up.primary_next_action</span><strong>{e(action_label(follow_action))}</strong></div>
+        <div><span>follow_up.try_now_allowed</span><strong>{e(bool_text(follow_up.get("try_now_allowed")))}</strong></div>
+        <div><span>follow_up.strict_status</span><strong>{e(follow_up.get("strict_status") or "N/A")}</strong></div>
+        <div><span>follow_up.updated_after_rerun</span><strong>{e(bool_text(follow_up.get("updated_after_rerun")))}</strong></div>
+      </div>
+      {status_note}
+      {follow_note}
+      {list_block("launcher blockers", blockers, "errors")}
+      {list_block("launcher warnings", warnings, "warnings")}
+      {list_block("follow-up warnings", follow_warnings, "warnings")}
+      {list_block("follow-up blockers", follow_blockers, "errors")}
     </section>
     """
 
@@ -1452,6 +1537,7 @@ def render_html(summary: dict[str, Any]) -> str:
     apply_info = summary.get("review_apply", {}) if isinstance(summary.get("review_apply"), dict) else {}
     apply_summary = apply_info.get("summary", {}) if isinstance(apply_info.get("summary"), dict) else {}
     doctor_info = summary.get("demo_doctor", {}) if isinstance(summary.get("demo_doctor"), dict) else {}
+    launcher_info = summary.get("launcher_report", {}) if isinstance(summary.get("launcher_report"), dict) else {}
     refresh_info = summary.get("refresh_status", {}) if isinstance(summary.get("refresh_status"), dict) else {}
     refresh_summary = refresh_info.get("summary", {}) if isinstance(refresh_info.get("summary"), dict) else {}
     safe_apply = safe_apply_status(summary)
@@ -1463,6 +1549,11 @@ def render_html(summary: dict[str, Any]) -> str:
             "诊断证据",
             doctor_info.get("evidence_check", {}).get("status", "N/A") if isinstance(doctor_info.get("evidence_check"), dict) else "N/A",
             status_class(doctor_info.get("evidence_check", {}).get("status")) if isinstance(doctor_info.get("evidence_check"), dict) else "muted",
+        ),
+        metric_card(
+            "启动器",
+            launcher_info.get("launcher_status", "N/A") if launcher_info else "N/A",
+            status_class(launcher_info.get("launcher_status")) if launcher_info else "muted",
         ),
         metric_card("try_now 允许", bool_text(doctor_info.get("try_now_allowed")) if doctor_info else "N/A", "ok" if doctor_info.get("try_now_allowed") else "bad" if doctor_info else "muted"),
         metric_card("刷新状态", refresh_info.get("refresh_status", "N/A") if refresh_info else "N/A", status_class(refresh_info.get("refresh_status")) if refresh_info else "muted"),
@@ -1520,6 +1611,7 @@ def render_html(summary: dict[str, Any]) -> str:
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
     demo_doctor_panel = render_demo_doctor(summary)
+    launcher_report_panel = render_launcher_report(summary)
     refresh_status_panel = render_refresh_status(summary)
     final_brief = render_final_brief(summary)
     action_checklist = render_action_checklist(summary)
@@ -1650,6 +1742,7 @@ def render_html(summary: dict[str, Any]) -> str:
     <main>
     <section class="metrics">{''.join(metrics)}</section>
     {demo_doctor_panel}
+    {launcher_report_panel}
     {refresh_status_panel}
     {final_brief}
     {action_checklist}
