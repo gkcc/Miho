@@ -599,7 +599,7 @@ python tools/probes/doctor_launcher.py `
   --doctor data/probes/demo/demo_doctor/demo_doctor.json
 ```
 
-它会生成 `data/probes/demo/launcher/launcher_report.json/md`。只有显式加 `--execute-rerun`，且 doctor 当前动作为 `rerun_demo_pipeline`、`action_contract.allowed_for_launcher=true`、`writes_roster=false`、`requires_manual_confirmation=false`、`evidence_check.strict_status` 非 `blocked` 时，才允许执行重跑命令。launcher 永远不执行 safe apply、try_now、自动 accept 或任何写 roster 动作。
+它会生成 `data/probes/demo/launcher/launcher_report.json/md`，report 会记录 `argv`、`cwd`、`python_executable`、`started_at`、`finished_at` 和 `duration_ms`。只有显式加 `--execute-rerun`，且 doctor 当前动作为 `rerun_demo_pipeline`、`action_contract.allowed_for_launcher=true`、`writes_roster=false`、`requires_manual_confirmation=false`、`evidence_check.strict_status` 非 `blocked`，并且命令白名单确认为 `python tools/probes/run_demo_pipeline.py ...` 时，才允许执行重跑命令。launcher 永远不执行 safe apply、try_now、自动 accept、`.bat/.cmd/.ps1/.sh` 或任何写 roster 动作。脚本验收可加 `--fail-on-blocked`，让只打印模式在存在 blocker 时返回非零。
 
 P1.4-lite 练度更新收件箱与已确认 Box Index：
 

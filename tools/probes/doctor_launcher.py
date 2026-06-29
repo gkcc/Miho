@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shlex
 import subprocess
 import sys
+import time
 from typing import Any, Callable
 
 
 SCHEMA_VERSION = "p3.0-lite-doctor-launcher"
+FORBIDDEN_COMMAND_FRAGMENTS = ("&", "|", ";", "`", "$(", ">", "<")
+FORBIDDEN_SCRIPT_SUFFIXES = (".bat", ".cmd", ".ps1", ".sh")
+FORBIDDEN_TOOL_NAMES = ("apply_review_decisions.py", "preview_review_decisions.py")
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -46,6 +55,42 @@ def split_command(command: str) -> list[str]:
     return shlex.split(command, posix=sys.platform != "win32")
 
 
+def contains_shell_control(command: str) -> bool:
+    return any(fragment in command for fragment in FORBIDDEN_COMMAND_FRAGMENTS)
+
+
+def is_python_executable(value: str) -> bool:
+    name = Path(value).name.lower()
+    return name in {"python", "python.exe", "py", "py.exe"}
+
+
+def is_run_demo_pipeline_script(value: str) -> bool:
+    normalized = value.replace("\\", "/").lower()
+    return normalized.endswith("tools/probes/run_demo_pipeline.py")
+
+
+def validate_rerun_command(command: str | None) -> tuple[list[str], list[str]]:
+    if not command:
+        return [], ["missing_rerun_command"]
+    if contains_shell_control(command):
+        return [], ["launcher_command_contains_shell_control"]
+    try:
+        args = split_command(command)
+    except ValueError:
+        return [], ["launcher_command_parse_failed"]
+    blockers: list[str] = []
+    lowered = [arg.lower() for arg in args]
+    if not args or not is_python_executable(args[0]):
+        blockers.append("launcher_command_not_python")
+    if len(args) < 2 or not is_run_demo_pipeline_script(args[1]):
+        blockers.append("launcher_command_not_allowlisted")
+    if any(arg.endswith(FORBIDDEN_SCRIPT_SUFFIXES) for arg in lowered):
+        blockers.append("launcher_command_forbidden_script_type")
+    if any(any(tool_name in arg for tool_name in FORBIDDEN_TOOL_NAMES) for arg in lowered):
+        blockers.append("launcher_command_forbidden_tool")
+    return args, list(dict.fromkeys(blockers))
+
+
 def markdown_report(report: dict[str, Any]) -> str:
     lines = [
         "# Doctor Launcher Report",
@@ -57,6 +102,11 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- executed: {report.get('executed')}",
         f"- command: `{report.get('command') or 'N/A'}`",
         f"- reason: {report.get('reason') or 'N/A'}",
+        f"- cwd: `{report.get('cwd') or 'N/A'}`",
+        f"- python_executable: `{report.get('python_executable') or 'N/A'}`",
+        f"- started_at: {report.get('started_at')}",
+        f"- finished_at: {report.get('finished_at')}",
+        f"- duration_ms: {report.get('duration_ms')}",
         "",
     ]
     blockers = report.get("blockers") if isinstance(report.get("blockers"), list) else []
@@ -106,8 +156,12 @@ def launch_doctor(
     doctor_path: Path,
     output_dir: Path | None = None,
     execute_rerun: bool = False,
+    fail_on_blocked: bool = False,
+    argv: list[str] | None = None,
     runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
 ) -> tuple[int, dict[str, Any]]:
+    started_monotonic = time.monotonic()
+    started_at = now_iso()
     doctor = load_json(doctor_path)
     action_contract = doctor.get("action_contract") if isinstance(doctor.get("action_contract"), dict) else {}
     evidence = doctor.get("evidence_check") if isinstance(doctor.get("evidence_check"), dict) else {}
@@ -122,6 +176,11 @@ def launch_doctor(
         execute_rerun=execute_rerun,
         command=command,
     )
+    command_args: list[str] = []
+    if execute_rerun:
+        command_args, command_blockers = validate_rerun_command(command)
+        blockers.extend(command_blockers)
+        blockers = list(dict.fromkeys(blockers))
     warnings: list[str] = []
     executed = False
     returncode: int | None = None
@@ -131,7 +190,7 @@ def launch_doctor(
         if blockers:
             launcher_status = "blocked"
         else:
-            completed = runner(split_command(str(command)), check=False)
+            completed = runner(command_args, check=False)
             executed = True
             returncode = int(getattr(completed, "returncode", 0))
             launcher_status = "executed"
@@ -139,10 +198,19 @@ def launch_doctor(
                 blockers.append("rerun_command_failed")
     elif not allowed:
         warnings.append("manual_only_action_printed")
+    if fail_on_blocked and blockers and not executed:
+        launcher_status = "blocked"
 
     reason = str(action_contract.get("reason") or "")
+    finished_at = now_iso()
     report = {
         "schema_version": SCHEMA_VERSION,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "duration_ms": round((time.monotonic() - started_monotonic) * 1000, 3),
+        "argv": argv or [],
+        "cwd": str(Path.cwd()),
+        "python_executable": sys.executable,
         "launcher_status": launcher_status,
         "doctor_status": doctor.get("doctor_status"),
         "headline": doctor.get("headline"),
@@ -152,6 +220,7 @@ def launch_doctor(
         "executed": executed,
         "returncode": returncode,
         "command": command,
+        "command_args": command_args,
         "reason": reason,
         "action_contract": action_contract,
         "warnings": warnings,
@@ -177,8 +246,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Print or safely launch the current demo doctor action.")
     parser.add_argument("--doctor", required=True, help="Path to demo_doctor.json")
     parser.add_argument("--output-dir", default=None, help="Directory for launcher_report.json/md")
-    parser.add_argument("--print-command", action="store_true", help="Explicitly print/report the command without executing it.")
-    parser.add_argument("--execute-rerun", action="store_true", help="Execute only an allowed rerun_demo_pipeline action.")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--print-command", action="store_true", help="Explicitly print/report the command without executing it.")
+    mode.add_argument("--execute-rerun", action="store_true", help="Execute only an allowed rerun_demo_pipeline action.")
+    parser.add_argument("--fail-on-blocked", action="store_true", help="Return non-zero when the launcher report contains blockers.")
     return parser
 
 
@@ -191,6 +262,8 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
             doctor_path=doctor_path,
             output_dir=output_dir,
             execute_rerun=bool(args.execute_rerun),
+            fail_on_blocked=bool(args.fail_on_blocked),
+            argv=argv if argv is not None else sys.argv[1:],
             runner=runner,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:

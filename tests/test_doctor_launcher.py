@@ -95,6 +95,57 @@ class DoctorLauncherTests(unittest.TestCase):
         self.assertTrue(report["executed"])
         self.assertEqual(len(calls), 1)
         self.assertTrue(any("run_demo_pipeline.py" in item for item in calls[0]))
+        self.assertTrue(any("run_demo_pipeline.py" in item for item in report["command_args"]))
+
+    def test_execute_rerun_blocks_non_allowlisted_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(
+                root / "demo_doctor" / "demo_doctor.json",
+                doctor_json(command="python tools/probes/apply_review_decisions.py --require-preview-ready"),
+            )
+            calls: list[list[str]] = []
+
+            def runner(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0)
+
+            exit_code, report = launcher_tool.launch_doctor(doctor_path=doctor_path, execute_rerun=True, runner=runner)
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(calls, [])
+        self.assertIn("launcher_command_not_allowlisted", report["blockers"])
+        self.assertIn("launcher_command_forbidden_tool", report["blockers"])
+
+    def test_execute_rerun_blocks_shell_and_script_commands(self) -> None:
+        blocked_commands = [
+            "powershell scripts/run.ps1",
+            "cmd /c tools/probes/run_demo_pipeline.py",
+            "bash scripts/run.sh",
+            "python tools/probes/run_demo_pipeline.py --manifest x && echo unsafe",
+            "scripts/run_demo.bat",
+        ]
+        for command in blocked_commands:
+            with self.subTest(command=command):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json(command=command))
+                    calls: list[list[str]] = []
+
+                    def runner(args, **kwargs):
+                        calls.append(args)
+                        return subprocess.CompletedProcess(args, 0)
+
+                    exit_code, report = launcher_tool.launch_doctor(doctor_path=doctor_path, execute_rerun=True, runner=runner)
+                self.assertEqual(exit_code, 2)
+                self.assertEqual(calls, [])
+                self.assertTrue(
+                    {
+                        "launcher_command_not_python",
+                        "launcher_command_not_allowlisted",
+                        "launcher_command_contains_shell_control",
+                        "launcher_command_forbidden_script_type",
+                    }.intersection(report["blockers"])
+                )
 
     def test_safe_apply_is_never_executed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -157,6 +208,32 @@ class DoctorLauncherTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertIn("evidence_strict_status_blocked", report["blockers"])
 
+    def test_blocked_evidence_default_print_exits_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json(strict_status="blocked"))
+            exit_code, report = launcher_tool.launch_doctor(doctor_path=doctor_path)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(report["launcher_status"], "printed")
+        self.assertIn("evidence_strict_status_blocked", report["blockers"])
+
+    def test_fail_on_blocked_returns_nonzero_for_print_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json(strict_status="blocked"))
+            exit_code, report = launcher_tool.launch_doctor(doctor_path=doctor_path, fail_on_blocked=True)
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(report["launcher_status"], "blocked")
+        self.assertIn("evidence_strict_status_blocked", report["blockers"])
+
+    def test_print_and_execute_modes_are_mutually_exclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            with self.assertRaises(SystemExit) as raised:
+                launcher_tool.run_launcher(["--doctor", str(doctor_path), "--print-command", "--execute-rerun"])
+        self.assertNotEqual(raised.exception.code, 0)
+
     def test_malformed_doctor_returns_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -176,6 +253,12 @@ class DoctorLauncherTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(json_path.name, "launcher_report.json")
         self.assertEqual(md_path.name, "launcher_report.md")
+        self.assertIn("argv", report)
+        self.assertIn("cwd", report)
+        self.assertIn("python_executable", report)
+        self.assertIn("started_at", report)
+        self.assertIn("finished_at", report)
+        self.assertIn("duration_ms", report)
 
 
 if __name__ == "__main__":
