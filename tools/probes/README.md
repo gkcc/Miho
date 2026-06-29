@@ -599,7 +599,7 @@ python tools/probes/doctor_launcher.py `
   --doctor data/probes/demo/demo_doctor/demo_doctor.json
 ```
 
-它会生成 latest `data/probes/demo/launcher/launcher_report.json/md`，并追加 history `data/probes/demo/launcher/history/launcher_report_<timestamp>.json/md`。report 会记录 `argv`、`cwd`、`python_executable`、`started_at`、`finished_at`、`duration_ms` 和 history 路径。只有显式加 `--execute-rerun`，且 doctor 当前动作为 `rerun_demo_pipeline`、`action_contract.allowed_for_launcher=true`、`writes_roster=false`、`requires_manual_confirmation=false`、`evidence_check.strict_status` 非 `blocked`，并且命令白名单确认为 `python tools/probes/run_demo_pipeline.py ...` 时，才允许执行重跑命令。launcher 永远不执行 safe apply、try_now、自动 accept、`.bat/.cmd/.ps1/.sh` 或任何写 roster 动作。脚本验收可加 `--fail-on-blocked`，让只打印模式在存在 blocker 时返回非零。
+它会生成 latest `data/probes/demo/launcher/launcher_report.json/md`，并追加 history `data/probes/demo/launcher/history/launcher_report_<timestamp>.json/md`。report 会记录 `argv`、`cwd`、`python_executable`、`started_at`、`finished_at`、`duration_ms`、rerun 起止时间、`command_script_resolved` 和 history 路径。只有显式加 `--execute-rerun`，且 doctor 当前动作为 `rerun_demo_pipeline`、`action_contract.allowed_for_launcher=true`、`writes_roster=false`、`requires_manual_confirmation=false`、`evidence_check.strict_status` 非 `blocked`，并且命令白名单确认为 `python tools/probes/run_demo_pipeline.py ...` 时，才允许执行重跑命令。P3.4-lite 会把脚本路径 resolve 到绝对路径，并要求它等于当前仓库内的 `tools/probes/run_demo_pipeline.py`；如果只是后缀像但不在当前仓库，会阻断为 `launcher_command_path_not_canonical`。launcher 永远不执行 safe apply、try_now、自动 accept、`.bat/.cmd/.ps1/.sh` 或任何写 roster 动作。脚本验收可加 `--fail-on-blocked`，让只打印模式在存在 blocker 时返回非零。
 
 安全重跑后可以追加读取新 doctor 状态：
 
@@ -610,7 +610,7 @@ python tools/probes/doctor_launcher.py `
   --follow-up-doctor data/probes/demo/demo_doctor/demo_doctor.json
 ```
 
-`--follow-up-doctor` 只在 rerun 返回 0 后读取 JSON，把 `follow_up.loaded`、`follow_up.sha256`、`follow_up.changed_from_initial_doctor`、`follow_up.doctor_status`、`follow_up.primary_next_action`、`follow_up.try_now_allowed`、`follow_up.strict_status`、`follow_up.evidence_status`、`follow_up.evidence_blockers`、`follow_up.evidence_warnings`、`follow_up.blocking_reasons` 和 `follow_up.doctor_warnings` 写入 report；它不会执行 follow-up action。follow-up doctor 缺失、JSON 损坏、重跑后未更新或证据 blocked 时，launcher 会显示 `executed_with_followup_warning`，保留 rerun 成功结果并提示下一步人工检查。脚本验收可加 `--fail-on-followup-warning`，让这些 follow-up warning 返回非零。
+`--follow-up-doctor` 只在 rerun 返回 0 后读取 JSON，把 `follow_up.loaded`、`follow_up.sha256`、`follow_up.changed_from_initial_doctor`、`follow_up.mtime_epoch`、`follow_up.updated_after_rerun`、`follow_up.doctor_status`、`follow_up.primary_next_action`、`follow_up.try_now_allowed`、`follow_up.strict_status`、`follow_up.evidence_status`、`follow_up.evidence_blockers`、`follow_up.evidence_warnings`、`follow_up.blocking_reasons` 和 `follow_up.doctor_warnings` 写入 report；它不会执行 follow-up action。follow-up doctor 缺失、JSON 损坏、不是对象、重跑后未更新、mtime 早于 rerun 开始或证据 blocked 时，launcher 会显示 `executed_with_followup_warning`，保留 rerun 成功结果并提示下一步人工检查。缺失、损坏和非对象会分别显示 `follow_up_doctor_missing`、`follow_up_doctor_invalid_json` 或 `follow_up_doctor_not_object`，方便判断是没生成还是文件坏了。脚本验收可加 `--fail-on-followup-warning`，让这些 follow-up warning 返回非零。
 
 P1.4-lite 练度更新收件箱与已确认 Box Index：
 

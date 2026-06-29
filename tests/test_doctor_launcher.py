@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -109,6 +111,9 @@ class DoctorLauncherTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertTrue(any("run_demo_pipeline.py" in item for item in calls[0]))
         self.assertTrue(any("run_demo_pipeline.py" in item for item in report["command_args"]))
+        self.assertEqual(report["command_script_resolved"], str(launcher_tool.RUN_DEMO_PIPELINE_SCRIPT))
+        self.assertIsNotNone(report["rerun_started_at"])
+        self.assertIsNotNone(report["rerun_finished_at"])
 
     def test_execute_rerun_reads_follow_up_doctor(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -128,6 +133,8 @@ class DoctorLauncherTests(unittest.TestCase):
 
             def runner(args, **kwargs):
                 calls.append(args)
+                fresh_epoch = time.time() + 1
+                os.utime(follow_up_path, (fresh_epoch, fresh_epoch))
                 return subprocess.CompletedProcess(args, 0)
 
             exit_code, report = launcher_tool.launch_doctor(
@@ -147,6 +154,8 @@ class DoctorLauncherTests(unittest.TestCase):
         self.assertEqual(report["follow_up"]["evidence_status"], "trusted")
         self.assertIsNotNone(report["follow_up"]["sha256"])
         self.assertTrue(report["follow_up"]["changed_from_initial_doctor"])
+        self.assertIsNotNone(report["follow_up"]["mtime_epoch"])
+        self.assertTrue(report["follow_up"]["updated_after_rerun"])
 
     def test_execute_rerun_reports_follow_up_needs_apply_without_executing_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -167,6 +176,8 @@ class DoctorLauncherTests(unittest.TestCase):
 
             def runner(args, **kwargs):
                 calls.append(args)
+                fresh_epoch = time.time() + 1
+                os.utime(follow_up_path, (fresh_epoch, fresh_epoch))
                 return subprocess.CompletedProcess(args, 0)
 
             exit_code, report = launcher_tool.launch_doctor(
@@ -187,6 +198,8 @@ class DoctorLauncherTests(unittest.TestCase):
             doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
 
             def runner(args, **kwargs):
+                fresh_epoch = time.time() + 1
+                os.utime(doctor_path, (fresh_epoch, fresh_epoch))
                 return subprocess.CompletedProcess(args, 0)
 
             exit_code, report = launcher_tool.launch_doctor(
@@ -235,6 +248,33 @@ class DoctorLauncherTests(unittest.TestCase):
         )
         self.assertIn("demo_command_not_safe_to_rerun", report["follow_up"]["doctor_warnings"])
 
+    def test_follow_up_stale_mtime_is_reported_as_not_updated_after_rerun(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            follow_up_path = write_json(
+                root / "after" / "demo_doctor.json",
+                doctor_json(primary_next_action="try_now", doctor_status="ready_to_try", allowed_for_launcher=False),
+            )
+            stale_epoch = time.time() - 3600
+            os.utime(follow_up_path, (stale_epoch, stale_epoch))
+
+            def runner(args, **kwargs):
+                return subprocess.CompletedProcess(args, 0)
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                follow_up_doctor_path=follow_up_path,
+                execute_rerun=True,
+                fail_on_followup_warning=True,
+                runner=runner,
+            )
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(report["launcher_status"], "executed_with_followup_warning")
+        self.assertFalse(report["follow_up"]["updated_after_rerun"])
+        self.assertIn("follow_up_doctor_not_updated_after_rerun", report["follow_up"]["warnings"])
+        self.assertIn("follow_up_doctor_not_updated_after_rerun", report["warnings"])
+
     def test_execute_rerun_failure_does_not_read_follow_up_doctor(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -272,8 +312,9 @@ class DoctorLauncherTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(report["launcher_status"], "executed_with_followup_warning")
         self.assertFalse(report["follow_up"]["loaded"])
-        self.assertIn("follow_up_doctor_unavailable", report["warnings"])
-        self.assertTrue(any("follow_up_doctor_unavailable" in item for item in report["follow_up"]["warnings"]))
+        self.assertIn("follow_up_doctor_not_loaded", report["warnings"])
+        self.assertIn("follow_up_doctor_missing", report["warnings"])
+        self.assertIn("follow_up_doctor_missing", report["follow_up"]["warnings"])
 
     def test_fail_on_followup_warning_returns_nonzero_for_missing_follow_up(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -316,7 +357,29 @@ class DoctorLauncherTests(unittest.TestCase):
         self.assertEqual(report["launcher_status"], "executed_with_followup_warning")
         self.assertFalse(report["follow_up"]["loaded"])
         self.assertIsNotNone(report["follow_up"]["sha256"])
-        self.assertTrue(any("follow_up_doctor_unavailable" in item for item in report["follow_up"]["warnings"]))
+        self.assertTrue(any("follow_up_doctor_invalid_json" in item for item in report["follow_up"]["warnings"]))
+
+    def test_execute_rerun_blocks_suffix_match_outside_project_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_script = root / "outside" / "tools" / "probes" / "run_demo_pipeline.py"
+            fake_script.parent.mkdir(parents=True, exist_ok=True)
+            fake_script.write_text("print('not the project script')", encoding="utf-8")
+            doctor_path = write_json(
+                root / "demo_doctor" / "demo_doctor.json",
+                doctor_json(command=f"python {fake_script} --manifest data/probes/demo_manifest.json"),
+            )
+            calls: list[list[str]] = []
+
+            def runner(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0)
+
+            exit_code, report = launcher_tool.launch_doctor(doctor_path=doctor_path, execute_rerun=True, runner=runner)
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(calls, [])
+        self.assertIn("launcher_command_path_not_canonical", report["blockers"])
+        self.assertEqual(report["command_script_resolved"], str(fake_script.resolve()))
 
     def test_fail_on_followup_warning_returns_nonzero_for_unchanged_follow_up(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

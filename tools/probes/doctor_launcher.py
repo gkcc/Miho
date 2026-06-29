@@ -12,7 +12,9 @@ import time
 from typing import Any, Callable
 
 
-SCHEMA_VERSION = "p3.3-lite-doctor-launcher"
+SCHEMA_VERSION = "p3.4-lite-doctor-launcher"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RUN_DEMO_PIPELINE_SCRIPT = (PROJECT_ROOT / "tools" / "probes" / "run_demo_pipeline.py").resolve()
 FORBIDDEN_COMMAND_FRAGMENTS = ("&", "|", ";", "`", "$(", ">", "<")
 FORBIDDEN_SCRIPT_SUFFIXES = (".bat", ".cmd", ".ps1", ".sh")
 FORBIDDEN_TOOL_NAMES = ("apply_review_decisions.py", "preview_review_decisions.py")
@@ -88,26 +90,42 @@ def is_run_demo_pipeline_script(value: str) -> bool:
     return normalized.endswith("tools/probes/run_demo_pipeline.py")
 
 
-def validate_rerun_command(command: str | None) -> tuple[list[str], list[str]]:
+def resolve_command_script(value: str) -> Path:
+    script_path = Path(value)
+    if not script_path.is_absolute():
+        script_path = PROJECT_ROOT / script_path
+    return script_path.resolve()
+
+
+def validate_rerun_command(command: str | None) -> tuple[list[str], list[str], str | None]:
     if not command:
-        return [], ["missing_rerun_command"]
+        return [], ["missing_rerun_command"], None
     if contains_shell_control(command):
-        return [], ["launcher_command_contains_shell_control"]
+        return [], ["launcher_command_contains_shell_control"], None
     try:
         args = split_command(command)
     except ValueError:
-        return [], ["launcher_command_parse_failed"]
+        return [], ["launcher_command_parse_failed"], None
     blockers: list[str] = []
+    command_script_resolved: str | None = None
     lowered = [arg.lower() for arg in args]
     if not args or not is_python_executable(args[0]):
         blockers.append("launcher_command_not_python")
     if len(args) < 2 or not is_run_demo_pipeline_script(args[1]):
         blockers.append("launcher_command_not_allowlisted")
+    if len(args) >= 2:
+        try:
+            resolved_script = resolve_command_script(args[1])
+            command_script_resolved = str(resolved_script)
+            if is_run_demo_pipeline_script(args[1]) and resolved_script != RUN_DEMO_PIPELINE_SCRIPT:
+                blockers.append("launcher_command_path_not_canonical")
+        except (OSError, RuntimeError, ValueError):
+            blockers.append("launcher_command_path_resolve_failed")
     if any(arg.endswith(FORBIDDEN_SCRIPT_SUFFIXES) for arg in lowered):
         blockers.append("launcher_command_forbidden_script_type")
     if any(any(tool_name in arg for tool_name in FORBIDDEN_TOOL_NAMES) for arg in lowered):
         blockers.append("launcher_command_forbidden_tool")
-    return args, list(dict.fromkeys(blockers))
+    return args, list(dict.fromkeys(blockers)), command_script_resolved
 
 
 def markdown_report(report: dict[str, Any]) -> str:
@@ -126,6 +144,9 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"- started_at: {report.get('started_at')}",
         f"- finished_at: {report.get('finished_at')}",
         f"- duration_ms: {report.get('duration_ms')}",
+        f"- rerun_started_at: {report.get('rerun_started_at')}",
+        f"- rerun_finished_at: {report.get('rerun_finished_at')}",
+        f"- command_script_resolved: `{report.get('command_script_resolved') or 'N/A'}`",
         "",
     ]
     blockers = report.get("blockers") if isinstance(report.get("blockers"), list) else []
@@ -146,6 +167,8 @@ def markdown_report(report: dict[str, Any]) -> str:
             "loaded",
             "sha256",
             "changed_from_initial_doctor",
+            "mtime_epoch",
+            "updated_after_rerun",
             "doctor_status",
             "primary_next_action",
             "try_now_allowed",
@@ -167,12 +190,19 @@ def markdown_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def summarize_follow_up_doctor(doctor_path: Path, *, initial_doctor_sha256: str | None) -> dict[str, Any]:
+def summarize_follow_up_doctor(
+    doctor_path: Path,
+    *,
+    initial_doctor_sha256: str | None,
+    rerun_started_epoch: float | None,
+) -> dict[str, Any]:
     follow_up: dict[str, Any] = {
         "doctor_path": str(doctor_path),
         "loaded": False,
         "sha256": None,
         "changed_from_initial_doctor": None,
+        "mtime_epoch": None,
+        "updated_after_rerun": None,
         "doctor_status": None,
         "primary_next_action": None,
         "try_now_allowed": None,
@@ -185,9 +215,23 @@ def summarize_follow_up_doctor(doctor_path: Path, *, initial_doctor_sha256: str 
         "warnings": [],
     }
     try:
+        mtime_epoch = doctor_path.stat().st_mtime
+    except FileNotFoundError:
+        follow_up["warnings"].append("follow_up_doctor_missing")
+        return follow_up
+    except OSError as exc:
+        follow_up["warnings"].append(f"follow_up_doctor_unreadable: {exc}")
+        return follow_up
+    follow_up["mtime_epoch"] = mtime_epoch
+    if rerun_started_epoch is not None:
+        updated_after_rerun = mtime_epoch >= rerun_started_epoch
+        follow_up["updated_after_rerun"] = updated_after_rerun
+        if not updated_after_rerun:
+            follow_up["warnings"].append("follow_up_doctor_not_updated_after_rerun")
+    try:
         follow_up_sha256 = file_sha256(doctor_path)
     except OSError as exc:
-        follow_up["warnings"].append(f"follow_up_doctor_unavailable: {exc}")
+        follow_up["warnings"].append(f"follow_up_doctor_unreadable: {exc}")
         return follow_up
     follow_up["sha256"] = follow_up_sha256
     if initial_doctor_sha256:
@@ -197,8 +241,14 @@ def summarize_follow_up_doctor(doctor_path: Path, *, initial_doctor_sha256: str 
             follow_up["warnings"].append("follow_up_doctor_not_changed_after_rerun")
     try:
         doctor = load_json(doctor_path)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        follow_up["warnings"].append(f"follow_up_doctor_unavailable: {exc}")
+    except json.JSONDecodeError as exc:
+        follow_up["warnings"].append(f"follow_up_doctor_invalid_json: {exc}")
+        return follow_up
+    except ValueError as exc:
+        follow_up["warnings"].append(f"follow_up_doctor_not_object: {exc}")
+        return follow_up
+    except OSError as exc:
+        follow_up["warnings"].append(f"follow_up_doctor_unreadable: {exc}")
         return follow_up
     evidence = doctor.get("evidence_check") if isinstance(doctor.get("evidence_check"), dict) else {}
     follow_up.update(
@@ -291,20 +341,29 @@ def launch_doctor(
         command=command,
     )
     command_args: list[str] = []
+    command_script_resolved: str | None = None
     if execute_rerun:
-        command_args, command_blockers = validate_rerun_command(command)
+        command_args, command_blockers, command_script_resolved = validate_rerun_command(command)
         blockers.extend(command_blockers)
         blockers = list(dict.fromkeys(blockers))
     warnings: list[str] = []
     executed = False
     returncode: int | None = None
+    rerun_started_at: str | None = None
+    rerun_finished_at: str | None = None
+    rerun_started_epoch: float | None = None
+    rerun_finished_epoch: float | None = None
     launcher_status = "printed"
 
     if execute_rerun:
         if blockers:
             launcher_status = "blocked"
         else:
+            rerun_started_at = now_iso()
+            rerun_started_epoch = time.time()
             completed = runner(command_args, check=False)
+            rerun_finished_epoch = time.time()
+            rerun_finished_at = now_iso()
             executed = True
             returncode = int(getattr(completed, "returncode", 0))
             launcher_status = "executed"
@@ -316,11 +375,15 @@ def launch_doctor(
         launcher_status = "blocked"
     follow_up: dict[str, Any] | None = None
     if execute_rerun and executed and returncode == 0 and follow_up_doctor_path is not None:
-        follow_up = summarize_follow_up_doctor(follow_up_doctor_path, initial_doctor_sha256=initial_doctor_sha256)
+        follow_up = summarize_follow_up_doctor(
+            follow_up_doctor_path,
+            initial_doctor_sha256=initial_doctor_sha256,
+            rerun_started_epoch=rerun_started_epoch,
+        )
         if follow_up_has_warning(follow_up):
             launcher_status = "executed_with_followup_warning"
             if not follow_up.get("loaded"):
-                warnings.append("follow_up_doctor_unavailable")
+                warnings.append("follow_up_doctor_not_loaded")
             if follow_up.get("warnings"):
                 warnings.extend(as_string_list(follow_up.get("warnings")))
             if follow_up.get("strict_status") == "blocked" or follow_up.get("evidence_status") == "blocked":
@@ -339,6 +402,10 @@ def launch_doctor(
         "started_at": started_at,
         "finished_at": finished_at,
         "duration_ms": round((time.monotonic() - started_monotonic) * 1000, 3),
+        "rerun_started_at": rerun_started_at,
+        "rerun_finished_at": rerun_finished_at,
+        "rerun_started_epoch": rerun_started_epoch,
+        "rerun_finished_epoch": rerun_finished_epoch,
         "argv": argv or [],
         "cwd": str(Path.cwd()),
         "python_executable": sys.executable,
@@ -353,6 +420,7 @@ def launch_doctor(
         "returncode": returncode,
         "command": command,
         "command_args": command_args,
+        "command_script_resolved": command_script_resolved,
         "reason": reason,
         "action_contract": action_contract,
         "warnings": warnings,
@@ -431,6 +499,9 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
     print(f"executed: {report.get('executed')}")
     print(f"command: {report.get('command') or 'N/A'}")
     print(f"reason: {report.get('reason') or 'N/A'}")
+    print(f"rerun_started_at: {report.get('rerun_started_at') or 'N/A'}")
+    print(f"rerun_finished_at: {report.get('rerun_finished_at') or 'N/A'}")
+    print(f"command_script_resolved: {report.get('command_script_resolved') or 'N/A'}")
     print(f"launcher_report_json: {report.get('output_json')}")
     print(f"launcher_report_md: {report.get('output_md')}")
     print(f"launcher_report_history_json: {report.get('output_history_json')}")
@@ -440,6 +511,8 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
         print(f"follow_up_loaded: {follow_up.get('loaded')}")
         print(f"follow_up_sha256: {follow_up.get('sha256')}")
         print(f"follow_up_changed_from_initial_doctor: {follow_up.get('changed_from_initial_doctor')}")
+        print(f"follow_up_mtime_epoch: {follow_up.get('mtime_epoch')}")
+        print(f"follow_up_updated_after_rerun: {follow_up.get('updated_after_rerun')}")
         print(f"follow_up_doctor_status: {follow_up.get('doctor_status')}")
         print(f"follow_up_primary_next_action: {follow_up.get('primary_next_action')}")
         print(f"follow_up_try_now_allowed: {follow_up.get('try_now_allowed')}")
