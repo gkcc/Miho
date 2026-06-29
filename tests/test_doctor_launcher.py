@@ -34,6 +34,7 @@ def doctor_json(
     allowed_for_launcher: bool = True,
     writes_roster: bool = False,
     requires_manual_confirmation: bool = False,
+    try_now_allowed: bool = False,
     reason: str = "demo rerun command is safe to print",
     command: str = "python tools/probes/run_demo_pipeline.py --manifest data/probes/demo_manifest.json",
 ) -> dict:
@@ -47,6 +48,7 @@ def doctor_json(
         "doctor_status": doctor_status,
         "headline": "demo",
         "primary_next_action": primary_next_action,
+        "try_now_allowed": try_now_allowed,
         "evidence_check": {"status": "trusted" if strict_status != "blocked" else "blocked", "strict_status": strict_status},
         "action_contract": {
             "primary_next_action": primary_next_action,
@@ -96,6 +98,114 @@ class DoctorLauncherTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertTrue(any("run_demo_pipeline.py" in item for item in calls[0]))
         self.assertTrue(any("run_demo_pipeline.py" in item for item in report["command_args"]))
+
+    def test_execute_rerun_reads_follow_up_doctor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            follow_up_path = write_json(
+                root / "after" / "demo_doctor.json",
+                doctor_json(
+                    primary_next_action="try_now",
+                    doctor_status="ready_to_try",
+                    allowed_for_launcher=False,
+                    try_now_allowed=True,
+                    reason="try_now is a user gameplay action, not a tool command",
+                ),
+            )
+            calls: list[list[str]] = []
+
+            def runner(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0)
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                follow_up_doctor_path=follow_up_path,
+                execute_rerun=True,
+                runner=runner,
+            )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(report["launcher_status"], "executed")
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(report["follow_up"]["loaded"])
+        self.assertEqual(report["follow_up"]["doctor_status"], "ready_to_try")
+        self.assertEqual(report["follow_up"]["primary_next_action"], "try_now")
+        self.assertTrue(report["follow_up"]["try_now_allowed"])
+        self.assertEqual(report["follow_up"]["strict_status"], "trusted")
+
+    def test_execute_rerun_reports_follow_up_needs_apply_without_executing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            follow_up_path = write_json(
+                root / "after" / "demo_doctor.json",
+                doctor_json(
+                    primary_next_action="safe_apply_review_decisions",
+                    doctor_status="needs_apply",
+                    allowed_for_launcher=False,
+                    writes_roster=True,
+                    requires_manual_confirmation=True,
+                    reason="write action must be manually confirmed",
+                ),
+            )
+            calls: list[list[str]] = []
+
+            def runner(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0)
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                follow_up_doctor_path=follow_up_path,
+                execute_rerun=True,
+                runner=runner,
+            )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(report["follow_up"]["doctor_status"], "needs_apply")
+        self.assertEqual(report["follow_up"]["primary_next_action"], "safe_apply_review_decisions")
+        self.assertFalse(report["follow_up"]["try_now_allowed"])
+
+    def test_execute_rerun_failure_does_not_read_follow_up_doctor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            follow_up_path = write_json(root / "after" / "demo_doctor.json", doctor_json())
+
+            def runner(args, **kwargs):
+                return subprocess.CompletedProcess(args, 7)
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                follow_up_doctor_path=follow_up_path,
+                execute_rerun=True,
+                runner=runner,
+            )
+        self.assertEqual(exit_code, 7)
+        self.assertNotIn("follow_up", report)
+        self.assertIn("rerun_command_failed", report["blockers"])
+
+    def test_missing_follow_up_doctor_is_warning_not_failed_rerun(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            missing_follow_up_path = root / "missing" / "demo_doctor.json"
+
+            def runner(args, **kwargs):
+                return subprocess.CompletedProcess(args, 0)
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                follow_up_doctor_path=missing_follow_up_path,
+                execute_rerun=True,
+                runner=runner,
+            )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(report["launcher_status"], "executed_with_followup_warning")
+        self.assertFalse(report["follow_up"]["loaded"])
+        self.assertIn("follow_up_doctor_unavailable", report["warnings"])
+        self.assertTrue(any("follow_up_doctor_unavailable" in item for item in report["follow_up"]["warnings"]))
 
     def test_execute_rerun_blocks_non_allowlisted_tool(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

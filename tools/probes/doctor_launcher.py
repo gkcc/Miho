@@ -11,7 +11,7 @@ import time
 from typing import Any, Callable
 
 
-SCHEMA_VERSION = "p3.0-lite-doctor-launcher"
+SCHEMA_VERSION = "p3.2-lite-doctor-launcher"
 FORBIDDEN_COMMAND_FRAGMENTS = ("&", "|", ";", "`", "$(", ">", "<")
 FORBIDDEN_SCRIPT_SUFFIXES = (".bat", ".cmd", ".ps1", ".sh")
 FORBIDDEN_TOOL_NAMES = ("apply_review_decisions.py", "preview_review_decisions.py")
@@ -119,7 +119,44 @@ def markdown_report(report: dict[str, Any]) -> str:
         lines.extend(["## Warnings", ""])
         lines.extend(f"- {item}" for item in warnings)
         lines.append("")
+    follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
+    if follow_up:
+        lines.extend(["## Follow-up Doctor", ""])
+        for key in ("doctor_path", "loaded", "doctor_status", "primary_next_action", "try_now_allowed", "strict_status"):
+            lines.append(f"- {key}: {follow_up.get(key)}")
+        follow_up_warnings = follow_up.get("warnings") if isinstance(follow_up.get("warnings"), list) else []
+        for item in follow_up_warnings:
+            lines.append(f"- warning: {item}")
+        lines.append("")
     return "\n".join(lines)
+
+
+def summarize_follow_up_doctor(doctor_path: Path) -> dict[str, Any]:
+    follow_up: dict[str, Any] = {
+        "doctor_path": str(doctor_path),
+        "loaded": False,
+        "doctor_status": None,
+        "primary_next_action": None,
+        "try_now_allowed": None,
+        "strict_status": None,
+        "warnings": [],
+    }
+    try:
+        doctor = load_json(doctor_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        follow_up["warnings"].append(f"follow_up_doctor_unavailable: {exc}")
+        return follow_up
+    evidence = doctor.get("evidence_check") if isinstance(doctor.get("evidence_check"), dict) else {}
+    follow_up.update(
+        {
+            "loaded": True,
+            "doctor_status": doctor.get("doctor_status"),
+            "primary_next_action": doctor.get("primary_next_action"),
+            "try_now_allowed": doctor.get("try_now_allowed"),
+            "strict_status": evidence.get("strict_status") or evidence.get("status"),
+        }
+    )
+    return follow_up
 
 
 def build_blockers(
@@ -157,6 +194,7 @@ def launch_doctor(
     output_dir: Path | None = None,
     execute_rerun: bool = False,
     fail_on_blocked: bool = False,
+    follow_up_doctor_path: Path | None = None,
     argv: list[str] | None = None,
     runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
 ) -> tuple[int, dict[str, Any]]:
@@ -200,6 +238,12 @@ def launch_doctor(
         warnings.append("manual_only_action_printed")
     if fail_on_blocked and blockers and not executed:
         launcher_status = "blocked"
+    follow_up: dict[str, Any] | None = None
+    if execute_rerun and executed and returncode == 0 and follow_up_doctor_path is not None:
+        follow_up = summarize_follow_up_doctor(follow_up_doctor_path)
+        if not follow_up.get("loaded"):
+            launcher_status = "executed_with_followup_warning"
+            warnings.append("follow_up_doctor_unavailable")
 
     reason = str(action_contract.get("reason") or "")
     finished_at = now_iso()
@@ -226,6 +270,8 @@ def launch_doctor(
         "warnings": warnings,
         "blockers": blockers,
     }
+    if follow_up is not None:
+        report["follow_up"] = follow_up
     out_dir = output_dir or default_output_dir(doctor_path)
     json_path = out_dir / "launcher_report.json"
     md_path = out_dir / "launcher_report.md"
@@ -250,6 +296,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     mode.add_argument("--print-command", action="store_true", help="Explicitly print/report the command without executing it.")
     mode.add_argument("--execute-rerun", action="store_true", help="Execute only an allowed rerun_demo_pipeline action.")
     parser.add_argument("--fail-on-blocked", action="store_true", help="Return non-zero when the launcher report contains blockers.")
+    parser.add_argument("--follow-up-doctor", default=None, help="Read this demo_doctor.json after a successful rerun and report the next state.")
     return parser
 
 
@@ -257,12 +304,14 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
     args = build_arg_parser().parse_args(argv)
     doctor_path = Path(args.doctor)
     output_dir = Path(args.output_dir) if args.output_dir else None
+    follow_up_doctor = Path(args.follow_up_doctor) if args.follow_up_doctor else None
     try:
         exit_code, report = launch_doctor(
             doctor_path=doctor_path,
             output_dir=output_dir,
             execute_rerun=bool(args.execute_rerun),
             fail_on_blocked=bool(args.fail_on_blocked),
+            follow_up_doctor_path=follow_up_doctor,
             argv=argv if argv is not None else sys.argv[1:],
             runner=runner,
         )
@@ -278,6 +327,13 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
     print(f"reason: {report.get('reason') or 'N/A'}")
     print(f"launcher_report_json: {report.get('output_json')}")
     print(f"launcher_report_md: {report.get('output_md')}")
+    follow_up = report.get("follow_up") if isinstance(report.get("follow_up"), dict) else {}
+    if follow_up:
+        print(f"follow_up_loaded: {follow_up.get('loaded')}")
+        print(f"follow_up_doctor_status: {follow_up.get('doctor_status')}")
+        print(f"follow_up_primary_next_action: {follow_up.get('primary_next_action')}")
+        print(f"follow_up_try_now_allowed: {follow_up.get('try_now_allowed')}")
+        print(f"follow_up_strict_status: {follow_up.get('strict_status')}")
     if report.get("blockers"):
         print("blockers:")
         for item in report["blockers"]:
