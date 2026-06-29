@@ -619,11 +619,91 @@ class DoctorLauncherTests(unittest.TestCase):
             dashboard_html = dashboard_path.read_text(encoding="utf-8")
             self.assertEqual(exit_code, 0)
             self.assertEqual(report["dashboard_refresh"]["status"], "refreshed")
+            self.assertTrue(report["dashboard_refresh"]["inferred_dashboard_paths"])
+            self.assertTrue(report["dashboard_refresh"]["summary_updated"])
+            self.assertTrue(report["dashboard_refresh"]["dashboard_rendered"])
             self.assertTrue(dashboard_path.exists())
             self.assertIn("launcher_report", refreshed_summary)
             self.assertEqual(refreshed_summary["launcher_report"]["launcher_status"], "printed")
             self.assertEqual(refreshed_summary["launcher_report"]["dashboard_refresh"]["status"], "refreshed")
+            self.assertTrue(refreshed_summary["launcher_report"]["dashboard_refresh"]["summary_updated"])
+            self.assertTrue(refreshed_summary["launcher_report"]["dashboard_refresh"]["dashboard_rendered"])
             self.assertIn("启动器执行记录", dashboard_html)
+
+    def test_refresh_dashboard_uses_explicit_summary_and_html_with_custom_launcher_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            dashboard_dir = root / "dashboard"
+            summary_path = write_json(dashboard_dir / "demo_summary.json", demo_summary_json())
+            html_path = dashboard_dir / "custom_dashboard.html"
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                output_dir=root / "custom_launcher_reports",
+                refresh_dashboard=True,
+                dashboard_summary_path=summary_path,
+                dashboard_html_path=html_path,
+            )
+
+            refreshed_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(report["dashboard_refresh"]["status"], "refreshed")
+            self.assertFalse(report["dashboard_refresh"]["inferred_dashboard_paths"])
+            self.assertEqual(Path(report["dashboard_refresh"]["summary_json"]), summary_path)
+            self.assertEqual(Path(report["dashboard_refresh"]["dashboard_html"]), html_path)
+            self.assertNotIn("dashboard_refresh_path_inferred_from_custom_launcher_output", report["dashboard_refresh"]["warnings"])
+            self.assertTrue(html_path.exists())
+            self.assertIn("launcher_report", refreshed_summary)
+
+    def test_refresh_dashboard_warns_when_custom_output_dir_uses_inferred_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            summary_path = write_json(root / "demo_summary.json", demo_summary_json())
+
+            exit_code, report = launcher_tool.launch_doctor(
+                doctor_path=doctor_path,
+                output_dir=root / "custom_launcher_reports",
+                refresh_dashboard=True,
+            )
+
+            refreshed_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(report["dashboard_refresh"]["status"], "refreshed")
+        self.assertTrue(report["dashboard_refresh"]["inferred_dashboard_paths"])
+        self.assertIn("dashboard_refresh_path_inferred_from_custom_launcher_output", report["dashboard_refresh"]["warnings"])
+        self.assertIn("dashboard_refresh_path_inferred_from_custom_launcher_output", report["warnings"])
+        self.assertIn("launcher_report", refreshed_summary)
+
+    def test_refresh_dashboard_render_failure_records_partial_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doctor_path = write_json(root / "demo_doctor" / "demo_doctor.json", doctor_json())
+            write_json(root / "demo_summary.json", demo_summary_json())
+            output_dir = root / "launcher"
+            demo_pipeline = launcher_tool.import_demo_pipeline_module()
+            original_render_dashboard = demo_pipeline.dashboard.render_dashboard
+
+            def fail_render_dashboard(*args, **kwargs):  # noqa: ANN002, ANN003
+                raise RuntimeError("render failed for test")
+
+            demo_pipeline.dashboard.render_dashboard = fail_render_dashboard
+            try:
+                exit_code, report = launcher_tool.launch_doctor(
+                    doctor_path=doctor_path,
+                    output_dir=output_dir,
+                    refresh_dashboard=True,
+                )
+            finally:
+                demo_pipeline.dashboard.render_dashboard = original_render_dashboard
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(report["dashboard_refresh"]["status"], "failed")
+        self.assertTrue(report["dashboard_refresh"]["summary_updated"])
+        self.assertFalse(report["dashboard_refresh"]["dashboard_rendered"])
+        self.assertTrue(any("dashboard_refresh_failed" in item for item in report["dashboard_refresh"]["warnings"]))
+        self.assertTrue(any("dashboard_refresh_failed" in item for item in report["warnings"]))
 
     def test_refresh_dashboard_missing_summary_warns_without_failing_rerun(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

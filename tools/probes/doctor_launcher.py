@@ -191,7 +191,15 @@ def markdown_report(report: dict[str, Any]) -> str:
     dashboard_refresh = report.get("dashboard_refresh") if isinstance(report.get("dashboard_refresh"), dict) else {}
     if dashboard_refresh:
         lines.extend(["## Dashboard Refresh", ""])
-        for key in ("attempted", "status", "summary_json", "dashboard_html"):
+        for key in (
+            "attempted",
+            "status",
+            "summary_json",
+            "dashboard_html",
+            "inferred_dashboard_paths",
+            "summary_updated",
+            "dashboard_rendered",
+        ):
             lines.append(f"- {key}: {dashboard_refresh.get(key)}")
         items = dashboard_refresh.get("warnings") if isinstance(dashboard_refresh.get("warnings"), list) else []
         for item in items:
@@ -222,19 +230,46 @@ def import_demo_pipeline_module() -> Any:
     return demo_pipeline
 
 
-def dashboard_refresh_record(launcher_output_dir: Path, *, attempted: bool, status: str) -> dict[str, Any]:
-    demo_output_dir = launcher_output_dir.parent
+def dashboard_refresh_record(
+    launcher_output_dir: Path,
+    *,
+    attempted: bool,
+    status: str,
+    dashboard_summary_path: Path | None = None,
+    dashboard_html_path: Path | None = None,
+) -> dict[str, Any]:
+    inferred = dashboard_summary_path is None
+    summary_path = dashboard_summary_path or launcher_output_dir.parent / "demo_summary.json"
+    html_path = dashboard_html_path or summary_path.parent / "index.html"
+    warnings: list[str] = []
+    if inferred and launcher_output_dir.name != "launcher":
+        warnings.append("dashboard_refresh_path_inferred_from_custom_launcher_output")
     return {
         "attempted": attempted,
         "status": status,
-        "summary_json": str(demo_output_dir / "demo_summary.json"),
-        "dashboard_html": str(demo_output_dir / "index.html"),
-        "warnings": [],
+        "summary_json": str(summary_path),
+        "dashboard_html": str(html_path),
+        "inferred_dashboard_paths": inferred,
+        "summary_updated": False,
+        "dashboard_rendered": False,
+        "warnings": warnings,
     }
 
 
-def refresh_dashboard_after_launcher(launcher_output_dir: Path, report: dict[str, Any]) -> dict[str, Any]:
-    refresh = dashboard_refresh_record(launcher_output_dir, attempted=True, status="refreshed")
+def refresh_dashboard_after_launcher(
+    launcher_output_dir: Path,
+    report: dict[str, Any],
+    *,
+    dashboard_summary_path: Path | None = None,
+    dashboard_html_path: Path | None = None,
+) -> dict[str, Any]:
+    refresh = dashboard_refresh_record(
+        launcher_output_dir,
+        attempted=True,
+        status="refreshed",
+        dashboard_summary_path=dashboard_summary_path,
+        dashboard_html_path=dashboard_html_path,
+    )
     summary_path = Path(str(refresh["summary_json"]))
     dashboard_path = Path(str(refresh["dashboard_html"]))
     try:
@@ -255,7 +290,7 @@ def refresh_dashboard_after_launcher(launcher_output_dir: Path, report: dict[str
         report["dashboard_refresh"] = refresh
         write_launcher_report_files(report)
         demo_pipeline = import_demo_pipeline_module()
-        launcher_summary = demo_pipeline.build_launcher_report_summary(launcher_output_dir.parent)
+        launcher_summary = demo_pipeline.build_launcher_report_summary(summary_path.parent, report_path=Path(str(report["output_json"])))
         if launcher_summary is None:
             refresh["status"] = "warning"
             refresh["warnings"].append("dashboard_refresh_launcher_report_missing")
@@ -264,7 +299,12 @@ def refresh_dashboard_after_launcher(launcher_output_dir: Path, report: dict[str
         summary["launcher_report"] = launcher_summary
         summary["dashboard_html"] = str(dashboard_path)
         write_json(summary_path, summary)
+        refresh["summary_updated"] = True
         demo_pipeline.dashboard.render_dashboard(summary, dashboard_path)
+        refresh["dashboard_rendered"] = True
+        launcher_report = summary.get("launcher_report") if isinstance(summary.get("launcher_report"), dict) else {}
+        if launcher_report:
+            launcher_report["dashboard_refresh"] = refresh
         write_json(summary_path, summary)
     except Exception as exc:  # pragma: no cover - defensive boundary for a CLI helper.
         refresh["status"] = "failed"
@@ -404,6 +444,8 @@ def launch_doctor(
     fail_on_followup_warning: bool = False,
     follow_up_doctor_path: Path | None = None,
     refresh_dashboard: bool = False,
+    dashboard_summary_path: Path | None = None,
+    dashboard_html_path: Path | None = None,
     argv: list[str] | None = None,
     runner: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
 ) -> tuple[int, dict[str, Any]]:
@@ -523,10 +565,21 @@ def launch_doctor(
     report["output_md"] = str(md_path)
     report["output_history_json"] = str(history_json_path)
     report["output_history_md"] = str(history_md_path)
-    report["dashboard_refresh"] = dashboard_refresh_record(out_dir, attempted=False, status="skipped")
+    report["dashboard_refresh"] = dashboard_refresh_record(
+        out_dir,
+        attempted=False,
+        status="skipped",
+        dashboard_summary_path=dashboard_summary_path,
+        dashboard_html_path=dashboard_html_path,
+    )
     write_launcher_report_files(report)
     if refresh_dashboard:
-        refresh = refresh_dashboard_after_launcher(out_dir, report)
+        refresh = refresh_dashboard_after_launcher(
+            out_dir,
+            report,
+            dashboard_summary_path=dashboard_summary_path,
+            dashboard_html_path=dashboard_html_path,
+        )
         report["dashboard_refresh"] = refresh
         if refresh.get("warnings"):
             warnings.extend(as_string_list(refresh.get("warnings")))
@@ -561,6 +614,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="After writing launcher_report, re-inject it into demo_summary.json and re-render index.html without rerunning the demo pipeline.",
     )
+    parser.add_argument("--dashboard-summary", default=None, help="Explicit demo_summary.json to refresh. Default: parent of launcher output dir.")
+    parser.add_argument("--dashboard-html", default=None, help="Dashboard HTML output path. Default: index.html beside --dashboard-summary.")
     return parser
 
 
@@ -569,6 +624,8 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
     doctor_path = Path(args.doctor)
     output_dir = Path(args.output_dir) if args.output_dir else None
     follow_up_doctor = Path(args.follow_up_doctor) if args.follow_up_doctor else None
+    dashboard_summary = Path(args.dashboard_summary) if args.dashboard_summary else None
+    dashboard_html = Path(args.dashboard_html) if args.dashboard_html else None
     try:
         exit_code, report = launch_doctor(
             doctor_path=doctor_path,
@@ -578,6 +635,8 @@ def run_launcher(argv: list[str] | None = None, *, runner: Callable[..., subproc
             fail_on_followup_warning=bool(args.fail_on_followup_warning),
             follow_up_doctor_path=follow_up_doctor,
             refresh_dashboard=bool(args.refresh_dashboard),
+            dashboard_summary_path=dashboard_summary,
+            dashboard_html_path=dashboard_html,
             argv=argv if argv is not None else sys.argv[1:],
             runner=runner,
         )

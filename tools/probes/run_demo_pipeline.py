@@ -1629,8 +1629,8 @@ def launcher_freshness_for_report(output_dir: Path, report: dict[str, Any]) -> d
     }
 
 
-def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
-    report_path = output_dir / LAUNCHER_REPORT_DIRNAME / LAUNCHER_REPORT_FILENAME
+def build_launcher_report_summary(output_dir: Path, report_path: Path | None = None) -> dict[str, Any] | None:
+    report_path = report_path or output_dir / LAUNCHER_REPORT_DIRNAME / LAUNCHER_REPORT_FILENAME
     if not report_path.exists():
         return None
     base: dict[str, Any] = {
@@ -1686,6 +1686,9 @@ def build_launcher_report_summary(output_dir: Path) -> dict[str, Any] | None:
                 "status": dashboard_refresh.get("status"),
                 "summary_json": dashboard_refresh.get("summary_json"),
                 "dashboard_html": dashboard_refresh.get("dashboard_html"),
+                "inferred_dashboard_paths": dashboard_refresh.get("inferred_dashboard_paths"),
+                "summary_updated": dashboard_refresh.get("summary_updated"),
+                "dashboard_rendered": dashboard_refresh.get("dashboard_rendered"),
                 "warnings": string_list(dashboard_refresh.get("warnings")),
             }
             if dashboard_refresh
