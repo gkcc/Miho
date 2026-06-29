@@ -79,6 +79,19 @@ python tools/probes/review_export_image.py --image "C:\path\to\share.jpg" --engi
 
 更多 probe 命令放在 [tools/probes/README.md](tools/probes/README.md)。
 
+## Codex / GPT 对抗审查
+
+需要右侧 GPT 审方案时，不要重新摸索对话流程，直接生成固定审查包：
+
+```powershell
+python tools/probes/build_gpt_review_prompt.py `
+  --focus "本轮要推进的用户可见结果" `
+  --evidence "关键命令或页面现象" `
+  --changed-file "path/to/file.py: 改了什么"
+```
+
+协议说明见 [docs/notes/codex-gpt-adversarial-loop.md](docs/notes/codex-gpt-adversarial-loop.md)。
+
 ## 本地 tier snapshot
 
 本地 tier snapshot 只作为“保值/高优先级”弱信号，不是抽卡建议。示例：

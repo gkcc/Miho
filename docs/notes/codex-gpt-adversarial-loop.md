@@ -11,7 +11,16 @@
 
 ## 给 GPT 的固定输入包
 
-每次只发一个紧凑包，不要贴长日志：
+优先用工具生成，不要手写长上下文：
+
+```powershell
+python tools/probes/build_gpt_review_prompt.py `
+  --focus "本轮要推进的用户可见结果" `
+  --evidence "关键命令结果，最多 5 行" `
+  --changed-file "path/to/file.py: 改了什么"
+```
+
+每次只发一个紧凑包，不要贴长日志。工具会自动带上固定约束和当前 `git status --short`；需要手写时使用同样结构：
 
 ```text
 目标：
