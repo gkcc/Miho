@@ -101,6 +101,17 @@ def ready_endgame_plan() -> dict:
     }
 
 
+def fresh_refresh_status() -> dict:
+    return {
+        "schema_version": "p2.7-lite-refresh-status",
+        "refresh_status": "fresh",
+        "summary": {"needs_demo_refresh": False},
+        "stale_reasons": [],
+        "refresh_command": "python tools/probes/run_demo_pipeline.py --clean-demo",
+        "warnings": [],
+    }
+
+
 def many_ready_endgame_plan(count: int = 6) -> dict:
     plans = []
     for index in range(count):
@@ -166,6 +177,8 @@ def mixed_endgame_plan() -> dict:
 
 
 class FinalBriefTests(unittest.TestCase):
+    MISSING_REFRESH = object()
+
     def build(
         self,
         root: Path,
@@ -173,13 +186,16 @@ class FinalBriefTests(unittest.TestCase):
         manifest: dict | None = None,
         inbox: dict | None = None,
         endgame: dict | None = None,
-        refresh: dict | None = None,
+        refresh: object = None,
     ) -> dict:
         manifest_path = write_json(root / "run_manifest.json", manifest if manifest is not None else run_manifest())
         roster_path = write_json(root / "roster_index.json", roster_index())
         inbox_path = write_json(root / "review_inbox.json", inbox if inbox is not None else review_inbox())
         endgame_path = write_json(root / "endgame_plan.json", endgame if endgame is not None else ready_endgame_plan())
-        refresh_path = write_json(root / "refresh_status.json", refresh) if refresh is not None else None
+        if refresh is self.MISSING_REFRESH:
+            refresh_path = None
+        else:
+            refresh_path = write_json(root / "refresh_status.json", refresh if isinstance(refresh, dict) else fresh_refresh_status())
         return brief_tool.build_final_brief(
             output_dir=root / "final_brief",
             run_manifest=manifest_path,
@@ -232,6 +248,38 @@ class FinalBriefTests(unittest.TestCase):
             self.assertTrue(result["summary"]["needs_demo_refresh"])
             self.assertIn("Safe apply 已改变 accepted roster", " ".join(result["warnings"]))
             self.assertIn("--clean-demo", " ".join(result["next_commands"]))
+
+    def test_unknown_refresh_status_blocks_try_now(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                refresh={
+                    "schema_version": "p2.7-lite-refresh-status",
+                    "refresh_status": "unknown",
+                    "summary": {"needs_demo_refresh": True},
+                    "stale_reasons": [],
+                    "refresh_command": "python tools/probes/run_demo_pipeline.py --clean-demo",
+                    "warnings": ["run_manifest 缺少可解析 created_at"],
+                },
+            )
+
+            self.assertNotEqual(result["brief_status"], "ready")
+            self.assertEqual(result["top_cards"][0]["card_type"], "data_warning")
+            self.assertNotIn("try_now", {item["card_type"] for item in result["top_cards"]})
+            self.assertTrue(result["summary"]["needs_demo_refresh"])
+            self.assertIn("无法确认 demo 是否已吸收最新 apply", " ".join(result["warnings"]))
+            self.assertIn("--clean-demo", " ".join(result["next_commands"]))
+
+    def test_missing_refresh_status_blocks_try_now(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(root, refresh=self.MISSING_REFRESH)
+
+            self.assertNotEqual(result["brief_status"], "ready")
+            self.assertEqual(result["top_cards"][0]["card_type"], "data_warning")
+            self.assertNotIn("try_now", {item["card_type"] for item in result["top_cards"]})
+            self.assertIn("缺少 refresh_status", " ".join(result["warnings"]))
 
     def test_pending_snapshot_is_review_snapshot_not_try_now(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

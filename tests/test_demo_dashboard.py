@@ -186,7 +186,21 @@ class DemoDashboardTests(unittest.TestCase):
                 },
                 "stale_reasons": ["review_apply_receipt.created_at is newer than run_manifest.created_at"],
                 "affected_artifacts": ["final_brief", "action_checklist"],
-                "refresh_command": "python tools/probes/run_demo_pipeline.py --clean-demo",
+                "refresh_command": "python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --clean-demo",
+                "command_state": {
+                    "safe_to_rerun": True,
+                    "missing_inputs": [],
+                    "source_mode": "parsed_dir",
+                    "demo_command_json": "data/probes/demo/demo_command.json",
+                    "demo_command_md": "data/probes/demo/demo_command.md",
+                },
+                "action_state": {
+                    "try_now_allowed": False,
+                    "review_allowed": True,
+                    "safe_apply_allowed": True,
+                    "rerun_required": True,
+                    "primary_next_action": "rerun_demo_pipeline",
+                },
                 "warnings": [],
             },
             "final_brief": {
@@ -284,6 +298,12 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("刷新状态", html)
         self.assertIn("当前简报可能过期", html)
         self.assertIn("stale_after_apply", html)
+        self.assertIn("当前下一步", html)
+        self.assertIn("重跑 demo pipeline", html)
+        self.assertIn("可执行 try_now", html)
+        self.assertIn(">否<", html)
+        self.assertIn("--parsed-dir data/probes/parsed --latest-only --clean-demo", html)
+        self.assertIn("demo_command.json", html)
         self.assertIn("执行清单", html)
         self.assertIn("今天先做什么", html)
         self.assertIn("final_brief.md", html)

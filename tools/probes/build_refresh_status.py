@@ -14,6 +14,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = "p2.7-lite-refresh-status"
+FALLBACK_REFRESH_COMMAND = "python tools/probes/run_demo_pipeline.py --clean-demo"
 
 
 class RefreshStatusError(RuntimeError):
@@ -116,8 +117,47 @@ def affected_artifacts() -> list[str]:
     return ["final_brief", "action_checklist", "endgame_plan", "team_cards", "roster_delta"]
 
 
-def refresh_command() -> str:
-    return "python tools/probes/run_demo_pipeline.py --manifest data/probes/replay_manifest.json --clean-demo"
+def command_details(demo_command: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(demo_command, dict):
+        return {
+            "command": FALLBACK_REFRESH_COMMAND,
+            "argv": [],
+            "safe_to_rerun": False,
+            "missing_inputs": ["demo_command"],
+            "warnings": ["command_not_replayable"],
+        }
+    command = str(demo_command.get("command") or "").strip()
+    if not command:
+        return {
+            "command": FALLBACK_REFRESH_COMMAND,
+            "argv": [],
+            "safe_to_rerun": False,
+            "missing_inputs": ["demo_command.command"],
+            "warnings": unique_strings(["command_not_replayable"] + as_list(demo_command.get("warnings"))),
+        }
+    argv = as_list(demo_command.get("argv"))
+    missing = [str(item) for item in as_list(demo_command.get("missing_inputs")) if item]
+    return {
+        "command": command,
+        "argv": [str(item) for item in argv],
+        "safe_to_rerun": bool(demo_command.get("safe_to_rerun")) and not missing,
+        "missing_inputs": missing,
+        "warnings": unique_strings(as_list(demo_command.get("warnings"))),
+        "source_mode": demo_command.get("source_mode"),
+        "output_json": demo_command.get("output_json"),
+        "output_md": demo_command.get("output_md"),
+    }
+
+
+def action_state(status: str) -> dict[str, Any]:
+    rerun_required = status in {"stale_after_apply", "unknown"}
+    return {
+        "try_now_allowed": not rerun_required,
+        "review_allowed": True,
+        "safe_apply_allowed": True,
+        "rerun_required": rerun_required,
+        "primary_next_action": "rerun_demo_pipeline" if rerun_required else "continue_review_flow",
+    }
 
 
 def build_refresh_status(
@@ -126,6 +166,7 @@ def build_refresh_status(
     review_apply_receipt: Path | None = None,
     run_manifest: Path | None = None,
     roster_index: Path | None = None,
+    demo_command: Path | None = None,
     final_brief: Path | None = None,
     action_checklist: Path | None = None,
 ) -> dict[str, Any]:
@@ -133,6 +174,9 @@ def build_refresh_status(
     stale_reasons: list[str] = []
     receipt_data = load_optional_json(review_apply_receipt)
     run_data = load_optional_json(run_manifest)
+    demo_command_data = load_optional_json(demo_command)
+    command_info = command_details(demo_command_data)
+    warnings.extend(as_list(command_info.get("warnings")))
     receipt_exists = isinstance(receipt_data, dict)
     run_exists = isinstance(run_data, dict)
     summary = receipt_summary(receipt_data)
@@ -159,7 +203,8 @@ def build_refresh_status(
         if not receipt_changes_roster(summary) and int_value(summary.get("did_write_rejected_count")) > 0:
             warnings.append("receipt 只记录 rejected/pending 副作用，未改变 accepted roster；本轮不强制阻断 try_now。")
 
-    needs_refresh = status == "stale_after_apply"
+    needs_refresh = status in {"stale_after_apply", "unknown"}
+    current_action_state = action_state(status)
     result = {
         "schema_version": SCHEMA_VERSION,
         "refresh_status": status,
@@ -174,15 +219,27 @@ def build_refresh_status(
             "run_manifest_exists": run_exists,
             "current_roster_sha256": current_roster_hash,
             "run_manifest_roster_sha256": manifest_roster_hash,
+            "demo_command_exists": isinstance(demo_command_data, dict),
+            "demo_command_safe_to_rerun": command_info.get("safe_to_rerun"),
         },
         "stale_reasons": unique_strings(stale_reasons),
         "affected_artifacts": affected_artifacts() if needs_refresh else [],
-        "refresh_command": refresh_command(),
+        "refresh_command": command_info["command"],
+        "refresh_argv": command_info.get("argv", []),
+        "command_state": {
+            "safe_to_rerun": command_info.get("safe_to_rerun"),
+            "missing_inputs": command_info.get("missing_inputs", []),
+            "source_mode": command_info.get("source_mode"),
+            "demo_command_json": command_info.get("output_json"),
+            "demo_command_md": command_info.get("output_md"),
+        },
+        "action_state": current_action_state,
         "warnings": unique_strings(warnings),
         "input": {
             "review_apply_receipt": str(review_apply_receipt) if review_apply_receipt else None,
             "run_manifest": str(run_manifest) if run_manifest else None,
             "roster_index": str(roster_index) if roster_index else None,
+            "demo_command": str(demo_command) if demo_command else None,
             "final_brief": str(final_brief) if final_brief else None,
             "action_checklist": str(action_checklist) if action_checklist else None,
         },
@@ -203,6 +260,8 @@ def render_markdown(result: dict[str, Any]) -> str:
         "",
         f"- refresh_status: {result.get('refresh_status')}",
         f"- needs_demo_refresh: {result.get('summary', {}).get('needs_demo_refresh')}",
+        f"- try_now_allowed: {result.get('action_state', {}).get('try_now_allowed')}",
+        f"- primary_next_action: {result.get('action_state', {}).get('primary_next_action')}",
         "",
         "## Stale Reasons",
         "",
@@ -218,6 +277,12 @@ def render_markdown(result: dict[str, Any]) -> str:
         lines.extend(["", "## Warnings", ""])
         for item in warnings:
             lines.append(f"- {item}")
+    command_state = result.get("command_state") if isinstance(result.get("command_state"), dict) else {}
+    missing_inputs = as_list(command_state.get("missing_inputs"))
+    if missing_inputs:
+        lines.extend(["", "## Missing Replay Inputs", ""])
+        for item in missing_inputs:
+            lines.append(f"- {item}")
     lines.extend(["", "## Refresh Command", "", f"- `{result.get('refresh_command')}`"])
     return "\n".join(lines) + "\n"
 
@@ -227,6 +292,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--review-apply-receipt", default=None, help="review_apply_receipt.json.")
     parser.add_argument("--run-manifest", default=None, help="run_manifest.json.")
     parser.add_argument("--roster-index", default=None, help="Current roster_index.json.")
+    parser.add_argument("--demo-command", default=None, help="demo_command.json generated by run_demo_pipeline.")
     parser.add_argument("--final-brief", default=None, help="final_brief.json.")
     parser.add_argument("--action-checklist", default=None, help="action_checklist.json.")
     parser.add_argument("--output-dir", required=True, help="Output directory for refresh_status.json/md.")
@@ -240,6 +306,7 @@ def main() -> int:
             review_apply_receipt=resolve_path(args.review_apply_receipt) if args.review_apply_receipt else None,
             run_manifest=resolve_path(args.run_manifest) if args.run_manifest else None,
             roster_index=resolve_path(args.roster_index) if args.roster_index else None,
+            demo_command=resolve_path(args.demo_command) if args.demo_command else None,
             final_brief=resolve_path(args.final_brief) if args.final_brief else None,
             action_checklist=resolve_path(args.action_checklist) if args.action_checklist else None,
             output_dir=resolve_path(args.output_dir),

@@ -653,9 +653,17 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
     if not isinstance(refresh, dict):
         return ""
     refresh_summary = refresh.get("summary") if isinstance(refresh.get("summary"), dict) else {}
+    action_state = refresh.get("action_state") if isinstance(refresh.get("action_state"), dict) else {}
+    command_state = refresh.get("command_state") if isinstance(refresh.get("command_state"), dict) else {}
     reasons = refresh.get("stale_reasons") if isinstance(refresh.get("stale_reasons"), list) else []
     affected = refresh.get("affected_artifacts") if isinstance(refresh.get("affected_artifacts"), list) else []
     warnings = refresh.get("warnings") if isinstance(refresh.get("warnings"), list) else []
+    next_action = str(action_state.get("primary_next_action") or "unknown")
+    next_action_label = "重跑 demo pipeline" if next_action == "rerun_demo_pipeline" else next_action
+    try_now_allowed = action_state.get("try_now_allowed")
+    try_now_text = "未知" if try_now_allowed is None else "是" if try_now_allowed else "否"
+    rerun_required = action_state.get("rerun_required")
+    rerun_text = "未知" if rerun_required is None else "是" if rerun_required else "否"
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>Refresh Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if refresh.get("error"):
@@ -677,6 +685,11 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
             '<div class="errors"><strong>当前简报可能过期</strong>'
             "<ul><li>Safe apply 已改变 accepted roster；当前高难方案/今日简报可能仍基于旧 box。请重跑 demo pipeline 后再执行 try_now。</li></ul></div>"
         )
+    elif refresh.get("refresh_status") == "unknown":
+        stale_copy = (
+            '<div class="errors"><strong>刷新状态无法确认</strong>'
+            "<ul><li>无法确认当前 Dashboard 是否已吸收最新 apply；请重跑 demo pipeline 后再执行 try_now。</li></ul></div>"
+        )
     return f"""
     <section class="panel refresh-status">
       <h2>刷新状态</h2>
@@ -684,10 +697,15 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
       <div class="links">
         {link("refresh_status.md", refresh.get("output_md"))}
         {link("refresh_status.json", refresh.get("output_json"))}
+        {link("demo_command.md", command_state.get("demo_command_md"))}
+        {link("demo_command.json", command_state.get("demo_command_json"))}
       </div>
       <div class="input-grid">
         <div><span>refresh status</span><strong>{e(refresh.get("refresh_status") or "unknown")}</strong></div>
         <div><span>needs refresh</span><strong>{e(refresh_summary.get("needs_demo_refresh", "N/A"))}</strong></div>
+        <div><span>当前下一步</span><strong>{e(next_action_label)}</strong></div>
+        <div><span>可执行 try_now</span><strong>{e(try_now_text)}</strong></div>
+        <div><span>需要重跑</span><strong>{e(rerun_text)}</strong></div>
         <div><span>receipt exists</span><strong>{e(refresh_summary.get("receipt_exists", "N/A"))}</strong></div>
         <div><span>entered roster</span><strong>{e(refresh_summary.get("did_enter_roster_count", "N/A"))}</strong></div>
         <div><span>wrote accepted</span><strong>{e(refresh_summary.get("did_write_accepted_count", "N/A"))}</strong></div>

@@ -95,16 +95,26 @@ def manifest_warnings(run_manifest: dict[str, Any] | None) -> list[str]:
 
 def refresh_warnings(refresh_status: dict[str, Any] | None) -> list[str]:
     if not isinstance(refresh_status, dict):
-        return []
-    if refresh_status.get("refresh_status") != "stale_after_apply":
+        return [
+            "blocked_by_missing_refresh_status",
+            "缺少 refresh_status；无法确认 demo 是否已吸收最新 apply。请重跑 demo pipeline 后再执行 try_now。",
+        ]
+    status = str(refresh_status.get("refresh_status") or "")
+    if status not in {"stale_after_apply", "unknown"}:
         return []
     reasons = as_list(refresh_status.get("stale_reasons"))
-    warnings = [
-        "blocked_by_stale_apply_receipt",
-        "Safe apply 已改变 accepted roster；当前执行清单可能仍基于旧 box。请重跑 demo pipeline 后再执行 try_now。",
-    ]
+    if status == "unknown":
+        warnings = [
+            "blocked_by_unknown_refresh_status",
+            "无法确认 demo 是否已吸收最新 apply；当前执行清单会阻断 try_now。请重跑 demo pipeline。",
+        ]
+    else:
+        warnings = [
+            "blocked_by_stale_apply_receipt",
+            "Safe apply 已改变 accepted roster；当前执行清单可能仍基于旧 box。请重跑 demo pipeline 后再执行 try_now。",
+        ]
     if reasons:
-        warnings.append("刷新状态 stale_after_apply：" + "；".join(str(item) for item in reasons))
+        warnings.append(f"刷新状态 {status}：" + "；".join(str(item) for item in reasons))
     warnings.extend(as_list(refresh_status.get("warnings")))
     return unique_strings(warnings)
 

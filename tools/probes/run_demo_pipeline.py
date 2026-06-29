@@ -24,6 +24,7 @@ import diff_normalized_snapshots as normalized_diff  # noqa: E402
 import evaluate_export_parse as evaluator  # noqa: E402
 import build_action_cards as action_cards  # noqa: E402
 import build_action_checklist as action_checklist  # noqa: E402
+import build_demo_command as demo_command  # noqa: E402
 import build_endgame_plan as endgame_plan  # noqa: E402
 import build_final_brief as final_brief  # noqa: E402
 import build_run_manifest as run_manifest  # noqa: E402
@@ -783,6 +784,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     preview_info = summary.get("review_decision_preview", {}) if isinstance(summary.get("review_decision_preview"), dict) else {}
     apply_info = summary.get("review_apply", {}) if isinstance(summary.get("review_apply"), dict) else {}
     refresh_info = summary.get("refresh_status", {}) if isinstance(summary.get("refresh_status"), dict) else {}
+    demo_command_info = summary.get("demo_command", {}) if isinstance(summary.get("demo_command"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -841,6 +843,12 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(manifest_info, dict) and manifest_info.get("error")
             else "done"
             if isinstance(manifest_info, dict) and manifest_info.get("output_json")
+            else "skipped",
+        },
+        {
+            "name": "Demo Command",
+            "status": "done"
+            if isinstance(demo_command_info, dict) and demo_command_info.get("output_json")
             else "skipped",
         },
         {
@@ -1555,6 +1563,7 @@ def build_demo_refresh_status(
     review_apply_receipt: Path | None,
     run_manifest_path: Path | None,
     roster_index_path: Path | None,
+    demo_command_path: Path | None = None,
     final_brief_path: Path | None = None,
     action_checklist_path: Path | None = None,
 ) -> dict[str, Any]:
@@ -1564,6 +1573,7 @@ def build_demo_refresh_status(
             review_apply_receipt=review_apply_receipt if review_apply_receipt and review_apply_receipt.exists() else None,
             run_manifest=run_manifest_path if run_manifest_path and run_manifest_path.exists() else None,
             roster_index=roster_index_path if roster_index_path and roster_index_path.exists() else None,
+            demo_command=demo_command_path if demo_command_path and demo_command_path.exists() else None,
             final_brief=final_brief_path if final_brief_path and final_brief_path.exists() else None,
             action_checklist=action_checklist_path if action_checklist_path and action_checklist_path.exists() else None,
         )
@@ -1575,8 +1585,64 @@ def build_demo_refresh_status(
             "output_json": None,
             "output_md": None,
             "summary": {"needs_demo_refresh": True},
+            "action_state": {
+                "try_now_allowed": False,
+                "review_allowed": True,
+                "safe_apply_allowed": True,
+                "rerun_required": True,
+                "primary_next_action": "rerun_demo_pipeline",
+            },
             "warnings": [str(exc)],
         }
+
+
+def build_demo_command_summary(
+    *,
+    output_dir: Path,
+    images_dir: Path | None,
+    parsed_dir: Path | None,
+    manifest: Path | None,
+    expected_dir: Path,
+    engine: str,
+    game: str,
+    layout: str | None,
+    latest_only: bool,
+    clean_demo: bool,
+    new_only: bool,
+    state_file: Path | None,
+    targets: Path | None,
+    target_source_manifest: Path | None,
+    character_catalog: Path | None,
+    roster_dir: Path | None,
+    tier_snapshot: Path | None,
+    tier_stale_days: int,
+    history_dir: Path | None,
+    daily_stamina: float | None,
+    horizon_days: float | None,
+) -> dict[str, Any]:
+    return demo_command.build_demo_command(
+        output_dir=output_dir,
+        images_dir=images_dir,
+        parsed_dir=parsed_dir,
+        manifest=manifest,
+        expected_dir=expected_dir,
+        engine=engine,
+        game=game,
+        layout=layout,
+        latest_only=latest_only,
+        clean_demo=clean_demo,
+        new_only=new_only,
+        state_file=state_file,
+        targets=targets,
+        target_source_manifest=target_source_manifest,
+        character_catalog=character_catalog,
+        roster_dir=roster_dir or DEFAULT_ROSTER_DIR,
+        tier_snapshot=tier_snapshot,
+        tier_stale_days=tier_stale_days,
+        history_dir=history_dir,
+        daily_stamina=daily_stamina,
+        horizon_days=horizon_days,
+    )
 
 
 def build_target_refresh(target_source_manifest: Path | None, output_dir: Path) -> dict[str, Any] | None:
@@ -1737,6 +1803,33 @@ def run_pipeline(
 
     snapshot_history = build_snapshot_history(cases, history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME))
     summary = summarize(cases, output_dir, input_info, snapshot_history)
+    demo_command_info = build_demo_command_summary(
+        output_dir=output_dir,
+        images_dir=images_dir,
+        parsed_dir=parsed_dir,
+        manifest=manifest,
+        expected_dir=expected_dir,
+        engine=engine,
+        game=game,
+        layout=layout,
+        latest_only=latest_only,
+        clean_demo=clean_demo,
+        new_only=new_only,
+        state_file=state_file,
+        targets=targets,
+        target_source_manifest=target_source_manifest,
+        character_catalog=character_catalog,
+        roster_dir=roster_dir or DEFAULT_ROSTER_DIR,
+        tier_snapshot=tier_snapshot,
+        tier_stale_days=tier_stale_days,
+        history_dir=history_dir,
+        daily_stamina=daily_stamina,
+        horizon_days=horizon_days,
+    )
+    summary["demo_command"] = demo_command_info
+    if demo_command_info.get("warnings"):
+        summary.setdefault("warnings", []).extend(demo_command_info["warnings"])
+    summary["pipeline_steps"] = pipeline_steps(summary)
     if isinstance(input_info.get("update_state"), dict):
         summary["update_state"] = input_info["update_state"]
     target_refresh = build_target_refresh(target_source_manifest, output_dir)
@@ -1893,6 +1986,9 @@ def run_pipeline(
         review_apply_receipt=review_apply_receipt_path,
         run_manifest_path=run_manifest_path,
         roster_index_path=roster_index_for_replay if roster_index_for_replay.exists() else None,
+        demo_command_path=Path(str(demo_command_info["output_json"]))
+        if isinstance(demo_command_info, dict) and demo_command_info.get("output_json")
+        else None,
     )
     summary["refresh_status"] = refresh_status_info
     if refresh_status_info.get("warnings"):

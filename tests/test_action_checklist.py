@@ -58,7 +58,19 @@ def run_manifest(*, consistent: bool = True) -> dict:
     return {"schema_version": "p2.0-lite-run-manifest", "artifact_status": status}
 
 
+def fresh_refresh_status() -> dict:
+    return {
+        "schema_version": "p2.7-lite-refresh-status",
+        "refresh_status": "fresh",
+        "summary": {"needs_demo_refresh": False},
+        "stale_reasons": [],
+        "warnings": [],
+    }
+
+
 class ActionChecklistTests(unittest.TestCase):
+    MISSING_REFRESH = object()
+
     def build(
         self,
         root: Path,
@@ -66,12 +78,15 @@ class ActionChecklistTests(unittest.TestCase):
         brief: dict,
         inbox: dict | None = None,
         manifest: dict | None = None,
-        refresh: dict | None = None,
+        refresh: object = None,
     ) -> dict:
         brief_path = write_json(root / "final_brief.json", brief)
         inbox_path = write_json(root / "review_inbox.json", inbox if inbox is not None else review_inbox())
         manifest_path = write_json(root / "run_manifest.json", manifest if manifest is not None else run_manifest())
-        refresh_path = write_json(root / "refresh_status.json", refresh) if refresh is not None else None
+        if refresh is self.MISSING_REFRESH:
+            refresh_path = None
+        else:
+            refresh_path = write_json(root / "refresh_status.json", refresh if isinstance(refresh, dict) else fresh_refresh_status())
         return checklist_tool.build_action_checklist(
             final_brief=brief_path,
             review_inbox=inbox_path,
@@ -148,6 +163,50 @@ class ActionChecklistTests(unittest.TestCase):
             self.assertEqual(result["checklist_status"], "ready")
             self.assertEqual(result["items"][0]["item_type"], "try_now")
             self.assertEqual(result["items"][0]["status"], "ready")
+
+    def test_unknown_refresh_status_blocks_try_now(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                brief=final_brief(
+                    [
+                        {"card_type": "try_now", "title": "可先尝试", "character": "星见雅"},
+                    ]
+                ),
+                refresh={
+                    "schema_version": "p2.7-lite-refresh-status",
+                    "refresh_status": "unknown",
+                    "summary": {"needs_demo_refresh": True},
+                    "stale_reasons": [],
+                    "warnings": ["run_manifest 缺少可解析 created_at"],
+                },
+            )
+
+            self.assertEqual(result["checklist_status"], "blocked")
+            self.assertEqual(result["items"][0]["item_type"], "data_warning")
+            try_now = next(item for item in result["items"] if item["item_type"] == "try_now")
+            self.assertEqual(try_now["status"], "blocked")
+            self.assertIn("blocked_by_unknown_refresh_status", " ".join(result["warnings"]))
+
+    def test_missing_refresh_status_blocks_try_now(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                brief=final_brief(
+                    [
+                        {"card_type": "try_now", "title": "可先尝试", "character": "星见雅"},
+                    ]
+                ),
+                refresh=self.MISSING_REFRESH,
+            )
+
+            self.assertEqual(result["checklist_status"], "blocked")
+            self.assertEqual(result["items"][0]["item_type"], "data_warning")
+            try_now = next(item for item in result["items"] if item["item_type"] == "try_now")
+            self.assertEqual(try_now["status"], "blocked")
+            self.assertIn("blocked_by_missing_refresh_status", " ".join(result["warnings"]))
 
     def test_review_snapshot_generates_pending_decision_template(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -91,16 +91,19 @@ def artifact_warnings(run_manifest: dict[str, Any] | None) -> list[str]:
 
 def refresh_warnings(refresh_status: dict[str, Any] | None) -> list[str]:
     if not isinstance(refresh_status, dict):
-        return []
+        return ["缺少 refresh_status；无法确认 demo 是否已吸收最新 apply。请重跑 demo pipeline 后再执行 try_now。"]
     status = str(refresh_status.get("refresh_status") or "")
-    if status != "stale_after_apply":
+    if status not in {"stale_after_apply", "unknown"}:
         return []
     reasons = as_list(refresh_status.get("stale_reasons"))
-    warnings = [
-        "Safe apply 已改变 accepted roster；当前高难方案/今日简报可能仍基于旧 box。请重跑 demo pipeline 后再执行 try_now。"
-    ]
+    if status == "unknown":
+        warnings = ["无法确认 demo 是否已吸收最新 apply；请重跑 demo pipeline 后再执行 try_now。"]
+    else:
+        warnings = [
+            "Safe apply 已改变 accepted roster；当前高难方案/今日简报可能仍基于旧 box。请重跑 demo pipeline 后再执行 try_now。"
+        ]
     if reasons:
-        warnings.append("刷新状态 stale_after_apply：" + "；".join(str(item) for item in reasons))
+        warnings.append(f"刷新状态 {status}：" + "；".join(str(item) for item in reasons))
     warnings.extend(as_list(refresh_status.get("warnings")))
     return unique_warnings(warnings)
 
@@ -356,10 +359,10 @@ def build_final_brief(
         "roster_delta_change_count": len(as_list(delta_data.get("character_changes"))) if isinstance(delta_data, dict) else 0,
         "tier_watch_entry_count": len(as_list(tier_data.get("entries"))) if isinstance(tier_data, dict) else 0,
         "refresh_status": refresh_data.get("refresh_status") if isinstance(refresh_data, dict) else "unknown",
-        "needs_demo_refresh": bool(
-            isinstance(refresh_data, dict)
-            and isinstance(refresh_data.get("summary"), dict)
-            and refresh_data["summary"].get("needs_demo_refresh")
+        "needs_demo_refresh": (
+            True
+            if not isinstance(refresh_data, dict)
+            else bool(isinstance(refresh_data.get("summary"), dict) and refresh_data["summary"].get("needs_demo_refresh"))
         ),
     }
 

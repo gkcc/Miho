@@ -561,7 +561,7 @@ safe apply 规则：
 * CLI 只要传入 `--preview-result`，就会按 `--require-preview-ready` 的安全语义执行，避免误用非 ready preview；
 * apply 会额外写入 `data/probes/roster/review_apply_receipt.json/md`，每条记录包含 `did_write_accepted`、`did_write_rejected`、`did_enter_roster`、`preview_validation_status` 和 source hash；
 * demo pipeline 会读取该 receipt，并在 Dashboard 的“复核应用回执”面板展示应用结果，不需要先打开 JSON 才知道是否真正进入 roster；
-* demo pipeline 还会生成 `data/probes/demo/refresh_status/refresh_status.json/md`。如果 receipt 比 run manifest 新，或当前 `roster_index.json` SHA256 与 run manifest 记录不一致，`refresh_status=stale_after_apply`，Final Brief 和 Action Checklist 会阻断 `try_now`，提示先重跑 demo pipeline。
+* demo pipeline 还会生成 `data/probes/demo/demo_command.json/md` 和 `data/probes/demo/refresh_status/refresh_status.json/md`。如果 receipt 比 run manifest 新、当前 `roster_index.json` SHA256 与 run manifest 记录不一致，或刷新状态无法确认，`refresh_status=stale_after_apply/unknown`，Final Brief 和 Action Checklist 会阻断 `try_now`，提示先按 `demo_command` 记录的真实命令重跑 demo pipeline。
 
 手动检查刷新状态：
 
@@ -570,6 +570,7 @@ python tools/probes/build_refresh_status.py `
   --review-apply-receipt data/probes/roster/review_apply_receipt.json `
   --run-manifest data/probes/demo/run_manifest.json `
   --roster-index data/probes/roster/roster_index.json `
+  --demo-command data/probes/demo/demo_command.json `
   --final-brief data/probes/demo/final_brief/final_brief.json `
   --action-checklist data/probes/demo/action_checklist/action_checklist.json `
   --output-dir data/probes/demo/refresh_status
