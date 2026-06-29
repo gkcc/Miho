@@ -32,7 +32,7 @@ function Test-LegacyDashboard {
     if (-not $Html) {
         return $false
     }
-    return $Html -match "Brief Warning|brief status|trusted ready|ready targets"
+    return $Html -match "Brief Warning|brief status|trusted ready|ready targets|pending review|watch only|pending 只会生成复核模板|watch_only"
 }
 
 function Get-DashboardRefreshReason {

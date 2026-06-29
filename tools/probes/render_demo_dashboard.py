@@ -1003,7 +1003,7 @@ def render_action_cards(summary: dict[str, Any]) -> str:
     cards = actions.get("cards") if isinstance(actions.get("cards"), list) else []
     card_summary = actions.get("summary") if isinstance(actions.get("summary"), dict) else {}
     warnings = actions.get("warnings") if isinstance(actions.get("warnings"), list) else []
-    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>Action Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
         body = f'<div class="errors"><strong>Action cards failed</strong><ul><li>{e(error)}</li></ul></div>'
@@ -1080,7 +1080,7 @@ def render_team_cards(summary: dict[str, Any]) -> str:
     cards = teams.get("cards") if isinstance(teams.get("cards"), list) else []
     team_summary = teams.get("summary") if isinstance(teams.get("summary"), dict) else {}
     warnings = teams.get("warnings") if isinstance(teams.get("warnings"), list) else []
-    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>Team Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
         body = f'<div class="errors"><strong>Team cards failed</strong><ul><li>{e(error)}</li></ul></div>'
@@ -1377,7 +1377,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
     safe_command = checklist.get("safe_apply_command") or preview.get("next_command") or ""
     items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
     warnings = checklist.get("warnings") if isinstance(checklist.get("warnings"), list) else []
-    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>清单警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if checklist.get("error"):
         body = f'<div class="errors"><strong>执行清单生成失败</strong><ul><li>{e(checklist.get("error"))}</li></ul></div>'
@@ -1443,7 +1443,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel action-checklist">
       <h2>执行清单</h2>
-      <p class="muted-line">从今日作战简报生成的最多 5 件事；pending 只会生成复核模板，watch_only 不是抽卡建议。</p>
+      <p class="muted-line">从今日作战简报生成的最多 5 件事；待确认项只会生成复核模板，仅观察项不是抽卡建议。</p>
       <div class="links">
         {link("action_checklist.md", checklist.get("output_md"))}
         {link("action_checklist.json", checklist.get("output_json"))}

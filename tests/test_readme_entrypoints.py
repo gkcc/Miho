@@ -32,6 +32,19 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertNotIn('"entries"', readme)
         self.assertNotIn("tier-stale-days", readme)
 
+    def test_demo_launcher_refreshes_old_dashboard_markup(self) -> None:
+        launcher = (PROJECT_ROOT / "scripts" / "run_miho_demo.ps1").read_text(encoding="utf-8")
+
+        for marker in (
+            "Brief Warning",
+            "brief status",
+            "trusted ready",
+            "pending review",
+            "watch only",
+            "watch_only",
+        ):
+            self.assertIn(marker, launcher)
+
 
 if __name__ == "__main__":
     unittest.main()

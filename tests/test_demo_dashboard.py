@@ -245,6 +245,25 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("pending review", html)
         self.assertNotIn("watch only", html)
 
+    def test_action_checklist_visible_copy_hides_internal_terms(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["action_checklist"] = {
+            "checklist_status": "blocked",
+            "summary": {"item_count": 0, "ready_count": 0, "needs_review_count": 0, "blocked_count": 1},
+            "warnings": ["缺少 run_manifest；无法确认本轮产物是否同批生成。"],
+            "output_json": "data/probes/demo/action_checklist/action_checklist.json",
+            "output_md": "data/probes/demo/action_checklist/action_checklist.md",
+            "review_decisions_template": "data/probes/demo/action_checklist/review_decisions_template.json",
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("待确认项只会生成复核模板，仅观察项不是抽卡建议", html)
+        self.assertIn("缺少本轮运行清单", html)
+        self.assertNotIn("pending 只会生成复核模板", html)
+        self.assertNotIn("watch_only 不是抽卡建议", html)
+        self.assertNotIn("缺少 run_manifest；无法确认本轮产物是否同批生成。", html)
+
     def test_dashboard_shows_final_brief_before_details(self) -> None:
         summary = {
             "overall": {
