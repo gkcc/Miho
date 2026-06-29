@@ -172,6 +172,38 @@ class DemoDashboardTests(unittest.TestCase):
             },
             "input": {"source_mode": "manifest controlled mode"},
             "cases": [],
+            "demo_doctor": {
+                "schema_version": "p2.9-lite-demo-doctor",
+                "doctor_status": "needs_rerun",
+                "headline": "先重跑 demo pipeline，刷新本轮建议",
+                "try_now_allowed": False,
+                "rerun_required": True,
+                "review_required": False,
+                "safe_apply_required": False,
+                "primary_next_action": "rerun_demo_pipeline",
+                "summary": {
+                    "refresh_status": "stale_after_apply",
+                    "brief_status": "ready",
+                    "checklist_status": "ready",
+                    "preview_status": "ready",
+                    "apply_status": "applied",
+                    "pending_review_count": 0,
+                    "ready_try_now_count": 1,
+                    "preview_accept_count": 0,
+                    "preview_would_update_roster_count": 1,
+                    "run_manifest_exists": True,
+                    "demo_command_safe_to_rerun": True,
+                },
+                "commands": {
+                    "rerun_demo": "python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --clean-demo",
+                    "preview": "python tools/probes/preview_review_decisions.py --decision-manifest data/probes/demo/action_checklist/review_decisions_template.json",
+                    "safe_apply": "python tools/probes/apply_review_decisions.py --normalized-dir data/probes/demo/normalized --decision-manifest data/probes/demo/action_checklist/review_decisions_template.json --roster-dir data/probes/roster --preview-result data/probes/demo/review_preview/review_decision_preview.json --require-preview-ready",
+                },
+                "blocking_reasons": ["ready_try_now_not_actionable_under_current_doctor_status"],
+                "warnings": [],
+                "output_json": "data/probes/demo/demo_doctor/demo_doctor.json",
+                "output_md": "data/probes/demo/demo_doctor/demo_doctor.md",
+            },
             "refresh_status": {
                 "schema_version": "p2.7-lite-refresh-status",
                 "refresh_status": "stale_after_apply",
@@ -294,6 +326,12 @@ class DemoDashboardTests(unittest.TestCase):
 
         html = dashboard_tool.render_html(summary)
 
+        self.assertIn("当前状态诊断", html)
+        self.assertIn("诊断结论", html)
+        self.assertIn("needs_rerun", html)
+        self.assertIn("不建议执行 try_now", html)
+        self.assertIn("ready_try_now_not_actionable_under_current_doctor_status", html)
+        self.assertIn("demo_doctor.json", html)
         self.assertIn("今日作战简报", html)
         self.assertIn("刷新状态", html)
         self.assertIn("当前简报可能过期", html)
@@ -316,7 +354,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("进入 roster", html)
         self.assertIn("review_apply_receipt.md", html)
         self.assertIn("可先尝试：危局强袭战", html)
-        self.assertLess(html.index("刷新状态"), html.index("今日作战简报"))
+        self.assertLess(html.index("当前状态诊断"), html.index("<h2>刷新状态</h2>"))
+        self.assertLess(html.index("<h2>刷新状态</h2>"), html.index("今日作战简报"))
         self.assertLess(html.index("今日作战简报"), html.index("输入模式"))
         self.assertLess(html.index("今日作战简报"), html.index("执行清单"))
         self.assertLess(html.index("执行清单"), html.index("输入模式"))
@@ -1064,8 +1103,12 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(steps["Normalized Snapshot"], "GENERATED")
             self.assertEqual(steps["Manual Review Gate"], "REQUIRES_REVIEW")
             self.assertEqual(steps["Review Inbox"], "done")
+            self.assertIn("demo_doctor", summary)
+            self.assertIn("Demo Doctor", steps)
+            self.assertTrue(Path(summary["demo_doctor"]["output_json"]).exists())
             self.assertTrue(Path(summary["dashboard_html"]).exists())
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
+            self.assertIn("当前状态诊断", dashboard_html)
             self.assertIn("parsed found", dashboard_html)
             self.assertIn("parsed used", dashboard_html)
             self.assertIn("requires_review 不代表解析失败", dashboard_html)
@@ -1320,9 +1363,14 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue(Path(summary["refresh_status"]["output_json"]).exists())
             self.assertTrue(Path(summary["refresh_status"]["output_md"]).exists())
             self.assertIn("Refresh Status", {item["name"] for item in summary["pipeline_steps"]})
+            self.assertIn("demo_doctor", summary)
+            self.assertTrue(Path(summary["demo_doctor"]["output_json"]).exists())
+            self.assertTrue(Path(summary["demo_doctor"]["output_md"]).exists())
+            self.assertIn("Demo Doctor", {item["name"] for item in summary["pipeline_steps"]})
             self.assertEqual(summary["review_inbox"]["pending_count"], 1)
             self.assertEqual(summary["review_inbox"]["safe_apply_status"], "not_applied")
             self.assertEqual(summary["team_cards"]["summary"]["pending_snapshot_count"], 1)
+            self.assertIn("当前状态诊断", dashboard_html)
             self.assertIn("今日作战简报", dashboard_html)
             self.assertIn("执行清单", dashboard_html)
             self.assertIn("先预览，再 apply", dashboard_html)

@@ -66,7 +66,19 @@ def rel_label(value: Any) -> str:
 
 def status_class(value: Any) -> str:
     text = str(value or "").lower()
-    if text in {"pass", "done", "ok", "true", "generated", "ready_for_review", "trusted", "consistent", "applied", "fresh"}:
+    if text in {
+        "pass",
+        "done",
+        "ok",
+        "true",
+        "generated",
+        "ready_for_review",
+        "trusted",
+        "consistent",
+        "applied",
+        "fresh",
+        "ready_to_try",
+    }:
         return "ok"
     if text in {
         "needs_review",
@@ -82,9 +94,10 @@ def status_class(value: Any) -> str:
         "not_applied",
         "applied_with_warnings",
         "unknown",
+        "needs_apply",
     }:
         return "warn"
-    if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply"}:
+    if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply", "needs_rerun"}:
         return "bad"
     return "muted"
 
@@ -155,6 +168,107 @@ def render_steps(steps: list[dict[str, Any]]) -> str:
             f'<span class="dot"></span><strong>{e(step.get("name"))}</strong><em>{e(status)}</em></div>'
         )
     return '<section class="panel"><h2>Pipeline 进度</h2><div class="steps">' + "".join(items) + "</div></section>"
+
+
+def bool_text(value: Any) -> str:
+    if value is None:
+        return "未知"
+    return "是" if bool(value) else "否"
+
+
+def action_label(value: Any) -> str:
+    labels = {
+        "rerun_demo_pipeline": "重跑 demo pipeline",
+        "safe_apply_review_decisions": "人工 safe apply",
+        "review_snapshots": "复核 pending 快照",
+        "try_now": "按执行清单尝试",
+        "review_dashboard": "查看 Dashboard 明细",
+        "rebuild_run_manifest": "重建 run_manifest",
+        "resolve_blockers": "处理阻断项",
+    }
+    text = str(value or "unknown")
+    return labels.get(text, text)
+
+
+def list_block(title: str, items: list[Any], css_class: str) -> str:
+    if not items:
+        return ""
+    html_items = "".join(f"<li>{e(item)}</li>" for item in items)
+    return f'<div class="{e(css_class)}"><strong>{e(title)}</strong><ul>{html_items}</ul></div>'
+
+
+def render_demo_doctor(summary: dict[str, Any]) -> str:
+    doctor = summary.get("demo_doctor")
+    if not isinstance(doctor, dict):
+        return ""
+    doctor_summary = doctor.get("summary") if isinstance(doctor.get("summary"), dict) else {}
+    commands = doctor.get("commands") if isinstance(doctor.get("commands"), dict) else {}
+    blockers = doctor.get("blocking_reasons") if isinstance(doctor.get("blocking_reasons"), list) else []
+    warnings = doctor.get("warnings") if isinstance(doctor.get("warnings"), list) else []
+    status = str(doctor.get("doctor_status") or "unknown")
+    if doctor.get("error"):
+        body = f'<div class="errors"><strong>Demo Doctor failed</strong><ul><li>{e(doctor.get("error"))}</li></ul></div>'
+    else:
+        command_rows = []
+        for label, key in (("重跑命令", "rerun_demo"), ("预览命令", "preview"), ("safe apply 命令", "safe_apply")):
+            command_rows.append(
+                "<article class=\"resource-item\">"
+                f"<strong>{e(label)}</strong>"
+                f"<span>{e(commands.get(key) or 'N/A')}</span>"
+                f"<em>{e(key)}</em>"
+                "</article>"
+            )
+        body = (
+            '<div class="resource-plan"><h3>下一步命令</h3>'
+            f'<div class="resource-list">{"".join(command_rows)}</div></div>'
+        )
+    status_copy = ""
+    if status == "needs_rerun":
+        status_copy = (
+            '<div class="errors"><strong>不建议执行 try_now</strong>'
+            "<ul><li>当前建议可能没有吸收最新 apply 或刷新状态未知；先重跑 demo pipeline。</li></ul></div>"
+        )
+    elif status == "needs_apply":
+        status_copy = (
+            '<div class="warnings"><strong>需要人工应用复核决定</strong>'
+            "<ul><li>Preview 已 ready，但还没有安全应用回执；先执行 safe apply 后再重跑 demo。</li></ul></div>"
+        )
+    elif status == "ready_to_try":
+        status_copy = (
+            '<div class="warnings"><strong>可以尝试但仍是本地 demo</strong>'
+            "<ul><li>只代表当前本地 accepted roster 与目标配置下的可尝试清单，不代表抽卡建议。</li></ul></div>"
+        )
+    return f"""
+    <section class="panel demo-doctor">
+      <h2>当前状态诊断</h2>
+      <p class="muted-line">先给一个总判断：现在该重跑、复核、safe apply，还是可以按清单试一次。watch_only 不会升级成 try_now。</p>
+      <div class="links">
+        {link("demo_doctor.md", doctor.get("output_md"))}
+        {link("demo_doctor.json", doctor.get("output_json"))}
+      </div>
+      <div class="input-grid">
+        <div><span>doctor status</span><strong>{e(status)}</strong></div>
+        <div><span>诊断结论</span><strong>{e(doctor.get("headline") or "N/A")}</strong></div>
+        <div><span>下一步</span><strong>{e(action_label(doctor.get("primary_next_action")))}</strong></div>
+        <div><span>try_now 允许</span><strong>{e(bool_text(doctor.get("try_now_allowed")))}</strong></div>
+        <div><span>需要重跑</span><strong>{e(bool_text(doctor.get("rerun_required")))}</strong></div>
+        <div><span>需要复核</span><strong>{e(bool_text(doctor.get("review_required")))}</strong></div>
+        <div><span>需要 safe apply</span><strong>{e(bool_text(doctor.get("safe_apply_required")))}</strong></div>
+        <div><span>refresh</span><strong>{e(doctor_summary.get("refresh_status", "N/A"))}</strong></div>
+        <div><span>brief</span><strong>{e(doctor_summary.get("brief_status", "N/A"))}</strong></div>
+        <div><span>checklist</span><strong>{e(doctor_summary.get("checklist_status", "N/A"))}</strong></div>
+        <div><span>preview</span><strong>{e(doctor_summary.get("preview_status", "N/A"))}</strong></div>
+        <div><span>apply</span><strong>{e(doctor_summary.get("apply_status", "N/A"))}</strong></div>
+        <div><span>pending review</span><strong>{e(doctor_summary.get("pending_review_count", "N/A"))}</strong></div>
+        <div><span>ready try_now</span><strong>{e(doctor_summary.get("ready_try_now_count", "N/A"))}</strong></div>
+        <div><span>run manifest</span><strong>{e(doctor_summary.get("run_manifest_exists", "N/A"))}</strong></div>
+      </div>
+      {status_copy}
+      {list_block("阻断原因", blockers, "errors")}
+      {list_block("诊断警告", warnings, "warnings")}
+      {body}
+    </section>
+    """
 
 
 def render_case(case: dict[str, Any]) -> str:
@@ -1321,11 +1435,15 @@ def render_html(summary: dict[str, Any]) -> str:
     preview_info = summary.get("review_decision_preview", {}) if isinstance(summary.get("review_decision_preview"), dict) else {}
     apply_info = summary.get("review_apply", {}) if isinstance(summary.get("review_apply"), dict) else {}
     apply_summary = apply_info.get("summary", {}) if isinstance(apply_info.get("summary"), dict) else {}
+    doctor_info = summary.get("demo_doctor", {}) if isinstance(summary.get("demo_doctor"), dict) else {}
     refresh_info = summary.get("refresh_status", {}) if isinstance(summary.get("refresh_status"), dict) else {}
     refresh_summary = refresh_info.get("summary", {}) if isinstance(refresh_info.get("summary"), dict) else {}
     safe_apply = safe_apply_status(summary)
     metrics = [
         metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
+        metric_card("当前诊断", doctor_info.get("doctor_status", "N/A") if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
+        metric_card("诊断下一步", action_label(doctor_info.get("primary_next_action")) if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
+        metric_card("try_now 允许", bool_text(doctor_info.get("try_now_allowed")) if doctor_info else "N/A", "ok" if doctor_info.get("try_now_allowed") else "bad" if doctor_info else "muted"),
         metric_card("刷新状态", refresh_info.get("refresh_status", "N/A") if refresh_info else "N/A", status_class(refresh_info.get("refresh_status")) if refresh_info else "muted"),
         metric_card("需要重跑", refresh_summary.get("needs_demo_refresh", "N/A") if refresh_summary else "N/A", "bad" if refresh_summary.get("needs_demo_refresh") else "muted"),
         metric_card("简报状态", final_info.get("brief_status", "N/A") if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
@@ -1380,6 +1498,7 @@ def render_html(summary: dict[str, Any]) -> str:
     ]
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
+    demo_doctor_panel = render_demo_doctor(summary)
     refresh_status_panel = render_refresh_status(summary)
     final_brief = render_final_brief(summary)
     action_checklist = render_action_checklist(summary)
@@ -1509,6 +1628,7 @@ def render_html(summary: dict[str, Any]) -> str:
   </header>
     <main>
     <section class="metrics">{''.join(metrics)}</section>
+    {demo_doctor_panel}
     {refresh_status_panel}
     {final_brief}
     {action_checklist}

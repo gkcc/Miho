@@ -25,6 +25,7 @@ import evaluate_export_parse as evaluator  # noqa: E402
 import build_action_cards as action_cards  # noqa: E402
 import build_action_checklist as action_checklist  # noqa: E402
 import build_demo_command as demo_command  # noqa: E402
+import build_demo_doctor as demo_doctor  # noqa: E402
 import build_endgame_plan as endgame_plan  # noqa: E402
 import build_final_brief as final_brief  # noqa: E402
 import build_run_manifest as run_manifest  # noqa: E402
@@ -785,6 +786,7 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
     apply_info = summary.get("review_apply", {}) if isinstance(summary.get("review_apply"), dict) else {}
     refresh_info = summary.get("refresh_status", {}) if isinstance(summary.get("refresh_status"), dict) else {}
     demo_command_info = summary.get("demo_command", {}) if isinstance(summary.get("demo_command"), dict) else {}
+    doctor_info = summary.get("demo_doctor", {}) if isinstance(summary.get("demo_doctor"), dict) else {}
     expected_step = "FAIL" if expected_counts.get("FAIL") else "PASS" if expected_counts.get("PASS") else "N/A"
     normalized_step = "FAILED" if normalized_counts.get("FAILED") else "GENERATED" if normalized_count else "FAILED"
     manual_review_step = "BLOCKED" if import_counts.get("BLOCKED") else "REQUIRES_REVIEW" if cases else "N/A"
@@ -897,6 +899,14 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             if isinstance(refresh_info, dict) and refresh_info.get("error")
             else refresh_info.get("refresh_status", "skipped")
             if isinstance(refresh_info, dict)
+            else "skipped",
+        },
+        {
+            "name": "Demo Doctor",
+            "status": "failed"
+            if isinstance(doctor_info, dict) and doctor_info.get("error")
+            else doctor_info.get("doctor_status", "skipped")
+            if isinstance(doctor_info, dict)
             else "skipped",
         },
     ]
@@ -1645,6 +1655,45 @@ def build_demo_command_summary(
     )
 
 
+def build_demo_doctor_summary(
+    *,
+    output_dir: Path,
+    refresh_status_path: Path | None = None,
+    final_brief_path: Path | None = None,
+    action_checklist_path: Path | None = None,
+    review_inbox_path: Path | None = None,
+    review_preview_path: Path | None = None,
+    review_apply_receipt_path: Path | None = None,
+    run_manifest_path: Path | None = None,
+    demo_command_path: Path | None = None,
+) -> dict[str, Any]:
+    try:
+        return demo_doctor.build_demo_doctor(
+            output_dir=output_dir / "demo_doctor",
+            refresh_status=refresh_status_path if refresh_status_path and refresh_status_path.exists() else None,
+            final_brief=final_brief_path if final_brief_path and final_brief_path.exists() else None,
+            action_checklist=action_checklist_path if action_checklist_path and action_checklist_path.exists() else None,
+            review_inbox=review_inbox_path if review_inbox_path and review_inbox_path.exists() else None,
+            review_preview=review_preview_path if review_preview_path and review_preview_path.exists() else None,
+            review_apply_receipt=review_apply_receipt_path if review_apply_receipt_path and review_apply_receipt_path.exists() else None,
+            run_manifest=run_manifest_path if run_manifest_path and run_manifest_path.exists() else None,
+            demo_command=demo_command_path if demo_command_path and demo_command_path.exists() else None,
+        )
+    except demo_doctor.DemoDoctorError as exc:
+        return {
+            "schema_version": demo_doctor.SCHEMA_VERSION,
+            "doctor_status": "blocked",
+            "primary_next_action": "review_dashboard",
+            "try_now_allowed": False,
+            "rerun_required": False,
+            "review_required": True,
+            "safe_apply_required": False,
+            "error": str(exc),
+            "warnings": [str(exc)],
+            "summary": {},
+        }
+
+
 def build_target_refresh(target_source_manifest: Path | None, output_dir: Path) -> dict[str, Any] | None:
     if target_source_manifest is None:
         return None
@@ -2058,6 +2107,35 @@ def run_pipeline(
         if review_preview_info.get("error"):
             summary.setdefault("warnings", []).append(f"Review decision preview failed: {review_preview_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
+    review_preview_path = (
+        Path(str(review_preview_info["output_json"]))
+        if isinstance(review_preview_info, dict) and review_preview_info.get("output_json")
+        else None
+    )
+    action_checklist_path = (
+        Path(str(action_checklist_info["output_json"]))
+        if isinstance(action_checklist_info, dict) and action_checklist_info.get("output_json")
+        else None
+    )
+    demo_doctor_info = build_demo_doctor_summary(
+        output_dir=output_dir,
+        refresh_status_path=refresh_status_path,
+        final_brief_path=final_brief_path,
+        action_checklist_path=action_checklist_path,
+        review_inbox_path=review_inbox_path,
+        review_preview_path=review_preview_path,
+        review_apply_receipt_path=review_apply_receipt_path if review_apply_receipt_path.exists() else None,
+        run_manifest_path=run_manifest_path,
+        demo_command_path=Path(str(demo_command_info["output_json"]))
+        if isinstance(demo_command_info, dict) and demo_command_info.get("output_json")
+        else None,
+    )
+    summary["demo_doctor"] = demo_doctor_info
+    if demo_doctor_info.get("warnings"):
+        summary.setdefault("warnings", []).extend(demo_doctor_info["warnings"])
+    if demo_doctor_info.get("error"):
+        summary.setdefault("warnings", []).append(f"Demo doctor failed: {demo_doctor_info['error']}")
+    summary["pipeline_steps"] = pipeline_steps(summary)
     summary_path = output_dir / "demo_summary.json"
     write_json(summary_path, summary)
     dashboard_path = output_dir / "index.html"
