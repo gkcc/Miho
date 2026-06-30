@@ -76,6 +76,7 @@ DEFAULT_DEMO_SUMMARY = DEFAULT_DEMO_OUTPUT_DIR / "demo_summary.json"
 DEFAULT_GPT_REVIEW_PROMPT = DEFAULT_DEMO_OUTPUT_DIR / "gpt_review_prompt.md"
 DEFAULT_FIGS_DIR = PROJECT_ROOT / "figs"
 DEFAULT_APP_EXPORT_WORKFLOW_DIR = DEFAULT_DEMO_OUTPUT_DIR / "app_export_workflow"
+APP_EXPORT_WORKFLOW_FILENAME = "miyoushe_export_workflow.json"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 DEFAULT_NORMALIZED_DIR = PROJECT_ROOT / "data" / "probes" / "normalized"
@@ -228,6 +229,50 @@ def has_newer_rank_check_report(summary_path: Path, dashboard_path: Path) -> boo
     return False
 
 
+def has_newer_app_export_workflow(summary_path: Path, dashboard_path: Path) -> bool:
+    if not summary_path.exists() or not dashboard_path.exists():
+        return False
+    dashboard_mtime = dashboard_path.stat().st_mtime
+    workflow_dir = summary_path.parent / "app_export_workflow"
+    for report_path in (workflow_dir / APP_EXPORT_WORKFLOW_FILENAME, workflow_dir / "miyoushe_export_workflow.html"):
+        if report_path.exists() and dashboard_mtime < report_path.stat().st_mtime:
+            return True
+    return False
+
+
+def load_cached_app_export_readiness(summary_path: Path) -> dict[str, Any] | None:
+    workflow_path = summary_path.parent / "app_export_workflow" / APP_EXPORT_WORKFLOW_FILENAME
+    if not workflow_path.exists():
+        return None
+    try:
+        package = dashboard_tool.load_json(workflow_path)
+    except Exception:  # noqa: BLE001 - stale local workflow packages should not block opening the dashboard.
+        return None
+    workflow = package.get("workflow") if isinstance(package.get("workflow"), dict) else {}
+    validation = package.get("validation") if isinstance(package.get("validation"), dict) else {}
+    route = workflow.get("operator_route") if isinstance(workflow.get("operator_route"), dict) else {}
+    workflow_html = workflow_path.with_suffix(".html")
+    readiness: dict[str, Any] = {
+        "status": validation.get("status") or "unknown",
+        "workflow_json": str(workflow_path),
+        "route_status": route.get("current_route_status") or "unknown",
+        "automation_status": route.get("automation_status") or "unknown",
+        "next_command": route.get("next_command") or "",
+        "update_command": route.get("update_command") or "",
+        "review_gate": route.get("review_gate") or "",
+        "manual_save_to_figs_step": route.get("manual_save_to_figs_step") or "",
+        "readiness_gate_count": validation.get("readiness_gate_count", 0),
+        "planned_step_count": validation.get("planned_step_count", 0),
+        "implemented_step_count": validation.get("implemented_step_count", 0),
+        "warnings": validation.get("warnings") if isinstance(validation.get("warnings"), list) else [],
+        "forbidden_boundaries": workflow.get("does_not") if isinstance(workflow.get("does_not"), list) else [],
+        "route_steps": route.get("route_steps") if isinstance(route.get("route_steps"), list) else [],
+    }
+    if workflow_html.exists():
+        readiness["workflow_html"] = str(workflow_html)
+    return readiness
+
+
 def render_cached_dashboard(summary_path: Path, dashboard_path: Path) -> dict[str, str]:
     summary = dashboard_tool.load_json(summary_path)
     rank_check_json = summary_path.parent / "rank_check" / "rank_check.json"
@@ -243,6 +288,10 @@ def render_cached_dashboard(summary_path: Path, dashboard_path: Path) -> dict[st
             if rank_check_html.exists():
                 rank_check.setdefault("output_html", str(rank_check_html))
             summary["rank_check"] = rank_check
+    if isinstance(summary, dict) and "app_export_readiness" not in summary:
+        app_export_readiness = load_cached_app_export_readiness(summary_path)
+        if isinstance(app_export_readiness, dict):
+            summary["app_export_readiness"] = app_export_readiness
     return dashboard_tool.render_dashboard(summary, dashboard_path)
 
 
@@ -517,6 +566,8 @@ def run_dashboard(args: argparse.Namespace) -> int:
     if dashboard_path.exists() and summary_path.exists() and dashboard_path.stat().st_mtime < summary_path.stat().st_mtime:
         should_refresh = True
     if has_newer_rank_check_report(summary_path, dashboard_path):
+        should_refresh = True
+    if has_newer_app_export_workflow(summary_path, dashboard_path):
         should_refresh = True
     if not dashboard_path.exists() or should_refresh:
         if not summary_path.exists():

@@ -339,6 +339,49 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("补充 --targets", html)
         self.assertIn("readiness.md", html)
 
+    def test_dashboard_shows_app_export_readiness_panel(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["app_export_readiness"] = {
+            "status": "ready_for_calibration",
+            "workflow_html": "data/probes/demo/app_export_workflow/miyoushe_export_workflow.html",
+            "workflow_json": "data/probes/demo/app_export_workflow/miyoushe_export_workflow.json",
+            "route_status": "calibration_required",
+            "automation_status": "disabled_until_calibrated",
+            "next_command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --dry-run",
+            "update_command": r"dist\MihoProbe.exe update --open",
+            "manual_save_to_figs_step": "在米游社官方 UI 保存分享图到 figs，或手动把官方分享图放进该目录。",
+            "review_gate": "Dashboard 人工复核通过后，才允许进入本地 accepted roster / 高难建议。",
+            "forbidden_boundaries": ["auto_login", "token_read", "cookie_read", "game_client_control"],
+            "warnings": ["4 navigation step(s) still need UIA selector calibration."],
+            "route_steps": [
+                {
+                    "label": "1. 打开官方 APP",
+                    "status": "manual",
+                    "description": "用户手动打开已登录的米游社 APP；工具不登录、不读 cookie/token。",
+                    "command": "",
+                },
+                {
+                    "label": "4. 本地更新 Dashboard",
+                    "status": "implemented",
+                    "description": "只处理本地官方分享图，失败时必须显式非 0 或显示阻断状态。",
+                    "command": r"dist\MihoProbe.exe update --open",
+                },
+            ],
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("一键更新练度准备状态", html)
+        self.assertIn("已沉淀路线，等待校准", html)
+        self.assertIn("当前不会自动点击米游社", html)
+        self.assertIn("下一步校准", html)
+        self.assertIn("window_screenshot_probe.py", html)
+        self.assertIn("本地更新入口", html)
+        self.assertIn("MihoProbe.exe update", html)
+        self.assertIn("Dashboard 人工复核", html)
+        self.assertIn("APP 导出流程页", html)
+        self.assertIn("APP 导出流程数据", html)
+
     def test_dashboard_layout_is_bounded_for_wide_screens(self) -> None:
         html = dashboard_tool.render_html(dashboard_minimal_summary())
 
@@ -2157,6 +2200,77 @@ class DemoDashboardTests(unittest.TestCase):
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
             self.assertIn("Plan Update 数据源", dashboard_html)
             self.assertIn("先补已确认角色库", dashboard_html)
+
+    def test_run_demo_pipeline_includes_app_export_readiness_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_dir = root / "demo"
+            workflow_dir = output_dir / "app_export_workflow"
+            workflow_dir.mkdir(parents=True)
+            workflow_json = workflow_dir / "miyoushe_export_workflow.json"
+            workflow_html = workflow_dir / "miyoushe_export_workflow.html"
+            workflow_json.write_text(
+                json.dumps(
+                    {
+                        "workflow": {
+                            "workflow_name": "米游社官方分享图一键更新练度",
+                            "does_not": ["auto_login", "token_read", "cookie_read", "game_client_control"],
+                            "operator_route": {
+                                "current_route_status": "calibration_required",
+                                "automation_status": "disabled_until_calibrated",
+                                "next_command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --dry-run",
+                                "manual_save_to_figs_step": "在米游社官方 UI 保存分享图到 figs。",
+                                "update_command": r"dist\MihoProbe.exe update --open",
+                                "review_gate": "Dashboard 人工复核通过后，才允许进入本地 accepted roster / 高难建议。",
+                                "route_steps": [
+                                    {
+                                        "label": "1. 打开官方 APP",
+                                        "status": "manual",
+                                        "description": "用户手动打开已登录的米游社 APP。",
+                                        "command": "",
+                                    },
+                                    {
+                                        "label": "4. 本地更新 Dashboard",
+                                        "status": "implemented",
+                                        "description": "只处理本地官方分享图。",
+                                        "command": r"dist\MihoProbe.exe update --open",
+                                    },
+                                ],
+                            },
+                        },
+                        "validation": {
+                            "status": "ready_for_calibration",
+                            "warnings": ["4 navigation step(s) still need UIA selector calibration."],
+                            "readiness_gate_count": 6,
+                            "planned_step_count": 4,
+                            "implemented_step_count": 1,
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            workflow_html.write_text("<!doctype html><title>workflow</title>", encoding="utf-8")
+            manifest_path = root / "empty_manifest.json"
+            manifest_path.write_text(json.dumps({"cases": []}, ensure_ascii=False), encoding="utf-8")
+
+            summary = pipeline_tool.run_pipeline(
+                images_dir=None,
+                parsed_dir=None,
+                manifest=manifest_path,
+                output_dir=output_dir,
+                roster_dir=root / "roster",
+                open_dashboard=False,
+            )
+
+            self.assertIn("app_export_readiness", summary)
+            self.assertEqual(summary["app_export_readiness"]["status"], "ready_for_calibration")
+            self.assertEqual(summary["app_export_readiness"]["workflow_json"], str(workflow_json))
+            self.assertEqual(summary["app_export_readiness"]["workflow_html"], str(workflow_html))
+            dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
+            self.assertIn("一键更新练度准备状态", dashboard_html)
+            self.assertIn("已沉淀路线，等待校准", dashboard_html)
+            self.assertIn("window_screenshot_probe.py", dashboard_html)
 
     def test_run_demo_pipeline_with_targets_generates_training_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

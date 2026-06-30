@@ -47,6 +47,8 @@ DEFAULT_IMAGES_DIR = PROJECT_ROOT / "figs"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
+APP_EXPORT_WORKFLOW_DIRNAME = "app_export_workflow"
+APP_EXPORT_WORKFLOW_FILENAME = "miyoushe_export_workflow.json"
 UPDATE_STATE_FILENAME = "update_state.json"
 LAUNCHER_REPORT_DIRNAME = "launcher"
 LAUNCHER_REPORT_FILENAME = "launcher_report.json"
@@ -80,6 +82,36 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
     normalizer.write_json(path, data)
+
+
+def load_app_export_readiness(output_dir: Path) -> dict[str, Any] | None:
+    workflow_path = output_dir / APP_EXPORT_WORKFLOW_DIRNAME / APP_EXPORT_WORKFLOW_FILENAME
+    if not workflow_path.exists():
+        return None
+    package = load_json(workflow_path)
+    workflow = package.get("workflow") if isinstance(package.get("workflow"), dict) else {}
+    validation = package.get("validation") if isinstance(package.get("validation"), dict) else {}
+    route = workflow.get("operator_route") if isinstance(workflow.get("operator_route"), dict) else {}
+    workflow_html = workflow_path.with_suffix(".html")
+    readiness = {
+        "status": validation.get("status") or "unknown",
+        "workflow_json": str(workflow_path),
+        "route_status": route.get("current_route_status") or "unknown",
+        "automation_status": route.get("automation_status") or "unknown",
+        "next_command": route.get("next_command") or "",
+        "update_command": route.get("update_command") or "",
+        "review_gate": route.get("review_gate") or "",
+        "manual_save_to_figs_step": route.get("manual_save_to_figs_step") or "",
+        "readiness_gate_count": validation.get("readiness_gate_count", 0),
+        "planned_step_count": validation.get("planned_step_count", 0),
+        "implemented_step_count": validation.get("implemented_step_count", 0),
+        "warnings": validation.get("warnings") if isinstance(validation.get("warnings"), list) else [],
+        "forbidden_boundaries": workflow.get("does_not") if isinstance(workflow.get("does_not"), list) else [],
+        "route_steps": route.get("route_steps") if isinstance(route.get("route_steps"), list) else [],
+    }
+    if workflow_html.exists():
+        readiness["workflow_html"] = str(workflow_html)
+    return readiness
 
 
 def path_or_none(value: str | None) -> Path | None:
@@ -2131,6 +2163,9 @@ def run_pipeline(
                 "warning": f"Plan update readiness report could not be loaded: {exc}",
                 "output_json": str(plan_update_readiness_path),
             }
+    app_export_readiness = load_app_export_readiness(output_dir)
+    if app_export_readiness is not None:
+        summary["app_export_readiness"] = app_export_readiness
     demo_command_info = build_demo_command_summary(
         output_dir=output_dir,
         images_dir=images_dir,

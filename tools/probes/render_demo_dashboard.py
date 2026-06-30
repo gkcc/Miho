@@ -198,6 +198,8 @@ def humanize_link_label(label: str) -> str:
         "review_log.json": "复核日志",
         "rank_check.html": "评级快检页",
         "rank_check.json": "评级快检数据",
+        "miyoushe_export_workflow.html": "APP 导出流程页",
+        "miyoushe_export_workflow.json": "APP 导出流程数据",
         "parsed_json": "原始解析",
         "expected_json": "验收对照",
         "expected_diff_md": "差异报告",
@@ -267,6 +269,9 @@ def status_class(value: Any) -> str:
         "empty",
         "optional_missing",
         "executed_with_followup_warning",
+        "ready_for_calibration",
+        "calibration_required",
+        "disabled_until_calibrated",
     }:
         return "warn"
     if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply", "needs_rerun", "stale", "needs_accepted_roster"}:
@@ -460,6 +465,82 @@ def render_plan_update_readiness(summary: dict[str, Any]) -> str:
         <details class="soft-details" open>
           <summary>下一步怎么做</summary>
           <ul>{actions}</ul>
+        </details>
+      </div>
+    </section>
+    """
+
+
+def render_app_export_readiness(summary: dict[str, Any]) -> str:
+    report = summary.get("app_export_readiness")
+    if not isinstance(report, dict):
+        return ""
+    status = str(report.get("status") or "unknown")
+    tone = status_class(status)
+    status_title = {
+        "ready_for_calibration": "已沉淀路线，等待校准",
+        "blocked": "导出路线被阻断",
+    }.get(status, human_status(status))
+    route_steps = report.get("route_steps") if isinstance(report.get("route_steps"), list) else []
+    step_cards = []
+    for step in route_steps[:5]:
+        if not isinstance(step, dict):
+            continue
+        command = str(step.get("command") or "")
+        command_html = f"<code>{e(command)}</code>" if command else ""
+        step_cards.append(
+            f'<article class="source-card {e(status_class(step.get("status")))}">'
+            f"<strong>{he(step.get('label'))}</strong>"
+            f"<span>{he(step.get('status'))}</span>"
+            f"<p>{he(step.get('description'))}</p>"
+            f"{command_html}"
+            "</article>"
+        )
+    links = " ".join(
+        part
+        for part in (
+            link("miyoushe_export_workflow.html", report.get("workflow_html")),
+            link("miyoushe_export_workflow.json", report.get("workflow_json")),
+        )
+        if part
+    )
+    warnings = report.get("warnings") if isinstance(report.get("warnings"), list) else []
+    warnings_html = "".join(f"<li>{he(item)}</li>" for item in warnings) or "<li>暂无额外警告。</li>"
+    forbidden = report.get("forbidden_boundaries") if isinstance(report.get("forbidden_boundaries"), list) else []
+    forbidden_text = "、".join(str(item) for item in forbidden[:8]) if forbidden else "不自动登录、不读 token/cookie、不抓包"
+    update_command_text = str(report.get("update_command") or r"dist\MihoProbe.exe update --open")
+    return f"""
+    <section class="plan-readiness app-export-readiness {e(tone)}">
+      <div>
+        <span>一键更新练度准备状态</span>
+        <h2>{e(status_title)}</h2>
+        <p>当前不会自动点击米游社；这里只展示官方分享图路线、校准要求和本地 update 入口。</p>
+        <p class="compact-line"><strong>保存图片：</strong>{he(report.get("manual_save_to_figs_step"))}</p>
+        <p class="compact-line"><strong>人工复核：</strong>{e(str(report.get("review_gate") or ""))}</p>
+        <div class="soft-links">{links}</div>
+      </div>
+      <div>
+        <div class="source-grid">
+          <article class="source-card warn">
+            <strong>下一步校准</strong>
+            <span>{he(report.get("route_status"))}</span>
+            <p>{he(report.get("next_command") or "先生成 app-export 工作流包。")}</p>
+          </article>
+          <article class="source-card ok">
+            <strong>本地更新入口</strong>
+            <span>{he(report.get("automation_status"))}</span>
+            <p>{he(update_command_text)}</p>
+          </article>
+          <article class="source-card warn">
+            <strong>边界不变</strong>
+            <span>official_ui_only</span>
+            <p>{e(forbidden_text)}</p>
+          </article>
+        </div>
+        <details class="soft-details" open>
+          <summary>路线进度</summary>
+          <div class="source-grid">{"".join(step_cards)}</div>
+          <ul>{warnings_html}</ul>
         </details>
       </div>
     </section>
@@ -2660,6 +2741,7 @@ def render_html(summary: dict[str, Any]) -> str:
     ]
     operation_bar = render_operation_bar()
     rank_check_panel = render_rank_check_panel(summary)
+    app_export_readiness = render_app_export_readiness(summary)
     plan_update_readiness = render_plan_update_readiness(summary)
     acceptance_guide = render_acceptance_guide(
         can_act_now=can_act_now,
@@ -2770,6 +2852,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .source-card {{ display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; min-width: 0; }}
     .source-card strong {{ overflow-wrap: anywhere; }}
     .source-card p {{ margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }}
+    .source-card code {{ display: block; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #0f172a; color: #e2e8f0; white-space: normal; overflow-wrap: anywhere; }}
     .source-card em {{ color: var(--muted); font-style: normal; font-size: 12px; overflow-wrap: anywhere; }}
     .source-card.ok {{ border-color: #a7e0bd; background: var(--ok-bg); }}
     .source-card.warn {{ border-color: #f6cf7c; background: var(--warn-bg); }}
@@ -2960,6 +3043,7 @@ def render_html(summary: dict[str, Any]) -> str:
   </header>
     <main>
     {operation_bar}
+    {app_export_readiness}
     {rank_check_panel}
     {plan_update_readiness}
     {acceptance_guide}

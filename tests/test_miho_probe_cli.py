@@ -175,6 +175,67 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("评级快检页", html)
             self.assertIn("评级快检数据", html)
 
+    def test_dashboard_command_injects_cached_app_export_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            summary_path = root / "demo_summary.json"
+            dashboard_path = root / "index.html"
+            workflow_dir = root / "app_export_workflow"
+            workflow_dir.mkdir(parents=True)
+            summary_path.write_text(json.dumps(minimal_summary(), ensure_ascii=False), encoding="utf-8")
+            (workflow_dir / "miyoushe_export_workflow.json").write_text(
+                json.dumps(
+                    {
+                        "workflow": {
+                            "does_not": ["auto_login", "token_read", "cookie_read", "game_client_control"],
+                            "operator_route": {
+                                "current_route_status": "calibration_required",
+                                "automation_status": "disabled_until_calibrated",
+                                "next_command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --dry-run",
+                                "manual_save_to_figs_step": "在米游社官方 UI 保存分享图到 figs。",
+                                "update_command": r"dist\MihoProbe.exe update --open",
+                                "review_gate": "Dashboard 人工复核通过后，才允许进入本地 accepted roster / 高难建议。",
+                                "route_steps": [
+                                    {
+                                        "label": "4. 本地更新 Dashboard",
+                                        "status": "implemented",
+                                        "description": "只处理本地官方分享图。",
+                                        "command": r"dist\MihoProbe.exe update --open",
+                                    }
+                                ],
+                            },
+                        },
+                        "validation": {
+                            "status": "ready_for_calibration",
+                            "warnings": ["4 navigation step(s) still need UIA selector calibration."],
+                            "readiness_gate_count": 6,
+                            "planned_step_count": 4,
+                            "implemented_step_count": 1,
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (workflow_dir / "miyoushe_export_workflow.html").write_text("<html>workflow</html>", encoding="utf-8")
+            dashboard_path.write_text("<html><body>Brief Warning</body></html>", encoding="utf-8")
+
+            result = cli_tool.run_dashboard(
+                argparse.Namespace(
+                    dashboard=str(dashboard_path),
+                    summary=str(summary_path),
+                    refresh=False,
+                    open=False,
+                )
+            )
+
+            self.assertEqual(result, 0)
+            html = dashboard_path.read_text(encoding="utf-8")
+            self.assertIn("一键更新练度准备状态", html)
+            self.assertIn("已沉淀路线，等待校准", html)
+            self.assertIn("当前不会自动点击米游社", html)
+            self.assertIn("APP 导出流程页", html)
+
     def test_dashboard_command_treats_old_brief_links_as_legacy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             dashboard_path = Path(temp_dir) / "index.html"
