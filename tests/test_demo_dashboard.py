@@ -248,7 +248,9 @@ class DemoDashboardTests(unittest.TestCase):
         html = dashboard_tool.render_html(summary)
 
         self.assertIn("一眼结论", html)
-        self.assertIn("先别采用建议", html)
+        self.assertIn("这不是验收结果", html)
+        self.assertIn("不代表 P0.9 验收", html)
+        self.assertIn("先打开缓存入口刷新页面", html)
         self.assertIn("现在先做", html)
         self.assertIn("先处理数据一致性", html)
         self.assertIn("推荐操作路线", html)
@@ -279,6 +281,15 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("先重跑 demo", html)
         self.assertNotIn("OCR、复核", html)
         self.assertNotIn("run_miho_本地演示.bat", html)
+
+    def test_dashboard_layout_is_bounded_for_wide_screens(self) -> None:
+        html = dashboard_tool.render_html(dashboard_minimal_summary())
+
+        self.assertIn("width: min(100%, 1440px)", html)
+        self.assertIn("repeat(auto-fit, minmax(220px, 1fr))", html)
+        self.assertIn("repeat(auto-fit, minmax(180px, 1fr))", html)
+        self.assertIn("repeat(auto-fit, minmax(420px, 1fr))", html)
+        self.assertIn("max-height: 220px; overflow: auto", html)
 
     def test_action_checklist_visible_copy_hides_internal_terms(self) -> None:
         summary = dashboard_minimal_summary()

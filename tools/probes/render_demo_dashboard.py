@@ -334,8 +334,11 @@ def render_brief_overview(brief: dict[str, Any], brief_summary: dict[str, Any], 
 
     if warning_count:
         tone = "bad"
-        title = "先别采用建议"
-        body = "本轮数据来源缺失或不一致，页面只作为排查入口。先刷新本地演示，或确认这些产物来自同一次生成。"
+        title = "这不是验收结果"
+        body = (
+            "本轮数据来源缺失或不一致，页面只作为排查入口，不代表 P0.9 验收。"
+            "先打开缓存入口刷新页面；确实换了新图时，再跑 Fresh OCR。"
+        )
     elif status == "needs_review" or pending:
         tone = "warn"
         title = f"先复核 {pending or '待确认'} 张快照"
@@ -2240,10 +2243,12 @@ def render_html(summary: dict[str, Any]) -> str:
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; background: var(--bg); color: var(--text); font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; }}
     header {{ padding: 28px 32px 18px; background: #101827; color: #fff; }}
+    header > * {{ max-width: 1440px; margin-left: auto; margin-right: auto; }}
     header h1 {{ margin: 0 0 8px; font-size: 30px; letter-spacing: 0; }}
     header p {{ margin: 0; color: #cbd5e1; max-width: 980px; }}
-    main {{ padding: 22px; display: grid; gap: 18px; }}
-    .top-summary {{ display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }}
+    header p + p {{ margin-top: 6px; }}
+    main {{ width: min(100%, 1440px); margin: 0 auto; padding: 22px; display: grid; gap: 18px; }}
+    .top-summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }}
     .summary-card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); min-width: 0; }}
     .summary-card span {{ display: block; color: var(--muted); font-size: 13px; }}
     .summary-card strong {{ display: block; margin-top: 6px; font-size: 22px; line-height: 1.25; overflow-wrap: anywhere; }}
@@ -2252,7 +2257,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .debug-drawer {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); }}
     .debug-drawer > summary {{ font-size: 16px; }}
     .debug-content {{ display: grid; gap: 18px; margin-top: 14px; }}
-    .metrics {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }}
+    .metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }}
     .metric {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; box-shadow: var(--shadow); }}
     .metric span {{ display: block; color: var(--muted); font-size: 13px; }}
     .metric strong {{ display: block; margin-top: 4px; font-size: 24px; }}
@@ -2260,7 +2265,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); }}
     .panel h2 {{ margin: 0 0 12px; font-size: 18px; }}
     .steps {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }}
-    .input-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }}
+    .input-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }}
     .input-grid div {{ border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }}
     .input-grid span {{ display: block; color: var(--muted); font-size: 12px; }}
     .input-grid strong {{ display: block; overflow-wrap: anywhere; }}
@@ -2270,7 +2275,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .step strong {{ font-size: 14px; }} .step em {{ font-style: normal; color: var(--muted); font-size: 12px; }}
     .dot {{ width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }}
     .ok .dot, .badge.ok {{ background: var(--ok); color: #fff; }} .warn .dot, .badge.warn {{ background: var(--warn); color: #fff; }} .bad .dot, .badge.bad {{ background: var(--bad); color: #fff; }}
-    .case-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(540px, 1fr)); gap: 16px; }}
+    .case-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }}
     .case-card {{ display: grid; grid-template-columns: 170px minmax(0, 1fr); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow); }}
     .thumb {{ background: #e9eef6; min-height: 230px; display: flex; align-items: stretch; justify-content: center; }}
     .thumb img {{ width: 100%; height: 100%; max-height: 320px; object-fit: cover; object-position: top center; }}
@@ -2353,7 +2358,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .resource-item {{ display: grid; grid-template-columns: 150px minmax(0, 1fr) 64px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }}
     .resource-item span {{ color: var(--muted); overflow-wrap: anywhere; }}
     .resource-item em {{ font-style: normal; color: var(--warn); font-weight: 900; text-align: right; }}
-    .command-block {{ margin: 6px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #0f172a; color: #e2e8f0; overflow-wrap: anywhere; white-space: pre-wrap; }}
+    .command-block {{ margin: 6px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #0f172a; color: #e2e8f0; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 220px; overflow: auto; }}
     .history-list {{ display: grid; gap: 10px; margin-top: 12px; }}
     .history-item {{ display: grid; grid-template-columns: minmax(120px, 1fr) 90px 90px minmax(220px, 2fr); gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
     .history-item span {{ display: block; color: var(--muted); font-size: 12px; }}
