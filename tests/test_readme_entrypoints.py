@@ -29,6 +29,9 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("现在先点哪里", readme)
         self.assertIn("Dashboard 怎么看", readme)
         self.assertIn("准确率怎么验收", readme)
+        self.assertIn("不要先跑 OCR", readme)
+        self.assertIn("十分钟", readme)
+        self.assertIn("绿色才是可继续", readme)
         self.assertNotIn('"entries"', readme)
         self.assertNotIn("tier-stale-days", readme)
 

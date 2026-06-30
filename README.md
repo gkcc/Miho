@@ -6,7 +6,13 @@
 
 ## 现在先点哪里
 
-第一次使用，安装桌面入口：
+如果你只是想验收当前体验，不要先跑 OCR。按这个顺序：
+
+1. 第一次使用先装桌面入口。
+2. 点桌面的 `Miho Demo`，它只打开已有 Dashboard，正常应该很快。
+3. 只有分享图换了，才点 `Miho Demo Fresh OCR` 重新识别图片。
+
+安装桌面入口：
 
 ```powershell
 scripts/install_miho_demo_shortcut.bat
@@ -19,6 +25,18 @@ scripts/install_miho_demo_shortcut.bat
 - `MihoProbe`：构建过 `dist/MihoProbe.exe` 后出现，像软件入口一样直接打开本地 Dashboard。
 - `MihoProbe Accuracy Check`：构建过 EXE 后出现，一键跑 P0.9 replay 准确率验收，不重新 OCR。
 - `MihoProbe CLI`：打开 EXE 命令壳和常用命令示例。
+
+如果 `scripts/run_miho_demo.bat` 等了十分钟还没反应，通常是你正在跑 fresh OCR。PaddleOCR 首次加载模型会慢；只想看结果请直接点 `Miho Demo`，或运行：
+
+```powershell
+scripts\run_miho_demo.bat
+```
+
+它会打开缓存 Dashboard，不会重新 OCR。确实要重扫 `figs/` 时才运行：
+
+```powershell
+scripts\run_miho_demo.bat --fresh
+```
 
 想先生成 EXE 命令壳：
 
@@ -52,7 +70,9 @@ dist\MihoProbe.exe replay
 - `今日作战简报`：只回答“现在能不能用、卡在哪里、下一步点哪里”。
 - `待确认快照`：OCR/解析候选，人工确认前不算已拥有练度。
 
-如果页面提示缺少运行清单或待复核，不要按配队行动；先打开复核页确认字段，或重新跑 `Miho Demo Fresh OCR`。
+如果页面提示缺少运行清单或待复核，不要按配队行动；先点卡片里的 `打开复核页` 确认字段。只有字段明显是旧图或图片缺失，才重新跑 `Miho Demo Fresh OCR`。
+
+看不懂时只记一句：绿色才是可继续，黄色是先复核，红色是先处理数据一致性。
 
 ## 准确率怎么验收
 
