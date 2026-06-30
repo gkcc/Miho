@@ -383,6 +383,12 @@ P0.9 replay batch 验收命令：
 python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json
 ```
 
+构建 EXE 后也可以用软件入口跑同一套验收，不重新 OCR：
+
+```powershell
+dist\MihoProbe.exe replay
+```
+
 expected JSON 缺失时不会报错，Dashboard 会显示 `expected: missing` / `N/A`，并继续生成 normalized snapshot。要补 expected，可以先运行：
 
 ```powershell
@@ -713,6 +719,7 @@ python tools/probes/miho_probe_cli.py demo --images-dir figs --target-source-man
 python tools/probes/miho_probe_cli.py demo --images-dir figs --targets data/probes/targets/endgame_targets.json --character-catalog data/probes/catalog/zzz_characters.json --open
 python tools/probes/miho_probe_cli.py demo --images-dir figs --new-only --state-file data/probes/demo/update_state.json --targets data/probes/targets/endgame_targets.json --open
 python tools/probes/miho_probe_cli.py demo --parsed-dir data/probes/parsed --latest-only --history-dir data/probes/demo/snapshot_history --open
+python tools/probes/miho_probe_cli.py replay --no-open
 python tools/probes/miho_probe_cli.py normalize --parsed data/probes/parsed/xxx.json
 python tools/probes/miho_probe_cli.py diff --old old_normalized.json --new new_normalized.json
 ```
@@ -724,7 +731,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build_miho_probe_exe.ps1
 scripts/install_miho_demo_shortcut.bat
 ```
 
-该脚本使用 PyInstaller 构建 `dist/MihoProbe.exe`。无参数运行或执行 `dist\MihoProbe.exe dashboard --open` 会打开缓存 Dashboard，不重新 OCR；Fresh OCR 仍走 `Miho Demo Fresh OCR`。`build/`、`dist/` 和 `MihoProbe.spec` 是本地构建产物，已在 `.gitignore` 中排除，不提交。构建后重新运行 shortcut installer，会在桌面补 `MihoProbe` 和 `MihoProbe CLI` 入口。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
+该脚本使用 PyInstaller 构建 `dist/MihoProbe.exe`。无参数运行或执行 `dist\MihoProbe.exe dashboard --open` 会打开缓存 Dashboard，不重新 OCR；`dist\MihoProbe.exe replay` 会跑 P0.9 parsed-vs-expected replay 验收，也不重新 OCR；Fresh OCR 仍走 `Miho Demo Fresh OCR`。`build/`、`dist/` 和 `MihoProbe.spec` 是本地构建产物，已在 `.gitignore` 中排除，不提交。构建后重新运行 shortcut installer，会在桌面补 `MihoProbe`、`MihoProbe Accuracy Check` 和 `MihoProbe CLI` 入口。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
 
 ### P1.2 本地培养优先级 planner probe
 

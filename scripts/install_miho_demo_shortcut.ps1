@@ -36,7 +36,7 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
 if ($ShowHelp) {
     Write-Host "Miho Demo Shortcut Installer"
     Write-Host ""
-    Write-Host "Default: create desktop shortcuts for Miho Demo, Miho Demo Fresh OCR, MihoProbe, and MihoProbe CLI when available."
+    Write-Host "Default: create desktop shortcuts for Miho Demo, Miho Demo Fresh OCR, MihoProbe, MihoProbe Accuracy Check, and MihoProbe CLI when available."
     Write-Host "Usage: scripts\install_miho_demo_shortcut.bat"
     Write-Host "Test output: scripts\install_miho_demo_shortcut.bat --output-dir <dir>"
     Write-Host "Skip fresh OCR shortcut: scripts\install_miho_demo_shortcut.bat --no-fresh-shortcut"
@@ -101,6 +101,12 @@ if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
             -TargetPath $ProbeExe `
             -Arguments "dashboard --open" `
             -Description "Open the app-like local Miho dashboard without rerunning OCR."
+
+        New-MihoShortcut `
+            -Name "MihoProbe Accuracy Check" `
+            -TargetPath $ProbeExe `
+            -Arguments "replay --open" `
+            -Description "Run the P0.9 parsed-vs-expected replay acceptance check without rerunning OCR."
     }
 
     New-MihoShortcut `
@@ -111,4 +117,4 @@ if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
 }
 
 Write-Host "Done. Main shortcut opens cached dashboard first and does not rerun OCR when cache exists."
-Write-Host "If MihoProbe was not created, build dist\MihoProbe.exe first and rerun this installer."
+Write-Host "If MihoProbe shortcuts were not created, build dist\MihoProbe.exe first and rerun this installer."

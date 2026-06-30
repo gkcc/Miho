@@ -17,6 +17,7 @@ scripts/install_miho_demo_shortcut.bat
 - `Miho Demo`：秒开已有 Dashboard。普通验收先点这个。
 - `Miho Demo Fresh OCR`：重新识别 `figs/` 下的官方分享图。PaddleOCR 首次加载会慢。
 - `MihoProbe`：构建过 `dist/MihoProbe.exe` 后出现，像软件入口一样直接打开本地 Dashboard。
+- `MihoProbe Accuracy Check`：构建过 EXE 后出现，一键跑 P0.9 replay 准确率验收，不重新 OCR。
 - `MihoProbe CLI`：打开 EXE 命令壳和常用命令示例。
 
 想先生成 EXE 命令壳：
@@ -33,6 +34,14 @@ dist\MihoProbe.exe
 ```
 
 无参数会打开缓存 Dashboard，不会重新 OCR。
+
+准确率验收也可以走 EXE：
+
+```powershell
+dist\MihoProbe.exe replay
+```
+
+它默认读取 `data/probes/replay_manifest.json`，生成 replay batch 报告并打开 Markdown 摘要。
 
 ## Dashboard 怎么看
 
@@ -51,6 +60,12 @@ dist\MihoProbe.exe
 
 ```powershell
 python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json
+```
+
+等价的软件入口：
+
+```powershell
+dist\MihoProbe.exe replay --no-open
 ```
 
 通过口径：

@@ -17,6 +17,7 @@ echo.
 echo.
 echo Common examples:
 echo   dist\MihoProbe.exe dashboard --open
+echo   dist\MihoProbe.exe replay --no-open
 echo   dist\MihoProbe.exe demo --images-dir figs --open
 echo   dist\MihoProbe.exe demo --parsed-dir data\probes\parsed --latest-only --open
 echo   dist\MihoProbe.exe normalize --parsed data\probes\parsed\xxx.json

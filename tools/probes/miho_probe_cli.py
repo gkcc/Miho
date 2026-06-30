@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
+import importlib.util
+import json
 import sys
 import webbrowser
 from pathlib import Path
@@ -39,6 +42,7 @@ DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 DEFAULT_NORMALIZED_DIR = PROJECT_ROOT / "data" / "probes" / "normalized"
 DEFAULT_PLANNER_DIR = PROJECT_ROOT / "data" / "probes" / "planner"
 DEFAULT_TARGETS_DIR = PROJECT_ROOT / "data" / "probes" / "targets"
+DEFAULT_REPLAY_MANIFEST = PROJECT_ROOT / "data" / "probes" / "replay_manifest.json"
 LEGACY_DASHBOARD_MARKERS = (
     "Brief Warning",
     "brief status",
@@ -49,6 +53,28 @@ LEGACY_DASHBOARD_MARKERS = (
     "pending 只会生成复核模板",
     "watch_only",
 )
+_REPLAY_TOOL = None
+
+
+class CliReplayError(RuntimeError):
+    pass
+
+
+def load_replay_tool():
+    global _REPLAY_TOOL
+    if _REPLAY_TOOL is not None:
+        return _REPLAY_TOOL
+    script_path = PROJECT_ROOT / "tools" / "probes" / "run_export_replay_batch.py"
+    if not script_path.exists():
+        raise CliReplayError(f"Replay script does not exist: {script_path}")
+    spec = importlib.util.spec_from_file_location("run_export_replay_batch_cli", script_path)
+    if spec is None or spec.loader is None:
+        raise CliReplayError(f"Unable to load replay script: {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    _REPLAY_TOOL = module
+    return module
 
 
 def resolve_cli_path(value: str | Path) -> Path:
@@ -127,6 +153,111 @@ def run_demo(args: argparse.Namespace) -> int:
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0
+
+
+def replay_default_output_dir() -> Path:
+    stamp = datetime.now().astimezone().isoformat(timespec="seconds").replace(":", "").replace("+", "_").replace("-", "").replace("T", "_")
+    return PROJECT_ROOT / "data" / "probes" / "replay_batches" / stamp
+
+
+def replay_case_from_paths(parsed: str, expected: str, name: str | None = None) -> dict[str, str]:
+    parsed_path = resolve_cli_path(parsed)
+    expected_path = resolve_cli_path(expected)
+    return {
+        "name": name or parsed_path.stem,
+        "parsed": str(parsed_path),
+        "expected": str(expected_path),
+    }
+
+
+def load_replay_manifest(path: Path) -> list[dict[str, str]]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise CliReplayError(f"Replay manifest is invalid JSON: {path}. Details: {exc}") from exc
+    if isinstance(data, list):
+        raw_cases = data
+    elif isinstance(data, dict):
+        raw_cases = data.get("cases")
+    else:
+        raw_cases = None
+    if not isinstance(raw_cases, list):
+        raise CliReplayError("Replay manifest must be a list or an object with a 'cases' list")
+    cases: list[dict[str, str]] = []
+    for index, item in enumerate(raw_cases, start=1):
+        if not isinstance(item, dict):
+            raise CliReplayError(f"Manifest case #{index} must be an object")
+        parsed = item.get("parsed")
+        expected = item.get("expected")
+        if not parsed or not expected:
+            raise CliReplayError(f"Manifest case #{index} must include parsed and expected")
+        cases.append(replay_case_from_paths(str(parsed), str(expected), str(item.get("name") or f"case_{index}")))
+    return cases
+
+
+def build_replay_cases(args: argparse.Namespace) -> list[dict[str, str]]:
+    cases: list[dict[str, str]] = []
+    has_inline_cases = bool(args.case or args.parsed or args.expected)
+    manifest_value = args.manifest
+    if not manifest_value and not has_inline_cases:
+        manifest_value = DEFAULT_REPLAY_MANIFEST
+    if manifest_value:
+        manifest_path = resolve_cli_path(manifest_value)
+        if not manifest_path.exists():
+            raise CliReplayError(f"Replay manifest does not exist: {manifest_path}")
+        cases.extend(load_replay_manifest(manifest_path))
+    for value in args.case or []:
+        if "=" not in value:
+            raise CliReplayError("--case must use parsed.json=expected.json")
+        parsed, expected = value.split("=", 1)
+        cases.append(replay_case_from_paths(parsed.strip(), expected.strip()))
+    parsed_values = args.parsed or []
+    expected_values = args.expected or []
+    if parsed_values or expected_values:
+        if len(parsed_values) != len(expected_values):
+            raise CliReplayError("--parsed and --expected must be provided in equal counts")
+        for parsed, expected in zip(parsed_values, expected_values):
+            cases.append(replay_case_from_paths(parsed, expected))
+    if not cases:
+        raise CliReplayError("Provide at least one replay case or manifest")
+    return cases
+
+
+def run_replay(args: argparse.Namespace) -> int:
+    try:
+        cases = build_replay_cases(args)
+        output_dir = resolve_cli_path(args.output_dir) if args.output_dir else replay_default_output_dir()
+        replay_tool = load_replay_tool()
+        summary = replay_tool.run_batch(
+            cases,
+            output_dir=output_dir,
+            loose_numeric_text=not args.strict_leading_zero,
+            rebuild=not args.no_rebuild,
+        )
+    except (OSError, CliReplayError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        print("准确率验收入口：MihoProbe.exe replay --manifest data\\probes\\replay_manifest.json", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        print("准确率验收入口：MihoProbe.exe replay --manifest data\\probes\\replay_manifest.json", file=sys.stderr)
+        return 1
+    p0_9 = summary["p0_9"]
+    passed = bool(p0_9["meets_p0_9_batch_standard"])
+    print("准确率验收：" + ("通过" if passed else "未通过"))
+    print(f"case_count: {p0_9['case_count']}")
+    print(f"average_pass_rate: {p0_9['average_pass_rate_percent']}%")
+    print(f"meets_p0_9_batch_standard: {p0_9['meets_p0_9_batch_standard']}")
+    if p0_9.get("blockers"):
+        print("blockers:")
+        for blocker in p0_9["blockers"]:
+            print(f"- {blocker}")
+    print(f"summary_md: {summary['summary_md']}")
+    print(f"summary_json: {summary['summary_json']}")
+    if args.open:
+        webbrowser.open(Path(summary["summary_md"]).resolve().as_uri())
+        print(f"summary_opened: {summary['summary_md']}")
+    return 0 if passed else 1
 
 
 def run_normalize(args: argparse.Namespace) -> int:
@@ -235,6 +366,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     demo.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
     demo.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
     demo.set_defaults(handler=run_demo)
+
+    replay = subparsers.add_parser("replay", help="Run P0.9 parsed-vs-expected replay acceptance without OCR.")
+    replay.add_argument("--manifest", default=None, help="Replay manifest. Default when no inline cases are provided: data/probes/replay_manifest.json.")
+    replay.add_argument("--case", action="append", help="Replay case as parsed.json=expected.json. Can be repeated.")
+    replay.add_argument("--parsed", action="append", help="Parsed JSON path. Pair with --expected; can be repeated.")
+    replay.add_argument("--expected", action="append", help="Expected JSON path. Pair with --parsed; can be repeated.")
+    replay.add_argument("--output-dir", default=None, help="Output directory. Default: data/probes/replay_batches/<timestamp>.")
+    replay.add_argument("--strict-leading-zero", action="store_true", help="Treat numeric text such as '08' and '8' as different.")
+    replay.add_argument("--no-rebuild", action="store_true", help="Compare stored extracted_draft as-is instead of rebuilding from text_blocks.")
+    replay.add_argument("--open", action="store_true", default=True, help="Open the Markdown summary. Default: true.")
+    replay.add_argument("--no-open", action="store_false", dest="open", help="Do not open the Markdown summary.")
+    replay.set_defaults(handler=run_replay)
 
     normalize = subparsers.add_parser("normalize", help="Normalize one parsed JSON.")
     normalize.add_argument("--parsed", required=True, help="Parsed JSON path.")

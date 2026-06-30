@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import importlib.util
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -86,6 +89,88 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(args.handler, cli_tool.run_dashboard)
         self.assertFalse(args.open)
         self.assertTrue(str(args.dashboard).endswith("data\\probes\\demo\\index.html") or str(args.dashboard).endswith("data/probes/demo/index.html"))
+
+    def test_parser_has_replay_acceptance_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["replay", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_replay)
+        self.assertFalse(args.open)
+        self.assertIsNone(args.manifest)
+
+    def test_replay_uses_default_manifest_only_without_inline_cases(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest = root / "replay_manifest.json"
+            manifest.write_text(
+                json.dumps({"cases": [{"name": "case_a", "parsed": "parsed/a.json", "expected": "expected/a.json"}]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            old_manifest = cli_tool.DEFAULT_REPLAY_MANIFEST
+            cli_tool.DEFAULT_REPLAY_MANIFEST = manifest
+            try:
+                cases = cli_tool.build_replay_cases(
+                    argparse.Namespace(manifest=None, case=None, parsed=None, expected=None)
+                )
+            finally:
+                cli_tool.DEFAULT_REPLAY_MANIFEST = old_manifest
+
+            self.assertEqual(cases[0]["name"], "case_a")
+            self.assertTrue(cases[0]["parsed"].endswith("parsed\\a.json") or cases[0]["parsed"].endswith("parsed/a.json"))
+
+    def test_replay_inline_case_does_not_require_default_manifest(self) -> None:
+        old_manifest = cli_tool.DEFAULT_REPLAY_MANIFEST
+        cli_tool.DEFAULT_REPLAY_MANIFEST = PROJECT_ROOT / "missing_replay_manifest.json"
+        try:
+            cases = cli_tool.build_replay_cases(
+                argparse.Namespace(
+                    manifest=None,
+                    case=["parsed/a.json=expected/a.json"],
+                    parsed=None,
+                    expected=None,
+                )
+            )
+        finally:
+            cli_tool.DEFAULT_REPLAY_MANIFEST = old_manifest
+
+        self.assertEqual(len(cases), 1)
+        self.assertTrue(cases[0]["parsed"].endswith("parsed\\a.json") or cases[0]["parsed"].endswith("parsed/a.json"))
+
+    def test_run_replay_prints_user_facing_acceptance_summary(self) -> None:
+        summary = {
+            "p0_9": {
+                "case_count": 3,
+                "average_pass_rate_percent": 88.0,
+                "meets_p0_9_batch_standard": True,
+                "blockers": [],
+            },
+            "summary_md": str(PROJECT_ROOT / "data" / "probes" / "replay_batches" / "x" / "export_replay_batch_summary.md"),
+            "summary_json": str(PROJECT_ROOT / "data" / "probes" / "replay_batches" / "x" / "export_replay_batch_summary.json"),
+        }
+        fake_replay_tool = mock.Mock()
+        fake_replay_tool.run_batch.return_value = summary
+        output = io.StringIO()
+        with (
+            mock.patch.object(cli_tool, "load_replay_tool", return_value=fake_replay_tool),
+            contextlib.redirect_stdout(output),
+        ):
+            result = cli_tool.run_replay(
+                argparse.Namespace(
+                    manifest=None,
+                    case=["parsed/a.json=expected/a.json"],
+                    parsed=None,
+                    expected=None,
+                    output_dir=None,
+                    strict_leading_zero=False,
+                    no_rebuild=False,
+                    open=False,
+                )
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(fake_replay_tool.run_batch.call_count, 1)
+        self.assertIn("准确率验收：通过", output.getvalue())
+        self.assertIn("summary_md:", output.getvalue())
 
     def test_detect_project_root_points_to_workspace(self) -> None:
         self.assertEqual(cli_tool.detect_project_root(), PROJECT_ROOT)

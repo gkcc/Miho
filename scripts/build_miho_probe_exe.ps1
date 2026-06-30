@@ -12,7 +12,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
-    Write-Host "Built dist\MihoProbe.exe. Double-click or run without args to open the cached local dashboard; Fresh OCR remains a separate shortcut."
+    Write-Host "Built dist\MihoProbe.exe. Run it without args for the cached dashboard, or run dist\MihoProbe.exe replay for P0.9 accuracy acceptance; Fresh OCR remains a separate shortcut."
 }
 finally {
     Pop-Location
