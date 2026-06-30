@@ -6,7 +6,18 @@ Miho 要做的是一个本地优先的游戏练度更新与规划软件：米游
 
 ## 现在先点哪里
 
-你只想验收体验时，不要先跑 OCR。先用“秒开缓存”的入口看 Dashboard 是否可读：
+先记住一句：**验收界面点缓存入口，识别新图才点 Fresh OCR。**
+
+- 想看软件体验：点 `MihoProbe`，或运行 `dist\MihoProbe.exe`。它只打开已有 Dashboard，不跑 OCR。
+- 新放了官方分享图：点 `MihoProbe Fresh OCR`，或运行 `dist\MihoProbe.exe fresh`。这一步会跑 PaddleOCR，可能慢。
+- 验收解析准确率：点 `MihoProbe Accuracy Check`，或运行 `dist\MihoProbe.exe replay --no-open`。它不重新 OCR。
+
+没有 EXE 时才用脚本版入口：
+
+- `scripts\run_miho_demo.bat`：打开缓存 Dashboard，不跑 OCR。
+- `scripts\run_miho_demo.bat --fresh`：识别 `figs/` 下新增或变更的分享图。
+
+如果你只想验收页面，不要先跑 OCR。先用“秒开缓存”的入口看 Dashboard 是否可读：
 
 1. 构建一次本地 EXE：
 
@@ -35,11 +46,6 @@ scripts/install_miho_demo_shortcut.bat
 - `MihoProbe Fresh OCR`：只在 `figs/` 里放了新的官方分享图后再点；会跑 PaddleOCR。
 - `MihoProbe Accuracy Check`：跑 P0.9 replay 准确率验收，不重新 OCR。
 - `MihoProbe CLI`：打开命令壳，给开发调试用。
-
-没有构建 EXE 时，也可以用脚本版入口：
-
-- `Miho Demo`：打开缓存 Dashboard，不跑 OCR。
-- `Miho Demo Fresh OCR`：识别 `figs/` 下新增或变更的分享图。
 
 默认入口现在不会自动跑 OCR。如果 `MihoProbe Fresh OCR`、`Miho Demo Fresh OCR` 或 `scripts/run_miho_demo.bat --fresh` 十分钟没反应，通常是 PaddleOCR 首次加载模型或图片识别卡住；先关掉它，改点 `MihoProbe` / `Miho Demo` 看缓存结果。
 
