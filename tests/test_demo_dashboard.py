@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import importlib.util
 import json
 from pathlib import Path
@@ -2299,6 +2301,49 @@ class DemoDashboardTests(unittest.TestCase):
                 self.assertIn("跳过未变更图片", dashboard_html)
             finally:
                 pipeline_tool.process_image_case = original_process
+
+    def test_run_demo_pipeline_image_mode_prints_rank_source_per_case(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images_dir = root / "figs"
+            output_dir = root / "demo"
+            images_dir.mkdir()
+            (images_dir / "a.jpg").write_bytes(b"image-a")
+            original_process = pipeline_tool.process_image_case
+
+            def fake_process_image_case(image_path, *, name, output_dir, expected_dir, engine, game, layout):  # noqa: ANN001, ANN003
+                case = pipeline_tool.case_template(name)
+                case["image"] = str(Path(image_path).resolve())
+                case["character"] = {"name": "角色a", "level": "60", "rank": "A"}
+                case["equipment"] = {"name": "音擎a", "level": "60", "rank": "S"}
+                case["review_status"] = "PASS"
+                case["rank_sources"] = {
+                    "character": {"rank": "A", "source": "visual_fallback", "region": "character_rank"},
+                    "equipment": {"rank": "S", "source": "ocr_or_text", "region": "equipment_rank"},
+                }
+                case["quality"] = {"requires_manual_review": False}
+                return case
+
+            pipeline_tool.process_image_case = fake_process_image_case
+            try:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    pipeline_tool.run_pipeline(
+                        images_dir=images_dir,
+                        parsed_dir=None,
+                        manifest=None,
+                        output_dir=output_dir,
+                        state_file=root / "update_state.json",
+                        roster_dir=root / "roster",
+                        open_dashboard=False,
+                    )
+            finally:
+                pipeline_tool.process_image_case = original_process
+
+        log = output.getvalue()
+        self.assertIn("[Miho Demo] OCR 1/1: rank source:", log)
+        self.assertIn("角色=A source=visual_fallback region=character_rank", log)
+        self.assertIn("音擎=S source=ocr_or_text region=equipment_rank", log)
 
     def test_cli_demo_command_calls_pipeline_core(self) -> None:
         calls = []

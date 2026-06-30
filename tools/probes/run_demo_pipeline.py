@@ -120,6 +120,57 @@ def empty_quality() -> dict[str, Any]:
     }
 
 
+def parsed_rank_sources(parsed: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if not isinstance(parsed, dict):
+        return {}
+    metadata = parsed.get("metadata") if isinstance(parsed.get("metadata"), dict) else {}
+    fallback_items = metadata.get("visual_rank_fallback") if isinstance(metadata.get("visual_rank_fallback"), list) else []
+    fallback_by_region = {
+        str(item.get("region")): item
+        for item in fallback_items
+        if isinstance(item, dict) and item.get("region")
+    }
+    draft = parsed.get("extracted_draft") if isinstance(parsed.get("extracted_draft"), dict) else {}
+    specs = {
+        "character": ("character", "character_rank"),
+        "equipment": ("equipment", "equipment_rank"),
+    }
+    result: dict[str, dict[str, Any]] = {}
+    for label, (section_name, fallback_region) in specs.items():
+        section = draft.get(section_name) if isinstance(draft.get(section_name), dict) else {}
+        rank_field = section.get("rank") if isinstance(section.get("rank"), dict) else {}
+        value = rank_field.get("value")
+        source_region = rank_field.get("source_region")
+        fallback = fallback_by_region.get(str(source_region)) or fallback_by_region.get(fallback_region)
+        if fallback:
+            source = "visual_fallback"
+        elif value:
+            source = "ocr_or_text"
+        else:
+            source = "none"
+        result[label] = {
+            "rank": value,
+            "source": source,
+            "region": source_region or fallback_region,
+            "confidence": fallback.get("confidence") if isinstance(fallback, dict) else None,
+            "reason": fallback.get("reason") if isinstance(fallback, dict) else None,
+        }
+    return result
+
+
+def format_rank_source_line(rank_sources: dict[str, Any] | None) -> str:
+    rank_sources = rank_sources if isinstance(rank_sources, dict) else {}
+    labels = (("character", "角色", "character_rank"), ("equipment", "音擎", "equipment_rank"))
+    parts: list[str] = []
+    for key, label, default_region in labels:
+        item = rank_sources.get(key) if isinstance(rank_sources.get(key), dict) else {}
+        rank = item.get("rank") or "未识别"
+        source = item.get("source") or "none"
+        region = item.get("region") or default_region
+        parts.append(f"{label}={rank} source={source} region={region}")
+    return "; ".join(parts)
+
+
 def source_image_from_parsed(parsed: dict[str, Any]) -> str | None:
     metadata = parsed.get("metadata", {}) if isinstance(parsed.get("metadata"), dict) else {}
     image = metadata.get("input_image")
@@ -614,6 +665,7 @@ def case_template(name: str) -> dict[str, Any]:
         "pass_rate": None,
         "character": {"name": None, "level": None, "rank": None},
         "equipment": {"name": None, "level": None, "rank": None},
+        "rank_sources": {},
         "quality": empty_quality(),
         "parse_status": "SKIPPED",
         "expected_status": "N/A",
@@ -710,6 +762,7 @@ def process_image_case(
     except normalizer.NormalizeError as exc:
         case["errors"].append(f"parsed JSON read failed: {exc}")
         return case
+    case["rank_sources"] = parsed_rank_sources(parsed)
     evaluate_case(
         parsed_path,
         expected_path or find_expected(image_path=image_path, parsed_path=parsed_path, parsed=parsed, expected_dir=expected_dir),
@@ -2053,6 +2106,10 @@ def run_pipeline(
                     f"[Miho Demo] OCR {index}/{total_images}: review {statuses.get('parse_status')} in {elapsed:.1f}s: {image_path.name}",
                     flush=True,
                 )
+            print(
+                f"[Miho Demo] OCR {index}/{total_images}: rank source: {format_rank_source_line(case.get('rank_sources'))}",
+                flush=True,
+            )
         write_update_state(active_state_file, state, update_records, cases)
         input_info["update_state"] = build_update_summary(active_state_file, update_records, cases)
 
