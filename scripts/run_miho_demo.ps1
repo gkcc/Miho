@@ -45,7 +45,7 @@ function Test-LegacyDashboard {
     if (-not $Html) {
         return $false
     }
-    return $Html -match "Brief Warning|brief status|trusted ready|ready targets|pending review|watch only|pending 只会生成复核模板|watch_only"
+    return $Html -match "Brief Warning|brief status|trusted ready|ready targets|pending review|watch only|final_brief\.md|final_brief\.json|简报 Markdown|简报 JSON|pending 只会生成复核模板|watch_only"
 }
 
 function Get-DashboardRefreshReason {

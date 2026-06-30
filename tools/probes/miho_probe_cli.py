@@ -53,6 +53,10 @@ LEGACY_DASHBOARD_MARKERS = (
     "ready targets",
     "pending review",
     "watch only",
+    "final_brief.md",
+    "final_brief.json",
+    "简报 Markdown",
+    "简报 JSON",
     "pending 只会生成复核模板",
     "watch_only",
 )

@@ -76,7 +76,10 @@ class MihoProbeCliTests(unittest.TestCase):
             summary_path = root / "demo_summary.json"
             dashboard_path = root / "index.html"
             summary_path.write_text(json.dumps(minimal_summary(), ensure_ascii=False), encoding="utf-8")
-            dashboard_path.write_text("<html><body>Brief Warning trusted ready</body></html>", encoding="utf-8")
+            dashboard_path.write_text(
+                "<html><body>Brief Warning trusted ready final_brief.md final_brief.json</body></html>",
+                encoding="utf-8",
+            )
 
             result = cli_tool.run_dashboard(
                 argparse.Namespace(
@@ -92,6 +95,15 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("米游社练度识别体验台", html)
             self.assertNotIn("Brief Warning", html)
             self.assertNotIn("trusted ready", html)
+            self.assertNotIn("final_brief.md", html)
+            self.assertNotIn("final_brief.json", html)
+
+    def test_dashboard_command_treats_old_brief_links_as_legacy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_path = Path(temp_dir) / "index.html"
+            dashboard_path.write_text("<html><body>简报 Markdown final_brief.md</body></html>", encoding="utf-8")
+
+            self.assertTrue(cli_tool.has_legacy_dashboard_markup(dashboard_path))
 
     def test_dashboard_command_refreshes_when_renderer_changed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
