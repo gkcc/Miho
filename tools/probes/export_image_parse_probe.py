@@ -570,6 +570,59 @@ def visual_rank_block_for_region(image: Any, *, region_name: str, region_box: di
     }
 
 
+def has_rank_block(blocks: list[dict[str, Any]], region_name: str) -> bool:
+    for block in blocks:
+        if block.get("region") != region_name:
+            continue
+        if rank_from_block_text(str(block.get("text", "")), rank_region=True):
+            return True
+    return False
+
+
+def visual_rank_blocks_from_image(
+    image: Any,
+    *,
+    game: str | None,
+    layout: str,
+    blocks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if game != "zzz" or layout != "zzz-agent-card":
+        return []
+    specs = {spec.name: spec for spec in ZZZ_AGENT_CARD_REGIONS}
+    result: list[dict[str, Any]] = []
+    for region_name in ("character_rank", "equipment_rank"):
+        if has_rank_block(blocks, region_name):
+            continue
+        spec = specs.get(region_name)
+        if spec is None:
+            continue
+        region_box = ratio_box_to_pixels(spec.box_ratio, image.width, image.height)
+        visual_block = visual_rank_block_for_region(image, region_name=region_name, region_box=region_box)
+        if visual_block:
+            result.append(visual_block)
+    return result
+
+
+def visual_rank_blocks_from_image_path(
+    image_path: Path,
+    *,
+    game: str | None,
+    layout: str,
+    blocks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if game != "zzz" or layout != "zzz-agent-card" or not image_path.is_file():
+        return []
+    try:
+        Image = load_image_dependency()
+        image = Image.open(image_path)
+    except (OSError, ProbeError):
+        return []
+    try:
+        return visual_rank_blocks_from_image(image, game=game, layout=layout, blocks=blocks)
+    finally:
+        image.close()
+
+
 def parse_tesseract_blocks(
     data: dict[str, Any],
     *,
@@ -2234,6 +2287,8 @@ def build_result_from_replay(
         source_regions = []
     if not isinstance(source_blocks, list):
         source_blocks = []
+    else:
+        source_blocks = list(source_blocks)
 
     result: dict[str, Any] = {
         "metadata": {
@@ -2267,6 +2322,15 @@ def build_result_from_replay(
         apply_ocr_route_recommendation(result, engine=source_engine, lang=source_lang)
         return result, 1
 
+    visual_rank_blocks = visual_rank_blocks_from_image_path(image_path, game=game, layout=layout, blocks=source_blocks)
+    if visual_rank_blocks:
+        source_blocks.extend(visual_rank_blocks)
+        result["metadata"]["visual_rank_fallback"] = [
+            {"region": block.get("region"), "rank": block.get("text"), "scores": block.get("visual_rank_scores")}
+            for block in visual_rank_blocks
+        ]
+
+    result["text_blocks"] = source_blocks
     result["extracted_draft"] = build_extracted_draft(
         game=game,
         layout=layout,
