@@ -1676,8 +1676,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("A/S 艺术字识别", html)
             self.assertIn("OCR/文本识别", html)
             self.assertIn("character_rank", html)
-            self.assertIn("normalized_json", html)
-            self.assertIn("review_html", html)
+            self.assertIn("标准化结果", html)
+            self.assertIn("复核页", html)
             self.assertIn("case_expected.json", html)
             self.assertIn("演示状态", html)
             self.assertIn("MISSING_EXPECTED", html)
@@ -1771,7 +1771,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("endgame_targets.json", html)
             self.assertIn("fresh", html)
             self.assertIn("快照历史", html)
-            self.assertIn("snapshot_diff_md", html)
+            self.assertIn("变化报告", html)
             self.assertIn("先人工确认解析结果", html)
             self.assertIn("training_priority_report.json", html)
             self.assertIn("当前包含历史 parsed 结果", html)
@@ -2349,7 +2349,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertTrue((history_dir / "index.json").exists())
             dashboard_html = Path(second["dashboard_html"]).read_text(encoding="utf-8")
             self.assertIn("快照历史", dashboard_html)
-            self.assertIn("snapshot_diff_md", dashboard_html)
+            self.assertIn("变化报告", dashboard_html)
 
     def test_run_demo_pipeline_image_mode_writes_update_state_and_new_only_skips_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

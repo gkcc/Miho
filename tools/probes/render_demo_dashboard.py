@@ -170,6 +170,44 @@ def file_href(value: Any) -> str:
         return ""
 
 
+def humanize_link_label(label: str) -> str:
+    labels = {
+        "action_checklist.md": "执行清单说明",
+        "action_checklist.json": "执行清单数据",
+        "review_decisions_template.json": "复核决定模板",
+        "review_decision_preview.md": "复核预览说明",
+        "review_decision_preview.json": "复核预览数据",
+        "final_brief.md": "今日建议说明",
+        "final_brief.json": "今日建议数据",
+        "demo_doctor.md": "状态诊断说明",
+        "demo_doctor.json": "状态诊断数据",
+        "update_command.md": "更新命令说明",
+        "update_command.json": "更新命令数据",
+        "refresh_status.md": "刷新状态说明",
+        "refresh_status.json": "刷新状态数据",
+        "demo_command.md": "演示命令说明",
+        "demo_command.json": "演示命令数据",
+        "run_manifest.json": "本轮运行清单",
+        "roster_index.json": "已确认角色库",
+        "review_apply_receipt.md": "复核应用回执",
+        "review_apply_receipt.json": "复核应用数据",
+        "review_log.json": "复核日志",
+        "parsed_json": "原始解析",
+        "expected_json": "验收对照",
+        "expected_diff_md": "差异报告",
+        "normalized_md": "标准化说明",
+        "normalized_json": "标准化结果",
+        "crops_dir": "裁剪图片",
+        "review": "复核页",
+        "json": "数据",
+        "history_index": "历史索引",
+        "current_snapshot": "当前快照",
+        "previous_snapshot": "上次快照",
+        "snapshot_diff_md": "变化报告",
+    }
+    return labels.get(str(label), humanize_text(label))
+
+
 def rel_label(value: Any) -> str:
     if not value:
         return ""
@@ -231,12 +269,13 @@ def status_class(value: Any) -> str:
 
 
 def link(label: str, value: Any) -> str:
+    display = humanize_link_label(label)
     if not value:
-        return f'<span class="missing">{e(label)} missing</span>'
+        return f'<span class="missing">缺少{e(display)}</span>'
     href = file_href(value)
     if not href:
-        return f'<span class="missing">{e(label)} unavailable</span>'
-    return f'<a href="{e(href)}">{e(label)}</a>'
+        return f'<span class="missing">{e(display)}不可用</span>'
+    return f'<a href="{e(href)}">{e(display)}</a>'
 
 
 def metric_card(label: str, value: Any, tone: str = "muted") -> str:
@@ -1713,7 +1752,7 @@ def render_final_brief(summary: dict[str, Any]) -> str:
             if review_href:
                 quick_links.append(link("打开复核页", review_href))
             if evidence.get("normalized_json"):
-                quick_links.append(link("标准化 JSON", evidence.get("normalized_json")))
+                quick_links.append(link("标准化结果", evidence.get("normalized_json")))
             details = (
                 "<details class=\"brief-details\"><summary>证据明细</summary>"
                 f"<p class=\"detail-hint\"><strong>下一步说明</strong><span>{he(command_hint_summary(item.get('command_hint')))}</span></p>"
@@ -1813,7 +1852,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
             if evidence.get("review_html"):
                 quick_links.append(link("打开复核页", evidence.get("review_html")))
             if evidence.get("normalized_json"):
-                quick_links.append(link("标准化 JSON", evidence.get("normalized_json")))
+                quick_links.append(link("标准化结果", evidence.get("normalized_json")))
             if evidence.get("artifact"):
                 quick_links.append(link("相关产物", evidence.get("artifact")))
             detail_rows = []
@@ -1857,13 +1896,16 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
     <section class="panel action-checklist">
       <h2>执行清单</h2>
       <p class="muted-line">从今日作战简报生成的最多 5 件事；待确认项只会生成复核模板，仅观察项不是抽卡建议。</p>
-      <div class="links">
-        {link("action_checklist.md", checklist.get("output_md"))}
-        {link("action_checklist.json", checklist.get("output_json"))}
-        {link("review_decisions_template.json", checklist.get("review_decisions_template"))}
-        {link("review_decision_preview.md", preview.get("output_md"))}
-        {link("review_decision_preview.json", preview.get("output_json"))}
-      </div>
+      <details class="soft-details artifact-links">
+        <summary>开发产物与复核文件</summary>
+        <div class="links">
+          {link("action_checklist.md", checklist.get("output_md"))}
+          {link("action_checklist.json", checklist.get("output_json"))}
+          {link("review_decisions_template.json", checklist.get("review_decisions_template"))}
+          {link("review_decision_preview.md", preview.get("output_md"))}
+          {link("review_decision_preview.json", preview.get("output_json"))}
+        </div>
+      </details>
       <div class="input-grid">
         <div><span>清单状态</span><strong>{e(human_status(checklist.get("checklist_status") or "N/A"))}</strong></div>
         <div><span>预览状态</span><strong>{e(human_status(preview.get("preview_status") or "N/A"))}</strong></div>
