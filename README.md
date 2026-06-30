@@ -6,7 +6,7 @@ Miho 是一个本地优先的米哈游练度更新与规划工具。最终想做
 2. 本地解析练度、保留复核证据，并用 Dashboard 展示。
 3. 更新高难、Tier、保值观察和已有 box，给出“优先练高价值角色，顺手拿奖励”的配队建议。
 
-现在还在 probe / demo 阶段，不是完整 Tauri 桌面应用。它不会自动登录，不读取 cookie/token，不控制游戏客户端，也不会把 OCR 结果直接写入正式数据库。
+现在还在 probe / demo 阶段，不是完整 Tauri 桌面应用。它不会自动登录，不读取 cookie/token，不控制游戏客户端，也不会把图片识别结果直接写入正式数据库。
 
 ## 我只想像软件一样用
 
@@ -19,15 +19,15 @@ scripts\install_miho_demo_shortcut.bat
 
 以后日常点桌面图标即可。最重要的一句：
 
-**只看界面点 `MihoProbe`；识别新分享图才点 `MihoProbe Update`。不要先跑 OCR，也不要先点 Fresh OCR。**
+**只看界面点 `MihoProbe`；识别新分享图才点 `MihoProbe Update`。不要先跑图片识别，也不要先点开发慢路径。**
 
 如果你只是验收“这个工具现在长什么样”，点 `MihoProbe`。第一次没有缓存时，它会打开初次启动页，不是报错。
 
 ## 卡住时先看这里
 
-- 双击 `MihoProbe` 或运行 `scripts\run_miho_demo.bat`：只打开本地 Dashboard，不跑 OCR，正常应很快有浏览器页面。
-- 看到窗口提示 `Opening cached Dashboard only. OCR will NOT run.`：说明没有进入慢 OCR。
-- 只有 `MihoProbe Update`、`MihoProbe Fresh OCR`、`dist\MihoProbe.exe update`、`dist\MihoProbe.exe fresh` 才会加载 OCR。
+- 双击 `MihoProbe` 或运行 `scripts\run_miho_demo.bat`：只打开本地 Dashboard，不跑图片识别，正常应很快有浏览器页面。
+- 看到窗口提示 `Opening cached Dashboard only. Image recognition will NOT run.`：说明没有进入慢图片识别。
+- 只有 `MihoProbe Update`、`MihoProbe Fresh OCR`、`dist\MihoProbe.exe update`、`dist\MihoProbe.exe fresh` 才会加载图片识别模型。
 - 如果你等了 30 秒还没有页面，先跑 `dist\MihoProbe.exe dashboard --no-open`。它应该打印 `dashboard_html: ...\index.html`；然后直接打开那个 HTML。
 - 不要用“跑了很久”判断准确率。准确率只看 `MihoProbe Accuracy Check` 或 `dist\MihoProbe.exe check --no-open`。
 
@@ -35,7 +35,7 @@ scripts\install_miho_demo_shortcut.bat
 
 | 要验收什么 | 看哪里 | 通过口径 |
 | --- | --- | --- |
-| 软件入口是否能打开 | `MihoProbe` / `dist\MihoProbe.exe` | 浏览器打开 Dashboard 或初次启动页；不启动 OCR。 |
+| 软件入口是否能打开 | `MihoProbe` / `dist\MihoProbe.exe` | 浏览器打开 Dashboard 或初次启动页；不启动图片识别。 |
 | A/S 评级是否稳 | `MihoProbe Rank Check` | `ok_region_count` 覆盖所有角色/音擎评级区域，报告有 crop 和颜色/形状证据。 |
 | 分享图解析准确率 | `MihoProbe Accuracy Check` | manifest 控制的 expected diff 达标，不扫历史 parsed 目录。 |
 | APP 一键导出准备度 | `MihoProbe App Export Workflow` -> `MihoProbe App Export Calibrate` | 有工作流页、网格截图、待填坐标清单；默认不点击。 |
@@ -45,15 +45,15 @@ scripts\install_miho_demo_shortcut.bat
 
 | 目标 | 图标 / 命令 | 说明 |
 | --- | --- | --- |
-| 看软件界面 | `MihoProbe` 或 `dist\MihoProbe.exe` | 打开缓存 Dashboard，不跑 OCR。 |
+| 看软件界面 | `MihoProbe` 或 `dist\MihoProbe.exe` | 打开缓存 Dashboard，不跑图片识别。 |
 | 一键更新练度 | `MihoProbe Update` 或 `dist\MihoProbe.exe update` | 只处理 `figs\` 里的官方分享图。 |
 | 查看 APP 导出路线 | `MihoProbe App Export Workflow` 或 `dist\MihoProbe.exe app-export` | 生成官方分享图路线、readiness gates 和校准命令，不自动点击。 |
 | 生成 APP 坐标网格 | `dist\MihoProbe.exe app-export-calibrate` | 捕获米游社窗口网格截图，显示每一步需要填的 x/y。 |
 | 校准 APP 导出点击 | `dist\MihoProbe.exe app-export-run --no-open` | 读取校准清单，默认输出预检路线图；缺坐标会明确提示，不会点击。 |
 | 更新高难配队 | `MihoProbe Plan Update` 或 `dist\MihoProbe.exe plan-update` | 重算高难、Tier / 保值观察、行动卡和队伍卡；默认不联网。 |
-| 排查 A/S 评级 | `MihoProbe Rank Check` 或 `dist\MihoProbe.exe rank-check` | 不跑 OCR，只看头像左上角和音擎评级区域的艺术字。 |
-| 准确率验收 | `MihoProbe Accuracy Check` 或 `dist\MihoProbe.exe check --no-open` | 用 expected diff 回放，不重新 OCR。 |
-| 开发慢路径 | `MihoProbe Fresh OCR` 或 `dist\MihoProbe.exe fresh` | 会加载 PaddleOCR，日常不要先点。 |
+| 排查 A/S 评级 | `MihoProbe Rank Check` 或 `dist\MihoProbe.exe rank-check` | 不跑图片识别，只看头像左上角和音擎评级区域的艺术字。 |
+| 准确率验收 | `MihoProbe Accuracy Check` 或 `dist\MihoProbe.exe check --no-open` | 用人工对照答案回放，不重新图片识别。 |
+| 开发慢路径 | `MihoProbe Fresh OCR` 或 `dist\MihoProbe.exe fresh` | 会加载图片识别模型，日常不要先点。 |
 
 `app-export` 不是“自动导出已可用”的按钮。它会生成工作流页和 `miyoushe_app_export_calibration_template.json`。下一步先跑 `dist\MihoProbe.exe app-export-calibrate` 生成米游社窗口网格截图；把坐标填进清单后，再跑 `dist\MihoProbe.exe app-export-run --no-open`。这个命令默认先给预检路线图：当前状态、下一步命令、推荐路线和安全边界。只有当 dry-run 报告显示坐标已就绪，并且你逐步确认每个坐标都是米游社官方 UI 后，才允许加 `--execute --confirm-official-ui`。这仍然不会登录、不会读 token/cookie、不会控制游戏客户端。
 
@@ -63,7 +63,7 @@ scripts\install_miho_demo_shortcut.bat
 
 - `当前结论`：现在能不能用本地建议。
 - `下一步`：该刷新数据、复核字段、人工应用，还是可以看队伍建议。
-- `待确认快照`：OCR / 解析候选，人工确认前不算已拥有练度。
+- `待确认快照`：图片识别 / 解析候选，人工确认前不算已拥有练度。
 
 颜色只记一句：**绿色才是可继续，黄色先复核，红色先处理数据一致性。**
 
@@ -135,7 +135,7 @@ dist\MihoProbe.exe update --rescan-all --open
 
 - 构建 EXE：`scripts/build_miho_probe_exe.bat`、`scripts/build_miho_probe_exe.ps1`、`packaging/MihoProbe.spec`
 - 安装桌面入口：`scripts/install_miho_demo_shortcut.bat`
-- EXE-first 兼容脚本入口：`scripts/run_miho_demo.bat`。如果 `dist\MihoProbe.exe` 不存在，它会提示先构建，不会自动掉进慢 OCR 脚本。
+- EXE-first 兼容脚本入口：`scripts/run_miho_demo.bat`。如果 `dist\MihoProbe.exe` 不存在，它会提示先构建，不会自动掉进慢图片识别脚本。
 - Probe 命令细节：`tools/probes/README.md`
 - GPT 审查包生成器：`tools/probes/build_gpt_review_prompt.py`
 - Replay batch 验收：`tools/probes/run_export_replay_batch.py`

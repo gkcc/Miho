@@ -2158,12 +2158,13 @@ def run_pipeline(
         input_info["update_state"] = build_update_summary(active_state_file, update_records)
         total_images = len(selected_images)
         if total_images:
-            print(f"[Miho Demo] Fresh OCR: {total_images} image(s) selected from {active_images_dir}", flush=True)
+            print(f"[MihoProbe] 图片识别：已选择 {total_images} 张本地分享图，来源 {active_images_dir}", flush=True)
+            print("[MihoProbe] 接下来会逐张处理；每张都会打印开始、完成和评级来源。", flush=True)
         else:
-            print(f"[Miho Demo] Fresh OCR: no new image selected from {active_images_dir}", flush=True)
+            print(f"[MihoProbe] 图片识别：没有发现新增或变更图片，来源 {active_images_dir}", flush=True)
         for index, image_path in enumerate(selected_images, start=1):
             started_at = time.perf_counter()
-            print(f"[Miho Demo] OCR {index}/{total_images}: review start: {image_path.name}", flush=True)
+            print(f"[MihoProbe] 图片识别 {index}/{total_images}：开始处理 {image_path.name}", flush=True)
             case = process_image_case(
                 image_path,
                 name=image_path.stem,
@@ -2179,16 +2180,16 @@ def run_pipeline(
             if statuses.get("parse_status") == "FAIL":
                 first_error = str((case.get("errors") or ["review failed"])[0])
                 print(
-                    f"[Miho Demo] OCR {index}/{total_images}: review failed in {elapsed:.1f}s: {image_path.name}: {first_error}",
+                    f"[MihoProbe] 图片识别 {index}/{total_images}：失败，用时 {elapsed:.1f}s，图片 {image_path.name}: {first_error}",
                     flush=True,
                 )
             else:
                 print(
-                    f"[Miho Demo] OCR {index}/{total_images}: review {statuses.get('parse_status')} in {elapsed:.1f}s: {image_path.name}",
+                    f"[MihoProbe] 图片识别 {index}/{total_images}：{statuses.get('parse_status')}，用时 {elapsed:.1f}s，图片 {image_path.name}",
                     flush=True,
                 )
             print(
-                f"[Miho Demo] OCR {index}/{total_images}: rank source: {format_rank_source_line(case.get('rank_sources'))}",
+                f"[MihoProbe] 图片识别 {index}/{total_images}：评级来源 {format_rank_source_line(case.get('rank_sources'))}",
                 flush=True,
             )
         write_update_state(active_state_file, state, update_records, cases)

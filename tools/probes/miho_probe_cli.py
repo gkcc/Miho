@@ -137,7 +137,7 @@ def render_user_help() -> str:
 
 最常用：
   MihoProbe.exe
-    打开已有 Dashboard，不跑 OCR。验收界面优先点这个。
+    打开已有 Dashboard，不跑图片识别。验收界面优先点这个。
 
   MihoProbe.exe update
     一键更新练度（当前安全版）：处理 figs\\ 下已保存的官方分享图，然后打开 Dashboard。
@@ -152,24 +152,24 @@ def render_user_help() -> str:
     运行米游社 APP 导出校准清单。默认 dry-run；真正点击必须加 --execute --confirm-official-ui。
 
   MihoProbe.exe fresh
-    update 的开发别名：识别 figs\\ 下新增或变更的官方分享图。会跑 PaddleOCR，可能慢。
+    update 的开发别名：识别 figs\\ 下新增或变更的官方分享图。会加载图片识别模型，可能慢。
 
   MihoProbe.exe check --no-open
-    用 expected diff 验收解析准确率。不重新 OCR。
+    用人工对照答案验收解析准确率。不重新图片识别。
 
   MihoProbe.exe plan-update
-    一键更新高难/Tier/配队建议（安全版）：默认不 OCR、不联网；显式 source manifest 只访问公开来源。
+    一键更新高难/Tier/配队建议（安全版）：默认不图片识别、不联网；显式 source manifest 只访问公开来源。
 
   MihoProbe.exe rank-check
-    只检查头像/音擎 A/S 艺术字固定区域。不跑 OCR，用来排查评级识别。
+    只检查头像/音擎 A/S 艺术字固定区域。不跑图片识别，用来排查评级识别。
 
   MihoProbe.exe ask-gpt --focus "本轮要审的问题" --copy
     生成并复制给右侧 GPT 的固定审查包。只手动粘贴，不让 Codex 自动点右侧页面。
 
 先别踩坑：
-  - 只看界面，不要跑 fresh。
-  - fresh 卡住时先关掉，改用 MihoProbe.exe 看缓存 Dashboard。
-  - OCR 结果只进人工复核，不会直接写正式数据库。
+  - 只看界面，不要跑图片识别慢路径。
+  - 慢路径卡住时先关掉，改用 MihoProbe.exe 看缓存 Dashboard。
+  - 图片识别结果只进人工复核，不会直接写正式数据库。
 
 开发细参：
   MihoProbe.exe dashboard --help
@@ -479,27 +479,27 @@ def render_first_run_dashboard(dashboard_path: Path) -> dict[str, str]:
       <div class="status">还没有本地 Dashboard 缓存</div>
       <div>
         <h1>MihoProbe 初次启动</h1>
-        <p class="lead">这不是错误。默认入口不会跑 OCR，也不会读取账号登录态；它只打开本地可视化页面。先从下面选一个软件入口。</p>
+        <p class="lead">这不是错误。默认入口不会跑图片识别，也不会读取账号登录态；它只打开本地可视化页面。先从下面选一个软件入口。</p>
       </div>
       <div class="grid">
         <article class="card safe">
           <strong>看软件体验</strong>
-          <span>有缓存时直接打开 Dashboard；没有缓存时先看本页。不会跑 OCR。</span>
+          <span>有缓存时直接打开 Dashboard；没有缓存时先看本页。不会跑图片识别。</span>
           <code>MihoProbe.exe</code>
         </article>
         <article class="card primary">
           <strong>一键更新练度</strong>
-          <span>把米游社官方分享图放进 figs\\ 后再跑。它会处理新图，必要时进入 PaddleOCR 慢路径。</span>
+          <span>把米游社官方分享图放进 figs\\ 后再跑。它会处理新图，必要时进入图片识别慢路径。</span>
           <code>MihoProbe.exe update</code>
         </article>
         <article class="card safe">
           <strong>评级快检</strong>
-          <span>只看角色头像左上角和音擎评级区的 A/S 艺术字固定区域。不跑 OCR。</span>
+          <span>只看角色头像左上角和音擎评级区的 A/S 艺术字固定区域。不跑图片识别。</span>
           <code>MihoProbe.exe rank-check</code>
         </article>
         <article class="card">
           <strong>准确率验收</strong>
-          <span>用 expected diff 回放验收，不重新 OCR，不扫历史 parsed 目录。</span>
+          <span>用人工对照答案回放验收，不重新图片识别，不扫历史解析目录。</span>
           <code>MihoProbe.exe check --no-open</code>
         </article>
         <article class="card">
@@ -508,7 +508,7 @@ def render_first_run_dashboard(dashboard_path: Path) -> dict[str, str]:
           <code>MihoProbe.exe app-export</code>
         </article>
       </div>
-      <div class="note">Fresh OCR 是开发慢路径。日常先用 MihoProbe.exe 看缓存，或用 MihoProbe.exe update 更新练度；不要把慢 OCR 当作界面卡死。</div>
+      <div class="note">图片识别是开发慢路径。日常先用 MihoProbe.exe 看缓存，或用 MihoProbe.exe update 更新练度；不要把模型加载当作界面卡死。</div>
       <div class="paths">
         <span>分享图目录：<code>{html_escape(str(figs_path))}</code></span>
         <span>准确率 manifest：<code>{html_escape(str(replay_path))}</code></span>
@@ -711,13 +711,20 @@ def run_demo(args: argparse.Namespace) -> int:
 def run_fresh(args: argparse.Namespace) -> int:
     command_name = str(getattr(args, "command", "") or "fresh").lower()
     is_update = command_name == "update"
+    images_dir = resolve_cli_path(args.images_dir)
+    mode = "rescan_all" if args.rescan_all else "new_or_changed_only"
+    mode_label = "重扫全部图片" if args.rescan_all else "只处理新增或变更图片"
     if is_update:
+        print("[MihoProbe] 一键更新练度：只读取本地已保存的米游社官方分享图。", flush=True)
+        print("[MihoProbe] 不会操作米游社 APP、不会登录、不会读取 token/cookie。", flush=True)
         print("update_scope: saved_official_share_images_only", flush=True)
         print("update_note: safe_mode; reads saved official share images under figs only; no app automation.", flush=True)
     else:
+        print("[MihoProbe] 图片识别慢路径：正在处理本地分享图。只看界面请直接运行 MihoProbe.exe。", flush=True)
         print("fresh_scope: saved_official_share_images_only", flush=True)
-    images_dir = resolve_cli_path(args.images_dir)
-    mode = "rescan_all" if args.rescan_all else "new_or_changed_only"
+    print(f"[MihoProbe] 图片目录：{images_dir}", flush=True)
+    print(f"[MihoProbe] 处理模式：{mode_label}；识别引擎：{args.engine}。", flush=True)
+    print("[MihoProbe] 正在检查输入目录和依赖。后续如果停在模型加载，属于图片识别慢路径，不是 Dashboard 卡死。", flush=True)
     start_label = "update_start" if is_update else "fresh_start"
     print(
         f"{start_label}: images_dir={images_dir}; mode={mode}; engine={args.engine}; game={args.game}",

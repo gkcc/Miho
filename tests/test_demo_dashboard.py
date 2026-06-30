@@ -2692,7 +2692,7 @@ class DemoDashboardTests(unittest.TestCase):
                 pipeline_tool.process_image_case = original_process
 
         log = output.getvalue()
-        self.assertIn("[Miho Demo] OCR 1/1: rank source:", log)
+        self.assertIn("[MihoProbe] 图片识别 1/1：评级来源", log)
         self.assertIn("角色=A source=visual_fallback region=character_rank", log)
         self.assertIn("音擎=S source=ocr_or_text region=equipment_rank", log)
 
