@@ -540,6 +540,65 @@ def build_operator_state(
     }
 
 
+def build_execution_plan(
+    *,
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    validation: dict[str, Any],
+    execute: bool,
+    confirm_official_ui: bool,
+) -> dict[str, Any]:
+    steps: list[dict[str, Any]] = []
+    for index, step in enumerate(click_steps(manifest), start=1):
+        coord = coordinate_state(step)
+        confirmed = step.get("confirmed_official_ui") is True
+        steps.append(
+            {
+                "sequence": index,
+                "id": step.get("id"),
+                "title": step.get("title"),
+                "relative_x": step.get("x"),
+                "relative_y": step.get("y"),
+                "coordinate_state": coord,
+                "confirmed_official_ui": confirmed,
+                "wait_after_seconds": step.get("wait_after_seconds", 0),
+                "will_click_in_execute": bool(execute and confirm_official_ui and coord == "ok" and confirmed),
+                "manual_check": "确认坐标落在米游社官方 UI，且不是登录、验证码、广告、隐私弹窗或游戏客户端。",
+            }
+        )
+    coordinates_complete = int(validation.get("missing_coordinate_count") or 0) == 0 and int(
+        validation.get("invalid_coordinate_count") or 0
+    ) == 0
+    confirmations_complete = int(validation.get("unconfirmed_step_count") or 0) == 0
+    execute_command = command_with_manifest(
+        "dist\\MihoProbe.exe",
+        "app-export-run",
+        "--execute",
+        "--confirm-official-ui",
+        manifest_path=manifest_path,
+    )
+    dry_run_command = command_with_manifest("dist\\MihoProbe.exe", "app-export-run", manifest_path=manifest_path)
+    ready_for_execute = coordinates_complete and confirmations_complete and not validation.get("blockers")
+    return {
+        "title": "执行前人工核对清单",
+        "click_step_count": len(steps),
+        "coordinates_complete": coordinates_complete,
+        "confirmations_complete": confirmations_complete,
+        "ready_for_execute_command": ready_for_execute,
+        "execute_requested": bool(execute),
+        "confirm_official_ui_flag": bool(confirm_official_ui),
+        "dry_run_command": dry_run_command,
+        "execute_command": execute_command,
+        "review_checklist": [
+            "逐项核对每个坐标是否仍落在米游社官方 UI 上。",
+            "确认没有任何步骤指向登录、验证码、广告、隐私弹窗、浏览器或游戏客户端。",
+            "先运行 dry-run 并查看本报告；只有报告显示可执行确认命令后才允许执行。",
+            "执行后仍只把分享图放到本地，解析结果必须进入 Dashboard 人工复核。",
+        ],
+        "steps": steps,
+    }
+
+
 def build_report(
     *,
     manifest_path: Path,
@@ -617,6 +676,13 @@ def build_report(
         confirm_official_ui=confirm_official_ui,
         clicked_count=clicked_count,
     )
+    execution_plan = build_execution_plan(
+        manifest_path=manifest_path,
+        manifest=manifest,
+        validation=validation,
+        execute=execute,
+        confirm_official_ui=confirm_official_ui,
+    )
 
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
@@ -639,6 +705,7 @@ def build_report(
         "safety_boundary": operator_state["safety_boundary"],
         "gates": operator_state["gates"],
         "preflight_checks": operator_state["preflight_checks"],
+        "execution_plan": execution_plan,
         "saved_image_count": operator_state["saved_image_count"],
         "next_action": next_action_for_status(report_status),
         "validation": validation,
@@ -698,6 +765,27 @@ def render_html(report: dict[str, Any]) -> str:
             f"<p>{escape(str(check.get('detail') or ''))}</p>"
             "</article>"
         )
+    execution_plan = report.get("execution_plan") if isinstance(report.get("execution_plan"), dict) else {}
+    plan_steps = execution_plan.get("steps") if isinstance(execution_plan.get("steps"), list) else []
+    plan_cards = []
+    for step in plan_steps:
+        if not isinstance(step, dict):
+            continue
+        ready = step.get("coordinate_state") == "ok" and step.get("confirmed_official_ui") is True
+        plan_cards.append(
+            '<article class="plan-step">'
+            f"<b>{escape(str(step.get('sequence') or ''))}</b>"
+            "<div>"
+            f"<h3>{escape(str(step.get('title') or step.get('id') or ''))}</h3>"
+            f"<p>坐标：({escape(str(step.get('relative_x')))}, {escape(str(step.get('relative_y')))}) · "
+            f"状态：{escape(str(step.get('coordinate_state') or ''))} · "
+            f"官方 UI 确认：{escape('是' if step.get('confirmed_official_ui') else '否')}</p>"
+            f"<span>{escape('可进入执行命令' if ready else '仍需人工核对')}</span>"
+            "</div>"
+            "</article>"
+        )
+    plan_checklist = execution_plan.get("review_checklist") if isinstance(execution_plan.get("review_checklist"), list) else []
+    plan_checklist_items = "".join(f"<li>{escape(str(item))}</li>" for item in plan_checklist) or "<li>无</li>"
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -725,6 +813,12 @@ def render_html(report: dict[str, Any]) -> str:
     .check span {{ display: inline-block; margin-bottom: 7px; padding: 4px 8px; border-radius: 999px; background: #eef2f7; color: #475569; font-size: 12px; font-weight: 800; }}
     .check h3 {{ margin: 0 0 6px; font-size: 15px; }}
     .check p {{ margin: 0; color: #475569; line-height: 1.45; }}
+    .plan-grid {{ display: grid; gap: 12px; }}
+    .plan-step {{ display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 12px; padding: 14px; border: 1px solid #dbe3ef; border-radius: 8px; background: #fbfcff; }}
+    .plan-step b {{ display: grid; place-items: center; width: 30px; height: 30px; border-radius: 999px; background: #eef6ff; color: #1d4ed8; }}
+    .plan-step h3 {{ margin: 0 0 6px; font-size: 15px; }}
+    .plan-step p {{ margin: 0 0 6px; color: #475569; line-height: 1.45; overflow-wrap: anywhere; }}
+    .plan-step span {{ color: #93640c; font-size: 13px; font-weight: 800; }}
     .gate-list {{ display: grid; gap: 7px; padding-left: 0; list-style: none; }}
     .gate-list li {{ display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid #e5eaf2; padding-bottom: 7px; }}
     .steps {{ display: grid; gap: 12px; }}
@@ -770,6 +864,18 @@ def render_html(report: dict[str, Any]) -> str:
       </div>
     </section>
     <section class="checks">{''.join(check_cards)}</section>
+    <section class="panel">
+      <h2>{escape(str(execution_plan.get("title") or "执行前人工核对清单"))}</h2>
+      <p>坐标完整：{escape("是" if execution_plan.get("coordinates_complete") else "否")}；
+      人工确认完整：{escape("是" if execution_plan.get("confirmations_complete") else "否")}；
+      可执行确认命令：{escape("是" if execution_plan.get("ready_for_execute_command") else "否")}。</p>
+      <h3>先 dry-run</h3>
+      <code>{escape(str(execution_plan.get("dry_run_command") or ""))}</code>
+      <h3>确认后执行</h3>
+      <code>{escape(str(execution_plan.get("execute_command") or ""))}</code>
+      <ul>{plan_checklist_items}</ul>
+      <div class="plan-grid">{''.join(plan_cards)}</div>
+    </section>
     <section class="panel">
       <h2>内部下一步</h2>
       <p>{escape(str(report.get("next_action") or ""))}</p>

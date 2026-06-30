@@ -102,6 +102,15 @@ class MiyousheAppExportRunnerTests(unittest.TestCase):
         self.assertEqual(clicks, [])
         self.assertEqual(len(report["step_results"]), report["validation"]["click_step_count"])
         self.assertTrue(all(step["status"] == "resolved" for step in report["step_results"]))
+        plan = report["execution_plan"]
+        self.assertEqual(plan["title"], "执行前人工核对清单")
+        self.assertEqual(plan["click_step_count"], report["validation"]["click_step_count"])
+        self.assertTrue(plan["coordinates_complete"])
+        self.assertTrue(plan["confirmations_complete"])
+        self.assertTrue(plan["ready_for_execute_command"])
+        self.assertIn("--execute --confirm-official-ui", plan["execute_command"])
+        self.assertTrue(all(step["coordinate_state"] == "ok" for step in plan["steps"]))
+        self.assertTrue(all(step["confirmed_official_ui"] for step in plan["steps"]))
 
     def test_execute_clicks_confirmed_official_ui_steps(self) -> None:
         manifest = filled_manifest()
@@ -165,6 +174,9 @@ class MiyousheAppExportRunnerTests(unittest.TestCase):
             self.assertIn("下一步命令", html)
             self.assertIn("推荐路线", html)
             self.assertIn("安全边界", html)
+            self.assertIn("执行前人工核对清单", html)
+            self.assertIn("先 dry-run", html)
+            self.assertIn("确认后执行", html)
 
     def test_saved_images_take_operator_route_to_update(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

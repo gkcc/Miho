@@ -1432,6 +1432,14 @@ def run_app_export_run(args: argparse.Namespace) -> int:
     print(f"app_export_run_html: {html_path}")
     print(f"app_export_run_json: {json_path}")
     print(f"app_export_run_next: {report.get('next_action')}")
+    execution_plan = report.get("execution_plan") if isinstance(report.get("execution_plan"), dict) else {}
+    if execution_plan:
+        print(f"app_export_run_execution_plan: {execution_plan.get('title')}")
+        print(f"app_export_run_click_step_count: {execution_plan.get('click_step_count')}")
+        print(f"app_export_run_coordinates_complete: {execution_plan.get('coordinates_complete')}")
+        print(f"app_export_run_confirmations_complete: {execution_plan.get('confirmations_complete')}")
+        print(f"app_export_run_ready_for_execute_command: {execution_plan.get('ready_for_execute_command')}")
+        print(f"app_export_run_execute_command: {execution_plan.get('execute_command')}")
     route = report.get("operator_route") if isinstance(report.get("operator_route"), list) else []
     for index, item in enumerate(route, start=1):
         print(f"app_export_run_route_{index}: {item}")

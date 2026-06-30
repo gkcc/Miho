@@ -1315,6 +1315,11 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("app_export_run_operator_status: not_calibrated", output.getvalue())
             self.assertIn("app_export_run_status_label: 校准未完成", output.getvalue())
             self.assertIn("app_export_run_next_command: dist\\MihoProbe.exe app-export-calibrate", output.getvalue())
+            self.assertIn("app_export_run_execution_plan: 执行前人工核对清单", output.getvalue())
+            self.assertIn("app_export_run_click_step_count:", output.getvalue())
+            self.assertIn("app_export_run_coordinates_complete: False", output.getvalue())
+            self.assertIn("app_export_run_ready_for_execute_command: False", output.getvalue())
+            self.assertIn("app_export_run_execute_command: dist\\MihoProbe.exe app-export-run --execute --confirm-official-ui", output.getvalue())
             self.assertIn("app_export_run_route_1: 手动在米游社 APP 保存官方分享图到 figs\\", output.getvalue())
             self.assertIn("app_export_run_safety_boundary: 不自动登录、不读取 token/cookie", output.getvalue())
 
