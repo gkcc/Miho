@@ -253,6 +253,56 @@ def guide_card(title: str, body: str, command: str | None = None, tone: str = "m
     )
 
 
+def operation_card(title: str, body: str, command: str, tone: str = "muted") -> str:
+    return (
+        f'<article class="operation-card {e(tone)}">'
+        f"<strong>{e(title)}</strong>"
+        f"<p>{e(body)}</p>"
+        f"<code>{e(command)}</code>"
+        "</article>"
+    )
+
+
+def render_operation_bar() -> str:
+    cards = [
+        operation_card("看软件体验", "打开已有 Dashboard；默认入口不会跑 OCR，也不会读账号登录态。", r"dist\MihoProbe.exe", "safe"),
+        operation_card(
+            "一键更新练度",
+            r"处理 figs\ 里已保存的米游社官方分享图；只有这条会进入图片识别慢路径。",
+            r"dist\MihoProbe.exe update --open",
+            "primary",
+        ),
+        operation_card(
+            "评级快检",
+            "只看角色头像左上角和音擎评级区的 A/S 艺术字；不跑 OCR。",
+            r"dist\MihoProbe.exe rank-check --open",
+            "safe",
+        ),
+        operation_card(
+            "准确率验收",
+            "用 replay manifest 做 expected diff；不扫历史 parsed，也不重新 OCR。",
+            r"dist\MihoProbe.exe check --no-open",
+            "muted",
+        ),
+        operation_card(
+            "APP 导出流程",
+            "生成官方分享图工作流和校准命令；不自动登录，不读 token/cookie。",
+            r"dist\MihoProbe.exe app-export --open",
+            "warn",
+        ),
+    ]
+    return (
+        '<section class="operation-bar" aria-label="软件入口">'
+        "<div>"
+        "<span>软件入口</span>"
+        "<h2>先从这里选动作</h2>"
+        "<p>这些卡片只展示本地命令和边界，不会在页面里执行 apply、try_now 或自动登录。</p>"
+        "</div>"
+        f'<div class="operation-grid">{"".join(cards)}</div>'
+        "</section>"
+    )
+
+
 def render_acceptance_guide(
     *,
     can_act_now: bool,
@@ -2306,7 +2356,20 @@ def render_html(summary: dict[str, Any]) -> str:
             f"{review_target_count} 个目标仍需先复核练度或队伍数据。",
             "ok" if ready_count and not review_target_count else "warn" if review_target_count else "muted",
         ),
+        summary_card(
+            "会不会重新识别",
+            "默认不会",
+            "只打开 Dashboard 看缓存不会跑 OCR；点“一键更新练度”才会处理官方分享图。",
+            "ok",
+        ),
+        summary_card(
+            "本地安全边界",
+            "只进人工确认区",
+            "不会登录账号、不会读取 token/cookie、不会自动写正式数据库。",
+            "ok",
+        ),
     ]
+    operation_bar = render_operation_bar()
     acceptance_guide = render_acceptance_guide(
         can_act_now=can_act_now,
         input_info=input_info,
@@ -2370,6 +2433,22 @@ def render_html(summary: dict[str, Any]) -> str:
     header p {{ margin: 0; color: #cbd5e1; max-width: 980px; }}
     header p + p {{ margin-top: 6px; }}
     main {{ width: min(100%, 1440px); margin: 0 auto; padding: 22px; display: grid; gap: 18px; }}
+    .operation-bar {{ display: grid; grid-template-columns: minmax(260px, 0.75fr) minmax(520px, 1.8fr); gap: 16px; align-items: stretch; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: var(--shadow); }}
+    .operation-bar > div:first-child {{ display: grid; align-content: center; gap: 8px; min-width: 0; }}
+    .operation-bar span {{ color: var(--muted); font-size: 13px; font-weight: 800; }}
+    .operation-bar h2 {{ margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: 0; }}
+    .operation-bar p {{ margin: 0; color: var(--muted); line-height: 1.55; }}
+    .operation-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }}
+    .operation-card {{ display: grid; gap: 8px; align-content: start; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #ffffff; }}
+    .operation-card strong {{ font-size: 16px; overflow-wrap: anywhere; }}
+    .operation-card p {{ color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }}
+    .operation-card code {{ display: block; width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #0f172a; color: #e2e8f0; overflow-wrap: anywhere; white-space: normal; }}
+    .operation-card.primary {{ border-color: #bfdbfe; background: #eff6ff; }}
+    .operation-card.primary strong {{ color: #1d4ed8; }}
+    .operation-card.safe {{ border-color: #a7e0bd; background: var(--ok-bg); }}
+    .operation-card.safe strong {{ color: var(--ok); }}
+    .operation-card.warn {{ border-color: #f6cf7c; background: var(--warn-bg); }}
+    .operation-card.warn strong {{ color: var(--warn); }}
     .top-summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }}
     .summary-card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); min-width: 0; }}
     .summary-card span {{ display: block; color: var(--muted); font-size: 13px; }}
@@ -2504,6 +2583,7 @@ def render_html(summary: dict[str, Any]) -> str:
     .empty {{ padding: 24px; color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }}
     @media (max-width: 900px) {{
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .operation-bar {{ grid-template-columns: 1fr; }}
       .acceptance-guide {{ grid-template-columns: 1fr; }}
       .guide-cards {{ grid-template-columns: 1fr; }}
       .top-summary {{ grid-template-columns: 1fr; }}
@@ -2529,6 +2609,7 @@ def render_html(summary: dict[str, Any]) -> str:
     <p>当前仍是本地演示流程。即使解析通过，也只进入人工确认区，不会自动写入正式数据。</p>
   </header>
     <main>
+    {operation_bar}
     {acceptance_guide}
     <section class="top-summary">{''.join(top_cards)}</section>
     {final_brief}

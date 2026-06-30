@@ -247,7 +247,7 @@ def render_first_run_dashboard(dashboard_path: Path) -> dict[str, str]:
       color: var(--warn);
       font-weight: 900;
     }}
-    .grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-top: 18px; }}
     .card {{
       display: grid;
       gap: 10px;
@@ -295,26 +295,36 @@ def render_first_run_dashboard(dashboard_path: Path) -> dict[str, str]:
       <div class="status">还没有本地 Dashboard 缓存</div>
       <div>
         <h1>MihoProbe 初次启动</h1>
-        <p class="lead">这不是错误。默认入口不会跑 OCR，也不会读取账号登录态；它只打开本地可视化页面。</p>
+        <p class="lead">这不是错误。默认入口不会跑 OCR，也不会读取账号登录态；它只打开本地可视化页面。先从下面选一个软件入口。</p>
       </div>
       <div class="grid">
         <article class="card safe">
-          <strong>只想验收界面</strong>
+          <strong>看软件体验</strong>
           <span>有缓存时直接打开 Dashboard；没有缓存时先看本页。不会跑 OCR。</span>
           <code>MihoProbe.exe</code>
         </article>
         <article class="card primary">
-          <strong>识别新分享图</strong>
-          <span>把米游社官方分享图放进 figs\\ 后再跑。PaddleOCR 首次加载可能慢。</span>
-          <code>MihoProbe.exe fresh</code>
+          <strong>一键更新练度</strong>
+          <span>把米游社官方分享图放进 figs\\ 后再跑。它会处理新图，必要时进入 PaddleOCR 慢路径。</span>
+          <code>MihoProbe.exe update</code>
+        </article>
+        <article class="card safe">
+          <strong>评级快检</strong>
+          <span>只看角色头像左上角和音擎评级区的 A/S 艺术字固定区域。不跑 OCR。</span>
+          <code>MihoProbe.exe rank-check</code>
         </article>
         <article class="card">
-          <strong>验收解析准确率</strong>
+          <strong>准确率验收</strong>
           <span>用 expected diff 回放验收，不重新 OCR，不扫历史 parsed 目录。</span>
-          <code>MihoProbe.exe replay --no-open</code>
+          <code>MihoProbe.exe check --no-open</code>
+        </article>
+        <article class="card">
+          <strong>APP 导出流程</strong>
+          <span>生成米游社官方分享图工作流和校准命令。不自动登录，不读 token/cookie。</span>
+          <code>MihoProbe.exe app-export</code>
         </article>
       </div>
-      <div class="note">如果 Fresh OCR 十分钟没反应，先关掉它，回到 MihoProbe.exe 看缓存或本页；不要把慢 OCR 当作界面卡死。</div>
+      <div class="note">Fresh OCR 是开发慢路径。日常先用 MihoProbe.exe 看缓存，或用 MihoProbe.exe update 更新练度；不要把慢 OCR 当作界面卡死。</div>
       <div class="paths">
         <span>分享图目录：<code>{html_escape(str(figs_path))}</code></span>
         <span>准确率 manifest：<code>{html_escape(str(replay_path))}</code></span>
@@ -517,7 +527,7 @@ def run_fresh(args: argparse.Namespace) -> int:
     images_dir = resolve_cli_path(args.images_dir)
     if not images_dir.exists() or not images_dir.is_dir():
         print(f"ERROR: local image directory does not exist: {images_dir}", file=sys.stderr)
-        print("Put official share images under figs\\, then run MihoProbe.exe fresh.", file=sys.stderr)
+        print("Put official share images under figs\\, then run MihoProbe.exe update.", file=sys.stderr)
         return 1
     summary = demo_tool.run_pipeline(
         images_dir=images_dir,
