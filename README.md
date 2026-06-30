@@ -9,8 +9,10 @@ Miho 要做的是一个本地优先的游戏练度更新与规划软件：米游
 先记住一句：**验收界面点缓存入口，识别新图才点 Fresh OCR。**
 
 - 想看软件体验：点 `MihoProbe`，或运行 `dist\MihoProbe.exe`。它只打开已有 Dashboard，不跑 OCR。
+- 一键更新练度：点 `MihoProbe Update`，或运行 `dist\MihoProbe.exe update`。当前安全版只处理 `figs/` 里已保存的官方分享图，不会自动操作米游社 APP。
 - 新放了官方分享图：点 `MihoProbe Fresh OCR`，或运行 `dist\MihoProbe.exe fresh`。这一步会跑 PaddleOCR，可能慢。
-- 验收解析准确率：点 `MihoProbe Accuracy Check`，或运行 `dist\MihoProbe.exe replay --no-open`。它不重新 OCR。
+- 验收解析准确率：点 `MihoProbe Accuracy Check`，或运行 `dist\MihoProbe.exe check --no-open`。它不重新 OCR。
+- 找右侧 GPT 挑刺：运行 `dist\MihoProbe.exe ask-gpt --focus "本轮要审的问题"`，生成固定审查包。
 
 第一次还没有 Dashboard 缓存时，`MihoProbe` 会打开“初次启动”欢迎页，不会偷偷跑 OCR，也不是报错。
 
@@ -45,6 +47,7 @@ scripts/install_miho_demo_shortcut.bat
 3. 桌面优先点这些：
 
 - `MihoProbe`：像软件一样打开已有 Dashboard，不重新 OCR，正常应该很快。
+- `MihoProbe Update`：一键更新练度的当前安全版，处理 `figs/` 中新增或变更的官方分享图，然后打开 Dashboard。
 - `MihoProbe Fresh OCR`：只在 `figs/` 里放了新的官方分享图后再点；会跑 PaddleOCR。
 - `MihoProbe Accuracy Check`：跑 P0.9 replay 准确率验收，不重新 OCR。
 - `MihoProbe CLI`：打开命令壳，给开发调试用。
@@ -55,6 +58,7 @@ scripts/install_miho_demo_shortcut.bat
 
 ```powershell
 dist\MihoProbe.exe
+dist\MihoProbe.exe update
 dist\MihoProbe.exe dashboard --open
 scripts\run_miho_demo.bat
 ```
@@ -69,6 +73,7 @@ dist\MihoProbe.exe --help
 
 ```powershell
 dist\MihoProbe.exe fresh
+dist\MihoProbe.exe update
 scripts\run_miho_demo.bat --fresh
 ```
 
@@ -117,6 +122,7 @@ python tools/probes/review_export_image.py --image "C:\path\to\share.jpg" --engi
 
 ```powershell
 dist\MihoProbe.exe replay --no-open
+dist\MihoProbe.exe check --no-open
 python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json
 ```
 
@@ -132,13 +138,13 @@ python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_man
 右侧 GPT 只负责出方案和挑代码缺陷，Codex 负责落地、测试和推送。不要再临时摸索聊天流程，直接生成固定审查包：
 
 ```powershell
-dist\MihoProbe.exe gpt-review `
+dist\MihoProbe.exe ask-gpt `
   --focus "本轮要推进的用户可见结果" `
   --evidence "关键命令或页面现象" `
   --changed-file "path/to/file.py: 改了什么"
 ```
 
-还没构建 EXE 时，用 `python tools/probes/build_gpt_review_prompt.py`，参数相同。
+`dist\MihoProbe.exe gpt-review` 是同一个入口的开发名。还没构建 EXE 时，用 `python tools/probes/build_gpt_review_prompt.py`，参数相同。
 
 协议说明见 [docs/notes/codex-gpt-adversarial-loop.md](docs/notes/codex-gpt-adversarial-loop.md)。
 

@@ -51,8 +51,11 @@ class MihoProbeCliTests(unittest.TestCase):
 
         self.assertIn("MihoProbe 本地体验入口", help_text)
         self.assertIn("打开已有 Dashboard，不跑 OCR", help_text)
+        self.assertIn("MihoProbe.exe update", help_text)
+        self.assertIn("一键更新练度", help_text)
         self.assertIn("识别 figs\\ 下新增或变更的官方分享图", help_text)
         self.assertIn("用 expected diff 验收解析准确率", help_text)
+        self.assertIn("MihoProbe.exe ask-gpt", help_text)
         self.assertIn("生成给右侧 GPT 的固定审查包", help_text)
         self.assertNotIn("positional arguments", help_text)
         self.assertNotIn("Local Miho probe command shell", help_text)
@@ -67,6 +70,7 @@ class MihoProbeCliTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertIn("MihoProbe 本地体验入口", output.getvalue())
+        self.assertIn("MihoProbe.exe update", output.getvalue())
         self.assertIn("MihoProbe.exe fresh", output.getvalue())
         self.assertNotIn("positional arguments", output.getvalue())
 
@@ -183,11 +187,37 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertFalse(args.rescan_all)
         self.assertTrue(str(args.images_dir).endswith("figs"))
 
+    def test_parser_has_user_facing_update_alias(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["update", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_fresh)
+        self.assertEqual(args.command, "update")
+        self.assertFalse(args.open)
+        self.assertTrue(str(args.images_dir).endswith("figs"))
+
+    def test_parser_has_user_facing_check_alias(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["check", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_replay)
+        self.assertEqual(args.command, "check")
+        self.assertFalse(args.open)
+
     def test_parser_has_gpt_review_entry(self) -> None:
         parser = cli_tool.build_arg_parser()
         args = parser.parse_args(["gpt-review", "--focus", "验收入口太慢", "--no-git-status"])
 
         self.assertEqual(args.handler, cli_tool.run_gpt_review)
+        self.assertEqual(args.focus, "验收入口太慢")
+        self.assertTrue(args.no_git_status)
+
+    def test_parser_has_user_facing_ask_gpt_alias(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["ask-gpt", "--focus", "验收入口太慢", "--no-git-status"])
+
+        self.assertEqual(args.handler, cli_tool.run_gpt_review)
+        self.assertEqual(args.command, "ask-gpt")
         self.assertEqual(args.focus, "验收入口太慢")
         self.assertTrue(args.no_git_status)
 
@@ -282,6 +312,7 @@ class MihoProbeCliTests(unittest.TestCase):
             ):
                 result = cli_tool.run_fresh(
                     argparse.Namespace(
+                        command="fresh",
                         images_dir=str(figs),
                         output_dir=str(root / "demo"),
                         expected_dir=str(root / "expected"),
@@ -310,6 +341,50 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertTrue(kwargs["new_only"])
             self.assertFalse(kwargs["open_dashboard"])
             self.assertIn("fresh_mode: new_or_changed_only", output.getvalue())
+
+    def test_run_update_prints_safe_scope_before_fresh_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            figs = root / "figs"
+            figs.mkdir()
+            summary = {
+                "dashboard_html": str(root / "demo" / "index.html"),
+                "summary_json": str(root / "demo" / "demo_summary.json"),
+            }
+            fake_pipeline = mock.Mock(return_value=summary)
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli_tool.demo_tool, "run_pipeline", fake_pipeline),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_tool.run_fresh(
+                    argparse.Namespace(
+                        command="update",
+                        images_dir=str(figs),
+                        output_dir=str(root / "demo"),
+                        expected_dir=str(root / "expected"),
+                        engine="paddle",
+                        game="zzz",
+                        layout="zzz-agent-card",
+                        open=False,
+                        rescan_all=False,
+                        clean_demo=False,
+                        targets=None,
+                        state_file=None,
+                        history_dir=None,
+                        target_source_manifest=None,
+                        character_catalog=None,
+                        roster_dir=str(root / "roster"),
+                        tier_snapshot=None,
+                        tier_stale_days=60,
+                        daily_stamina=None,
+                        horizon_days=None,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            self.assertIn("update_scope: saved_official_share_images_only", output.getvalue())
+            self.assertIn("不会自动操作米游社 APP", output.getvalue())
 
     def test_run_gpt_review_writes_compact_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

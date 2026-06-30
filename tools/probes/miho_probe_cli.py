@@ -75,13 +75,16 @@ def render_user_help() -> str:
   MihoProbe.exe
     打开已有 Dashboard，不跑 OCR。验收界面优先点这个。
 
-  MihoProbe.exe fresh
-    识别 figs\\ 下新增或变更的官方分享图。会跑 PaddleOCR，可能慢。
+  MihoProbe.exe update
+    一键更新练度（当前安全版）：处理 figs\\ 下已保存的官方分享图，然后打开 Dashboard。
 
-  MihoProbe.exe replay --no-open
+  MihoProbe.exe fresh
+    update 的开发别名：识别 figs\\ 下新增或变更的官方分享图。会跑 PaddleOCR，可能慢。
+
+  MihoProbe.exe check --no-open
     用 expected diff 验收解析准确率。不重新 OCR。
 
-  MihoProbe.exe gpt-review --focus "本轮要审的问题"
+  MihoProbe.exe ask-gpt --focus "本轮要审的问题"
     生成给右侧 GPT 的固定审查包，避免反复摸索对话流程。
 
 先别踩坑：
@@ -93,6 +96,7 @@ def render_user_help() -> str:
   MihoProbe.exe dashboard --help
   MihoProbe.exe fresh --help
   MihoProbe.exe replay --help
+  MihoProbe.exe gpt-review --help
 """
 
 
@@ -354,6 +358,9 @@ def run_demo(args: argparse.Namespace) -> int:
 
 
 def run_fresh(args: argparse.Namespace) -> int:
+    if str(getattr(args, "command", "") or "").lower() == "update":
+        print("update_scope: saved_official_share_images_only")
+        print("update_note: 当前安全版只处理 figs 下已保存的官方分享图；不会自动操作米游社 APP。")
     images_dir = resolve_cli_path(args.images_dir)
     if not images_dir.exists() or not images_dir.is_dir():
         print(f"ERROR: local image directory does not exist: {images_dir}", file=sys.stderr)
@@ -583,6 +590,51 @@ def run_gpt_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def add_fresh_update_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--images-dir", default=str(DEFAULT_FIGS_DIR), help="Image directory. Default: figs.")
+    parser.add_argument("--output-dir", default=str(DEFAULT_DEMO_OUTPUT_DIR), help="Output directory.")
+    parser.add_argument("--expected-dir", default=str(DEFAULT_EXPECTED_DIR), help="Expected JSON directory.")
+    parser.add_argument("--engine", choices=("auto", "tesseract", "paddle", "rapidocr", "none"), default="paddle")
+    parser.add_argument("--game", choices=("zzz", "hsr"), default="zzz")
+    parser.add_argument("--layout", choices=("full", "zzz-agent-card"), default="zzz-agent-card")
+    parser.add_argument("--open", action="store_true", default=True, help="Open generated dashboard. Default: true.")
+    parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the dashboard.")
+    parser.add_argument("--rescan-all", action="store_true", help="Rescan every image instead of only new or changed images.")
+    parser.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
+    parser.add_argument("--state-file", default=None, help="Image update state JSON. Default: <output-dir>/update_state.json.")
+    parser.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report.")
+    parser.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
+    parser.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for planner target matching.")
+    parser.add_argument("--roster-dir", default=str(DEFAULT_ROSTER_DIR), help="Local accepted roster directory. Default: data/probes/roster.")
+    parser.add_argument("--tier-snapshot", default=None, help="Optional local tier/value snapshot JSON. Does not fetch network data.")
+    parser.add_argument("--tier-stale-days", type=int, default=60, help="Mark tier sources older than this many days as stale. Default: 60.")
+    parser.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
+    parser.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
+    parser.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
+
+
+def add_replay_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--manifest", default=None, help="Replay manifest. Default when no inline cases are provided: data/probes/replay_manifest.json.")
+    parser.add_argument("--case", action="append", help="Replay case as parsed.json=expected.json. Can be repeated.")
+    parser.add_argument("--parsed", action="append", help="Parsed JSON path. Pair with --expected; can be repeated.")
+    parser.add_argument("--expected", action="append", help="Expected JSON path. Pair with --parsed; can be repeated.")
+    parser.add_argument("--output-dir", default=None, help="Output directory. Default: data/probes/replay_batches/<timestamp>.")
+    parser.add_argument("--strict-leading-zero", action="store_true", help="Treat numeric text such as '08' and '8' as different.")
+    parser.add_argument("--no-rebuild", action="store_true", help="Compare stored extracted_draft as-is instead of rebuilding from text_blocks.")
+    parser.add_argument("--open", action="store_true", default=True, help="Open the Markdown summary. Default: true.")
+    parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the Markdown summary.")
+
+
+def add_gpt_review_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
+    parser.add_argument("--evidence", action="append", default=[], help="关键证据，可重复。")
+    parser.add_argument("--changed-file", action="append", default=[], help='已改文件，可写 "path: 改了什么"，可重复。')
+    parser.add_argument("--question", action="append", default=[], help="额外请审问题，可重复；不传则使用默认问题。")
+    parser.add_argument("--constraint", action="append", default=[], help="额外约束，可重复。")
+    parser.add_argument("--no-git-status", action="store_true", help="不要自动附带 git status --short。")
+    parser.add_argument("--output", default=None, help="可选输出路径；不传则打印到 stdout。")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Local Miho probe command shell.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -621,39 +673,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     demo.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
     demo.set_defaults(handler=run_demo)
 
-    fresh = subparsers.add_parser("fresh", help="Run fresh OCR for local official share images under figs.")
-    fresh.add_argument("--images-dir", default=str(DEFAULT_FIGS_DIR), help="Image directory. Default: figs.")
-    fresh.add_argument("--output-dir", default=str(DEFAULT_DEMO_OUTPUT_DIR), help="Output directory.")
-    fresh.add_argument("--expected-dir", default=str(DEFAULT_EXPECTED_DIR), help="Expected JSON directory.")
-    fresh.add_argument("--engine", choices=("auto", "tesseract", "paddle", "rapidocr", "none"), default="paddle")
-    fresh.add_argument("--game", choices=("zzz", "hsr"), default="zzz")
-    fresh.add_argument("--layout", choices=("full", "zzz-agent-card"), default="zzz-agent-card")
-    fresh.add_argument("--open", action="store_true", default=True, help="Open generated dashboard. Default: true.")
-    fresh.add_argument("--no-open", action="store_false", dest="open", help="Do not open the dashboard.")
-    fresh.add_argument("--rescan-all", action="store_true", help="Rescan every image instead of only new or changed images.")
-    fresh.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
-    fresh.add_argument("--state-file", default=None, help="Image update state JSON. Default: <output-dir>/update_state.json.")
-    fresh.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report.")
-    fresh.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
-    fresh.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for planner target matching.")
-    fresh.add_argument("--roster-dir", default=str(DEFAULT_ROSTER_DIR), help="Local accepted roster directory. Default: data/probes/roster.")
-    fresh.add_argument("--tier-snapshot", default=None, help="Optional local tier/value snapshot JSON. Does not fetch network data.")
-    fresh.add_argument("--tier-stale-days", type=int, default=60, help="Mark tier sources older than this many days as stale. Default: 60.")
-    fresh.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
-    fresh.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
-    fresh.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
+    update = subparsers.add_parser("update", help="One-click local practice update from saved official share images under figs.")
+    add_fresh_update_args(update)
+    update.set_defaults(handler=run_fresh)
+
+    fresh = subparsers.add_parser("fresh", help="Developer alias for update: run fresh OCR for official share images under figs.")
+    add_fresh_update_args(fresh)
     fresh.set_defaults(handler=run_fresh)
 
-    replay = subparsers.add_parser("replay", help="Run P0.9 parsed-vs-expected replay acceptance without OCR.")
-    replay.add_argument("--manifest", default=None, help="Replay manifest. Default when no inline cases are provided: data/probes/replay_manifest.json.")
-    replay.add_argument("--case", action="append", help="Replay case as parsed.json=expected.json. Can be repeated.")
-    replay.add_argument("--parsed", action="append", help="Parsed JSON path. Pair with --expected; can be repeated.")
-    replay.add_argument("--expected", action="append", help="Expected JSON path. Pair with --parsed; can be repeated.")
-    replay.add_argument("--output-dir", default=None, help="Output directory. Default: data/probes/replay_batches/<timestamp>.")
-    replay.add_argument("--strict-leading-zero", action="store_true", help="Treat numeric text such as '08' and '8' as different.")
-    replay.add_argument("--no-rebuild", action="store_true", help="Compare stored extracted_draft as-is instead of rebuilding from text_blocks.")
-    replay.add_argument("--open", action="store_true", default=True, help="Open the Markdown summary. Default: true.")
-    replay.add_argument("--no-open", action="store_false", dest="open", help="Do not open the Markdown summary.")
+    check = subparsers.add_parser("check", help="Run accuracy acceptance without OCR.")
+    add_replay_args(check)
+    check.set_defaults(handler=run_replay)
+
+    replay = subparsers.add_parser("replay", help="Developer alias for check: run parsed-vs-expected replay acceptance without OCR.")
+    add_replay_args(replay)
     replay.set_defaults(handler=run_replay)
 
     normalize = subparsers.add_parser("normalize", help="Normalize one parsed JSON.")
@@ -703,14 +736,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     targets.add_argument("--output-dir", default=str(DEFAULT_TARGETS_DIR), help="Output directory.")
     targets.set_defaults(handler=run_targets)
 
-    gpt_review = subparsers.add_parser("gpt-review", help="Build a compact review prompt for the right-side GPT.")
-    gpt_review.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
-    gpt_review.add_argument("--evidence", action="append", default=[], help="关键证据，可重复。")
-    gpt_review.add_argument("--changed-file", action="append", default=[], help='已改文件，可写 "path: 改了什么"，可重复。')
-    gpt_review.add_argument("--question", action="append", default=[], help="额外请审问题，可重复；不传则使用默认问题。")
-    gpt_review.add_argument("--constraint", action="append", default=[], help="额外约束，可重复。")
-    gpt_review.add_argument("--no-git-status", action="store_true", help="不要自动附带 git status --short。")
-    gpt_review.add_argument("--output", default=None, help="可选输出路径；不传则打印到 stdout。")
+    ask_gpt = subparsers.add_parser("ask-gpt", help="Build the fixed review packet for the right-side GPT.")
+    add_gpt_review_args(ask_gpt)
+    ask_gpt.set_defaults(handler=run_gpt_review)
+
+    gpt_review = subparsers.add_parser("gpt-review", help="Developer alias for ask-gpt.")
+    add_gpt_review_args(gpt_review)
     gpt_review.set_defaults(handler=run_gpt_review)
     return parser
 
