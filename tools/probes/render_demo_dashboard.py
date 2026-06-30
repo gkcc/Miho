@@ -242,6 +242,100 @@ def summary_card(label: str, title: Any, body: Any, tone: str = "muted") -> str:
     )
 
 
+def guide_card(title: str, body: str, command: str | None = None, tone: str = "muted") -> str:
+    command_html = f"<code>{e(command)}</code>" if command else ""
+    return (
+        f'<article class="guide-card {e(tone)}">'
+        f"<strong>{e(title)}</strong>"
+        f"<p>{e(body)}</p>"
+        f"{command_html}"
+        "</article>"
+    )
+
+
+def render_acceptance_guide(
+    *,
+    can_act_now: bool,
+    input_info: dict[str, Any],
+    run_info: dict[str, Any],
+    run_status: dict[str, Any],
+    final_info: dict[str, Any],
+    doctor_info: dict[str, Any],
+    parse_fail_count: int,
+    expected_fail_count: int,
+    manual_review_count: int,
+    case_count: int,
+    average_pass_rate: str,
+) -> str:
+    final_warnings = final_info.get("warnings") if isinstance(final_info.get("warnings"), list) else []
+    missing_run_manifest = not bool(run_info)
+    manifest_consistent = run_status.get("consistent") is True if run_status else False
+    has_data_warning = missing_run_manifest or (run_info and not manifest_consistent) or bool(final_warnings)
+    if has_data_warning:
+        tone = "bad"
+        headline = "先别把这页当验收结果"
+        body = (
+            "当前缺少本轮运行清单或数据来源不一致；这页只能用来排查。"
+            "准确率验收请用固定样例清单入口，不要扫整个历史解析目录。"
+        )
+    elif manual_review_count:
+        tone = "warn"
+        headline = "先复核，再采用建议"
+        body = f"还有 {manual_review_count} 个识别结果待人工确认；确认前不会进入本地角色库。"
+    elif parse_fail_count or expected_fail_count:
+        tone = "warn"
+        headline = "识别结果还需要修"
+        body = f"当前解析失败 {parse_fail_count}，验收对照未通过 {expected_fail_count}；先跑准确率验收看 top failed fields。"
+    elif can_act_now:
+        tone = "ok"
+        headline = "可以继续看本地建议"
+        body = "当前门禁允许继续阅读下方配队和行动建议；它仍然不是抽卡建议，也不会写正式数据库。"
+    else:
+        tone = "warn"
+        headline = "需要先刷新本地状态"
+        body = "当前没有足够证据证明这页可直接采用；先按下一步入口刷新或检查。"
+
+    doctor_action = action_label(doctor_info.get("primary_next_action")) if doctor_info else "查看页面明细"
+    mode = source_mode_label(input_info.get("source_mode"))
+    cards = [
+        guide_card(
+            "准确率验收",
+            "只用固定样例清单里的 3 到 5 张样例算通过率；这是 P0.9 验收入口。",
+            "dist\\MihoProbe.exe check --open",
+            "ok",
+        ),
+        guide_card(
+            "看软件体验",
+            "打开缓存 Dashboard，不重新跑图片识别；如果上次 fresh 卡住，先点这个。",
+            "dist\\MihoProbe.exe",
+            "ok",
+        ),
+        guide_card(
+            "更新练度",
+            "当前安全版只处理 figs 里已经保存的官方分享图；APP 自动点击还在工作流校准。",
+            "dist\\MihoProbe.exe update --open",
+            "warn",
+        ),
+        guide_card(
+            "更新高难配队",
+            "不跑图片识别、不联网，只用本地已确认角色库、目标配置和 Tier/保值快照重算建议。",
+            "dist\\MihoProbe.exe plan-update --open",
+            "muted",
+        ),
+    ]
+    return (
+        f'<section class="acceptance-guide {e(tone)}">'
+        "<div>"
+        "<span>验收助手</span>"
+        f"<h2>{e(headline)}</h2>"
+        f"<p>{he(body)}</p>"
+        f"<em>当前模式：{e(mode)} · 下一步：{e(doctor_action)} · 样例数：{e(case_count)} · 平均通过率：{e(average_pass_rate)}</em>"
+        "</div>"
+        f'<div class="guide-cards">{"".join(cards)}</div>'
+        "</section>"
+    )
+
+
 def human_status(value: Any) -> str:
     text = str(value or "").lower()
     labels = {
@@ -2198,6 +2292,19 @@ def render_html(summary: dict[str, Any]) -> str:
             "ok" if ready_count and not review_target_count else "warn" if review_target_count else "muted",
         ),
     ]
+    acceptance_guide = render_acceptance_guide(
+        can_act_now=can_act_now,
+        input_info=input_info,
+        run_info=run_info,
+        run_status=run_status,
+        final_info=final_info,
+        doctor_info=doctor_info,
+        parse_fail_count=parse_fail_count,
+        expected_fail_count=expected_fail_count,
+        manual_review_count=manual_review_count,
+        case_count=case_count,
+        average_pass_rate=average_pass_rate,
+    )
     cards = "".join(render_case(case) for case in cases) or '<div class="empty">没有可展示的 case。</div>'
     steps = render_steps(summary.get("pipeline_steps", []))
     demo_doctor_panel = render_demo_doctor(summary)
@@ -2254,6 +2361,22 @@ def render_html(summary: dict[str, Any]) -> str:
     .summary-card strong {{ display: block; margin-top: 6px; font-size: 22px; line-height: 1.25; overflow-wrap: anywhere; }}
     .summary-card p {{ margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }}
     .summary-card.ok strong {{ color: var(--ok); }} .summary-card.warn strong {{ color: var(--warn); }} .summary-card.bad strong {{ color: var(--bad); }}
+    .acceptance-guide {{ display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(420px, 1.6fr); gap: 16px; align-items: stretch; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: var(--shadow); }}
+    .acceptance-guide > div:first-child {{ display: grid; align-content: center; gap: 8px; min-width: 0; }}
+    .acceptance-guide span {{ color: var(--muted); font-size: 13px; font-weight: 800; }}
+    .acceptance-guide h2 {{ margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: 0; }}
+    .acceptance-guide p {{ margin: 0; color: var(--muted); line-height: 1.55; }}
+    .acceptance-guide em {{ color: var(--muted); font-style: normal; font-size: 13px; overflow-wrap: anywhere; }}
+    .acceptance-guide.ok {{ border-color: #a7e0bd; background: linear-gradient(180deg, #ffffff 0%, #f3fbf6 100%); }}
+    .acceptance-guide.warn {{ border-color: #f6cf7c; background: linear-gradient(180deg, #ffffff 0%, #fff9e8 100%); }}
+    .acceptance-guide.bad {{ border-color: #ffc0ba; background: linear-gradient(180deg, #ffffff 0%, #fff1ef 100%); }}
+    .acceptance-guide.ok h2 {{ color: var(--ok); }} .acceptance-guide.warn h2 {{ color: var(--warn); }} .acceptance-guide.bad h2 {{ color: var(--bad); }}
+    .guide-cards {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+    .guide-card {{ display: grid; gap: 7px; align-content: start; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: rgba(255, 255, 255, 0.76); min-width: 0; }}
+    .guide-card strong {{ font-size: 16px; overflow-wrap: anywhere; }}
+    .guide-card p {{ font-size: 13px; }}
+    .guide-card code {{ display: block; width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #0f172a; color: #e2e8f0; overflow-wrap: anywhere; white-space: normal; }}
+    .guide-card.ok strong {{ color: var(--ok); }} .guide-card.warn strong {{ color: var(--warn); }} .guide-card.bad strong {{ color: var(--bad); }}
     .debug-drawer {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); }}
     .debug-drawer > summary {{ font-size: 16px; }}
     .debug-content {{ display: grid; gap: 18px; margin-top: 14px; }}
@@ -2366,6 +2489,8 @@ def render_html(summary: dict[str, Any]) -> str:
     .empty {{ padding: 24px; color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; }}
     @media (max-width: 900px) {{
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .acceptance-guide {{ grid-template-columns: 1fr; }}
+      .guide-cards {{ grid-template-columns: 1fr; }}
       .top-summary {{ grid-template-columns: 1fr; }}
       .steps {{ grid-template-columns: 1fr; }}
       .input-grid {{ grid-template-columns: 1fr; }}
@@ -2389,6 +2514,7 @@ def render_html(summary: dict[str, Any]) -> str:
     <p>当前仍是本地演示流程。即使解析通过，也只进入人工确认区，不会自动写入正式数据。</p>
   </header>
     <main>
+    {acceptance_guide}
     <section class="top-summary">{''.join(top_cards)}</section>
     {final_brief}
     {action_checklist}

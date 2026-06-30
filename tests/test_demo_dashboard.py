@@ -248,6 +248,16 @@ class DemoDashboardTests(unittest.TestCase):
         html = dashboard_tool.render_html(summary)
 
         self.assertIn("一眼结论", html)
+        self.assertIn("验收助手", html)
+        self.assertIn("先别把这页当验收结果", html)
+        self.assertIn("准确率验收", html)
+        self.assertIn("dist\\MihoProbe.exe check --open", html)
+        self.assertIn("看软件体验", html)
+        self.assertIn("dist\\MihoProbe.exe", html)
+        self.assertIn("更新练度", html)
+        self.assertIn("APP 自动点击还在工作流校准", html)
+        self.assertIn("更新高难配队", html)
+        self.assertIn("不要扫整个历史解析目录", html)
         self.assertIn("这不是验收结果", html)
         self.assertIn("不代表 P0.9 验收", html)
         self.assertIn("先打开缓存入口刷新页面", html)
@@ -289,6 +299,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("repeat(auto-fit, minmax(220px, 1fr))", html)
         self.assertIn("repeat(auto-fit, minmax(180px, 1fr))", html)
         self.assertIn("repeat(auto-fit, minmax(420px, 1fr))", html)
+        self.assertIn("grid-template-columns: minmax(280px, 0.9fr) minmax(420px, 1.6fr)", html)
         self.assertIn("max-height: 220px; overflow: auto", html)
 
     def test_action_checklist_visible_copy_hides_internal_terms(self) -> None:
