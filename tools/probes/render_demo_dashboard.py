@@ -99,6 +99,10 @@ def humanize_text(value: Any) -> str:
             "打开 Dashboard 的本期高难方案，按该队伍先试一次。",
             "打开下方“本期高难方案”，确认队伍后再尝试。",
         ),
+        (
+            "review_apply_receipt.created_at is newer than run_manifest.created_at",
+            "人工应用时间晚于运行清单：当前页面可能还没吸收最新复核结果。",
+        ),
     )
     for old, new in sentence_replacements:
         text = text.replace(old, new)
@@ -280,7 +284,7 @@ def render_operation_bar() -> str:
         ),
         operation_card(
             "准确率验收",
-            "用 replay manifest 做 expected diff；不扫历史 parsed，也不重新 OCR。",
+            "用固定样例和人工对照答案比对；不扫历史结果，也不重新识别图片。",
             r"dist\MihoProbe.exe check --no-open",
             "muted",
         ),
@@ -296,7 +300,7 @@ def render_operation_bar() -> str:
         "<div>"
         "<span>软件入口</span>"
         "<h2>先从这里选动作</h2>"
-        "<p>这些卡片只展示本地命令和边界，不会在页面里执行 apply、try_now 或自动登录。</p>"
+        "<p>这些卡片只展示本地命令和边界，不会在页面里自动应用数据、控制游戏或登录账号。</p>"
         "</div>"
         f'<div class="operation-grid">{"".join(cards)}</div>'
         "</section>"
@@ -350,7 +354,7 @@ def render_acceptance_guide(
     cards = [
         guide_card(
             "准确率验收",
-            "只用固定样例清单里的 3 到 5 张样例算通过率；这是 P0.9 验收入口。",
+            "只用固定样例清单里的 3 到 5 张图和人工答案比对；这是准确率硬验收入口。",
             "dist\\MihoProbe.exe check --open",
             "ok",
         ),
@@ -1508,12 +1512,12 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
     try_now_text = "未知" if try_now_allowed is None else "是" if try_now_allowed else "否"
     rerun_required = action_state.get("rerun_required")
     rerun_text = "未知" if rerun_required is None else "是" if rerun_required else "否"
-    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
+    warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>Refresh Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if refresh.get("error"):
         body = f'<div class="errors"><strong>Refresh status failed</strong><ul><li>{e(refresh.get("error"))}</li></ul></div>'
     else:
-        reason_items = "".join(f"<li>{e(item)}</li>" for item in reasons) or "<li>无</li>"
+        reason_items = "".join(f"<li>{he(item)}</li>" for item in reasons) or "<li>无</li>"
         affected_text = "、".join(str(item) for item in affected) if affected else "无"
         body = f"""
         <div class="resource-plan">
@@ -1537,7 +1541,7 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel refresh-status">
       <h2>刷新状态</h2>
-      <p class="muted-line">先判断当前 Dashboard 是否已经吸收最新 review apply。这里不是解析结果，而是最终建议的新鲜度门禁。</p>
+      <p class="muted-line">先判断当前页面是否已经吸收最新人工复核结果。这里不是解析结果，而是最终建议的新鲜度门禁。</p>
       <div class="links">
         {link("refresh_status.md", refresh.get("output_md"))}
         {link("refresh_status.json", refresh.get("output_json"))}
@@ -1545,15 +1549,15 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
         {link("demo_command.json", command_state.get("demo_command_json"))}
       </div>
       <div class="input-grid">
-        <div><span>refresh status</span><strong>{e(refresh.get("refresh_status") or "unknown")}</strong></div>
-        <div><span>needs refresh</span><strong>{e(refresh_summary.get("needs_demo_refresh", "N/A"))}</strong></div>
+        <div><span>刷新判断</span><strong>{e(human_status(refresh.get("refresh_status") or "unknown"))}</strong></div>
+        <div><span>需要刷新</span><strong>{e(bool_text(refresh_summary.get("needs_demo_refresh")) if refresh_summary.get("needs_demo_refresh") is not None else "N/A")}</strong></div>
         <div><span>当前下一步</span><strong>{e(next_action_label)}</strong></div>
-        <div><span>可执行 try_now</span><strong>{e(try_now_text)}</strong></div>
+        <div><span>允许去游戏里试</span><strong>{e(try_now_text)}</strong></div>
         <div><span>需要重跑</span><strong>{e(rerun_text)}</strong></div>
-        <div><span>receipt exists</span><strong>{e(refresh_summary.get("receipt_exists", "N/A"))}</strong></div>
-        <div><span>entered roster</span><strong>{e(refresh_summary.get("did_enter_roster_count", "N/A"))}</strong></div>
-        <div><span>wrote accepted</span><strong>{e(refresh_summary.get("did_write_accepted_count", "N/A"))}</strong></div>
-        <div><span>wrote rejected</span><strong>{e(refresh_summary.get("did_write_rejected_count", "N/A"))}</strong></div>
+        <div><span>有应用回执</span><strong>{e(bool_text(refresh_summary.get("receipt_exists")) if refresh_summary.get("receipt_exists") is not None else "N/A")}</strong></div>
+        <div><span>进入角色库</span><strong>{e(refresh_summary.get("did_enter_roster_count", "N/A"))}</strong></div>
+        <div><span>确认接收</span><strong>{e(refresh_summary.get("did_write_accepted_count", "N/A"))}</strong></div>
+        <div><span>确认拒绝</span><strong>{e(refresh_summary.get("did_write_rejected_count", "N/A"))}</strong></div>
       </div>
       {stale_copy}
       {warning_block}
@@ -2233,28 +2237,28 @@ def render_html(summary: dict[str, Any]) -> str:
     safe_apply = safe_apply_status(summary)
     metrics = [
         metric_card("演示状态", human_status(overall.get("demo_status") or "N/A"), status_class(overall.get("demo_status"))),
-        metric_card("当前诊断", doctor_info.get("doctor_status", "N/A") if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
-        metric_card("本地更新命令", update_command_info.get("status", "N/A") if update_command_info else "N/A", status_class(update_command_info.get("status")) if update_command_info else "muted"),
+        metric_card("当前诊断", human_status(doctor_info.get("doctor_status", "N/A")) if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
+        metric_card("本地更新命令", human_status(update_command_info.get("status", "N/A")) if update_command_info else "N/A", status_class(update_command_info.get("status")) if update_command_info else "muted"),
         metric_card("诊断下一步", action_label(doctor_info.get("primary_next_action")) if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
         metric_card(
             "诊断证据",
-            doctor_info.get("evidence_check", {}).get("status", "N/A") if isinstance(doctor_info.get("evidence_check"), dict) else "N/A",
+            human_status(doctor_info.get("evidence_check", {}).get("status", "N/A")) if isinstance(doctor_info.get("evidence_check"), dict) else "N/A",
             status_class(doctor_info.get("evidence_check", {}).get("status")) if isinstance(doctor_info.get("evidence_check"), dict) else "muted",
         ),
         metric_card(
             "启动器",
-            launcher_info.get("launcher_status", "N/A") if launcher_info else "N/A",
+            human_status(launcher_info.get("launcher_status", "N/A")) if launcher_info else "N/A",
             status_class(launcher_info.get("launcher_status")) if launcher_info else "muted",
         ),
         metric_card("允许尝试", bool_text(doctor_info.get("try_now_allowed")) if doctor_info else "N/A", "ok" if doctor_info.get("try_now_allowed") else "bad" if doctor_info else "muted"),
-        metric_card("刷新状态", refresh_info.get("refresh_status", "N/A") if refresh_info else "N/A", status_class(refresh_info.get("refresh_status")) if refresh_info else "muted"),
+        metric_card("刷新状态", human_status(refresh_info.get("refresh_status", "N/A")) if refresh_info else "N/A", status_class(refresh_info.get("refresh_status")) if refresh_info else "muted"),
         metric_card("需要重跑", refresh_summary.get("needs_demo_refresh", "N/A") if refresh_summary else "N/A", "bad" if refresh_summary.get("needs_demo_refresh") else "muted"),
-        metric_card("简报状态", final_info.get("brief_status", "N/A") if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
-        metric_card("清单状态", checklist_info.get("checklist_status", "N/A") if checklist_info else "N/A", status_class(checklist_info.get("checklist_status")) if checklist_info else "muted"),
-        metric_card("复核预览", preview_info.get("preview_status", "N/A") if preview_info else "N/A", status_class(preview_info.get("preview_status")) if preview_info else "muted"),
-        metric_card("安全应用", safe_apply, status_class(safe_apply)),
+        metric_card("简报状态", human_status(final_info.get("brief_status", "N/A")) if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
+        metric_card("清单状态", human_status(checklist_info.get("checklist_status", "N/A")) if checklist_info else "N/A", status_class(checklist_info.get("checklist_status")) if checklist_info else "muted"),
+        metric_card("复核预览", human_status(preview_info.get("preview_status", "N/A")) if preview_info else "N/A", status_class(preview_info.get("preview_status")) if preview_info else "muted"),
+        metric_card("安全应用", human_status(safe_apply), status_class(safe_apply)),
         metric_card("已进角色库", apply_summary.get("did_enter_roster_count", "N/A") if apply_summary else "N/A", "ok" if apply_summary.get("did_enter_roster_count") else "muted"),
-        metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
+        metric_card("模式", source_mode_label(input_info.get("source_mode")), "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
         metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),
         metric_card("Parse PASS", parse_counts.get("PASS", 0), "ok"),

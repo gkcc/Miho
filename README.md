@@ -8,13 +8,18 @@ Miho 是一个本地优先的游戏练度更新与规划工具。最终目标很
 
 现在仍是 probe / demo 阶段，不是正式 Tauri 桌面应用。它不会自动登录，不读取 cookie/token，不控制游戏客户端，也不会把 OCR 结果直接写进正式数据库。
 
-## 先按这 3 步用
+## 我只想像软件一样用
 
-1. 先构建一次本地 EXE：`scripts\build_miho_probe_exe.bat`。
-2. 再装桌面快捷方式：`scripts\install_miho_demo_shortcut.bat`。
-3. 日常只点桌面图标，不用记脚本参数。
+第一次只做两件事：
 
-最重要的一句：**只看界面点 `MihoProbe`；识别新分享图才点 `MihoProbe Update` 或 `MihoProbe Fresh OCR`。不要先跑 OCR。**
+1. 构建本地 EXE：`scripts\build_miho_probe_exe.bat`。
+2. 安装桌面快捷方式：`scripts\install_miho_demo_shortcut.bat`。
+
+以后日常只点桌面图标，不用记参数。
+
+最重要的一句：**只看界面点 `MihoProbe`；识别新分享图才点 `MihoProbe Update`。不要先跑 OCR。**
+
+如果你只是在验收“这个工具现在长什么样”，不要点 Fresh OCR。那个入口会加载 PaddleOCR，第一次很慢。
 
 ## 桌面图标怎么选
 
@@ -22,7 +27,7 @@ Miho 是一个本地优先的游戏练度更新与规划工具。最终目标很
 | --- | --- | --- |
 | 看软件体验 | `MihoProbe` 或 `dist\MihoProbe.exe` | 不会 |
 | 查看 APP 一键导出流程/校准 | `MihoProbe App Export Workflow` 或 `dist\MihoProbe.exe app-export` | 不会 |
-| 一键更新练度 | `MihoProbe Update` 或 `dist\MihoProbe.exe update` | 会，只处理 `figs/` 里的分享图 |
+| 一键更新练度 | `MihoProbe Update` 或 `dist\MihoProbe.exe update` | 会，只处理 `figs/` 里的官方分享图 |
 | 一键更新高难配队 | `MihoProbe Plan Update` 或 `dist\MihoProbe.exe plan-update` | 不会 |
 | 快速排查评级 | `MihoProbe Rank Check` 或 `dist\MihoProbe.exe rank-check` | 不会，只看 A/S 艺术字区域 |
 | 新分享图识别 | `MihoProbe Fresh OCR` 或 `dist\MihoProbe.exe fresh` | 会，可能慢 |
@@ -71,6 +76,8 @@ scripts/install_miho_demo_shortcut.bat
 颜色规则只记一句：**绿色才是可继续，黄色是先复核，红色是先处理数据一致性。**
 
 如果页面说“缺少运行清单”“待复核”“解析失败”，不要按配队行动；先处理页面给出的阻断原因。只有字段明显来自旧图或图片缺失时，才重新跑 Fresh OCR。
+
+如果页面上出现“不是验收结果”，意思不是软件坏了，而是当前打开的是演示/排查页；准确率要去点 `MihoProbe Accuracy Check`。
 
 ## 准确率怎么验收
 
