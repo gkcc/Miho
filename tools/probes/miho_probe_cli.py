@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+from html import escape as html_escape
 import importlib.util
 import json
 import sys
@@ -143,6 +144,143 @@ def render_cached_dashboard(summary_path: Path, dashboard_path: Path) -> dict[st
     return dashboard_tool.render_dashboard(summary, dashboard_path)
 
 
+def render_first_run_dashboard(dashboard_path: Path) -> dict[str, str]:
+    dashboard_path.parent.mkdir(parents=True, exist_ok=True)
+    figs_path = PROJECT_ROOT / "figs"
+    replay_path = DEFAULT_REPLAY_MANIFEST
+    html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MihoProbe 初次启动</title>
+  <style>
+    :root {{
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --line: #dbe3ef;
+      --ok: #147a42;
+      --ok-bg: #e8f7ee;
+      --warn: #996500;
+      --warn-bg: #fff4d5;
+      --blue: #1d4ed8;
+      --blue-bg: #eff6ff;
+      --shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      line-height: 1.55;
+    }}
+    main {{ max-width: 1120px; margin: 0 auto; padding: 32px 22px 48px; }}
+    h1 {{ margin: 0 0 8px; font-size: 34px; letter-spacing: 0; }}
+    p {{ margin: 0; }}
+    .lead {{ color: var(--muted); font-size: 16px; }}
+    .hero {{
+      display: grid;
+      gap: 18px;
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }}
+    .status {{
+      display: inline-flex;
+      width: fit-content;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--warn-bg);
+      color: var(--warn);
+      font-weight: 900;
+    }}
+    .grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }}
+    .card {{
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      min-height: 178px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }}
+    .card strong {{ font-size: 18px; }}
+    .card span {{ color: var(--muted); font-size: 13px; }}
+    .card code {{
+      display: block;
+      padding: 10px;
+      border-radius: 8px;
+      background: #0f172a;
+      color: #e2e8f0;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }}
+    .primary {{ border-color: #bfdbfe; background: var(--blue-bg); }}
+    .primary strong {{ color: var(--blue); }}
+    .safe {{ border-color: #a8e1bd; background: var(--ok-bg); }}
+    .safe strong {{ color: var(--ok); }}
+    .note {{
+      margin-top: 18px;
+      padding: 14px 16px;
+      border: 1px solid #f4d071;
+      border-radius: 8px;
+      background: var(--warn-bg);
+      color: var(--warn);
+      font-weight: 800;
+    }}
+    .paths {{ display: grid; gap: 8px; margin-top: 18px; color: var(--muted); font-size: 13px; }}
+    .paths code {{ color: var(--text); }}
+    @media (max-width: 860px) {{
+      .grid {{ grid-template-columns: 1fr; }}
+      h1 {{ font-size: 28px; }}
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="status">还没有本地 Dashboard 缓存</div>
+      <div>
+        <h1>MihoProbe 初次启动</h1>
+        <p class="lead">这不是错误。默认入口不会跑 OCR，也不会读取账号登录态；它只打开本地可视化页面。</p>
+      </div>
+      <div class="grid">
+        <article class="card safe">
+          <strong>只想验收界面</strong>
+          <span>有缓存时直接打开 Dashboard；没有缓存时先看本页。不会跑 OCR。</span>
+          <code>MihoProbe.exe</code>
+        </article>
+        <article class="card primary">
+          <strong>识别新分享图</strong>
+          <span>把米游社官方分享图放进 figs\\ 后再跑。PaddleOCR 首次加载可能慢。</span>
+          <code>MihoProbe.exe fresh</code>
+        </article>
+        <article class="card">
+          <strong>验收解析准确率</strong>
+          <span>用 expected diff 回放验收，不重新 OCR，不扫历史 parsed 目录。</span>
+          <code>MihoProbe.exe replay --no-open</code>
+        </article>
+      </div>
+      <div class="note">如果 Fresh OCR 十分钟没反应，先关掉它，回到 MihoProbe.exe 看缓存或本页；不要把慢 OCR 当作界面卡死。</div>
+      <div class="paths">
+        <span>分享图目录：<code>{html_escape(str(figs_path))}</code></span>
+        <span>准确率 manifest：<code>{html_escape(str(replay_path))}</code></span>
+        <span>本页路径：<code>{html_escape(str(dashboard_path))}</code></span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+    dashboard_path.write_text(html, encoding="utf-8")
+    return {"dashboard_html": str(dashboard_path)}
+
+
 def run_dashboard(args: argparse.Namespace) -> int:
     dashboard_path = resolve_cli_path(args.dashboard)
     summary_path = resolve_cli_path(args.summary)
@@ -155,17 +293,24 @@ def run_dashboard(args: argparse.Namespace) -> int:
         should_refresh = True
     if not dashboard_path.exists() or should_refresh:
         if not summary_path.exists():
-            print("Miho Dashboard 还没有生成。", file=sys.stderr)
-            print("先运行：scripts\\run_miho_demo.bat --fresh", file=sys.stderr)
-            return 1
-        try:
-            render_cached_dashboard(summary_path, dashboard_path)
-        except dashboard_tool.DashboardError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 1
-        print(f"dashboard_refreshed: {dashboard_path}")
+            if dashboard_path.exists():
+                print("dashboard_cached_without_summary: " + str(dashboard_path))
+            else:
+                render_first_run_dashboard(dashboard_path)
+                print(f"dashboard_first_run: {dashboard_path}")
+            should_refresh = False
+        if should_refresh:
+            try:
+                render_cached_dashboard(summary_path, dashboard_path)
+            except dashboard_tool.DashboardError as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                return 1
+            print(f"dashboard_refreshed: {dashboard_path}")
     else:
         print(f"dashboard_cached: {dashboard_path}")
+    if not dashboard_path.exists():
+        print("ERROR: dashboard was not created.", file=sys.stderr)
+        return 1
     if args.open:
         webbrowser.open(dashboard_path.resolve().as_uri())
         print(f"dashboard_opened: {dashboard_path}")

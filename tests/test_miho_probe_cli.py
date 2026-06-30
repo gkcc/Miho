@@ -118,19 +118,33 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("米游社练度识别体验台", html)
             self.assertNotIn("old cache", html)
 
-    def test_dashboard_command_reports_missing_cache_without_ocr(self) -> None:
+    def test_dashboard_command_renders_first_run_page_without_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            result = cli_tool.run_dashboard(
-                argparse.Namespace(
-                    dashboard=str(root / "index.html"),
-                    summary=str(root / "missing_summary.json"),
-                    refresh=False,
-                    open=False,
+            dashboard_path = root / "index.html"
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = cli_tool.run_dashboard(
+                    argparse.Namespace(
+                        dashboard=str(dashboard_path),
+                        summary=str(root / "missing_summary.json"),
+                        refresh=False,
+                        open=False,
+                    )
                 )
-            )
 
-            self.assertEqual(result, 1)
+            self.assertEqual(result, 0)
+            self.assertIn("dashboard_first_run:", output.getvalue())
+            self.assertTrue(dashboard_path.exists())
+            html = dashboard_path.read_text(encoding="utf-8")
+            self.assertIn("MihoProbe 初次启动", html)
+            self.assertIn("还没有本地 Dashboard 缓存", html)
+            self.assertIn("只想验收界面", html)
+            self.assertIn("识别新分享图", html)
+            self.assertIn("MihoProbe.exe fresh", html)
+            self.assertIn("MihoProbe.exe replay --no-open", html)
+            self.assertIn("默认入口不会跑 OCR", html)
+            self.assertNotIn("Brief Warning", html)
 
     def test_parser_has_app_like_dashboard_entry(self) -> None:
         parser = cli_tool.build_arg_parser()

@@ -12,6 +12,8 @@ Miho 要做的是一个本地优先的游戏练度更新与规划软件：米游
 - 新放了官方分享图：点 `MihoProbe Fresh OCR`，或运行 `dist\MihoProbe.exe fresh`。这一步会跑 PaddleOCR，可能慢。
 - 验收解析准确率：点 `MihoProbe Accuracy Check`，或运行 `dist\MihoProbe.exe replay --no-open`。它不重新 OCR。
 
+第一次还没有 Dashboard 缓存时，`MihoProbe` 会打开“初次启动”欢迎页，不会偷偷跑 OCR，也不是报错。
+
 没有 EXE 时才用脚本版入口：
 
 - `scripts\run_miho_demo.bat`：打开缓存 Dashboard，不跑 OCR。
