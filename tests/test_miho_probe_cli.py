@@ -53,6 +53,8 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("打开已有 Dashboard，不跑 OCR", help_text)
         self.assertIn("MihoProbe.exe update", help_text)
         self.assertIn("一键更新练度", help_text)
+        self.assertIn("MihoProbe.exe plan-update", help_text)
+        self.assertIn("一键更新高难/Tier/配队建议", help_text)
         self.assertIn("识别 figs\\ 下新增或变更的官方分享图", help_text)
         self.assertIn("用 expected diff 验收解析准确率", help_text)
         self.assertIn("MihoProbe.exe ask-gpt", help_text)
@@ -203,6 +205,15 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(args.handler, cli_tool.run_replay)
         self.assertEqual(args.command, "check")
         self.assertFalse(args.open)
+
+    def test_parser_has_user_facing_plan_update_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["plan-update", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_plan_update)
+        self.assertEqual(args.command, "plan-update")
+        self.assertFalse(args.open)
+        self.assertTrue(str(args.roster_dir).endswith("data\\probes\\roster") or str(args.roster_dir).endswith("data/probes/roster"))
 
     def test_parser_has_gpt_review_entry(self) -> None:
         parser = cli_tool.build_arg_parser()
@@ -385,6 +396,51 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertIn("update_scope: saved_official_share_images_only", output.getvalue())
             self.assertIn("不会自动操作米游社 APP", output.getvalue())
+
+    def test_run_plan_update_does_not_run_ocr_and_uses_empty_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            summary = {
+                "dashboard_html": str(root / "demo" / "index.html"),
+                "summary_json": str(root / "demo" / "demo_summary.json"),
+            }
+            fake_pipeline = mock.Mock(return_value=summary)
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli_tool.demo_tool, "run_pipeline", fake_pipeline),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_tool.run_plan_update(
+                    argparse.Namespace(
+                        output_dir=str(root / "demo"),
+                        expected_dir=str(root / "expected"),
+                        game="zzz",
+                        layout="zzz-agent-card",
+                        open=False,
+                        clean_demo=False,
+                        targets=str(root / "targets.json"),
+                        target_source_manifest=None,
+                        character_catalog=str(root / "catalog.json"),
+                        roster_dir=str(root / "roster"),
+                        tier_snapshot=str(root / "tier.json"),
+                        tier_stale_days=60,
+                        history_dir=None,
+                        daily_stamina=None,
+                        horizon_days=None,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            kwargs = fake_pipeline.call_args.kwargs
+            self.assertIsNone(kwargs["images_dir"])
+            self.assertIsNone(kwargs["parsed_dir"])
+            self.assertTrue(str(kwargs["manifest"]).endswith("plan_update_manifest.json"))
+            self.assertEqual(json.loads(Path(kwargs["manifest"]).read_text(encoding="utf-8"))["cases"], [])
+            self.assertEqual(kwargs["engine"], "none")
+            self.assertFalse(kwargs["open_dashboard"])
+            self.assertFalse(kwargs["clean_demo"])
+            self.assertIn("plan_update_scope: local_roster_targets_tier_only", output.getvalue())
+            self.assertIn("不跑 OCR、不联网、不读取账号", output.getvalue())
 
     def test_run_gpt_review_writes_compact_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

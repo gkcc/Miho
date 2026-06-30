@@ -109,6 +109,12 @@ if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
             -Description "One-click local practice update from saved official share images under figs."
 
         New-MihoShortcut `
+            -Name "MihoProbe Plan Update" `
+            -TargetPath $ProbeExe `
+            -Arguments "plan-update --open" `
+            -Description "Refresh local endgame, Tier/value watchlist, action cards, and team cards without OCR."
+
+        New-MihoShortcut `
             -Name "MihoProbe Fresh OCR" `
             -TargetPath $ProbeExe `
             -Arguments "fresh --open" `

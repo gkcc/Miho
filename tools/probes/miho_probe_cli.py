@@ -84,6 +84,9 @@ def render_user_help() -> str:
   MihoProbe.exe check --no-open
     用 expected diff 验收解析准确率。不重新 OCR。
 
+  MihoProbe.exe plan-update
+    一键更新高难/Tier/配队建议（本地安全版）：不 OCR、不联网，只重算本地 Dashboard。
+
   MihoProbe.exe ask-gpt --focus "本轮要审的问题"
     生成给右侧 GPT 的固定审查包，避免反复摸索对话流程。
 
@@ -94,6 +97,7 @@ def render_user_help() -> str:
 
 开发细参：
   MihoProbe.exe dashboard --help
+  MihoProbe.exe plan-update --help
   MihoProbe.exe fresh --help
   MihoProbe.exe replay --help
   MihoProbe.exe gpt-review --help
@@ -397,6 +401,60 @@ def run_fresh(args: argparse.Namespace) -> int:
     return 0
 
 
+def write_plan_update_manifest(output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / "plan_update_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "p4.0-local-plan-update-manifest",
+                "cases": [],
+                "note": "No OCR input. This manifest only triggers local roster/targets/tier/dashboard recomputation.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def run_plan_update(args: argparse.Namespace) -> int:
+    output_dir = resolve_cli_path(args.output_dir)
+    if args.clean_demo:
+        demo_tool.clean_demo_output_dir(output_dir)
+    manifest_path = write_plan_update_manifest(output_dir)
+    print("plan_update_scope: local_roster_targets_tier_only")
+    print("plan_update_note: 不跑 OCR、不联网、不读取账号；只重算本地角色库、高难目标、Tier/保值观察和配队建议。")
+    summary = demo_tool.run_pipeline(
+        images_dir=None,
+        parsed_dir=None,
+        manifest=manifest_path,
+        output_dir=output_dir,
+        expected_dir=resolve_cli_path(args.expected_dir),
+        engine="none",
+        game=args.game,
+        layout=args.layout,
+        open_dashboard=args.open,
+        latest_only=False,
+        clean_demo=False,
+        targets=resolve_cli_path(args.targets) if args.targets else None,
+        new_only=False,
+        state_file=None,
+        history_dir=resolve_cli_path(args.history_dir) if args.history_dir else None,
+        target_source_manifest=resolve_cli_path(args.target_source_manifest) if args.target_source_manifest else None,
+        character_catalog=resolve_cli_path(args.character_catalog) if args.character_catalog else None,
+        roster_dir=resolve_cli_path(args.roster_dir) if args.roster_dir else None,
+        tier_snapshot=resolve_cli_path(args.tier_snapshot) if args.tier_snapshot else None,
+        tier_stale_days=args.tier_stale_days,
+        daily_stamina=args.daily_stamina,
+        horizon_days=args.horizon_days,
+    )
+    print(f"dashboard_html: {summary['dashboard_html']}")
+    print(f"summary_json: {summary['summary_json']}")
+    return 0
+
+
 def replay_default_output_dir() -> Path:
     stamp = datetime.now().astimezone().isoformat(timespec="seconds").replace(":", "").replace("+", "_").replace("-", "").replace("T", "_")
     return PROJECT_ROOT / "data" / "probes" / "replay_batches" / stamp
@@ -625,6 +683,25 @@ def add_replay_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the Markdown summary.")
 
 
+def add_plan_update_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--output-dir", default=str(DEFAULT_DEMO_OUTPUT_DIR), help="Output directory.")
+    parser.add_argument("--expected-dir", default=str(DEFAULT_EXPECTED_DIR), help="Expected JSON directory.")
+    parser.add_argument("--game", choices=("zzz", "hsr"), default="zzz")
+    parser.add_argument("--layout", choices=("full", "zzz-agent-card"), default="zzz-agent-card")
+    parser.add_argument("--open", action="store_true", default=True, help="Open generated dashboard. Default: true.")
+    parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the dashboard.")
+    parser.add_argument("--clean-demo", action="store_true", help="Clean demo output before local recompute. Limited to data/probes subdirectories.")
+    parser.add_argument("--targets", default=None, help="Optional planner targets JSON.")
+    parser.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
+    parser.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for planner target matching.")
+    parser.add_argument("--roster-dir", default=str(DEFAULT_ROSTER_DIR), help="Local accepted roster directory. Default: data/probes/roster.")
+    parser.add_argument("--tier-snapshot", default=None, help="Optional local tier/value snapshot JSON. Does not fetch network data.")
+    parser.add_argument("--tier-stale-days", type=int, default=60, help="Mark tier sources older than this many days as stale. Default: 60.")
+    parser.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
+    parser.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
+    parser.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
+
+
 def add_gpt_review_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
     parser.add_argument("--evidence", action="append", default=[], help="关键证据，可重复。")
@@ -688,6 +765,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     replay = subparsers.add_parser("replay", help="Developer alias for check: run parsed-vs-expected replay acceptance without OCR.")
     add_replay_args(replay)
     replay.set_defaults(handler=run_replay)
+
+    plan_update = subparsers.add_parser("plan-update", help="One-click local endgame/Tier/team suggestion update without OCR.")
+    add_plan_update_args(plan_update)
+    plan_update.set_defaults(handler=run_plan_update)
 
     normalize = subparsers.add_parser("normalize", help="Normalize one parsed JSON.")
     normalize.add_argument("--parsed", required=True, help="Parsed JSON path.")
