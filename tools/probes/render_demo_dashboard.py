@@ -531,7 +531,7 @@ def render_acceptance_guide(
         ),
         guide_card(
             "更新高难配队",
-            "不跑图片识别、不联网，只用本地已确认角色库、目标配置和 Tier/保值快照重算建议。",
+            "不跑图片识别；默认只用本地角色库、目标配置和 Tier/保值快照，显式 manifest 才访问公开来源。",
             "dist\\MihoProbe.exe plan-update --open",
             "muted",
         ),

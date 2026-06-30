@@ -146,7 +146,7 @@ def render_user_help() -> str:
     用 expected diff 验收解析准确率。不重新 OCR。
 
   MihoProbe.exe plan-update
-    一键更新高难/Tier/配队建议（本地安全版）：不 OCR、不联网，只重算本地 Dashboard。
+    一键更新高难/Tier/配队建议（安全版）：默认不 OCR、不联网；显式 source manifest 只访问公开来源。
 
   MihoProbe.exe rank-check
     只检查头像/音擎 A/S 艺术字固定区域。不跑 OCR，用来排查评级识别。
@@ -673,6 +673,72 @@ def load_optional_json(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def target_manifest_network_policy(manifest_path: Path | None) -> dict[str, Any]:
+    if manifest_path is None:
+        return {
+            "status": "local_only",
+            "uses_public_urls": False,
+            "declared_public_url_count": 0,
+            "declared_local_input_count": 0,
+            "detail": "默认只使用本地已保存 JSON / snapshot，不联网。",
+        }
+    if not manifest_path.exists():
+        return {
+            "status": "manifest_missing",
+            "uses_public_urls": False,
+            "declared_public_url_count": 0,
+            "declared_local_input_count": 0,
+            "detail": "声明了 source manifest，但文件不存在；本轮不会发起联网请求。",
+        }
+    manifest = load_optional_json(manifest_path)
+    if not manifest:
+        return {
+            "status": "manifest_unreadable",
+            "uses_public_urls": False,
+            "declared_public_url_count": 0,
+            "declared_local_input_count": 0,
+            "detail": "source manifest 无法读取或不是 JSON object；本轮不会发起联网请求。",
+        }
+
+    sources = manifest.get("sources") if isinstance(manifest.get("sources"), list) else []
+    public_url_count = 0
+    local_input_count = 0
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        if source.get("url"):
+            public_url_count += 1
+        elif source.get("input"):
+            local_input_count += 1
+
+    if public_url_count:
+        return {
+            "status": "public_sources_declared",
+            "uses_public_urls": True,
+            "declared_public_url_count": public_url_count,
+            "declared_local_input_count": local_input_count,
+            "detail": (
+                f"只访问 source manifest 声明的 {public_url_count} 个公开 http(s) 来源；"
+                "URL 仍会经过 public-only 校验，不复用登录态。"
+            ),
+        }
+    if local_input_count:
+        return {
+            "status": "local_sources_only",
+            "uses_public_urls": False,
+            "declared_public_url_count": 0,
+            "declared_local_input_count": local_input_count,
+            "detail": f"source manifest 只包含 {local_input_count} 个本地 input 文件；不联网。",
+        }
+    return {
+        "status": "manifest_has_no_sources",
+        "uses_public_urls": False,
+        "declared_public_url_count": 0,
+        "declared_local_input_count": 0,
+        "detail": "source manifest 没有可用 sources；本轮不会发起联网请求。",
+    }
+
+
 def plan_update_item(item_id: str, title: str, status: str, path: Path | None, detail: str) -> dict[str, Any]:
     return {
         "id": item_id,
@@ -703,13 +769,14 @@ def build_plan_update_readiness(args: argparse.Namespace, output_dir: Path, mani
 
     targets_path = resolve_cli_path(args.targets) if args.targets else None
     target_manifest = resolve_cli_path(args.target_source_manifest) if args.target_source_manifest else None
+    network_policy = target_manifest_network_policy(target_manifest)
     if targets_path and targets_path.exists():
         target_status = "ready"
         target_detail = "已提供本地高难目标 JSON。"
         target_path = targets_path
     elif target_manifest and target_manifest.exists():
         target_status = "manifest_ready"
-        target_detail = "已提供高难目标 source manifest，本轮会尝试生成本地 targets。"
+        target_detail = f"已提供高难目标 source manifest，本轮会尝试生成本地 targets；{network_policy['detail']}"
         target_path = target_manifest
     elif targets_path or target_manifest:
         target_status = "missing_path"
@@ -747,6 +814,7 @@ def build_plan_update_readiness(args: argparse.Namespace, output_dir: Path, mani
         plan_update_item("endgame_targets", "高难目标数据", target_status, target_path, target_detail),
         plan_update_item("tier_snapshot", "Tier/保值快照", tier_status, tier_snapshot, tier_detail),
         plan_update_item("character_catalog", "角色标签 catalog", catalog_status, catalog_path, catalog_detail),
+        plan_update_item("network_boundary", "联网边界", "ready", target_manifest, network_policy["detail"]),
     ]
     blocking_missing = [
         item["id"]
@@ -756,7 +824,10 @@ def build_plan_update_readiness(args: argparse.Namespace, output_dir: Path, mani
     ]
     if not blocking_missing:
         source_status = "ready_for_local_planning"
-        warning = "本轮可作为本地高难/Tier/配队建议的输入闭环；仍不代表自动联网或官方保证。"
+        if network_policy["uses_public_urls"]:
+            warning = "本轮可作为本地高难/Tier/配队建议的输入闭环；高难目标只访问 manifest 声明的公开来源，仍不代表官方保证。"
+        else:
+            warning = "本轮可作为本地高难/Tier/配队建议的输入闭环；默认不联网，也不代表官方保证。"
     elif "accepted_roster" in blocking_missing:
         source_status = "needs_accepted_roster"
         warning = "缺少 accepted roster，本轮不能把 pending/demo snapshot 当作已拥有 box。"
@@ -781,12 +852,14 @@ def build_plan_update_readiness(args: argparse.Namespace, output_dir: Path, mani
         "missing_blockers": blocking_missing,
         "warning": warning,
         "items": items,
+        "network_policy": network_policy,
         "next_actions": next_actions,
         "input": {
             "output_dir": str(output_dir),
             "plan_update_manifest": str(manifest_path),
             "no_ocr": True,
-            "no_network": True,
+            "no_network": not bool(network_policy["uses_public_urls"]),
+            "public_url_count": int(network_policy["declared_public_url_count"]),
             "no_account_read": True,
         },
     }
@@ -809,7 +882,13 @@ def render_plan_update_readiness_markdown(report: dict[str, Any]) -> str:
     lines.extend(["", "## 下一步", ""])
     for action in report.get("next_actions", []):
         lines.append(f"- {action}")
-    lines.extend(["", "## 安全边界", "", "- 不跑 OCR。", "- 不联网。", "- 不读取账号、cookie 或 token。"])
+    network_policy = report.get("network_policy") if isinstance(report.get("network_policy"), dict) else {}
+    lines.extend(["", "## 安全边界", "", "- 不跑 OCR。"])
+    if network_policy.get("uses_public_urls"):
+        lines.append(f"- {network_policy.get('detail')}")
+    else:
+        lines.append("- 不联网。")
+    lines.append("- 不读取账号、cookie 或 token。")
     return "\n".join(lines) + "\n"
 
 
@@ -830,8 +909,17 @@ def run_plan_update(args: argparse.Namespace) -> int:
     manifest_path = write_plan_update_manifest(output_dir)
     readiness = build_plan_update_readiness(args, output_dir, manifest_path)
     readiness_paths = write_plan_update_readiness(output_dir, readiness)
+    network_policy = readiness.get("network_policy", {})
     print("plan_update_scope: local_roster_targets_tier_only")
-    print("plan_update_note: 不跑 OCR、不联网、不读取账号；只重算本地角色库、高难目标、Tier/保值观察和配队建议。")
+    if network_policy.get("uses_public_urls"):
+        print(
+            "plan_update_note: 不跑 OCR、不读取账号/cookie/token；"
+            "只访问 --target-source-manifest 声明的公开 http(s) 来源后重算本地角色库、高难目标、Tier/保值观察和配队建议。"
+        )
+    else:
+        print("plan_update_note: 不跑 OCR、不联网、不读取账号；只重算本地角色库、高难目标、Tier/保值观察和配队建议。")
+    print(f"plan_update_network_policy: {network_policy.get('status', 'unknown')}")
+    print(f"plan_update_network_detail: {network_policy.get('detail', 'N/A')}")
     print(f"plan_update_source_status: {readiness['source_status']}")
     print(f"plan_update_missing_sources: {','.join(readiness['missing_blockers']) if readiness['missing_blockers'] else 'none'}")
     print(f"plan_update_warning: {readiness['warning']}")

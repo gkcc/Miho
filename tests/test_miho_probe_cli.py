@@ -812,8 +812,12 @@ class MihoProbeCliTests(unittest.TestCase):
             readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
             self.assertEqual(readiness["source_status"], "needs_accepted_roster")
             self.assertIn("accepted_roster", readiness["missing_blockers"])
+            self.assertEqual(readiness["network_policy"]["status"], "local_only")
             self.assertTrue(readiness["input"]["no_ocr"])
             self.assertTrue(readiness["input"]["no_network"])
+            self.assertEqual(readiness["input"]["public_url_count"], 0)
+            item_details = {item["id"]: item["detail"] for item in readiness["items"]}
+            self.assertIn("不联网", item_details["network_boundary"])
 
     def test_run_plan_update_readiness_reports_ready_sources(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -878,6 +882,118 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(statuses["endgame_targets"], "ready")
             self.assertEqual(statuses["tier_snapshot"], "ready")
             self.assertEqual(statuses["character_catalog"], "optional_missing")
+            self.assertEqual(statuses["network_boundary"], "ready")
+            self.assertEqual(readiness["network_policy"]["status"], "local_only")
+
+    def test_run_plan_update_declares_public_source_manifest_network_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            roster_dir = root / "roster"
+            roster_dir.mkdir()
+            (roster_dir / "roster_index.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p1.4-lite-roster-index",
+                        "character_count": 1,
+                        "characters": [{"name": "星见雅"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            manifest_path = root / "source_manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p1.0-public-endgame-source-manifest",
+                        "sources": [{"id": "public-news", "url": "https://example.com/endgame.html"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            tier_path = root / "tier.json"
+            tier_path.write_text(json.dumps({"items": []}, ensure_ascii=False), encoding="utf-8")
+            summary = {
+                "dashboard_html": str(root / "demo" / "index.html"),
+                "summary_json": str(root / "demo" / "demo_summary.json"),
+            }
+            fake_pipeline = mock.Mock(return_value=summary)
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli_tool.demo_tool, "run_pipeline", fake_pipeline),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_tool.run_plan_update(
+                    argparse.Namespace(
+                        output_dir=str(root / "demo"),
+                        expected_dir=str(root / "expected"),
+                        game="zzz",
+                        layout="zzz-agent-card",
+                        open=False,
+                        clean_demo=False,
+                        targets=None,
+                        target_source_manifest=str(manifest_path),
+                        character_catalog=None,
+                        roster_dir=str(roster_dir),
+                        tier_snapshot=str(tier_path),
+                        tier_stale_days=60,
+                        history_dir=None,
+                        daily_stamina=None,
+                        horizon_days=None,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            kwargs = fake_pipeline.call_args.kwargs
+            self.assertEqual(kwargs["target_source_manifest"], manifest_path)
+            text = output.getvalue()
+            self.assertIn("plan_update_network_policy: public_sources_declared", text)
+            self.assertIn("只访问 --target-source-manifest 声明的公开 http(s) 来源", text)
+            self.assertNotIn("plan_update_note: 不跑 OCR、不联网、不读取账号", text)
+            readiness_path = root / "demo" / "plan_update_readiness" / "plan_update_readiness.json"
+            readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+            self.assertEqual(readiness["source_status"], "ready_for_local_planning")
+            self.assertEqual(readiness["missing_blockers"], [])
+            self.assertFalse(readiness["input"]["no_network"])
+            self.assertEqual(readiness["input"]["public_url_count"], 1)
+            self.assertTrue(readiness["input"]["no_account_read"])
+            self.assertEqual(readiness["network_policy"]["status"], "public_sources_declared")
+            self.assertTrue(readiness["network_policy"]["uses_public_urls"])
+            item_details = {item["id"]: item["detail"] for item in readiness["items"]}
+            self.assertIn("公开 http(s) 来源", item_details["network_boundary"])
+
+    def test_run_plan_update_local_source_manifest_stays_no_network(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest_path = root / "source_manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p1.0-public-endgame-source-manifest",
+                        "sources": [{"id": "saved-html", "input": "saved/endgame.html"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                roster_dir=str(root / "roster"),
+                targets=None,
+                target_source_manifest=str(manifest_path),
+                tier_snapshot=str(root / "tier.json"),
+                character_catalog=None,
+            )
+            manifest = root / "demo" / "plan_update_manifest.json"
+            report = cli_tool.build_plan_update_readiness(args, root / "demo", manifest)
+
+            self.assertTrue(report["input"]["no_network"])
+            self.assertEqual(report["input"]["public_url_count"], 0)
+            self.assertEqual(report["network_policy"]["status"], "local_sources_only")
+            self.assertEqual(report["network_policy"]["declared_local_input_count"], 1)
+            md = cli_tool.render_plan_update_readiness_markdown(report)
+            self.assertIn("- 不联网。", md)
+            self.assertIn("- 不读取账号、cookie 或 token。", md)
 
     def test_run_rank_check_writes_visual_region_report_without_ocr(self) -> None:
         Image = cli_tool.parse_probe.load_image_dependency()

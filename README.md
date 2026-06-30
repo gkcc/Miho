@@ -30,7 +30,7 @@ scripts\install_miho_demo_shortcut.bat
 | 看软件界面 | `MihoProbe` 或 `dist\MihoProbe.exe` | 打开缓存 Dashboard，不跑 OCR。 |
 | 一键更新练度 | `MihoProbe Update` 或 `dist\MihoProbe.exe update` | 只处理 `figs\` 里的官方分享图。 |
 | 查看 APP 导出路线 | `MihoProbe App Export Workflow` 或 `dist\MihoProbe.exe app-export` | 生成官方分享图路线、readiness gates 和校准命令，不自动点击。 |
-| 更新高难配队 | `MihoProbe Plan Update` 或 `dist\MihoProbe.exe plan-update` | 只重算本地高难、Tier / 保值观察、行动卡和队伍卡。 |
+| 更新高难配队 | `MihoProbe Plan Update` 或 `dist\MihoProbe.exe plan-update` | 重算高难、Tier / 保值观察、行动卡和队伍卡；默认不联网。 |
 | 排查 A/S 评级 | `MihoProbe Rank Check` 或 `dist\MihoProbe.exe rank-check` | 不跑 OCR，只看头像左上角和音擎评级区域的艺术字。 |
 | 准确率验收 | `MihoProbe Accuracy Check` 或 `dist\MihoProbe.exe check --no-open` | 用 expected diff 回放，不重新 OCR。 |
 | 开发慢路径 | `MihoProbe Fresh OCR` 或 `dist\MihoProbe.exe fresh` | 会加载 PaddleOCR，日常不要先点。 |
@@ -80,6 +80,8 @@ dist\MihoProbe.exe rank-check --no-open
 dist\MihoProbe.exe update --rescan-all --open
 ```
 
+`plan-update` 默认不联网。只有显式传入 `--target-source-manifest`，且 manifest 里写了公开 http(s) URL 时，它才会访问这些公开页面生成本地高难目标；它仍然不读取账号、cookie、token，也不会联网刷新 Tier list 或出场率。
+
 ## 当前边界
 
 能做：
@@ -88,7 +90,7 @@ dist\MihoProbe.exe update --rescan-all --open
 - 生成米游社官方分享图工作流、校准命令和人工复核路线。
 - 对 `figs\` 中新增或变更的分享图做本地解析。
 - 用 replay manifest 做解析准确率回归。
-- 本地重算高难、Tier / 保值观察、行动卡和队伍卡。
+- 默认本地重算高难、Tier / 保值观察、行动卡和队伍卡；显式公开 source manifest 只允许访问公开页面。
 
 不能做：
 
