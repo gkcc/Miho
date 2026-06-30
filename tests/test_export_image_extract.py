@@ -214,6 +214,20 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertEqual(block["text"], "S")
         self.assertGreater(block["visual_rank_scores"]["orange"], block["visual_rank_scores"]["purple"])
 
+    def test_equipment_rank_prefers_dedicated_rank_region_over_broad_equipment_text(self) -> None:
+        blocks = [
+            ocr_block("维序者-特化型", "equipment", 140, 800, 180, 28),
+            ocr_block("LV.60", "equipment_level", 140, 850, 80, 28),
+            ocr_block("S", "equipment", 900, 800, 30, 28),
+            ocr_block("A", "equipment_rank", 900, 800, 30, 28),
+        ]
+
+        equipment = probe.extract_equipment(blocks, IMAGE_WIDTH, IMAGE_HEIGHT)
+
+        self.assertEqual(equipment["rank"]["value"], "A")
+        self.assertEqual(equipment["rank"]["source_region"], "equipment_rank")
+        self.assertEqual(equipment["rank"]["evidence"], ["A"])
+
     def test_build_result_from_replay_reuses_text_blocks_without_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

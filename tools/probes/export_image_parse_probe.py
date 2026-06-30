@@ -1353,7 +1353,23 @@ def extract_equipment(blocks: list[dict[str, Any]], image_width: int, image_heig
     level = first_lv(text)
     rank_value, rank_evidence, rank_source = None, [], "equipment"
     rank_box = ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), image_width, image_height)
+    rank_region_blocks = blocks_for_regions(blocks, {"equipment_rank"})
+    for block in sorted(
+        rank_region_blocks,
+        key=lambda item: (bool(item.get("visual_rank_fallback")), parse_confidence(item.get("confidence"))),
+        reverse=True,
+    ):
+        possible_rank = rank_from_block_text(str(block.get("text", "")), rank_region=True)
+        if possible_rank:
+            rank_value = possible_rank
+            rank_evidence = [block.get("text", "")]
+            rank_source = "equipment_rank"
+            break
     for block in equipment_blocks:
+        if rank_value is not None:
+            break
+        if block.get("region") == "equipment_rank":
+            continue
         if not block_in_box(block, rank_box):
             continue
         possible_rank = rank_from_block_text(str(block.get("text", "")), rank_region=True)
