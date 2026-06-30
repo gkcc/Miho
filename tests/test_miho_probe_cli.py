@@ -272,9 +272,10 @@ class MihoProbeCliTests(unittest.TestCase):
 
     def test_parser_has_gpt_review_entry(self) -> None:
         parser = cli_tool.build_arg_parser()
-        args = parser.parse_args(["gpt-review", "--focus", "验收入口太慢", "--no-git-status"])
+        args = parser.parse_args(["gpt-review", "--mode", "progress", "--focus", "验收入口太慢", "--no-git-status"])
 
         self.assertEqual(args.handler, cli_tool.run_gpt_review)
+        self.assertEqual(args.mode, "progress")
         self.assertEqual(args.focus, "验收入口太慢")
         self.assertTrue(args.no_git_status)
 
@@ -743,9 +744,12 @@ class MihoProbeCliTests(unittest.TestCase):
             output_path = Path(temp_dir) / "review_prompt.md"
             result = cli_tool.run_gpt_review(
                 argparse.Namespace(
+                    mode="review",
                     focus="修评级识别",
                     evidence=["226 tests OK"],
                     changed_file=["tools/probes/export_image_parse_probe.py: rank source"],
+                    completed=[],
+                    commit=None,
                     question=[],
                     constraint=[],
                     no_git_status=True,
@@ -761,6 +765,32 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("tools/probes/export_image_parse_probe.py：rank source", prompt)
             self.assertIn("Findings：", prompt)
 
+    def test_run_gpt_review_writes_progress_sync_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "progress_prompt.md"
+            result = cli_tool.run_gpt_review(
+                argparse.Namespace(
+                    mode="progress",
+                    focus="让右侧 GPT 继续挑下一刀",
+                    evidence=["264 tests OK"],
+                    changed_file=["tools/probes/miho_probe_cli.py: dependency gate"],
+                    completed=["EXE update 缺 OCR 依赖时返回 5"],
+                    commit="2628cf6 Gate frozen update on OCR dependency",
+                    question=[],
+                    constraint=[],
+                    no_git_status=True,
+                    output=str(output_path),
+                    copy=False,
+                )
+            )
+
+            self.assertEqual(result, 0)
+            prompt = output_path.read_text(encoding="utf-8")
+            self.assertIn("给右侧 GPT 的进展同步包", prompt)
+            self.assertIn("- EXE update 缺 OCR 依赖时返回 5", prompt)
+            self.assertIn("- 2628cf6 Gate frozen update on OCR dependency", prompt)
+            self.assertIn("- 264 tests OK", prompt)
+
     def test_run_gpt_review_can_copy_without_dumping_prompt(self) -> None:
         output = io.StringIO()
         with (
@@ -769,9 +799,12 @@ class MihoProbeCliTests(unittest.TestCase):
         ):
             result = cli_tool.run_gpt_review(
                 argparse.Namespace(
+                    mode="review",
                     focus="修右侧 GPT 流程",
                     evidence=[],
                     changed_file=[],
+                    completed=[],
+                    commit=None,
                     question=[],
                     constraint=[],
                     no_git_status=True,
@@ -799,9 +832,12 @@ class MihoProbeCliTests(unittest.TestCase):
                 ):
                     result = cli_tool.run_gpt_review(
                         argparse.Namespace(
+                            mode="review",
                             focus="修右侧 GPT 流程",
                             evidence=[],
                             changed_file=[],
+                            completed=[],
+                            commit=None,
                             question=[],
                             constraint=[],
                             no_git_status=True,

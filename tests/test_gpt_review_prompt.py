@@ -22,9 +22,12 @@ spec.loader.exec_module(prompt_tool)
 class GptReviewPromptTests(unittest.TestCase):
     def test_render_prompt_contains_fixed_sections_and_constraints(self) -> None:
         prompt = prompt_tool.render_prompt(
+            mode="review",
             focus="让 demo 入口更像软件入口",
             evidence=["202 tests OK"],
             changed_files=["README.md: 增加桌面快捷方式入口"],
+            completed=[],
+            commit=None,
             questions=[],
             constraints=[],
             include_git_status=False,
@@ -39,6 +42,8 @@ class GptReviewPromptTests(unittest.TestCase):
         self.assertIn("Codex 会自行实现、测试、提交和推送", prompt)
         self.assertIn("目标：", prompt)
         self.assertIn("- 让 demo 入口更像软件入口", prompt)
+        self.assertNotIn("本轮完成：", prompt)
+        self.assertNotIn("Commit：", prompt)
         self.assertIn("- 202 tests OK", prompt)
         self.assertIn("- README.md：增加桌面快捷方式入口", prompt)
         self.assertIn("不读取、打印、保存 cookie/token/stoken/ltoken。", prompt)
@@ -48,9 +53,12 @@ class GptReviewPromptTests(unittest.TestCase):
 
     def test_render_prompt_accepts_extra_question_and_constraint(self) -> None:
         prompt = prompt_tool.render_prompt(
+            mode="review",
             focus="修评级识别",
             evidence=[],
             changed_files=[],
+            completed=[],
+            commit=None,
             questions=["评级 crop 是否足够稳定？"],
             constraints=["只验证 3 张 fixture。"],
             include_git_status=False,
@@ -61,6 +69,28 @@ class GptReviewPromptTests(unittest.TestCase):
         self.assertIn("- 评级 crop 是否足够稳定？", prompt)
         self.assertIn("- 只验证 3 张 fixture。", prompt)
 
+    def test_render_progress_prompt_summarizes_completed_commit_and_next_review(self) -> None:
+        prompt = prompt_tool.render_prompt(
+            mode="progress",
+            focus="让右侧 GPT 继续挑下一刀",
+            evidence=["264 tests OK", "dist\\MihoProbe.exe update exits 5 when PaddleOCR is missing"],
+            changed_files=["tools/probes/miho_probe_cli.py: frozen dependency gate"],
+            completed=["fresh/update rank fallback 已进入 case summary", "EXE update 缺依赖时快速失败"],
+            commit="2628cf6 Gate frozen update on OCR dependency",
+            questions=[],
+            constraints=[],
+            include_git_status=False,
+        )
+
+        self.assertIn("给右侧 GPT 的进展同步包", prompt)
+        self.assertIn("这是一刀完成后的同步包", prompt)
+        self.assertIn("本轮完成：", prompt)
+        self.assertIn("- fresh/update rank fallback 已进入 case summary", prompt)
+        self.assertIn("Commit：", prompt)
+        self.assertIn("- 2628cf6 Gate frozen update on OCR dependency", prompt)
+        self.assertIn("- 264 tests OK", prompt)
+        self.assertIn("- 上一轮验收证据是否足够证明已完成？", prompt)
+
     def test_normalize_changed_files_relativizes_absolute_repo_path(self) -> None:
         absolute = PROJECT_ROOT / "tools" / "probes" / "render_demo_dashboard.py"
 
@@ -70,8 +100,9 @@ class GptReviewPromptTests(unittest.TestCase):
 
     def test_parser_supports_copy_to_clipboard(self) -> None:
         parser = prompt_tool.build_arg_parser()
-        args = parser.parse_args(["--focus", "修右侧 GPT 流程", "--copy", "--no-git-status"])
+        args = parser.parse_args(["--mode", "progress", "--focus", "修右侧 GPT 流程", "--copy", "--no-git-status"])
 
+        self.assertEqual(args.mode, "progress")
         self.assertTrue(args.copy)
         self.assertTrue(args.no_git_status)
 

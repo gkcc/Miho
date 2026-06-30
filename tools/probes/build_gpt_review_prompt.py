@@ -32,6 +32,12 @@ DEFAULT_REVIEW_QUESTIONS = (
     "下一步最小可验证实验是什么？",
 )
 
+DEFAULT_PROGRESS_QUESTIONS = (
+    "上一轮验收证据是否足够证明已完成？",
+    "还有没有会误导用户、污染数据或绕过人工确认的 P0/P1 风险？",
+    "下一刀最小代码改动是什么？",
+)
+
 REVIEWER_PROTOCOL = (
     "你是右侧 GPT reviewer，只审本包，不需要读取聊天历史或让 Codex 重新探索页面。",
     "不要要求 Codex 自动点击、发送或截图右侧 ChatGPT 页面；这条链路只靠审查包和用户手动回传。",
@@ -109,25 +115,36 @@ def normalize_changed_files(values: Iterable[str]) -> list[str]:
 
 def render_prompt(
     *,
+    mode: str = "review",
     focus: str,
     evidence: list[str],
     changed_files: list[str],
+    completed: list[str] | None = None,
+    commit: str | None = None,
     questions: list[str],
     constraints: list[str],
     include_git_status: bool,
 ) -> str:
+    prompt_mode = "progress" if mode == "progress" else "review"
     all_constraints = list(DEFAULT_CONSTRAINTS) + constraints
-    review_questions = questions or list(DEFAULT_REVIEW_QUESTIONS)
+    review_questions = questions or list(DEFAULT_PROGRESS_QUESTIONS if prompt_mode == "progress" else DEFAULT_REVIEW_QUESTIONS)
     evidence_lines = list(evidence)
     if include_git_status:
         evidence_lines.append("git status --short：")
         evidence_lines.extend(f"  {line}" for line in collect_git_status())
+    completed_lines = list(completed or [])
+    title = "给右侧 GPT 的进展同步包" if prompt_mode == "progress" else "给右侧 GPT 的审查包"
+    usage_intro = (
+        "这是一刀完成后的同步包，请右侧 GPT 只核验完成证据并继续挑下一批 P0/P1。"
+        if prompt_mode == "progress"
+        else "把这份审查包完整发给右侧 GPT。"
+    )
 
     sections = [
-        "给右侧 GPT 的审查包",
+        title,
         "",
         "使用方式：",
-        "- 把这份审查包完整发给右侧 GPT。",
+        f"- {usage_intro}",
         "- 不让 Codex 自动点右侧页面；如果剪贴板不可用，就打开本地审查包文件手动复制。",
         "- 右侧 GPT 只按本包审方案和风险，不要求 Codex 继续翻右侧历史。",
         "- 收到 Findings 后，Codex 先本地验证，再决定是否改代码。",
@@ -138,6 +155,19 @@ def render_prompt(
         "目标：",
         f"- {focus.strip() or '请审视当前方案并指出最高风险。'}",
         "",
+    ]
+    if prompt_mode == "progress":
+        sections.extend(
+            [
+                "本轮完成：",
+                *bullet_lines(completed_lines, "暂无完成项；本轮可能仍在方案审查阶段。"),
+                "",
+            ]
+        )
+        if commit:
+            sections.extend(["Commit：", f"- {commit.strip()}", ""])
+    sections.extend(
+        [
         "当前证据：",
         *bullet_lines(evidence_lines, "暂无额外证据；以本地仓库和命令输出为准。"),
         "",
@@ -153,7 +183,8 @@ def render_prompt(
         "请按以下格式回复：",
         *EXPECTED_REPLY,
         "",
-    ]
+        ]
+    )
     return "\n".join(sections)
 
 
@@ -274,9 +305,12 @@ def write_prompt_file(path: Path, prompt: str) -> Path:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build a compact prompt for right-side GPT review.")
+    parser.add_argument("--mode", choices=("review", "progress"), default="review", help="review=方案审查；progress=完成后同步验收证据。")
     parser.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
     parser.add_argument("--evidence", action="append", default=[], help="关键证据，可重复。")
     parser.add_argument("--changed-file", action="append", default=[], help='已改文件，可写 "path: 改了什么"，可重复。')
+    parser.add_argument("--completed", action="append", default=[], help="本轮已完成事项，可重复；progress 模式优先使用。")
+    parser.add_argument("--commit", default=None, help="已提交的 commit id 或说明；progress 模式使用。")
     parser.add_argument("--question", action="append", default=[], help="额外请审问题，可重复；不传则使用默认问题。")
     parser.add_argument("--constraint", action="append", default=[], help="额外约束，可重复。")
     parser.add_argument("--no-git-status", action="store_true", help="不要自动附带 git status --short。")
@@ -288,9 +322,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_arg_parser().parse_args()
     prompt = render_prompt(
+        mode=args.mode,
         focus=args.focus,
         evidence=args.evidence,
         changed_files=args.changed_file,
+        completed=args.completed,
+        commit=args.commit,
         questions=args.question,
         constraints=args.constraint,
         include_git_status=not args.no_git_status,

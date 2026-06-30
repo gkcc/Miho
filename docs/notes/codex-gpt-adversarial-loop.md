@@ -84,6 +84,29 @@ dist\MihoProbe.exe gpt-review `
 - 不提交 data/probes、真实图片、UID、OCR 原始结果。
 ```
 
+## 完成后同步包
+
+Codex 完成一刀、跑完测试、提交推送后，不再尝试直接给右侧 ChatGPT 发消息。用 progress 模式生成可粘贴同步包：
+
+```powershell
+dist\MihoProbe.exe gpt-review `
+  --mode progress `
+  --focus "本轮已完成，继续找 P0/P1" `
+  --completed "用户可见行为 A 已落地" `
+  --commit "commit id 和标题" `
+  --evidence "关键测试命令：通过结果" `
+  --changed-file "path/to/file.py: 改了什么" `
+  --copy
+```
+
+progress 包只回答三件事：
+
+- 这轮到底完成了什么。
+- 哪些命令或页面证明它完成。
+- 下一轮请 GPT 继续挑哪个最高优先级风险。
+
+如果剪贴板失败，打开 `data/probes/demo/gpt_review_prompt.md` 手动复制。不要再为发送这一条消息重试浏览器自动化。
+
 ## GPT 回包格式
 
 要求 GPT 用这个格式回复，方便 Codex 直接执行：

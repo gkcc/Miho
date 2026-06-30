@@ -1073,9 +1073,12 @@ def run_targets(args: argparse.Namespace) -> int:
 
 def run_gpt_review(args: argparse.Namespace) -> int:
     prompt = gpt_prompt_tool.render_prompt(
+        mode=args.mode,
         focus=args.focus,
         evidence=args.evidence,
         changed_files=args.changed_file,
+        completed=args.completed,
+        commit=args.commit,
         questions=args.question,
         constraints=args.constraint,
         include_git_status=not args.no_git_status,
@@ -1183,9 +1186,12 @@ def add_app_export_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_gpt_review_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--mode", choices=("review", "progress"), default="review", help="review=方案审查；progress=完成后同步验收证据。")
     parser.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
     parser.add_argument("--evidence", action="append", default=[], help="关键证据，可重复。")
     parser.add_argument("--changed-file", action="append", default=[], help='已改文件，可写 "path: 改了什么"，可重复。')
+    parser.add_argument("--completed", action="append", default=[], help="本轮已完成事项，可重复；progress 模式优先使用。")
+    parser.add_argument("--commit", default=None, help="已提交的 commit id 或说明；progress 模式使用。")
     parser.add_argument("--question", action="append", default=[], help="额外请审问题，可重复；不传则使用默认问题。")
     parser.add_argument("--constraint", action="append", default=[], help="额外约束，可重复。")
     parser.add_argument("--no-git-status", action="store_true", help="不要自动附带 git status --short。")

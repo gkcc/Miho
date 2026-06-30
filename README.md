@@ -137,6 +137,18 @@ dist\MihoProbe.exe ask-gpt `
   --copy
 ```
 
+完成一刀后，让 GPT 继续挑下一刀，用进展同步包：
+
+```powershell
+dist\MihoProbe.exe ask-gpt `
+  --mode progress `
+  --focus "本轮已完成，继续找 P0/P1" `
+  --completed "EXE update 缺 OCR 依赖时 1 秒内退出 5" `
+  --commit "2628cf6 Gate frozen update on OCR dependency" `
+  --evidence "python -m unittest discover -s tests -p test*.py：264 OK" `
+  --copy
+```
+
 `--copy` 会尽量把审查包放进剪贴板，你直接粘贴到右侧 GPT。若系统剪贴板被占用，工具会改写 `data\probes\demo\gpt_review_prompt.md`，打开这个文件复制即可。不要再让 Codex 反复探索 ChatGPT 页面。`dist\MihoProbe.exe gpt-review` 是同一个入口。还没构建 EXE 时，用 `python tools/probes/build_gpt_review_prompt.py`，参数相同。
 
 协议说明见 `docs/notes/codex-gpt-adversarial-loop.md`。
