@@ -56,12 +56,33 @@ def humanize_text(value: Any) -> str:
         ),
         (
             "缺少 run_manifest；无法确认本轮产物是否同批生成。",
-            "缺少本轮运行清单：这批 OCR、复核预览和建议可能不是同一次生成，先重跑 demo。",
+            "缺少本轮运行清单：这批识别结果、复核预览和建议可能不是同一次生成，先刷新本地演示。",
         ),
         (
             "缺少 运行清单；无法确认本轮产物是否同批生成。",
-            "缺少本轮运行清单：这批 OCR、复核预览和建议可能不是同一次生成，先重跑 demo。",
+            "缺少本轮运行清单：这批识别结果、复核预览和建议可能不是同一次生成，先刷新本地演示。",
         ),
+        ("missing_run_manifest", "缺少本轮运行清单"),
+        ("launcher_command_path_not_canonical", "启动器命令路径不在允许范围"),
+        ("launcher_report_follow_up_not_for_current_dashboard", "启动器后续建议不属于当前页面"),
+        ("launcher_report_not_for_current_dashboard", "启动器记录不属于当前页面"),
+        ("launcher_report_doctor_hash_missing", "启动器诊断校验缺失"),
+        ("follow_up_doctor_not_updated_after_rerun", "后续诊断没有在重跑后更新"),
+        ("apply_receipt_preview_result_sha256_mismatch", "应用回执与复核预览校验不一致"),
+        ("demo rerun command is safe to print", "演示重跑命令可安全展示"),
+        ("official account data", "官方账号数据"),
+        ("tokens/cookies/login state", "登录态、令牌或 Cookie"),
+        ("online tier data", "在线保值数据"),
+        ("formal database", "正式数据库"),
+        (
+            "ready_try_now_not_actionable_under_current_doctor_status",
+            "当前诊断状态不允许直接尝试",
+        ),
+        ("preview_ready_but_apply_missing", "复核预览已生成，但还没人工确认应用"),
+        ("accepted roster based local suggestions", "基于已确认角色库的本地建议"),
+        ("endgame plan", "高难方案"),
+        ("tier watchlist view", "保值观察页"),
+        ("dashboard visualization", "页面可视化"),
         (
             "pending snapshot 尚未进入 accepted roster；确认前不能进入 try_now。",
             "这张解析结果还没人工确认：确认前不能当作已拥有练度，也不会进入可尝试队伍。",
@@ -82,14 +103,30 @@ def humanize_text(value: Any) -> str:
     for old, new in sentence_replacements:
         text = text.replace(old, new)
     replacements = (
+        ("parsed JSON", "已解析结果"),
+        ("Parsed JSON", "已解析结果"),
+        ("OCR", "图片识别"),
         ("Demo pipeline", "本地演示流程"),
         ("demo pipeline", "本地演示流程"),
+        ("本地 demo", "本地演示"),
+        ("本地 Demo", "本地演示"),
         ("Dashboard", "页面"),
+        ("dashboard", "页面"),
         ("expected", "验收对照"),
         ("accepted roster", "已确认角色库"),
         ("accepted", "已确认"),
         ("roster", "角色库"),
+        ("catalog candidate", "目录候选"),
+        ("catalog", "目录"),
+        ("tier watchlist", "保值观察"),
+        ("roster delta", "角色库变化"),
+        ("action/team cards", "行动卡/队伍卡"),
         ("run_manifest", "运行清单"),
+        ("doctor", "诊断"),
+        ("launcher", "启动器"),
+        ("follow-up", "后续建议"),
+        ("blockers", "阻断项"),
+        ("warnings", "警告"),
         ("requires_review", "待人工确认"),
         ("pending snapshot", "待确认快照"),
         ("needs_review", "待复核"),
@@ -108,6 +145,8 @@ def humanize_text(value: Any) -> str:
     text = text.replace("部分 图片项", "部分图片项")
     text = text.replace("图片项 失败", "图片项失败")
     text = text.replace("打开 图片", "打开图片")
+    text = text.replace("或 已解析结果", "或已解析结果")
+    text = text.replace("run_miho_本地演示.bat", "run_miho_demo.bat")
     return text
 
 
@@ -207,6 +246,7 @@ def human_status(value: Any) -> str:
     text = str(value or "").lower()
     labels = {
         "ready": "就绪",
+        "ready_for_review": "待人工确认",
         "ready_to_try": "可尝试",
         "needs_review": "待复核",
         "requires_review": "待复核",
@@ -295,7 +335,7 @@ def render_brief_overview(brief: dict[str, Any], brief_summary: dict[str, Any], 
     if warning_count:
         tone = "bad"
         title = "先别采用建议"
-        body = "本轮数据清单缺失或不一致，页面只作为排查入口。先重跑 demo 或确认本轮产物来自同一次生成。"
+        body = "本轮数据来源缺失或不一致，页面只作为排查入口。先刷新本地演示，或确认这些产物来自同一次生成。"
     elif status == "needs_review" or pending:
         tone = "warn"
         title = f"先复核 {pending or '待确认'} 张快照"
@@ -303,7 +343,7 @@ def render_brief_overview(brief: dict[str, Any], brief_summary: dict[str, Any], 
     elif trusted or ready_targets:
         tone = "ok"
         title = "可以看本地建议"
-        body = f"当前有 {ready_targets or trusted} 个可尝试目标。它仍然只是本地 demo 建议，不会自动写正式数据库。"
+        body = f"当前有 {ready_targets or trusted} 个可尝试目标。它仍然只是本地演示建议，不会自动写正式数据库。"
     elif recording:
         tone = "warn"
         title = "先补录练度"
@@ -381,7 +421,7 @@ def command_hint_summary(value: Any) -> str:
     if "preview_review_decisions.py" in lowered:
         return "先做复核预览，只检查将要应用的决定，不写入角色库。"
     if "run_demo_pipeline.py" in lowered or "run_miho_demo.bat" in lowered:
-        return "重跑本地演示流程，重新生成同一批 OCR、复核和建议产物。"
+        return "刷新本地演示流程，重新生成同一批识别、复核和建议产物。"
     if lowered.startswith(("python ", "powershell ", "scripts\\", "scripts/")) or ".py" in lowered:
         return "这是排障命令，普通验收不用复制。"
     return humanize_text(text)
@@ -477,7 +517,7 @@ def action_label(value: Any) -> str:
         "review_snapshots": "复核待确认快照",
         "try_now": "按清单试一次",
         "review_dashboard": "查看页面明细",
-        "rebuild_run_manifest": "重建运行清单",
+        "rebuild_run_manifest": "刷新本轮数据清单",
         "resolve_blockers": "处理阻断项",
     }
     text = str(value or "unknown")
@@ -499,8 +539,8 @@ def source_mode_label(value: Any) -> str:
 def list_block(title: str, items: list[Any], css_class: str) -> str:
     if not items:
         return ""
-    html_items = "".join(f"<li>{e(item)}</li>" for item in items)
-    return f'<div class="{e(css_class)}"><strong>{e(title)}</strong><ul>{html_items}</ul></div>'
+    html_items = "".join(f"<li>{he(item)}</li>" for item in items)
+    return f'<div class="{e(css_class)}"><strong>{he(title)}</strong><ul>{html_items}</ul></div>'
 
 
 def render_demo_doctor(summary: dict[str, Any]) -> str:
@@ -517,7 +557,7 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
     evidence_warnings = evidence.get("warnings") if isinstance(evidence.get("warnings"), list) else []
     status = str(doctor.get("doctor_status") or "unknown")
     if doctor.get("error"):
-        body = f'<div class="errors"><strong>Demo Doctor failed</strong><ul><li>{e(doctor.get("error"))}</li></ul></div>'
+        body = f'<div class="errors"><strong>诊断失败</strong><ul><li>{he(doctor.get("error"))}</li></ul></div>'
     else:
         command_rows = []
         for label, key in (("重跑命令", "rerun_demo"), ("预览命令", "preview"), ("safe apply 命令", "safe_apply")):
@@ -535,7 +575,7 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
     status_copy = ""
     if status == "needs_rerun":
         status_copy = (
-            '<div class="errors"><strong>不建议执行 try_now</strong>'
+            '<div class="errors"><strong>不建议直接尝试</strong>'
             "<ul><li>当前建议可能没有吸收最新人工应用结果，或刷新状态未知；先重跑演示流程。</li></ul></div>"
         )
     elif status == "needs_apply":
@@ -545,8 +585,8 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
         )
     elif status == "ready_to_try":
         status_copy = (
-            '<div class="warnings"><strong>可以尝试但仍是本地 demo</strong>'
-            "<ul><li>只代表当前本地 accepted roster 与目标配置下的可尝试清单，不代表抽卡建议。</li></ul></div>"
+            '<div class="warnings"><strong>可以尝试但仍是本地演示</strong>'
+            "<ul><li>只代表当前本地已确认角色库与目标配置下的可尝试清单，不代表抽卡建议。</li></ul></div>"
         )
     return f"""
     <section class="panel demo-doctor">
@@ -558,7 +598,7 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
       </div>
       <div class="input-grid">
         <div><span>诊断状态</span><strong>{e(human_status(status))}</strong></div>
-        <div><span>诊断结论</span><strong>{e(doctor.get("headline") or "N/A")}</strong></div>
+        <div><span>诊断结论</span><strong>{he(doctor.get("headline") or "N/A")}</strong></div>
         <div><span>下一步</span><strong>{e(action_label(doctor.get("primary_next_action")))}</strong></div>
         <div><span>允许尝试</span><strong>{e(bool_text(doctor.get("try_now_allowed")))}</strong></div>
         <div><span>需要重跑</span><strong>{e(bool_text(doctor.get("rerun_required")))}</strong></div>
@@ -575,7 +615,7 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
         <div><span>重跑命令一致</span><strong>{e(bool_text(evidence.get("matched_refresh_command")))}</strong></div>
         <div><span>运行清单一致</span><strong>{e(bool_text(evidence.get("matched_run_manifest")))}</strong></div>
         <div><span>动作边界</span><strong>{e(action_label(action_contract.get("primary_next_action")))}</strong></div>
-        <div><span>launcher 允许</span><strong>{e(bool_text(action_contract.get("allowed_for_launcher")))}</strong></div>
+        <div><span>启动器允许</span><strong>{e(bool_text(action_contract.get("allowed_for_launcher")))}</strong></div>
         <div><span>会写角色库</span><strong>{e(bool_text(action_contract.get("writes_roster")))}</strong></div>
         <div><span>需人工确认</span><strong>{e(bool_text(action_contract.get("requires_manual_confirmation")))}</strong></div>
         <div><span>待复核快照</span><strong>{e(doctor_summary.get("pending_review_count", "N/A"))}</strong></div>
@@ -608,15 +648,15 @@ def render_update_command(summary: dict[str, Any]) -> str:
         command_block = (
             '<div class="resource-plan"><h3>可复制命令</h3>'
             f'<pre class="command-block"><code>{e(command)}</code></pre>'
-            "<p class=\"muted-line\">这条命令只调用安全 launcher：重跑本地 demo、读取 follow-up doctor、刷新 Dashboard，并保留最近 launcher history。</p></div>"
+            "<p class=\"muted-line\">这条命令只调用安全启动器：刷新本地演示、读取后续诊断、刷新页面，并保留最近启动器历史。</p></div>"
         )
     else:
         command_block = (
             '<div class="errors"><strong>当前不可作为本地更新命令运行</strong>'
-            "<ul><li>请先处理 blockers；Dashboard 只展示诊断，不触发工具动作。</li></ul></div>"
+            "<ul><li>请先处理阻断项；页面只展示诊断，不触发工具动作。</li></ul></div>"
         )
-    update_items = "".join(f"<li>{e(item)}</li>" for item in updates) or "<li>N/A</li>"
-    not_items = "".join(f"<li>{e(item)}</li>" for item in does_not_update) or "<li>N/A</li>"
+    update_items = "".join(f"<li>{he(item)}</li>" for item in updates) or "<li>N/A</li>"
+    not_items = "".join(f"<li>{he(item)}</li>" for item in does_not_update) or "<li>N/A</li>"
     return f"""
     <section class="panel update-command">
       <h2>本地更新命令</h2>
@@ -1075,11 +1115,11 @@ def render_action_cards(summary: dict[str, Any]) -> str:
                     tier_bits.append(f"tier {tier_signal.get('tier')}")
                 if tier_signal.get("retention_score") is not None:
                     tier_bits.append(f"保值 {percent_label(tier_signal.get('retention_score'))}")
-            tier_note = f"<span>tier signal: {e(' · '.join(tier_bits))}</span>" if tier_bits else ""
+            tier_note = f"<span>保值观察：{e(' · '.join(tier_bits))}</span>" if tier_bits else ""
             source_note = (
                 "候选 ≠ 已拥有"
                 if item.get("source_class") in {"pending_snapshot", "catalog_candidate", "catalog_owned_missing_snapshot"}
-                else "accepted roster"
+                else "已确认角色库"
             )
             rows.append(
                 "<article class=\"plan-item\">"
@@ -1088,7 +1128,7 @@ def render_action_cards(summary: dict[str, Any]) -> str:
                 f"<h3>{e(item.get('title'))}</h3>"
                 f"<p>{e(item.get('reason'))}</p>"
                 f"<span>{e(item.get('target'))}</span>"
-                f"<span>{e(source_note)} · evidence: {e(' · '.join(evidence_bits) or 'N/A')}</span>"
+                f"<span>{e(source_note)} · 证据：{e(' · '.join(evidence_bits) or 'N/A')}</span>"
                 f"{tier_note}"
                 "</div>"
                 f"<strong>{e(item.get('priority'))}<br>{e(item.get('status'))}</strong>"
@@ -1098,17 +1138,17 @@ def render_action_cards(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>下一步行动</h2>
-      <p class="muted-line">候选 ≠ 已拥有；catalog candidate 必须先确认拥有状态或补录官方分享图。</p>
+      <p class="muted-line">候选 ≠ 已拥有；目录候选必须先确认拥有状态或补录官方分享图。</p>
       <div class="links">
         {link("action_cards.md", actions.get("output_md"))}
         {link("action_cards.json", actions.get("output_json"))}
       </div>
       <div class="input-grid">
-        <div><span>covered targets</span><strong>{e(card_summary.get("covered_target_count", "N/A"))}</strong></div>
-        <div><span>uncovered targets</span><strong>{e(card_summary.get("uncovered_target_count", "N/A"))}</strong></div>
-        <div><span>high priority</span><strong>{e(card_summary.get("high_priority_action_count", "N/A"))}</strong></div>
-        <div><span>needs recording</span><strong>{e(card_summary.get("needs_recording_count", "N/A"))}</strong></div>
-        <div><span>tier signals</span><strong>{e(card_summary.get("tier_signal_count", "N/A"))}</strong></div>
+        <div><span>已覆盖目标</span><strong>{e(card_summary.get("covered_target_count", "N/A"))}</strong></div>
+        <div><span>未覆盖目标</span><strong>{e(card_summary.get("uncovered_target_count", "N/A"))}</strong></div>
+        <div><span>高优先级</span><strong>{e(card_summary.get("high_priority_action_count", "N/A"))}</strong></div>
+        <div><span>需补录</span><strong>{e(card_summary.get("needs_recording_count", "N/A"))}</strong></div>
+        <div><span>保值信号</span><strong>{e(card_summary.get("tier_signal_count", "N/A"))}</strong></div>
         <div><span>高保值行动</span><strong>{e(card_summary.get("high_value_owned_action_count", "N/A"))}</strong></div>
         <div><span>低保值复核</span><strong>{e(card_summary.get("low_value_review_count", "N/A"))}</strong></div>
         <div><span>已确认角色</span><strong>{e(card_summary.get("owned_character_count", "N/A"))}</strong></div>
@@ -1170,9 +1210,9 @@ def render_team_cards(summary: dict[str, Any]) -> str:
                 f"<h3>{e(item.get('team_title'))}</h3>"
                 f"<p>{e(item.get('coverage_reason'))}</p>"
                 f"<span>{e(' / '.join(member_bits) or '无成员')}</span>"
-                f"<span>team value: 已确认高保值 {e(team_value.get('accepted_high_value_members', 0))} · stale {e(team_value.get('stale_meta_count', 0))} · unverified {e(team_value.get('unverified_meta_count', 0))}</span>"
-                f"<span>evidence: {e(' · '.join(evidence_bits) or 'N/A')}</span>"
-                f"<span>warning: {e(warning_text)}</span>"
+                f"<span>队伍保值：已确认高保值 {e(team_value.get('accepted_high_value_members', 0))} · 过期 {e(team_value.get('stale_meta_count', 0))} · 未验证 {e(team_value.get('unverified_meta_count', 0))}</span>"
+                f"<span>证据：{e(' · '.join(evidence_bits) or 'N/A')}</span>"
+                f"<span>警告：{he(warning_text)}</span>"
                 "</div>"
                 f"<strong>{e(item.get('target_priority'))}<br>{e(item.get('team_status'))}</strong>"
                 "</article>"
@@ -1181,21 +1221,21 @@ def render_team_cards(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>高难配队候选</h2>
-      <p class="muted-line">队伍候选基于 accepted roster、本地快照、本地 catalog 与本地 Tier/保值观察；catalog candidate 不代表已拥有，Tier/保值观察不是抽取建议。</p>
+      <p class="muted-line">队伍候选基于已确认角色库、本地快照、本地目录与本地保值观察；目录候选不代表已拥有，保值观察不是抽取建议。</p>
       <div class="links">
         {link("team_cards.md", teams.get("output_md"))}
         {link("team_cards.json", teams.get("output_json"))}
       </div>
       <div class="input-grid">
-        <div><span>target count</span><strong>{e(team_summary.get("target_count", "N/A"))}</strong></div>
-        <div><span>team cards</span><strong>{e(team_summary.get("team_card_count", "N/A"))}</strong></div>
-        <div><span>playable now</span><strong>{e(team_summary.get("playable_now_count", "N/A"))}</strong></div>
-        <div><span>needs recording</span><strong>{e(team_summary.get("needs_recording_count", "N/A"))}</strong></div>
-        <div><span>catalog candidates</span><strong>{e(team_summary.get("catalog_candidate_count", "N/A"))}</strong></div>
+        <div><span>目标数</span><strong>{e(team_summary.get("target_count", "N/A"))}</strong></div>
+        <div><span>队伍卡</span><strong>{e(team_summary.get("team_card_count", "N/A"))}</strong></div>
+        <div><span>当前可用</span><strong>{e(team_summary.get("playable_now_count", "N/A"))}</strong></div>
+        <div><span>需补录</span><strong>{e(team_summary.get("needs_recording_count", "N/A"))}</strong></div>
+        <div><span>目录候选</span><strong>{e(team_summary.get("catalog_candidate_count", "N/A"))}</strong></div>
         <div><span>已确认高保值成员</span><strong>{e(team_summary.get("accepted_high_value_member_count", "N/A"))}</strong></div>
         <div><span>高保值可用队伍</span><strong>{e(team_summary.get("high_value_playable_team_count", "N/A"))}</strong></div>
-        <div><span>stale tier</span><strong>{e(team_summary.get("stale_meta_count", "N/A"))}</strong></div>
-        <div><span>unverified tier</span><strong>{e(team_summary.get("unverified_meta_count", "N/A"))}</strong></div>
+        <div><span>过期保值观察</span><strong>{e(team_summary.get("stale_meta_count", "N/A"))}</strong></div>
+        <div><span>未验证保值观察</span><strong>{e(team_summary.get("unverified_meta_count", "N/A"))}</strong></div>
       </div>
       {warning_block}
       {body}
@@ -1228,7 +1268,7 @@ def render_review_inbox(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>练度更新收件箱</h2>
-      <p class="muted-line">demo normalized 是 OCR/解析候选；只有 accepted roster 可以作为已拥有练度。</p>
+      <p class="muted-line">本地标准化快照只是图片识别/解析候选；只有已确认角色库可以作为已拥有练度。</p>
       <div class="links">
         {link("roster_index.json", inbox.get("roster_index_json"))}
         {link("review_apply_receipt.md", inbox.get("review_apply_receipt_md"))}
@@ -1785,12 +1825,12 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
                 "<div>"
                 f"<h3>{e(item.get('target'))}</h3>"
                 f"<p>{e(item.get('recommended_line'))}</p>"
-                f"<span>队伍：{e(first_team.get('team_title') or '无')} · {e(first_team.get('rank_reason') or 'N/A')}</span>"
+                f"<span>队伍：{e(first_team.get('team_title') or '无')} · {he(first_team.get('rank_reason') or 'N/A')}</span>"
                 f"<span>成员：{e(' / '.join(member_bits) or '无')}</span>"
-                f"<span>下一步：{e(action_bits or 'none')}</span>"
-                f"<span>evidence: {e(evidence.get('target_source') or 'N/A')} · {e(evidence.get('target_hash') or 'hash?')} · {e(' / '.join(hash_bits) or 'artifact hash missing')}</span>"
-                f"<span>trust: {e(item.get('plan_trust_level') or 'N/A')} · source_status {e(item.get('source_plan_status') or item.get('plan_status'))}</span>"
-                f"<span>warning: {e(warnings_text or 'none')}</span>"
+                f"<span>下一步：{he(action_bits or '无')}</span>"
+                f"<span>证据：{e(evidence.get('target_source') or 'N/A')} · {e(evidence.get('target_hash') or 'hash?')} · {e(' / '.join(hash_bits) or '产物 hash 缺失')}</span>"
+                f"<span>可信度：{e(human_status(item.get('plan_trust_level') or 'N/A'))} · 来源状态 {e(human_status(item.get('source_plan_status') or item.get('plan_status')))}</span>"
+                f"<span>警告：{he(warnings_text or '无')}</span>"
                 "</div>"
                 f"<strong>{e(item.get('target_priority'))}<br>{e(first_team.get('team_status') or item.get('plan_status'))}</strong>"
                 "</article>"
@@ -1799,7 +1839,7 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>本期高难方案</h2>
-      <p class="muted-line">这里只聚合 accepted roster、team/action cards、roster delta 和本地 Tier/保值观察；不是抽卡建议，也不是自动通关保证。</p>
+      <p class="muted-line">这里只聚合已确认角色库、队伍卡、行动卡、角色库变化和本地保值观察；不是抽卡建议，也不是自动通关保证。</p>
       <div class="links">
         {link("endgame_plan.md", plan.get("output_md"))}
         {link("endgame_plan.json", plan.get("output_json"))}
@@ -1846,7 +1886,7 @@ def render_tier_watchlist(summary: dict[str, Any]) -> str:
     else:
         rows = []
         for item in entries[:10]:
-            owned_note = "accepted roster" if item.get("owned_status") == "accepted_roster" else "候选 ≠ 已拥有"
+            owned_note = "已确认角色库" if item.get("owned_status") == "accepted_roster" else "候选 ≠ 已拥有"
             modes = "、".join(str(mode) for mode in item.get("modes", []) if mode) if isinstance(item.get("modes"), list) else ""
             evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
             detail = (
@@ -1869,21 +1909,21 @@ def render_tier_watchlist(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>Tier / 保值观察</h2>
-      <p class="muted-line">本区只读取本地 tier snapshot 和 accepted roster；它不是联网爬取，也不是抽取建议。stale/unverified 只能作为弱参考。</p>
+      <p class="muted-line">本区只读取本地保值观察快照和已确认角色库；它不是联网爬取，也不是抽取建议。过期或未验证条目只能作为弱参考。</p>
       <div class="links">
         {link("tier_watchlist.md", watchlist.get("output_md"))}
         {link("tier_watchlist.json", watchlist.get("output_json"))}
       </div>
       <div class="input-grid">
-        <div><span>entry count</span><strong>{e(tier_summary.get("entry_count", "N/A"))}</strong></div>
+        <div><span>条目数</span><strong>{e(tier_summary.get("entry_count", "N/A"))}</strong></div>
         <div><span>已确认命中</span><strong>{e(tier_summary.get("accepted_roster_count", "N/A"))}</strong></div>
         <div><span>已有高保值</span><strong>{e(tier_summary.get("owned_high_value_count", "N/A"))}</strong></div>
         <div><span>观察候选</span><strong>{e(tier_summary.get("watch_candidate_count", "N/A"))}</strong></div>
         <div><span>低保值已有</span><strong>{e(tier_summary.get("low_value_owned_count", "N/A"))}</strong></div>
-        <div><span>verified</span><strong>{e(tier_summary.get("verified_entry_count", "N/A"))}</strong></div>
-        <div><span>stale</span><strong>{e(tier_summary.get("stale_entry_count", "N/A"))}</strong></div>
-        <div><span>unverified</span><strong>{e(tier_summary.get("unverified_entry_count", "N/A"))}</strong></div>
-        <div><span>source</span><strong>{e(tier_summary.get("source_name", "N/A"))}</strong></div>
+        <div><span>已验证</span><strong>{e(tier_summary.get("verified_entry_count", "N/A"))}</strong></div>
+        <div><span>已过期</span><strong>{e(tier_summary.get("stale_entry_count", "N/A"))}</strong></div>
+        <div><span>未验证</span><strong>{e(tier_summary.get("unverified_entry_count", "N/A"))}</strong></div>
+        <div><span>来源</span><strong>{e(tier_summary.get("source_name", "N/A"))}</strong></div>
       </div>
       {warning_block}
       {body}
@@ -2001,7 +2041,7 @@ def render_html(summary: dict[str, Any]) -> str:
     refresh_summary = refresh_info.get("summary", {}) if isinstance(refresh_info.get("summary"), dict) else {}
     safe_apply = safe_apply_status(summary)
     metrics = [
-        metric_card("Demo 状态", overall.get("demo_status") or "N/A", status_class(overall.get("demo_status"))),
+        metric_card("演示状态", human_status(overall.get("demo_status") or "N/A"), status_class(overall.get("demo_status"))),
         metric_card("当前诊断", doctor_info.get("doctor_status", "N/A") if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
         metric_card("本地更新命令", update_command_info.get("status", "N/A") if update_command_info else "N/A", status_class(update_command_info.get("status")) if update_command_info else "muted"),
         metric_card("诊断下一步", action_label(doctor_info.get("primary_next_action")) if doctor_info else "N/A", status_class(doctor_info.get("doctor_status")) if doctor_info else "muted"),
@@ -2015,14 +2055,14 @@ def render_html(summary: dict[str, Any]) -> str:
             launcher_info.get("launcher_status", "N/A") if launcher_info else "N/A",
             status_class(launcher_info.get("launcher_status")) if launcher_info else "muted",
         ),
-        metric_card("try_now 允许", bool_text(doctor_info.get("try_now_allowed")) if doctor_info else "N/A", "ok" if doctor_info.get("try_now_allowed") else "bad" if doctor_info else "muted"),
+        metric_card("允许尝试", bool_text(doctor_info.get("try_now_allowed")) if doctor_info else "N/A", "ok" if doctor_info.get("try_now_allowed") else "bad" if doctor_info else "muted"),
         metric_card("刷新状态", refresh_info.get("refresh_status", "N/A") if refresh_info else "N/A", status_class(refresh_info.get("refresh_status")) if refresh_info else "muted"),
         metric_card("需要重跑", refresh_summary.get("needs_demo_refresh", "N/A") if refresh_summary else "N/A", "bad" if refresh_summary.get("needs_demo_refresh") else "muted"),
         metric_card("简报状态", final_info.get("brief_status", "N/A") if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
         metric_card("清单状态", checklist_info.get("checklist_status", "N/A") if checklist_info else "N/A", status_class(checklist_info.get("checklist_status")) if checklist_info else "muted"),
         metric_card("复核预览", preview_info.get("preview_status", "N/A") if preview_info else "N/A", status_class(preview_info.get("preview_status")) if preview_info else "muted"),
         metric_card("安全应用", safe_apply, status_class(safe_apply)),
-        metric_card("已进 Roster", apply_summary.get("did_enter_roster_count", "N/A") if apply_summary else "N/A", "ok" if apply_summary.get("did_enter_roster_count") else "muted"),
+        metric_card("已进角色库", apply_summary.get("did_enter_roster_count", "N/A") if apply_summary else "N/A", "ok" if apply_summary.get("did_enter_roster_count") else "muted"),
         metric_card("模式", input_info.get("source_mode") or "unknown", "muted"),
         metric_card("Case 数", overall.get("case_count", 0), "muted"),
         metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),
@@ -2043,15 +2083,15 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("本轮处理图片", update_info.get("processed_image_count", "N/A") if update_info else "N/A", "ok" if update_info.get("processed_image_count") else "muted"),
         metric_card("历史变化", history_info.get("changed_character_count", "N/A") if history_info else "N/A", "warn" if history_info.get("changed_character_count") else "muted"),
         metric_card("终局目标", target_info.get("target_count", "N/A") if target_info else "N/A", "warn" if target_info.get("error") else "ok" if target_info else "muted"),
-        metric_card("Plan Items", plan_info.get("plan_item_count", 0) if plan_info else "N/A", "warn" if plan_info.get("error") else "ok" if plan_info else "muted"),
+        metric_card("培养事项", plan_info.get("plan_item_count", 0) if plan_info else "N/A", "warn" if plan_info.get("error") else "ok" if plan_info else "muted"),
         metric_card("高优先级行动", action_summary.get("high_priority_action_count", "N/A") if action_summary else "N/A", "ok" if action_summary.get("high_priority_action_count") else "muted"),
         metric_card("需补录/确认", action_summary.get("needs_recording_count", "N/A") if action_summary else "N/A", "warn" if action_summary.get("needs_recording_count") else "muted"),
         metric_card("待确认快照", inbox_info.get("pending_count", "N/A") if inbox_info else "N/A", "warn" if inbox_info.get("pending_count") else "muted"),
         metric_card("已确认 Box", inbox_info.get("accepted_count", "N/A") if inbox_info else "N/A", "ok" if inbox_info.get("accepted_count") else "muted"),
         metric_card("已有高保值", tier_summary.get("owned_high_value_count", "N/A") if tier_summary else "N/A", "ok" if tier_summary.get("owned_high_value_count") else "muted"),
         metric_card("Tier 观察候选", tier_summary.get("watch_candidate_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("watch_candidate_count") else "muted"),
-        metric_card("stale tier", tier_summary.get("stale_entry_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("stale_entry_count") else "muted"),
-        metric_card("unverified tier", tier_summary.get("unverified_entry_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("unverified_entry_count") else "muted"),
+        metric_card("过期保值观察", tier_summary.get("stale_entry_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("stale_entry_count") else "muted"),
+        metric_card("未验证保值观察", tier_summary.get("unverified_entry_count", "N/A") if tier_summary else "N/A", "warn" if tier_summary.get("unverified_entry_count") else "muted"),
         metric_card("本次新增", delta_summary.get("new_character_count", "N/A") if delta_summary else "N/A", "ok" if delta_summary.get("new_character_count") else "muted"),
         metric_card("本次更新", delta_summary.get("updated_character_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("updated_character_count") else "muted"),
         metric_card("更新影响队伍", delta_summary.get("team_impact_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("team_impact_count") else "muted"),
