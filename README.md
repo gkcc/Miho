@@ -36,6 +36,8 @@ Miho 是一个本地优先的游戏练度更新与规划工具。最终目标很
 
 默认入口现在不会自动跑 OCR。第一次还没有 Dashboard 缓存时，`MihoProbe` 会打开初次启动页，不是报错。
 
+`app-export` 当前只生成“官方分享图路线 + readiness gates + 校准命令”。它不是自动导出按钮；只有用户确认官方 UI 坐标后，后续才可能逐步打开确认式点击。
+
 如果 `MihoProbe Fresh OCR` 或 `scripts\run_miho_demo.bat --fresh` 十分钟没反应，先关掉它，改点 `MihoProbe` 看缓存 Dashboard。Fresh OCR 慢通常是 PaddleOCR 模型加载或图片识别，不代表缓存界面坏了。
 
 评级失败先别重跑整张图。`MihoProbe Rank Check` 只检查角色头像左上角和音擎区域的 A/S 艺术字，几秒内就能判断是不是评级 crop 问题。
@@ -111,7 +113,7 @@ dist\MihoProbe.exe fresh --rescan-all
 能做：
 
 - 从官方分享图或已有 parsed JSON 生成本地 Dashboard。
-- `dist\MihoProbe.exe app-export` 生成米游社官方分享图工作流和校准命令包，当前不自动点击。
+- `dist\MihoProbe.exe app-export` 生成米游社官方分享图路线、readiness gates 和校准命令包，当前不自动点击。
 - `dist\MihoProbe.exe update` 处理 `figs/` 中新增或变更的官方分享图。
 - `dist\MihoProbe.exe plan-update` 只重算高难、Tier / 保值观察、行动卡和队伍卡。
 - `dist\MihoProbe.exe rank-check` 快速检查角色/音擎 A/S 评级区域。

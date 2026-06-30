@@ -28,9 +28,13 @@ class MiyousheExportWorkflowTests(unittest.TestCase):
         )
         validation = workflow_tool.validate_workflow(workflow)
 
-        self.assertEqual(workflow["schema_version"], "p4.2-miyoushe-official-export-workflow")
+        self.assertEqual(workflow["schema_version"], "p4.3-miyoushe-official-export-workflow")
         self.assertTrue(workflow["official_ui_only"])
         self.assertEqual(validation["status"], "ready_for_calibration")
+        self.assertEqual(workflow["operator_route"]["automation_status"], "disabled_until_calibrated")
+        self.assertEqual(workflow["operator_route"]["update_command"], "dist\\MihoProbe.exe update --open")
+        self.assertIn("Dashboard 人工复核", workflow["operator_route"]["review_gate"])
+        self.assertGreaterEqual(validation["readiness_gate_count"], 6)
         for forbidden in (
             "auto_login",
             "credential_input",
@@ -55,6 +59,7 @@ class MiyousheExportWorkflowTests(unittest.TestCase):
         self.assertIn("parse_saved_images", command_ids)
         self.assertTrue(any("--confirm-official-ui" in command["command"] for command in workflow["calibration_commands"]))
         self.assertTrue(any("dist\\MihoProbe.exe update" in command["command"] for command in workflow["calibration_commands"]))
+        self.assertTrue(any("--open" in command["command"] for command in workflow["calibration_commands"]))
         checklist = "\n".join(workflow["operator_checklist"])
         self.assertIn("不点击登录", checklist)
         self.assertIn("先生成网格截图", checklist)
@@ -75,8 +80,14 @@ class MiyousheExportWorkflowTests(unittest.TestCase):
             self.assertTrue(html_path.exists())
             data = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(data["validation"]["status"], "ready_for_calibration")
+            self.assertEqual(data["workflow"]["operator_route"]["current_route_status"], "calibration_required")
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("米游社官方分享图一键更新练度", html)
+            self.assertIn("当前还不是自动点击", html)
+            self.assertIn("官方分享图路线", html)
+            self.assertIn("dist\\MihoProbe.exe update --open", html)
+            self.assertIn("Dashboard 人工复核", html)
+            self.assertIn("Readiness Gates", html)
             self.assertIn("不自动登录", html)
             self.assertIn("操作前检查", html)
             self.assertIn("下一步校准命令", html)
@@ -85,6 +96,7 @@ class MiyousheExportWorkflowTests(unittest.TestCase):
             self.assertIn("--confirm-official-ui", html)
             self.assertIn("保存官方分享图", html)
             self.assertIn("解析保存后的分享图", html)
+            self.assertNotIn("自动导出已可用", html)
 
 
 if __name__ == "__main__":

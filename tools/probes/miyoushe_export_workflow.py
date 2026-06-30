@@ -14,7 +14,7 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo" / "app_export_workflow"
 DEFAULT_IMAGE_INBOX = PROJECT_ROOT / "figs"
-SCHEMA_VERSION = "p4.2-miyoushe-official-export-workflow"
+SCHEMA_VERSION = "p4.3-miyoushe-official-export-workflow"
 
 FORBIDDEN_CAPABILITIES = (
     "auto_login",
@@ -210,7 +210,7 @@ def default_calibration_commands(*, game: str, window_title: str, image_inbox: P
             "id": "parse_saved_images",
             "title": "解析保存后的分享图",
             "purpose": "官方分享图保存到本地收件箱后，回到本地解析和人工复核。",
-            "command": command_text(["dist\\MihoProbe.exe", "update", "--images-dir", inbox]),
+            "command": command_text(["dist\\MihoProbe.exe", "update", "--images-dir", inbox, "--open"]),
             "expected_signal": "Dashboard、review HTML、parsed JSON 更新；OCR 结果仍需人工确认。",
         },
     ]
@@ -227,6 +227,92 @@ def default_operator_checklist() -> list[str]:
     ]
 
 
+def default_operator_route(image_inbox: Path) -> dict[str, Any]:
+    inbox = rel_path(image_inbox)
+    return {
+        "route_title": "官方分享图路线",
+        "current_route_status": "calibration_required",
+        "automation_status": "disabled_until_calibrated",
+        "next_command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --dry-run",
+        "manual_save_to_figs_step": f"在米游社官方 UI 保存分享图到 {inbox}，或手动把官方分享图放进该目录。",
+        "update_command": "dist\\MihoProbe.exe update --open",
+        "review_gate": "Dashboard 人工复核通过后，才允许进入本地 accepted roster / 高难建议。",
+        "route_steps": [
+            {
+                "label": "1. 打开官方 APP",
+                "status": "manual",
+                "description": "用户手动打开已登录的米游社 APP；工具不登录、不读 cookie/token。",
+                "command": "",
+            },
+            {
+                "label": "2. 校准官方 UI",
+                "status": "needed",
+                "description": "只读确认窗口，再生成网格截图；坐标必须由用户确认是官方 UI。",
+                "command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --grid-size 100",
+            },
+            {
+                "label": "3. 保存官方分享图",
+                "status": "manual_or_confirmed_ui_only",
+                "description": f"图片进入 {inbox}；不自动点击登录、验证码、广告或游戏客户端。",
+                "command": "",
+            },
+            {
+                "label": "4. 本地更新 Dashboard",
+                "status": "implemented",
+                "description": "只处理本地官方分享图，失败时必须显式非 0 或显示阻断状态。",
+                "command": "dist\\MihoProbe.exe update --open",
+            },
+            {
+                "label": "5. 人工复核后再采用",
+                "status": "required",
+                "description": "OCR/解析候选只进待复核区；人工确认前不进入正式建议依据。",
+                "command": "",
+            },
+        ],
+    }
+
+
+def default_readiness_gates() -> list[dict[str, str]]:
+    return [
+        {
+            "id": "window_found",
+            "label": "找到米游社窗口",
+            "status": "needed",
+            "evidence": "find_window 输出 matched_windows。",
+        },
+        {
+            "id": "coordinates_calibrated",
+            "label": "官方 UI 坐标已校准",
+            "status": "needed",
+            "evidence": "capture_grid 截图 + dry_run_coordinate 证明坐标仍在窗口内。",
+        },
+        {
+            "id": "official_ui_confirmed",
+            "label": "只点击已确认官方 UI",
+            "status": "needed",
+            "evidence": "execute 命令必须带 --confirm-official-ui。",
+        },
+        {
+            "id": "share_image_saved",
+            "label": "官方分享图进入 figs",
+            "status": "user_action_needed",
+            "evidence": "figs/ 下出现用户确认的官方分享图。",
+        },
+        {
+            "id": "local_update_parse",
+            "label": "本地 update 可运行",
+            "status": "implemented",
+            "evidence": "dist\\MihoProbe.exe update --open 生成 Dashboard 或显式失败。",
+        },
+        {
+            "id": "manual_review_gate",
+            "label": "人工复核闸门",
+            "status": "required_before_import",
+            "evidence": "Dashboard/review HTML 确认字段后才可进入 accepted roster。",
+        },
+    ]
+
+
 def build_workflow(*, game: str, window_title: str, image_inbox: Path) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -240,6 +326,8 @@ def build_workflow(*, game: str, window_title: str, image_inbox: Path) -> dict[s
         "requires_user_logged_in_app": True,
         "does_not": list(FORBIDDEN_CAPABILITIES),
         "next_implementation_step": "把 planned 导航步骤逐个绑定 UIA selector 或经用户确认的窗口相对坐标。",
+        "operator_route": default_operator_route(image_inbox),
+        "readiness_gates": default_readiness_gates(),
         "operator_checklist": default_operator_checklist(),
         "calibration_commands": default_calibration_commands(
             game=game,
@@ -274,6 +362,9 @@ def validate_workflow(workflow: dict[str, Any]) -> dict[str, Any]:
         "step_count": len(steps),
         "implemented_step_count": len(implemented),
         "planned_step_count": len(planned),
+        "readiness_gate_count": len(workflow.get("readiness_gates", []))
+        if isinstance(workflow.get("readiness_gates"), list)
+        else 0,
         "calibration_command_count": len(workflow.get("calibration_commands", []))
         if isinstance(workflow.get("calibration_commands"), list)
         else 0,
@@ -302,6 +393,34 @@ def render_html(package: dict[str, Any]) -> str:
         )
     warnings = validation.get("warnings") if isinstance(validation.get("warnings"), list) else []
     warning_items = "".join(f"<li>{escape(str(item))}</li>" for item in warnings) or "<li>无</li>"
+    route = workflow.get("operator_route") if isinstance(workflow.get("operator_route"), dict) else {}
+    route_steps = route.get("route_steps") if isinstance(route.get("route_steps"), list) else []
+    route_cards = []
+    for step in route_steps:
+        if not isinstance(step, dict):
+            continue
+        command = str(step.get("command") or "")
+        command_html = f"<code>{escape(command)}</code>" if command else ""
+        route_cards.append(
+            '<article class="route-card">'
+            f"<b>{escape(str(step.get('label') or ''))}</b>"
+            f"<span>{escape(str(step.get('status') or ''))}</span>"
+            f"<p>{escape(str(step.get('description') or ''))}</p>"
+            f"{command_html}"
+            "</article>"
+        )
+    gates = workflow.get("readiness_gates") if isinstance(workflow.get("readiness_gates"), list) else []
+    gate_cards = []
+    for gate in gates:
+        if not isinstance(gate, dict):
+            continue
+        gate_cards.append(
+            '<article class="gate">'
+            f"<b>{escape(str(gate.get('label') or gate.get('id') or ''))}</b>"
+            f"<span>{escape(str(gate.get('status') or ''))}</span>"
+            f"<p>{escape(str(gate.get('evidence') or ''))}</p>"
+            "</article>"
+        )
     checklist = workflow.get("operator_checklist") if isinstance(workflow.get("operator_checklist"), list) else []
     checklist_items = "".join(f"<li>{escape(str(item))}</li>" for item in checklist) or "<li>无</li>"
     commands = workflow.get("calibration_commands") if isinstance(workflow.get("calibration_commands"), list) else []
@@ -345,6 +464,12 @@ def render_html(package: dict[str, Any]) -> str:
     .step.warn b {{ background: #fff4d8; color: #9a6500; }}
     .step.soft b {{ background: #eff6ff; color: #1d4ed8; }}
     .commands {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }}
+    .route, .gates {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }}
+    .route-card, .gate {{ display: grid; gap: 8px; padding: 14px; border: 1px solid #dbe3ef; border-radius: 8px; background: #fbfcff; }}
+    .route-card b, .gate b {{ font-size: 15px; }}
+    .route-card span, .gate span {{ width: fit-content; padding: 4px 8px; border-radius: 999px; background: #fff4d8; color: #9a6500; font-size: 12px; font-weight: 900; }}
+    .route-card p, .gate p {{ margin: 0; color: #475569; line-height: 1.45; }}
+    .route-card code {{ display: block; padding: 10px; border-radius: 8px; background: #0f172a; color: #e2e8f0; white-space: pre-wrap; overflow-wrap: anywhere; }}
     .command {{ display: grid; gap: 8px; padding: 14px; border: 1px solid #dbe3ef; border-radius: 8px; background: #fbfcff; }}
     .command h3 {{ margin: 0; font-size: 16px; }}
     .command p {{ margin: 0; color: #475569; line-height: 1.45; }}
@@ -364,6 +489,19 @@ def render_html(package: dict[str, Any]) -> str:
       <div class="metric"><span>步骤数</span><strong>{escape(str(validation.get("step_count") or 0))}</strong></div>
       <div class="metric"><span>已实现步骤</span><strong>{escape(str(validation.get("implemented_step_count") or 0))}</strong></div>
       <div class="metric"><span>待校准导航</span><strong>{escape(str(validation.get("planned_step_count") or 0))}</strong></div>
+      <div class="metric"><span>复核闸门</span><strong>{escape(str(validation.get("readiness_gate_count") or 0))}</strong></div>
+    </section>
+    <section class="panel">
+      <h2>当前还不是自动点击</h2>
+      <p>{escape(str(route.get("route_title") or "官方分享图路线"))}：{escape(str(route.get("current_route_status") or ""))}；自动化状态：{escape(str(route.get("automation_status") or ""))}。</p>
+      <p>下一步：{escape(str(route.get("next_command") or ""))}</p>
+      <p>更新命令：{escape(str(route.get("update_command") or ""))}</p>
+      <p>复核闸门：{escape(str(route.get("review_gate") or ""))}</p>
+      <div class="route">{''.join(route_cards)}</div>
+    </section>
+    <section class="panel">
+      <h2>Readiness Gates</h2>
+      <div class="gates">{''.join(gate_cards)}</div>
     </section>
     <section class="panel">
       <h2>边界</h2>
