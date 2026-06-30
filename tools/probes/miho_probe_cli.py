@@ -328,6 +328,21 @@ def load_cached_app_export_readiness(summary_path: Path) -> dict[str, Any] | Non
             readiness["calibration_screenshot"] = screenshot.get("path")
     if run_report:
         readiness["runner_status"] = run_report.get("status") or "unknown"
+        readiness["operator_status"] = run_report.get("operator_status") or ""
+        readiness["status_label"] = run_report.get("status_label") or ""
+        readiness["headline"] = run_report.get("headline") or ""
+        readiness["next_command"] = run_report.get("next_command") or readiness.get("next_command") or ""
+        readiness["saved_image_count"] = run_report.get("saved_image_count", 0)
+        readiness["operator_route"] = run_report.get("operator_route") if isinstance(run_report.get("operator_route"), list) else []
+        readiness["safety_boundary"] = (
+            run_report.get("safety_boundary") if isinstance(run_report.get("safety_boundary"), list) else readiness.get("forbidden_boundaries", [])
+        )
+        gates = run_report.get("gates") if isinstance(run_report.get("gates"), dict) else {}
+        if gates:
+            readiness["runner_gates"] = gates
+        preflight_checks = run_report.get("preflight_checks") if isinstance(run_report.get("preflight_checks"), list) else []
+        if preflight_checks:
+            readiness["preflight_checks"] = preflight_checks
         readiness["runner_next_action"] = run_report.get("next_action") or ""
         validation_report = run_report.get("validation") if isinstance(run_report.get("validation"), dict) else {}
         readiness["runner_missing_coordinate_count"] = validation_report.get("missing_coordinate_count", 0)

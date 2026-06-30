@@ -260,6 +260,32 @@ class MihoProbeCliTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (workflow_dir / "miyoushe_export_workflow.html").write_text("<html>workflow</html>", encoding="utf-8")
+            (workflow_dir / "miyoushe_app_export_run_report.json").write_text(
+                json.dumps(
+                    {
+                        "status": "needs_coordinates",
+                        "operator_status": "saved_images_ready",
+                        "status_label": "已有分享图可更新",
+                        "headline": "已检测到本地官方分享图；下一步进入一键更新和人工复核。",
+                        "next_command": r"dist\MihoProbe.exe update --open",
+                        "saved_image_count": 2,
+                        "operator_route": [
+                            "手动在米游社 APP 保存官方分享图到 figs\\",
+                            r"运行 dist\MihoProbe.exe update --open",
+                            "Dashboard 人工复核后才进入本地角色库/高难建议",
+                        ],
+                        "safety_boundary": ["不自动登录", "不读取 token/cookie", "不抓包", "不 UIA", "不自动入库"],
+                        "preflight_checks": [
+                            {"name": "本地分享图", "status": "ready", "detail": "figs 中检测到 2 张图片。"}
+                        ],
+                        "validation": {"missing_coordinate_count": 6, "unconfirmed_step_count": 6},
+                        "clicked_count": 0,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (workflow_dir / "miyoushe_app_export_run_report.html").write_text("<html>run</html>", encoding="utf-8")
             dashboard_path.write_text("<html><body>Brief Warning</body></html>", encoding="utf-8")
 
             result = cli_tool.run_dashboard(
@@ -274,10 +300,22 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(result, 0)
             html = dashboard_path.read_text(encoding="utf-8")
             self.assertIn("一键更新练度准备状态", html)
-            self.assertIn("已沉淀路线，等待校准", html)
-            self.assertIn("当前不会自动点击米游社", html)
+            self.assertIn("已有分享图可更新", html)
+            self.assertIn("已检测到本地官方分享图", html)
+            self.assertIn("下一步命令", html)
+            self.assertIn("dist\\MihoProbe.exe update --open", html)
+            self.assertIn("本地分享图 2", html)
+            self.assertIn("手动在米游社 APP 保存官方分享图到 figs\\", html)
+            self.assertIn("不自动登录、不读取 token/cookie", html)
             self.assertIn("校准清单状态", html)
             self.assertIn("APP 导出流程页", html)
+            self.assertIn("APP 导出预检报告", html)
+            self.assertIn("官方 UI 坐标校准", html)
+            self.assertIn("仍需", html)
+            self.assertNotIn("APP 导出执行报告", html)
+            self.assertNotIn("UIA selector calibration", html)
+            self.assertNotIn("still need", html)
+            self.assertNotIn("official_ui_only", html)
 
     def test_dashboard_command_treats_old_brief_links_as_legacy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

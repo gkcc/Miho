@@ -107,6 +107,12 @@ def humanize_text(value: Any) -> str:
             "review_apply_receipt.created_at is newer than run_manifest.created_at",
             "人工应用时间晚于运行清单：当前页面可能还没吸收最新复核结果。",
         ),
+        ("UIA selector calibration", "官方 UI 坐标校准"),
+        ("navigation step(s)", "导航步骤"),
+        ("still need", "仍需"),
+        ("official_ui_only", "只允许官方 UI"),
+        ("P0.9 replay batch", "固定清单准确率验收"),
+        ("parsed-dir", "历史结果目录"),
     )
     for old, new in sentence_replacements:
         text = text.replace(old, new)
@@ -204,8 +210,8 @@ def humanize_link_label(label: str) -> str:
         "miyoushe_app_export_calibration_report.html": "APP 导出校准报告",
         "miyoushe_app_export_calibration_report.json": "APP 导出校准数据",
         "calibration_screenshot": "APP 导出网格截图",
-        "miyoushe_app_export_run_report.html": "APP 导出执行报告",
-        "miyoushe_app_export_run_report.json": "APP 导出执行数据",
+        "miyoushe_app_export_run_report.html": "APP 导出预检报告",
+        "miyoushe_app_export_run_report.json": "APP 导出预检数据",
         "parsed_json": "原始解析",
         "expected_json": "验收对照",
         "expected_diff_md": "差异报告",
@@ -346,7 +352,7 @@ def operation_card(title: str, body: str, command: str, tone: str = "muted") -> 
 
 def render_operation_bar() -> str:
     cards = [
-        operation_card("看软件体验", "打开已有 Dashboard；默认入口不会跑 OCR，也不会读账号登录态。", r"dist\MihoProbe.exe", "safe"),
+        operation_card("看软件体验", "打开已有页面；默认入口不会跑图片识别，也不会读账号登录态。", r"dist\MihoProbe.exe", "safe"),
         operation_card(
             "一键更新练度",
             r"处理 figs\ 里已保存的米游社官方分享图；只有这条会进入图片识别慢路径。",
@@ -355,7 +361,7 @@ def render_operation_bar() -> str:
         ),
         operation_card(
             "评级快检",
-            "只看角色头像左上角和音擎评级区的 A/S 艺术字；不跑 OCR。",
+            "只看角色头像左上角和音擎评级区的 A/S 艺术字；不跑图片识别。",
             r"dist\MihoProbe.exe rank-check --open",
             "safe",
         ),
@@ -489,7 +495,8 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
     if not isinstance(report, dict):
         return ""
     status = str(report.get("status") or "unknown")
-    tone = status_class(status)
+    operator_status = str(report.get("operator_status") or "")
+    tone = status_class(operator_status or status)
     status_title = {
         "ready_for_calibration": "已沉淀路线，等待校准",
         "needs_coordinates": "缺少坐标，不能点击",
@@ -498,7 +505,13 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
         "ready_for_execute": "已校准，等待显式执行",
         "executed": "已执行校准清单",
         "blocked": "导出路线被阻断",
-    }.get(status, human_status(status))
+        "saved_images_ready": "已有分享图可更新",
+        "not_calibrated": "校准未完成",
+        "waiting_manual_confirm": "等待人工确认",
+        "dry_run_ready": "可 dry-run",
+        "executable_after_confirm": "可执行确认命令",
+    }.get(operator_status or status, str(report.get("status_label") or human_status(status)))
+    headline = str(report.get("headline") or "当前不会自动点击米游社；这里只展示官方分享图路线、校准要求和本地 update 入口。")
     route_steps = report.get("route_steps") if isinstance(report.get("route_steps"), list) else []
     step_cards = []
     for step in route_steps[:5]:
@@ -530,9 +543,12 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
     )
     warnings = report.get("warnings") if isinstance(report.get("warnings"), list) else []
     warnings_html = "".join(f"<li>{he(item)}</li>" for item in warnings) or "<li>暂无额外警告。</li>"
-    forbidden = report.get("forbidden_boundaries") if isinstance(report.get("forbidden_boundaries"), list) else []
+    forbidden = report.get("safety_boundary") if isinstance(report.get("safety_boundary"), list) else []
+    if not forbidden:
+        forbidden = report.get("forbidden_boundaries") if isinstance(report.get("forbidden_boundaries"), list) else []
     forbidden_text = "、".join(str(item) for item in forbidden[:8]) if forbidden else "不自动登录、不读 token/cookie、不抓包"
     update_command_text = str(report.get("update_command") or r"dist\MihoProbe.exe update --open")
+    next_command = str(report.get("next_command") or update_command_text)
     calibrate_command = str(report.get("calibrate_command") or r"dist\MihoProbe.exe app-export-calibrate --open")
     calibration_status = str(report.get("calibration_status") or "needs_window_capture")
     calibration_next_action = str(report.get("calibration_next_action") or "先打开米游社 APP，然后生成网格截图。")
@@ -543,8 +559,23 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
     runner_counts = (
         f"缺坐标 {e(report.get('runner_missing_coordinate_count', 0))}；"
         f"未确认 {e(report.get('runner_unconfirmed_step_count', 0))}；"
-        f"已点击 {e(report.get('runner_clicked_count', 0))}"
+        f"已点击 {e(report.get('runner_clicked_count', 0))}；"
+        f"本地分享图 {e(report.get('saved_image_count', 0))}"
     )
+    operator_route = report.get("operator_route") if isinstance(report.get("operator_route"), list) else []
+    operator_route_html = "".join(f"<li>{he(item)}</li>" for item in operator_route) or "<li>手动保存官方分享图到 figs，再运行本地更新。</li>"
+    checks = report.get("preflight_checks") if isinstance(report.get("preflight_checks"), list) else []
+    check_cards = []
+    for check in checks[:4]:
+        if not isinstance(check, dict):
+            continue
+        check_cards.append(
+            f'<article class="source-card {e(status_class(check.get("status")))}">'
+            f"<strong>{he(check.get('name'))}</strong>"
+            f"<span>{he(check.get('status'))}</span>"
+            f"<p>{he(check.get('detail'))}</p>"
+            "</article>"
+        )
     screenshot_src = file_href(report.get("calibration_screenshot"))
     screenshot_html = (
         f'<div class="app-export-shot"><img src="{e(screenshot_src)}" alt="APP 导出网格截图"></div>'
@@ -556,7 +587,8 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
       <div>
         <span>一键更新练度准备状态</span>
         <h2>{e(status_title)}</h2>
-        <p>当前不会自动点击米游社；这里只展示官方分享图路线、校准要求和本地 update 入口。</p>
+        <p>{he(headline)}</p>
+        <p class="compact-line"><strong>下一步命令：</strong>{he(next_command)}</p>
         <p class="compact-line"><strong>保存图片：</strong>{he(report.get("manual_save_to_figs_step"))}</p>
         <p class="compact-line"><strong>人工复核：</strong>{e(str(report.get("review_gate") or ""))}</p>
         <div class="soft-links">{links}</div>
@@ -577,7 +609,7 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
           </article>
           <article class="source-card ok">
             <strong>本地更新入口</strong>
-            <span>{he(report.get("automation_status"))}</span>
+            <span>{he(operator_status or report.get("automation_status"))}</span>
             <p>{he(update_command_text)}</p>
           </article>
           <article class="source-card warn">
@@ -592,11 +624,16 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
           </article>
           <article class="source-card warn">
             <strong>边界不变</strong>
-            <span>official_ui_only</span>
+            <span>只允许官方 UI</span>
             <p>{e(forbidden_text)}</p>
           </article>
+          {"".join(check_cards)}
         </div>
         {screenshot_html}
+        <details class="soft-details" open>
+          <summary>推荐路线</summary>
+          <ol>{operator_route_html}</ol>
+        </details>
         <details class="soft-details" open>
           <summary>路线进度</summary>
           <div class="source-grid">{"".join(step_cards)}</div>
@@ -639,7 +676,7 @@ def render_acceptance_guide(
     elif parse_fail_count or expected_fail_count:
         tone = "warn"
         headline = "识别结果还需要修"
-        body = f"当前解析失败 {parse_fail_count}，验收对照未通过 {expected_fail_count}；先跑准确率验收看 top failed fields。"
+        body = f"当前解析失败 {parse_fail_count}，验收对照未通过 {expected_fail_count}；先跑准确率验收看失败字段。"
     elif can_act_now:
         tone = "ok"
         headline = "可以继续看本地建议"
@@ -2342,7 +2379,7 @@ def render_run_manifest(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>运行一致性</h2>
-      <p class="muted-line">用于确认 roster、targets、action/team cards、tier watchlist 和 roster delta 是否为同一批生成。当前包含历史 parsed 结果时，平均通过率不代表 P0.9 replay batch。</p>
+      <p class="muted-line">用于确认角色库、目标、行动卡、队伍卡、保值观察和角色库变化是否为同一批生成。当前包含历史解析结果时，平均通过率不代表固定清单准确率验收。</p>
       <div class="links">{link("run_manifest.json", manifest.get("output_json"))}</div>
       <div class="input-grid">
         <div><span>run_id</span><strong>{e(manifest.get("run_id") or "N/A")}</strong></div>
@@ -2732,16 +2769,16 @@ def render_html(summary: dict[str, Any]) -> str:
         status_tone = "warn"
     elif case_count == 0:
         status_title = "还没有本地数据"
-        status_body = "当前没有可用分享图或 parsed JSON；先放入官方分享图，或使用已有 manifest/parsed replay。"
+        status_body = "当前没有可用分享图或已解析结果；先放入官方分享图，或使用固定清单回放已有结果。"
     elif parse_fail_count:
         status_title = "本轮识别失败"
         status_body = (
-            f"有 {parse_fail_count} 张图没有成功解析。Dashboard 已生成用于诊断，"
-            "但本轮结果不会进入练度建议；fresh/update 会返回非 0。"
+            f"有 {parse_fail_count} 张图没有成功解析。页面已生成用于诊断，"
+            "但本轮结果不会进入练度建议；更新命令会返回非 0。"
         )
     elif expected_fail_count:
         status_title = "准确率验收未通过"
-        status_body = f"有 {expected_fail_count} 个样例和 expected 不一致；先看 top failed fields，再改解析规则。"
+        status_body = f"有 {expected_fail_count} 个样例和人工对照答案不一致；先看失败字段，再改解析规则。"
     elif manual_review_count:
         status_title = "先人工确认"
         status_body = f"有 {manual_review_count} 个识别结果待确认；确认前不会进入本地角色库，也不会作为配队依据。"
@@ -2789,7 +2826,7 @@ def render_html(summary: dict[str, Any]) -> str:
         summary_card(
             "会不会重新识别",
             "默认不会",
-            "只打开 Dashboard 看缓存不会跑 OCR；点“一键更新练度”才会处理官方分享图。",
+            "只打开页面看缓存不会跑图片识别；点“一键更新练度”才会处理官方分享图。",
             "ok",
         ),
         summary_card(

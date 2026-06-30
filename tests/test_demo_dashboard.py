@@ -353,15 +353,28 @@ class DemoDashboardTests(unittest.TestCase):
             "calibration_next_action": "照着网格截图，把每个步骤的 x/y 填入校准清单。",
             "route_status": "calibration_required",
             "automation_status": "disabled_until_calibrated",
+            "operator_status": "saved_images_ready",
+            "status_label": "已有分享图可更新",
+            "headline": "已检测到本地官方分享图；下一步进入一键更新和人工复核。",
             "calibrate_command": r"dist\MihoProbe.exe app-export-calibrate --open",
-            "next_command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --dry-run",
+            "next_command": r"dist\MihoProbe.exe update --open",
             "dry_run_command": r"dist\MihoProbe.exe app-export-run --no-open",
             "execute_command": r"dist\MihoProbe.exe app-export-run --execute --confirm-official-ui --no-open",
             "update_command": r"dist\MihoProbe.exe update --open",
+            "saved_image_count": 3,
             "manual_save_to_figs_step": "在米游社官方 UI 保存分享图到 figs，或手动把官方分享图放进该目录。",
             "review_gate": "Dashboard 人工复核通过后，才允许进入本地 accepted roster / 高难建议。",
-            "forbidden_boundaries": ["auto_login", "token_read", "cookie_read", "game_client_control"],
+            "safety_boundary": ["不自动登录", "不读取 token/cookie", "不抓包", "不 UIA", "不自动入库"],
             "warnings": ["4 navigation step(s) still need UIA selector calibration."],
+            "operator_route": [
+                "手动在米游社 APP 保存官方分享图到 figs\\",
+                r"运行 dist\MihoProbe.exe update --open",
+                "Dashboard 人工复核后才进入本地角色库/高难建议",
+            ],
+            "preflight_checks": [
+                {"name": "本地分享图", "status": "ready", "detail": "figs 中检测到 3 张图片。"},
+                {"name": "执行模式", "status": "dry-run", "detail": "默认只读预检；点击必须显式确认。"},
+            ],
             "route_steps": [
                 {
                     "label": "1. 打开官方 APP",
@@ -381,11 +394,16 @@ class DemoDashboardTests(unittest.TestCase):
         html = dashboard_tool.render_html(summary)
 
         self.assertIn("一键更新练度准备状态", html)
-        self.assertIn("已沉淀路线，等待校准", html)
-        self.assertIn("当前不会自动点击米游社", html)
+        self.assertIn("已有分享图可更新", html)
+        self.assertIn("已检测到本地官方分享图", html)
+        self.assertIn("下一步命令", html)
         self.assertIn("先生成网格截图", html)
         self.assertIn("screenshot_captured", html)
         self.assertIn("校准清单状态", html)
+        self.assertIn("本地分享图 3", html)
+        self.assertIn("figs 中检测到 3 张图片", html)
+        self.assertIn("推荐路线", html)
+        self.assertIn("手动在米游社 APP 保存官方分享图到 figs\\", html)
         self.assertIn("先 dry-run", html)
         self.assertIn("确认后执行", html)
         self.assertIn("app-export-run", html)
@@ -396,7 +414,15 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("APP 导出流程数据", html)
         self.assertIn("APP 导出校准清单", html)
         self.assertIn("APP 导出校准报告", html)
+        self.assertIn("APP 导出预检报告", html)
         self.assertIn("APP 导出网格截图", html)
+        self.assertIn("官方 UI 坐标校准", html)
+        self.assertIn("仍需", html)
+        self.assertIn("只允许官方 UI", html)
+        self.assertNotIn("APP 导出执行报告", html)
+        self.assertNotIn("UIA selector calibration", html)
+        self.assertNotIn("still need", html)
+        self.assertNotIn("official_ui_only", html)
 
     def test_dashboard_layout_is_bounded_for_wide_screens(self) -> None:
         html = dashboard_tool.render_html(dashboard_minimal_summary())
@@ -2016,7 +2042,7 @@ class DemoDashboardTests(unittest.TestCase):
             html = output.read_text(encoding="utf-8")
             self.assertIn("本轮识别失败", html)
             self.assertIn("有 1 张图没有成功解析", html)
-            self.assertIn("fresh/update 会返回非 0", html)
+            self.assertIn("更新命令会返回非 0", html)
 
     def test_run_demo_pipeline_latest_only_keeps_newest_parsed_per_source_image(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
