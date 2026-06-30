@@ -679,6 +679,24 @@ def visual_rank_blocks_from_image_path(
         image.close()
 
 
+def visual_rank_metadata_from_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for block in blocks:
+        if not block.get("visual_rank_fallback"):
+            continue
+        entries.append(
+            {
+                "region": block.get("region"),
+                "rank": block.get("text"),
+                "scores": block.get("visual_rank_scores"),
+                "method": block.get("visual_rank_method"),
+                "reason": block.get("visual_rank_reason"),
+                "confidence": block.get("visual_rank_confidence"),
+            }
+        )
+    return entries
+
+
 def parse_tesseract_blocks(
     data: dict[str, Any],
     *,
@@ -2381,17 +2399,9 @@ def build_result_from_replay(
     visual_rank_blocks = visual_rank_blocks_from_image_path(image_path, game=game, layout=layout, blocks=source_blocks)
     if visual_rank_blocks:
         source_blocks.extend(visual_rank_blocks)
-        result["metadata"]["visual_rank_fallback"] = [
-            {
-                "region": block.get("region"),
-                "rank": block.get("text"),
-                "scores": block.get("visual_rank_scores"),
-                "method": block.get("visual_rank_method"),
-                "reason": block.get("visual_rank_reason"),
-                "confidence": block.get("visual_rank_confidence"),
-            }
-            for block in visual_rank_blocks
-        ]
+    visual_rank_metadata = visual_rank_metadata_from_blocks(source_blocks)
+    if visual_rank_metadata:
+        result["metadata"]["visual_rank_fallback"] = visual_rank_metadata
 
     result["text_blocks"] = source_blocks
     result["extracted_draft"] = build_extracted_draft(
@@ -2451,6 +2461,9 @@ def build_result(image_path: Path, *, engine: str, lang: str, game: str | None, 
         ocr_result, blocks = run_ocr(image_path, engine=engine, lang=lang, game=game, layout=layout)
         result["image"] = ocr_result["image"]
         result["layout_regions"] = ocr_result["layout_regions"]
+        visual_rank_metadata = visual_rank_metadata_from_blocks(blocks)
+        if visual_rank_metadata:
+            result["metadata"]["visual_rank_fallback"] = visual_rank_metadata
         result["text_blocks"] = blocks
         result["extracted_draft"] = build_extracted_draft(
             game=game,
