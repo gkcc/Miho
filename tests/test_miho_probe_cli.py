@@ -443,6 +443,58 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertTrue(kwargs["new_only"])
             self.assertFalse(kwargs["open_dashboard"])
             self.assertIn("fresh_mode: new_or_changed_only", output.getvalue())
+            self.assertIn("fresh_status: done", output.getvalue())
+
+    def test_run_fresh_returns_nonzero_when_pipeline_has_hard_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            figs = root / "figs"
+            figs.mkdir()
+            summary = {
+                "dashboard_html": str(root / "demo" / "index.html"),
+                "summary_json": str(root / "demo" / "demo_summary.json"),
+                "overall": {
+                    "demo_status": "HAS_PARSE_FAILURE",
+                    "hard_failure_count": 1,
+                    "review_failed_count": 1,
+                    "normalization_failed_count": 0,
+                },
+            }
+            fake_pipeline = mock.Mock(return_value=summary)
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli_tool.demo_tool, "run_pipeline", fake_pipeline),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_tool.run_fresh(
+                    argparse.Namespace(
+                        command="fresh",
+                        images_dir=str(figs),
+                        output_dir=str(root / "demo"),
+                        expected_dir=str(root / "expected"),
+                        engine="paddle",
+                        game="zzz",
+                        layout="zzz-agent-card",
+                        open=False,
+                        rescan_all=False,
+                        clean_demo=False,
+                        targets=None,
+                        state_file=None,
+                        history_dir=None,
+                        target_source_manifest=None,
+                        character_catalog=None,
+                        roster_dir=str(root / "roster"),
+                        tier_snapshot=None,
+                        tier_stale_days=60,
+                        daily_stamina=None,
+                        horizon_days=None,
+                    )
+                )
+
+            self.assertEqual(result, 3)
+            self.assertIn("hard_failure_count: 1", output.getvalue())
+            self.assertIn("fresh_status: failed_with_hard_case_failures", output.getvalue())
+            self.assertIn("did not succeed", output.getvalue())
 
     def test_run_update_prints_safe_scope_before_fresh_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

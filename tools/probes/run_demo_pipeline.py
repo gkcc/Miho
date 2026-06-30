@@ -8,7 +8,6 @@ import hashlib
 import json
 import re
 import shutil
-import subprocess
 import sys
 import time
 import webbrowser
@@ -41,6 +40,7 @@ import plan_training_priorities as planner  # noqa: E402
 import prepare_endgame_targets as target_intake  # noqa: E402
 import render_demo_dashboard as dashboard  # noqa: E402
 import render_export_review as review_render  # noqa: E402
+import review_export_image as review_once  # noqa: E402
 
 
 DEFAULT_IMAGES_DIR = PROJECT_ROOT / "figs"
@@ -679,42 +679,29 @@ def process_image_case(
     case["crops_dir"] = str(crop_dir)
     case_dir.mkdir(parents=True, exist_ok=True)
     crop_dir.mkdir(parents=True, exist_ok=True)
-    command = [
-        sys.executable,
-        str(SCRIPT_DIR / "review_export_image.py"),
-        "--image",
-        str(image_path),
-        "--output-dir",
-        str(case_dir),
-        "--engine",
-        engine,
-        "--lang",
-        "chi_sim+eng",
-        "--game",
-        game,
-        "--layout",
-        layout,
-        "--write-crops",
-        "--crop-output-dir",
-        str(crop_dir),
-    ]
-    completed = subprocess.run(command, cwd=PROJECT_ROOT, text=True, capture_output=True)
-    output_values: dict[str, str] = {}
-    for line in completed.stdout.splitlines():
-        if ": " not in line:
-            continue
-        key, value = line.split(": ", 1)
-        output_values[key.strip()] = value.strip()
-    if completed.returncode != 0:
-        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
+    try:
+        review_result = review_once.run_review(
+            image_path=image_path,
+            output_dir=case_dir,
+            engine=engine,
+            lang="chi_sim+eng",
+            game=game,
+            layout=layout,
+            write_crops=True,
+            crop_output_dir=crop_dir,
+        )
+    except Exception as exc:  # noqa: BLE001 - keep demo case failures isolated in the review inbox.
+        detail = str(exc) or exc.__class__.__name__
         case["errors"].append(f"review failed: {detail}")
         return case
-    case["parsed_json"] = output_values.get("parsed_json")
-    case["parsed_markdown"] = output_values.get("parsed_markdown")
-    case["review_html"] = output_values.get("review_html")
-    case["overlay_png"] = output_values.get("overlay_png")
-    case["review_status"] = output_values.get("review_status")
-    case["coverage_level"] = output_values.get("coverage_level")
+    case["parsed_json"] = review_result.get("json_path")
+    case["parsed_markdown"] = review_result.get("markdown_path")
+    case["review_html"] = review_result.get("review_html")
+    case["overlay_png"] = review_result.get("overlay_png")
+    case["review_status"] = review_result.get("review_status")
+    case["coverage_level"] = review_result.get("coverage_level")
+    for error in review_result.get("errors") or []:
+        case["errors"].append(f"parse warning: {error}")
     parsed_path = path_or_none(case["parsed_json"])
     if not parsed_path:
         return case
@@ -955,6 +942,13 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
     for case in cases:
         case.update(case_statuses(case, source_mode_value))
     parse_success_count = sum(1 for case in cases if case.get("parsed_json"))
+    hard_failed_cases = [
+        case
+        for case in cases
+        if case.get("parse_status") == "FAIL" or case.get("normalized_status") == "FAILED"
+    ]
+    review_failed_count = sum(1 for case in cases if case.get("parse_status") == "FAIL")
+    normalization_failed_count = sum(1 for case in cases if case.get("normalized_status") == "FAILED")
     review_counts: dict[str, int] = {}
     parse_status_counts: dict[str, int] = {}
     expected_status_counts: dict[str, int] = {}
@@ -1010,6 +1004,9 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
             "normalized_status_counts": normalized_status_counts,
             "import_status_counts": import_status_counts,
             "demo_status": demo_status,
+            "hard_failure_count": len(hard_failed_cases),
+            "review_failed_count": review_failed_count,
+            "normalization_failed_count": normalization_failed_count,
             "expected_available_count": sum(1 for case in cases if case.get("expected_json")),
             "average_pass_rate": round(sum(pass_rates) / len(pass_rates), 4) if pass_rates else None,
             "normalized_count": len(normalized_paths),
@@ -1029,6 +1026,15 @@ def summarize(cases: list[dict[str, Any]], output_dir: Path, input_info: dict[st
             summary["snapshot_diff_error"] = str(exc)
     summary["pipeline_steps"] = pipeline_steps(summary)
     return summary
+
+
+def exit_code_for_summary(summary: dict[str, Any]) -> int:
+    overall = summary.get("overall", {}) if isinstance(summary.get("overall"), dict) else {}
+    if int(overall.get("hard_failure_count", 0) or 0) > 0:
+        return 3
+    if str(overall.get("demo_status") or "") == "HAS_PARSE_FAILURE":
+        return 3
+    return 0
 
 
 def build_training_plan(
@@ -2023,23 +2029,34 @@ def run_pipeline(
             print(f"[Miho Demo] Fresh OCR: no new image selected from {active_images_dir}", flush=True)
         for index, image_path in enumerate(selected_images, start=1):
             started_at = time.perf_counter()
-            print(f"[Miho Demo] OCR {index}/{total_images}: {image_path.name}", flush=True)
-            cases.append(
-                process_image_case(
-                    image_path,
-                    name=image_path.stem,
-                    output_dir=output_dir,
-                    expected_dir=expected_dir,
-                    engine=engine,
-                    game=game,
-                    layout=layout,
-                )
+            print(f"[Miho Demo] OCR {index}/{total_images}: review start: {image_path.name}", flush=True)
+            case = process_image_case(
+                image_path,
+                name=image_path.stem,
+                output_dir=output_dir,
+                expected_dir=expected_dir,
+                engine=engine,
+                game=game,
+                layout=layout,
             )
+            cases.append(case)
             elapsed = time.perf_counter() - started_at
-            print(f"[Miho Demo] OCR {index}/{total_images} done in {elapsed:.1f}s: {image_path.name}", flush=True)
+            statuses = case_statuses(case, MODE_OCR_FRESH_IMAGE)
+            if statuses.get("parse_status") == "FAIL":
+                first_error = str((case.get("errors") or ["review failed"])[0])
+                print(
+                    f"[Miho Demo] OCR {index}/{total_images}: review failed in {elapsed:.1f}s: {image_path.name}: {first_error}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[Miho Demo] OCR {index}/{total_images}: review {statuses.get('parse_status')} in {elapsed:.1f}s: {image_path.name}",
+                    flush=True,
+                )
         write_update_state(active_state_file, state, update_records, cases)
         input_info["update_state"] = build_update_summary(active_state_file, update_records, cases)
 
+    print("[Miho Demo] Building local dashboard artifacts...", flush=True)
     snapshot_history = build_snapshot_history(cases, history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME))
     summary = summarize(cases, output_dir, input_info, snapshot_history)
     demo_command_info = build_demo_command_summary(
@@ -2355,6 +2372,7 @@ def run_pipeline(
     write_json(summary_path, summary)
     if open_dashboard:
         webbrowser.open(dashboard_path.resolve().as_uri())
+    print(f"[Miho Demo] Dashboard ready: {dashboard_path}", flush=True)
     return summary
 
 
@@ -2422,6 +2440,9 @@ def main() -> int:
         print(f"warning: {warning}")
     print(f"case_count: {overall['case_count']}")
     print(f"parse_success_count: {overall['parse_success_count']}")
+    print(f"hard_failure_count: {overall.get('hard_failure_count', 0)}")
+    print(f"review_failed_count: {overall.get('review_failed_count', 0)}")
+    print(f"normalization_failed_count: {overall.get('normalization_failed_count', 0)}")
     print(f"normalized_count: {overall['normalized_count']}")
     print(f"requires_manual_review_count: {overall['requires_manual_review_count']}")
     if isinstance(summary.get("update_state"), dict):
@@ -2488,7 +2509,10 @@ def main() -> int:
             print(f"review_preview_would_update_roster_count: {preview_summary.get('would_update_roster_count', 0)}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
-    return 0
+    exit_code = exit_code_for_summary(summary)
+    if exit_code:
+        print("ERROR: demo pipeline had hard case failures; Dashboard was generated for diagnosis.", file=sys.stderr)
+    return exit_code
 
 
 if __name__ == "__main__":

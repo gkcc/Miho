@@ -513,7 +513,17 @@ def run_fresh(args: argparse.Namespace) -> int:
     print(f"fresh_mode: {mode}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
-    return 0
+    overall = summary.get("overall", {}) if isinstance(summary.get("overall"), dict) else {}
+    print(f"hard_failure_count: {overall.get('hard_failure_count', 0)}")
+    print(f"review_failed_count: {overall.get('review_failed_count', 0)}")
+    print(f"normalization_failed_count: {overall.get('normalization_failed_count', 0)}")
+    exit_code = demo_tool.exit_code_for_summary(summary)
+    if exit_code:
+        print("fresh_status: failed_with_hard_case_failures")
+        print("fresh_note: Dashboard was generated for diagnosis, but this fresh/update run did not succeed.")
+    else:
+        print("fresh_status: done")
+    return exit_code
 
 
 def write_plan_update_manifest(output_dir: Path) -> Path:

@@ -1727,12 +1727,12 @@ class DemoDashboardTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            original_subprocess_run = pipeline_tool.subprocess.run
+            original_run_review = pipeline_tool.review_once.run_review
 
             def fail_if_called(*args, **kwargs):  # noqa: ANN002, ANN003
-                raise AssertionError("parsed-dir mode must not run OCR review subprocess")
+                raise AssertionError("parsed-dir mode must not run OCR image review")
 
-            pipeline_tool.subprocess.run = fail_if_called
+            pipeline_tool.review_once.run_review = fail_if_called
             try:
                 summary = pipeline_tool.run_pipeline(
                     images_dir=None,
@@ -1743,7 +1743,7 @@ class DemoDashboardTests(unittest.TestCase):
                     open_dashboard=False,
                 )
             finally:
-                pipeline_tool.subprocess.run = original_subprocess_run
+                pipeline_tool.review_once.run_review = original_run_review
 
             self.assertEqual(summary["overall"]["case_count"], 1)
             self.assertEqual(summary["overall"]["average_pass_rate"], None)
@@ -1809,6 +1809,10 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["cases"][0]["normalized_status"], "FAILED")
             self.assertEqual(summary["cases"][0]["import_status"], "BLOCKED")
             self.assertEqual(summary["overall"]["demo_status"], "HAS_PARSE_FAILURE")
+            self.assertEqual(summary["overall"]["hard_failure_count"], 1)
+            self.assertEqual(summary["overall"]["review_failed_count"], 1)
+            self.assertEqual(summary["overall"]["normalization_failed_count"], 1)
+            self.assertEqual(pipeline_tool.exit_code_for_summary(summary), 3)
             steps = {item["name"]: item["status"] for item in summary["pipeline_steps"]}
             self.assertEqual(steps["OCR Review"], "FAIL")
             self.assertEqual(steps["Manual Review Gate"], "BLOCKED")
