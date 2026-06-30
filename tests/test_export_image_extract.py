@@ -236,6 +236,28 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertIn(block["visual_rank_reason"], {"orange_global", "orange_local_peak"})
         self.assertGreater(block["visual_rank_confidence"], 0.65)
 
+    def test_visual_rank_blocks_are_added_even_when_ocr_rank_guess_exists(self) -> None:
+        image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
+        character_box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
+        equipment_box = probe.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), IMAGE_WIDTH, IMAGE_HEIGHT)
+        for x in range(character_box["left"] + 10, character_box["right"] - 10):
+            for y in range(character_box["top"] + 10, character_box["bottom"] - 10):
+                image.putpixel((x, y), (210, 55, 235))
+        for x in range(equipment_box["left"] + 16, equipment_box["right"] - 16):
+            for y in range(equipment_box["top"] + 16, equipment_box["bottom"] - 16):
+                image.putpixel((x, y), (245, 145, 20))
+        blocks = [
+            ocr_block("S", "character_rank", character_box["left"] + 4, character_box["top"] + 4),
+            ocr_block("A", "equipment_rank", equipment_box["left"] + 4, equipment_box["top"] + 4),
+        ]
+
+        visual_blocks = probe.visual_rank_blocks_from_image(image, game="zzz", layout="zzz-agent-card", blocks=blocks)
+
+        self.assertEqual(
+            {(block.get("region"), block.get("text")) for block in visual_blocks},
+            {("character_rank", "A"), ("equipment_rank", "S")},
+        )
+
     def test_equipment_rank_prefers_dedicated_rank_region_over_broad_equipment_text(self) -> None:
         blocks = [
             ocr_block("维序者-特化型", "equipment", 140, 800, 180, 28),
@@ -349,6 +371,58 @@ class ExportImageExtractTests(unittest.TestCase):
         metadata = result["metadata"]["visual_rank_fallback"]
         self.assertTrue(all(item.get("method") == "color_ratio_with_local_peak" for item in metadata))
         self.assertTrue(all(item.get("confidence") for item in metadata))
+
+    def test_build_result_from_replay_visual_rank_overrides_wrong_ocr_rank_guess(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "share.png"
+            replay_path = root / "old.json"
+            image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
+            character_box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
+            equipment_box = probe.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), IMAGE_WIDTH, IMAGE_HEIGHT)
+            for x in range(character_box["left"] + 10, character_box["right"] - 10):
+                for y in range(character_box["top"] + 10, character_box["bottom"] - 10):
+                    image.putpixel((x, y), (210, 55, 235))
+            for x in range(equipment_box["left"] + 16, equipment_box["right"] - 16):
+                for y in range(equipment_box["top"] + 16, equipment_box["bottom"] - 16):
+                    image.putpixel((x, y), (245, 145, 20))
+            image.save(image_path)
+            blocks = [
+                ocr_block("潘引壶 LV.55", "character_card", 70, 260, 150, 30),
+                ocr_block("S", "character_rank", character_box["left"] + 4, character_box["top"] + 4),
+                ocr_block("维序者-特化型", "equipment", 140, 800, 180, 28),
+                ocr_block("LV.50", "equipment_level", 140, 850, 80, 28),
+                ocr_block("A", "equipment_rank", equipment_box["left"] + 4, equipment_box["top"] + 4),
+            ]
+            replay_path.write_text(
+                json.dumps(
+                    {
+                        "metadata": {"ocr_engine": "paddle", "lang": "ch"},
+                        "image": {"width": IMAGE_WIDTH, "height": IMAGE_HEIGHT, "mode": "RGB", "format": "PNG"},
+                        "layout_regions": zzz_layout_regions(),
+                        "text_blocks": blocks,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result, exit_code = probe.build_result_from_replay(
+                image_path,
+                replay_path,
+                engine="paddle",
+                lang="chi_sim+eng",
+                game="zzz",
+                layout="zzz-agent-card",
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(result["extracted_draft"]["character"]["rank"]["value"], "A")
+        self.assertEqual(result["extracted_draft"]["equipment"]["rank"]["value"], "S")
+        self.assertEqual(
+            {(block.get("region"), block.get("text")) for block in result["text_blocks"] if block.get("visual_rank_fallback")},
+            {("character_rank", "A"), ("equipment_rank", "S")},
+        )
 
     def test_build_result_adds_visual_rank_blocks_on_fresh_path_without_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

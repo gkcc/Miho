@@ -626,13 +626,14 @@ def visual_rank_block_for_region(image: Any, *, region_name: str, region_box: di
     }
 
 
-def has_rank_block(blocks: list[dict[str, Any]], region_name: str) -> bool:
-    for block in blocks:
-        if block.get("region") != region_name:
-            continue
-        if rank_from_block_text(str(block.get("text", "")), rank_region=True):
-            return True
-    return False
+def has_visual_rank_block(blocks: list[dict[str, Any]], region_name: str) -> bool:
+    return any(block.get("region") == region_name and block.get("visual_rank_fallback") for block in blocks)
+
+
+def rank_block_priority(block: dict[str, Any]) -> tuple[bool, float]:
+    confidence = parse_confidence(block.get("confidence"))
+    trusted_visual = bool(block.get("visual_rank_fallback")) and confidence >= 0.65
+    return trusted_visual, confidence
 
 
 def visual_rank_blocks_from_image(
@@ -647,7 +648,7 @@ def visual_rank_blocks_from_image(
     specs = {spec.name: spec for spec in ZZZ_AGENT_CARD_REGIONS}
     result: list[dict[str, Any]] = []
     for region_name in ("character_rank", "equipment_rank"):
-        if has_rank_block(blocks, region_name):
+        if has_visual_rank_block(blocks, region_name):
             continue
         spec = specs.get(region_name)
         if spec is None:
@@ -1098,9 +1099,7 @@ def run_ocr(image_path: Path, *, engine: str, lang: str, game: str | None, layou
         )
         preprocess_info = dict(preprocess_info)
         preprocess_info.setdefault("engine_used", engine)
-        if spec.name in {"character_rank", "equipment_rank"} and not any(
-            rank_from_block_text(str(block.get("text", "")), rank_region=True) for block in blocks
-        ):
+        if spec.name in {"character_rank", "equipment_rank"} and not has_visual_rank_block(blocks, spec.name):
             visual_block = visual_rank_block_for_region(image, region_name=spec.name, region_box=region_box)
             if visual_block:
                 blocks.append(visual_block)
@@ -1413,7 +1412,7 @@ def extract_character(blocks: list[dict[str, Any]]) -> dict[str, Any]:
     level = first_lv(text)
     rank, rank_evidence, rank_source = None, [], "character_card"
     rank_blocks = blocks_for_regions(blocks, {"character_rank"})
-    for block in sorted(rank_blocks, key=lambda item: float(item.get("confidence") or 0), reverse=True):
+    for block in sorted(rank_blocks, key=rank_block_priority, reverse=True):
         possible_rank = rank_from_block_text(str(block.get("text", "")), rank_region=True)
         if possible_rank:
             rank = possible_rank
@@ -1481,11 +1480,7 @@ def extract_equipment(blocks: list[dict[str, Any]], image_width: int, image_heig
     rank_value, rank_evidence, rank_source = None, [], "equipment"
     rank_box = ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), image_width, image_height)
     rank_region_blocks = blocks_for_regions(blocks, {"equipment_rank"})
-    for block in sorted(
-        rank_region_blocks,
-        key=lambda item: (bool(item.get("visual_rank_fallback")), parse_confidence(item.get("confidence"))),
-        reverse=True,
-    ):
+    for block in sorted(rank_region_blocks, key=rank_block_priority, reverse=True):
         possible_rank = rank_from_block_text(str(block.get("text", "")), rank_region=True)
         if possible_rank:
             rank_value = possible_rank
