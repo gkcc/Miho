@@ -468,6 +468,10 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(kwargs["images_dir"], figs.resolve())
             self.assertTrue(kwargs["new_only"])
             self.assertFalse(kwargs["open_dashboard"])
+            self.assertIn("fresh_scope: saved_official_share_images_only", output.getvalue())
+            self.assertIn("fresh_start:", output.getvalue())
+            self.assertIn("mode=new_or_changed_only", output.getvalue())
+            self.assertIn("engine=paddle", output.getvalue())
             self.assertIn("fresh_mode: new_or_changed_only", output.getvalue())
             self.assertIn("fresh_status: done", output.getvalue())
 
@@ -565,6 +569,8 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertIn("update_scope: saved_official_share_images_only", output.getvalue())
             self.assertIn("不会自动操作米游社 APP", output.getvalue())
+            self.assertIn("update_start:", output.getvalue())
+            self.assertIn("mode=new_or_changed_only", output.getvalue())
 
     def test_run_plan_update_does_not_run_ocr_and_uses_empty_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

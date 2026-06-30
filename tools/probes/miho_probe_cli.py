@@ -521,13 +521,23 @@ def run_demo(args: argparse.Namespace) -> int:
 
 
 def run_fresh(args: argparse.Namespace) -> int:
-    if str(getattr(args, "command", "") or "").lower() == "update":
-        print("update_scope: saved_official_share_images_only")
-        print("update_note: 当前安全版只处理 figs 下已保存的官方分享图；不会自动操作米游社 APP。")
+    command_name = str(getattr(args, "command", "") or "fresh").lower()
+    is_update = command_name == "update"
+    if is_update:
+        print("update_scope: saved_official_share_images_only", flush=True)
+        print("update_note: 当前安全版只处理 figs 下已保存的官方分享图；不会自动操作米游社 APP。", flush=True)
+    else:
+        print("fresh_scope: saved_official_share_images_only", flush=True)
     images_dir = resolve_cli_path(args.images_dir)
+    mode = "rescan_all" if args.rescan_all else "new_or_changed_only"
+    start_label = "update_start" if is_update else "fresh_start"
+    print(
+        f"{start_label}: images_dir={images_dir}; mode={mode}; engine={args.engine}; game={args.game}",
+        flush=True,
+    )
     if not images_dir.exists() or not images_dir.is_dir():
-        print(f"ERROR: local image directory does not exist: {images_dir}", file=sys.stderr)
-        print("Put official share images under figs\\, then run MihoProbe.exe update.", file=sys.stderr)
+        print(f"ERROR: local image directory does not exist: {images_dir}", file=sys.stderr, flush=True)
+        print("Put official share images under figs\\, then run MihoProbe.exe update.", file=sys.stderr, flush=True)
         return 1
     summary = demo_tool.run_pipeline(
         images_dir=images_dir,
@@ -553,20 +563,19 @@ def run_fresh(args: argparse.Namespace) -> int:
         daily_stamina=args.daily_stamina,
         horizon_days=args.horizon_days,
     )
-    mode = "rescan_all" if args.rescan_all else "new_or_changed_only"
-    print(f"fresh_mode: {mode}")
-    print(f"dashboard_html: {summary['dashboard_html']}")
-    print(f"summary_json: {summary['summary_json']}")
+    print(f"fresh_mode: {mode}", flush=True)
+    print(f"dashboard_html: {summary['dashboard_html']}", flush=True)
+    print(f"summary_json: {summary['summary_json']}", flush=True)
     overall = summary.get("overall", {}) if isinstance(summary.get("overall"), dict) else {}
-    print(f"hard_failure_count: {overall.get('hard_failure_count', 0)}")
-    print(f"review_failed_count: {overall.get('review_failed_count', 0)}")
-    print(f"normalization_failed_count: {overall.get('normalization_failed_count', 0)}")
+    print(f"hard_failure_count: {overall.get('hard_failure_count', 0)}", flush=True)
+    print(f"review_failed_count: {overall.get('review_failed_count', 0)}", flush=True)
+    print(f"normalization_failed_count: {overall.get('normalization_failed_count', 0)}", flush=True)
     exit_code = demo_tool.exit_code_for_summary(summary)
     if exit_code:
-        print("fresh_status: failed_with_hard_case_failures")
-        print("fresh_note: Dashboard was generated for diagnosis, but this fresh/update run did not succeed.")
+        print("fresh_status: failed_with_hard_case_failures", flush=True)
+        print("fresh_note: Dashboard was generated for diagnosis, but this fresh/update run did not succeed.", flush=True)
     else:
-        print("fresh_status: done")
+        print("fresh_status: done", flush=True)
     return exit_code
 
 
