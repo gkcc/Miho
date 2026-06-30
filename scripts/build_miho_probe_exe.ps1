@@ -29,7 +29,7 @@ try {
     if (-not (Test-Path -Path $ExePath -PathType Leaf)) {
         Write-Error "Build finished but dist\MihoProbe.exe was not found."
     }
-    Write-Host "Built dist\MihoProbe.exe. Run it without args for the cached dashboard, dist\MihoProbe.exe update for saved share images, dist\MihoProbe.exe plan-update for local endgame/Tier suggestions, dist\MihoProbe.exe check for accuracy acceptance, or dist\MihoProbe.exe ask-gpt for the fixed review packet."
+    Write-Host "Built dist\MihoProbe.exe. Run it without args for the cached dashboard, dist\MihoProbe.exe update for saved share images, dist\MihoProbe.exe plan-update for local endgame/Tier suggestions, dist\MihoProbe.exe rank-check for A/S rank crops, dist\MihoProbe.exe check for accuracy acceptance, or dist\MihoProbe.exe ask-gpt for the fixed review packet."
 }
 finally {
     Pop-Location

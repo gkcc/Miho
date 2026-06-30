@@ -19,6 +19,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import diff_normalized_snapshots as diff_tool  # noqa: E402
 import build_gpt_review_prompt as gpt_prompt_tool  # noqa: E402
+import export_image_parse_probe as parse_probe  # noqa: E402
 import normalize_export_parse as normalize_tool  # noqa: E402
 import plan_training_priorities as planner_tool  # noqa: E402
 import prepare_endgame_targets as target_tool  # noqa: E402
@@ -46,6 +47,8 @@ DEFAULT_NORMALIZED_DIR = PROJECT_ROOT / "data" / "probes" / "normalized"
 DEFAULT_PLANNER_DIR = PROJECT_ROOT / "data" / "probes" / "planner"
 DEFAULT_TARGETS_DIR = PROJECT_ROOT / "data" / "probes" / "targets"
 DEFAULT_REPLAY_MANIFEST = PROJECT_ROOT / "data" / "probes" / "replay_manifest.json"
+DEFAULT_RANK_CHECK_DIR = DEFAULT_DEMO_OUTPUT_DIR / "rank_check"
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 LEGACY_DASHBOARD_MARKERS = (
     "Brief Warning",
     "brief status",
@@ -87,6 +90,9 @@ def render_user_help() -> str:
   MihoProbe.exe plan-update
     一键更新高难/Tier/配队建议（本地安全版）：不 OCR、不联网，只重算本地 Dashboard。
 
+  MihoProbe.exe rank-check
+    只检查头像/音擎 A/S 艺术字固定区域。不跑 OCR，用来排查评级识别。
+
   MihoProbe.exe ask-gpt --focus "本轮要审的问题"
     生成给右侧 GPT 的固定审查包，避免反复摸索对话流程。
 
@@ -98,6 +104,7 @@ def render_user_help() -> str:
 开发细参：
   MihoProbe.exe dashboard --help
   MihoProbe.exe plan-update --help
+  MihoProbe.exe rank-check --help
   MihoProbe.exe fresh --help
   MihoProbe.exe replay --help
   MihoProbe.exe gpt-review --help
@@ -455,6 +462,186 @@ def run_plan_update(args: argparse.Namespace) -> int:
     return 0
 
 
+def rank_region_specs() -> dict[str, Any]:
+    return {spec.name: spec for spec in parse_probe.ZZZ_AGENT_CARD_REGIONS if spec.name in {"character_rank", "equipment_rank"}}
+
+
+def image_files_in_dir(images_dir: Path) -> list[Path]:
+    if not images_dir.exists() or not images_dir.is_dir():
+        return []
+    return sorted(path for path in images_dir.iterdir() if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS)
+
+
+def safe_output_stem(path: Path) -> str:
+    text = path.stem
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in text) or "image"
+
+
+def html_file_link(path: Path, label: str) -> str:
+    try:
+        href = path.resolve().as_uri()
+    except ValueError:
+        href = str(path)
+    return f'<a href="{html_escape(href)}">{html_escape(label)}</a>'
+
+
+def rank_check_entry(image_path: Path, output_dir: Path, *, game: str, layout: str) -> dict[str, Any]:
+    Image = parse_probe.load_image_dependency()
+    specs = rank_region_specs()
+    crops_dir = output_dir / "crops"
+    crops_dir.mkdir(parents=True, exist_ok=True)
+    with Image.open(image_path) as image:
+        regions = []
+        for region_name, label in (("character_rank", "角色评级"), ("equipment_rank", "音擎评级")):
+            spec = specs[region_name]
+            box = parse_probe.ratio_box_to_pixels(spec.box_ratio, image.width, image.height)
+            block = parse_probe.visual_rank_block_for_region(image, region_name=region_name, region_box=box)
+            crop_path = crops_dir / f"{safe_output_stem(image_path)}_{region_name}.png"
+            crop = image.crop((box["left"], box["top"], box["right"], box["bottom"])).convert("RGB")
+            crop.save(crop_path)
+            regions.append(
+                {
+                    "region": region_name,
+                    "label": label,
+                    "rank": block.get("text") if block else None,
+                    "confidence": block.get("visual_rank_confidence") if block else 0.0,
+                    "reason": block.get("visual_rank_reason") if block else "insufficient_color_signal",
+                    "scores": block.get("visual_rank_scores") if block else parse_probe.visual_rank_color_scores(crop),
+                    "box": box,
+                    "crop": str(crop_path),
+                    "status": "ok" if block and not block.get("uncertain") else "needs_review",
+                }
+            )
+    status = "ok" if regions and all(item["status"] == "ok" for item in regions) else "needs_review"
+    return {
+        "image": str(image_path),
+        "image_name": image_path.name,
+        "game": game,
+        "layout": layout,
+        "status": status,
+        "regions": regions,
+    }
+
+
+def render_rank_check_html(report: dict[str, Any]) -> str:
+    entries = report.get("entries") if isinstance(report.get("entries"), list) else []
+    rows = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        region_cards = []
+        for region in entry.get("regions", []) if isinstance(entry.get("regions"), list) else []:
+            if not isinstance(region, dict):
+                continue
+            crop = Path(str(region.get("crop") or ""))
+            scores = region.get("scores") if isinstance(region.get("scores"), dict) else {}
+            tone = "ok" if region.get("status") == "ok" else "warn"
+            region_cards.append(
+                f'<article class="region {tone}">'
+                f'<img src="{html_escape(crop.resolve().as_uri())}" alt="{html_escape(str(region.get("label") or ""))}">'
+                f'<div><span>{html_escape(str(region.get("label") or region.get("region") or ""))}</span>'
+                f'<strong>{html_escape(str(region.get("rank") or "未识别"))}</strong>'
+                f'<p>置信度 {html_escape(str(region.get("confidence")))} · {html_escape(str(region.get("reason") or ""))}</p>'
+                f'<p>orange {html_escape(str(scores.get("orange", 0)))} / purple {html_escape(str(scores.get("purple", 0)))} / peak {html_escape(str(scores.get("orange_peak", 0)))} / {html_escape(str(scores.get("purple_peak", 0)))}</p>'
+                f'<p>{html_file_link(crop, "打开 crop")}</p></div>'
+                "</article>"
+            )
+        rows.append(
+            '<section class="image-card">'
+            f'<h2>{html_escape(str(entry.get("image_name") or ""))}</h2>'
+            f'<p class="muted">只检测头像左上角角色评级、音擎右侧评级固定区域；不跑 OCR。</p>'
+            f'<div class="regions">{"".join(region_cards)}</div>'
+            "</section>"
+        )
+    body = "".join(rows) if rows else '<section class="image-card"><h2>没有图片</h2><p class="muted">请把官方分享图放到 figs/，或用 --images-dir 指向图片目录。</p></section>'
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>评级区域快检</title>
+  <style>
+    body {{ margin: 0; background: #f6f8fb; color: #172033; font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; }}
+    header {{ padding: 24px 28px; background: #101827; color: #fff; }}
+    header h1 {{ margin: 0 0 8px; font-size: 28px; }}
+    header p {{ margin: 0; color: #cbd5e1; }}
+    main {{ max-width: 1180px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }}
+    .summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }}
+    .metric, .image-card, .region {{ background: #fff; border: 1px solid #dbe3ef; border-radius: 8px; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08); }}
+    .metric {{ padding: 14px; }}
+    .metric span, .region span, .muted {{ color: #64748b; font-size: 13px; }}
+    .metric strong, .region strong {{ display: block; margin-top: 4px; font-size: 24px; }}
+    .image-card {{ padding: 16px; }}
+    .image-card h2 {{ margin: 0 0 6px; font-size: 18px; overflow-wrap: anywhere; }}
+    .regions {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }}
+    .region {{ display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 12px; align-items: center; }}
+    .region img {{ width: 96px; height: 86px; object-fit: contain; background: #111827; border-radius: 8px; }}
+    .region p {{ margin: 5px 0 0; color: #64748b; font-size: 12px; overflow-wrap: anywhere; }}
+    .region.ok strong {{ color: #16834a; }}
+    .region.warn strong {{ color: #9a6500; }}
+    a {{ color: #155399; text-decoration: none; font-weight: 700; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>评级区域快检</h1>
+    <p>专门检查 A/S 艺术字固定区域：角色头像左上角、音擎评级区域。不跑 OCR，不接触账号数据。</p>
+  </header>
+  <main>
+    <section class="summary">
+      <div class="metric"><span>图片数</span><strong>{html_escape(str(report.get("image_count", 0)))}</strong></div>
+      <div class="metric"><span>识别成功区域</span><strong>{html_escape(str(report.get("ok_region_count", 0)))}</strong></div>
+      <div class="metric"><span>需复核区域</span><strong>{html_escape(str(report.get("review_region_count", 0)))}</strong></div>
+      <div class="metric"><span>模式</span><strong>视觉快检</strong></div>
+    </section>
+    {body}
+  </main>
+</body>
+</html>
+"""
+
+
+def run_rank_check(args: argparse.Namespace) -> int:
+    images_dir = resolve_cli_path(args.images_dir)
+    output_dir = resolve_cli_path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    images = image_files_in_dir(images_dir)
+    entries = [rank_check_entry(path, output_dir, game=args.game, layout=args.layout) for path in images]
+    ok_region_count = sum(
+        1
+        for entry in entries
+        for region in entry.get("regions", [])
+        if isinstance(region, dict) and region.get("status") == "ok"
+    )
+    region_count = sum(len(entry.get("regions", [])) for entry in entries)
+    report = {
+        "schema_version": "p4.1-rank-region-check",
+        "scope": "visual_rank_regions_only",
+        "images_dir": str(images_dir),
+        "game": args.game,
+        "layout": args.layout,
+        "image_count": len(entries),
+        "region_count": region_count,
+        "ok_region_count": ok_region_count,
+        "review_region_count": region_count - ok_region_count,
+        "entries": entries,
+    }
+    json_path = output_dir / "rank_check.json"
+    html_path = output_dir / "rank_check.html"
+    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    html_path.write_text(render_rank_check_html(report), encoding="utf-8")
+    if args.open:
+        webbrowser.open(html_path.resolve().as_uri())
+    print("rank_check_scope: visual_rank_regions_only")
+    print("rank_check_note: 不跑 OCR；只检查角色头像左上角和音擎评级固定区域的 A/S 艺术字颜色信号。")
+    print(f"rank_check_html: {html_path}")
+    print(f"rank_check_json: {json_path}")
+    print(f"image_count: {len(entries)}")
+    print(f"ok_region_count: {ok_region_count}")
+    print(f"review_region_count: {region_count - ok_region_count}")
+    return 0
+
+
 def replay_default_output_dir() -> Path:
     stamp = datetime.now().astimezone().isoformat(timespec="seconds").replace(":", "").replace("+", "_").replace("-", "").replace("T", "_")
     return PROJECT_ROOT / "data" / "probes" / "replay_batches" / stamp
@@ -702,6 +889,15 @@ def add_plan_update_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
 
 
+def add_rank_check_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--images-dir", default=str(DEFAULT_FIGS_DIR), help="Image directory. Default: figs.")
+    parser.add_argument("--output-dir", default=str(DEFAULT_RANK_CHECK_DIR), help="Output directory. Default: data/probes/demo/rank_check.")
+    parser.add_argument("--game", choices=("zzz",), default="zzz")
+    parser.add_argument("--layout", choices=("zzz-agent-card",), default="zzz-agent-card")
+    parser.add_argument("--open", action="store_true", default=True, help="Open generated HTML. Default: true.")
+    parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the HTML report.")
+
+
 def add_gpt_review_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
     parser.add_argument("--evidence", action="append", default=[], help="关键证据，可重复。")
@@ -769,6 +965,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     plan_update = subparsers.add_parser("plan-update", help="One-click local endgame/Tier/team suggestion update without OCR.")
     add_plan_update_args(plan_update)
     plan_update.set_defaults(handler=run_plan_update)
+
+    rank_check = subparsers.add_parser("rank-check", help="Check fixed A/S visual rank regions without OCR.")
+    add_rank_check_args(rank_check)
+    rank_check.set_defaults(handler=run_rank_check)
 
     normalize = subparsers.add_parser("normalize", help="Normalize one parsed JSON.")
     normalize.add_argument("--parsed", required=True, help="Parsed JSON path.")

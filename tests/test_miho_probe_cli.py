@@ -55,6 +55,8 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("一键更新练度", help_text)
         self.assertIn("MihoProbe.exe plan-update", help_text)
         self.assertIn("一键更新高难/Tier/配队建议", help_text)
+        self.assertIn("MihoProbe.exe rank-check", help_text)
+        self.assertIn("只检查头像/音擎 A/S 艺术字固定区域", help_text)
         self.assertIn("识别 figs\\ 下新增或变更的官方分享图", help_text)
         self.assertIn("用 expected diff 验收解析准确率", help_text)
         self.assertIn("MihoProbe.exe ask-gpt", help_text)
@@ -214,6 +216,15 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(args.command, "plan-update")
         self.assertFalse(args.open)
         self.assertTrue(str(args.roster_dir).endswith("data\\probes\\roster") or str(args.roster_dir).endswith("data/probes/roster"))
+
+    def test_parser_has_rank_check_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["rank-check", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_rank_check)
+        self.assertEqual(args.command, "rank-check")
+        self.assertFalse(args.open)
+        self.assertTrue(str(args.images_dir).endswith("figs"))
 
     def test_parser_has_gpt_review_entry(self) -> None:
         parser = cli_tool.build_arg_parser()
@@ -441,6 +452,57 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertFalse(kwargs["clean_demo"])
             self.assertIn("plan_update_scope: local_roster_targets_tier_only", output.getvalue())
             self.assertIn("不跑 OCR、不联网、不读取账号", output.getvalue())
+
+    def test_run_rank_check_writes_visual_region_report_without_ocr(self) -> None:
+        Image = cli_tool.parse_probe.load_image_dependency()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images_dir = root / "figs"
+            images_dir.mkdir()
+            image_path = images_dir / "sample.jpg"
+            image = Image.new("RGB", (1000, 1600), (18, 20, 24))
+            specs = {spec.name: spec for spec in cli_tool.parse_probe.ZZZ_AGENT_CARD_REGIONS}
+            character_box = cli_tool.parse_probe.ratio_box_to_pixels(specs["character_rank"].box_ratio, image.width, image.height)
+            equipment_box = cli_tool.parse_probe.ratio_box_to_pixels(specs["equipment_rank"].box_ratio, image.width, image.height)
+            for x in range(character_box["left"], character_box["right"]):
+                for y in range(character_box["top"], character_box["bottom"]):
+                    image.putpixel((x, y), (230, 145, 24))
+            for x in range(equipment_box["left"], equipment_box["right"]):
+                for y in range(equipment_box["top"], equipment_box["bottom"]):
+                    image.putpixel((x, y), (170, 55, 205))
+            image.save(image_path)
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = cli_tool.run_rank_check(
+                    argparse.Namespace(
+                        images_dir=str(images_dir),
+                        output_dir=str(root / "rank_check"),
+                        game="zzz",
+                        layout="zzz-agent-card",
+                        open=False,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            report_path = root / "rank_check" / "rank_check.json"
+            html_path = root / "rank_check" / "rank_check.html"
+            self.assertTrue(report_path.exists())
+            self.assertTrue(html_path.exists())
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["scope"], "visual_rank_regions_only")
+            self.assertEqual(report["image_count"], 1)
+            self.assertEqual(report["ok_region_count"], 2)
+            regions = {item["region"]: item for item in report["entries"][0]["regions"]}
+            self.assertEqual(regions["character_rank"]["rank"], "S")
+            self.assertEqual(regions["equipment_rank"]["rank"], "A")
+            self.assertTrue(Path(regions["character_rank"]["crop"]).exists())
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("评级区域快检", html)
+            self.assertIn("不跑 OCR", html)
+            self.assertIn("角色评级", html)
+            self.assertIn("音擎评级", html)
+            self.assertIn("rank_check_scope: visual_rank_regions_only", output.getvalue())
 
     def test_run_gpt_review_writes_compact_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

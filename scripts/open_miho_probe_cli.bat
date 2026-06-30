@@ -19,6 +19,7 @@ echo Common examples:
 echo   dist\MihoProbe.exe dashboard --open
 echo   dist\MihoProbe.exe update --open
 echo   dist\MihoProbe.exe plan-update --open
+echo   dist\MihoProbe.exe rank-check --open
 echo   dist\MihoProbe.exe fresh --open
 echo   dist\MihoProbe.exe check --no-open
 echo   dist\MihoProbe.exe replay --no-open

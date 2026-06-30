@@ -115,6 +115,12 @@ if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
             -Description "Refresh local endgame, Tier/value watchlist, action cards, and team cards without OCR."
 
         New-MihoShortcut `
+            -Name "MihoProbe Rank Check" `
+            -TargetPath $ProbeExe `
+            -Arguments "rank-check --open" `
+            -Description "Check fixed A/S visual rank regions from saved official share images without OCR."
+
+        New-MihoShortcut `
             -Name "MihoProbe Fresh OCR" `
             -TargetPath $ProbeExe `
             -Arguments "fresh --open" `
