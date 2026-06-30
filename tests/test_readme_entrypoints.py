@@ -132,6 +132,7 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("MihoProbe Plan Update", readme)
         self.assertIn("MihoProbe Rank Check", readme)
         self.assertIn("MihoProbe Fresh OCR", readme)
+        self.assertIn("准确率验收缺少样例清单", readme)
         self.assertIn("dist\\MihoProbe.exe update", readme)
         self.assertIn("dist\\MihoProbe.exe app-export", readme)
         self.assertIn("dist\\MihoProbe.exe plan-update", readme)

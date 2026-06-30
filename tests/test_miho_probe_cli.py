@@ -332,6 +332,49 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("准确率验收：通过", output.getvalue())
         self.assertIn("summary_md:", output.getvalue())
 
+    def test_run_replay_missing_manifest_writes_readable_help_page(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old_manifest = cli_tool.DEFAULT_REPLAY_MANIFEST
+            old_demo_dir = cli_tool.DEFAULT_DEMO_OUTPUT_DIR
+            cli_tool.DEFAULT_REPLAY_MANIFEST = root / "missing_replay_manifest.json"
+            cli_tool.DEFAULT_DEMO_OUTPUT_DIR = root / "demo"
+            stderr = io.StringIO()
+            stdout = io.StringIO()
+            try:
+                with (
+                    mock.patch.object(cli_tool, "load_replay_tool", side_effect=AssertionError("must not load replay tool")),
+                    contextlib.redirect_stdout(stdout),
+                    contextlib.redirect_stderr(stderr),
+                ):
+                    result = cli_tool.run_replay(
+                        argparse.Namespace(
+                            manifest=None,
+                            case=None,
+                            parsed=None,
+                            expected=None,
+                            output_dir=None,
+                            strict_leading_zero=False,
+                            no_rebuild=False,
+                            open=False,
+                        )
+                    )
+            finally:
+                cli_tool.DEFAULT_REPLAY_MANIFEST = old_manifest
+                cli_tool.DEFAULT_DEMO_OUTPUT_DIR = old_demo_dir
+
+            self.assertEqual(result, 1)
+            html_path = root / "demo" / "accuracy_check_missing_manifest.html"
+            self.assertTrue(html_path.exists())
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("准确率验收缺少样例清单", html)
+            self.assertIn("缺少 replay manifest", html)
+            self.assertIn("MihoProbe.exe check --open", html)
+            self.assertIn("MihoProbe.exe fresh", html)
+            self.assertIn("准确率验收：缺少样例清单", stderr.getvalue())
+            self.assertIn("help_html:", stderr.getvalue())
+            self.assertEqual(stdout.getvalue(), "")
+
     def test_run_fresh_processes_new_or_changed_images_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

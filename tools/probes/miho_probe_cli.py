@@ -306,6 +306,86 @@ def render_first_run_dashboard(dashboard_path: Path) -> dict[str, str]:
     return {"dashboard_html": str(dashboard_path)}
 
 
+def render_missing_replay_manifest_page(manifest_path: Path, output_path: Path) -> dict[str, str]:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    expected_path = PROJECT_ROOT / "data" / "probes" / "expected"
+    html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>准确率验收缺少样例清单</title>
+  <style>
+    :root {{
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --line: #dbe3ef;
+      --warn: #996500;
+      --warn-bg: #fff4d5;
+      --blue: #1d4ed8;
+      --blue-bg: #eff6ff;
+      --shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; background: var(--bg); color: var(--text); font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; line-height: 1.55; }}
+    main {{ max-width: 1120px; margin: 0 auto; padding: 32px 22px 48px; }}
+    section {{ display: grid; gap: 18px; padding: 26px; border: 1px solid #f4d071; border-radius: 8px; background: var(--panel); box-shadow: var(--shadow); }}
+    h1 {{ margin: 0 0 8px; font-size: 34px; letter-spacing: 0; color: var(--warn); }}
+    p {{ margin: 0; color: var(--muted); }}
+    .badge {{ display: inline-flex; width: fit-content; padding: 8px 12px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); font-weight: 900; }}
+    .grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }}
+    .card {{ display: grid; gap: 10px; align-content: start; min-height: 180px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }}
+    .card.primary {{ border-color: #bfdbfe; background: var(--blue-bg); }}
+    .card.primary strong {{ color: var(--blue); }}
+    .card strong {{ font-size: 18px; }}
+    .card span {{ color: var(--muted); font-size: 13px; }}
+    code {{ display: block; padding: 10px; border-radius: 8px; background: #0f172a; color: #e2e8f0; overflow-wrap: anywhere; white-space: pre-wrap; }}
+    .paths {{ display: grid; gap: 8px; color: var(--muted); font-size: 13px; }}
+    .paths code {{ display: inline; padding: 0; background: transparent; color: var(--text); }}
+    @media (max-width: 860px) {{ .grid {{ grid-template-columns: 1fr; }} h1 {{ font-size: 28px; }} }}
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <div class="badge">验收不能开始</div>
+      <div>
+        <h1>缺少 replay manifest</h1>
+        <p>这不是 OCR 失败，也不是 Dashboard 坏了。准确率验收必须用固定样例清单，避免把历史 parsed JSON 混进平均通过率。</p>
+      </div>
+      <div class="grid">
+        <article class="card primary">
+          <strong>已有 3 张 expected</strong>
+          <span>把 parsed JSON 和 expected JSON 写进固定清单，然后重新跑验收。</span>
+          <code>MihoProbe.exe check --open</code>
+        </article>
+        <article class="card">
+          <strong>只想看软件界面</strong>
+          <span>打开缓存 Dashboard，不重新 OCR，不要求 manifest。</span>
+          <code>MihoProbe.exe</code>
+        </article>
+        <article class="card">
+          <strong>新图还没识别</strong>
+          <span>先把官方分享图放进 figs\\，再跑 fresh。这个入口会慢。</span>
+          <code>MihoProbe.exe fresh</code>
+        </article>
+      </div>
+      <div class="paths">
+        <span>缺少的清单：<code>{html_escape(str(manifest_path))}</code></span>
+        <span>expected 本地目录：<code>{html_escape(str(expected_path))}</code></span>
+        <span>本说明页：<code>{html_escape(str(output_path))}</code></span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+    output_path.write_text(html, encoding="utf-8")
+    return {"html_path": str(output_path), "manifest": str(manifest_path)}
+
+
 def run_dashboard(args: argparse.Namespace) -> int:
     dashboard_path = resolve_cli_path(args.dashboard)
     summary_path = resolve_cli_path(args.summary)
@@ -750,7 +830,24 @@ def run_replay(args: argparse.Namespace) -> int:
             loose_numeric_text=not args.strict_leading_zero,
             rebuild=not args.no_rebuild,
         )
-    except (OSError, CliReplayError) as exc:
+    except CliReplayError as exc:
+        message = str(exc)
+        if "Replay manifest does not exist" in message:
+            manifest_path = resolve_cli_path(args.manifest) if args.manifest else DEFAULT_REPLAY_MANIFEST
+            guide_path = DEFAULT_DEMO_OUTPUT_DIR / "accuracy_check_missing_manifest.html"
+            render_missing_replay_manifest_page(manifest_path, guide_path)
+            if args.open:
+                webbrowser.open(guide_path.resolve().as_uri())
+                print(f"accuracy_check_help_opened: {guide_path}")
+            print("准确率验收：缺少样例清单", file=sys.stderr)
+            print(f"missing_manifest: {manifest_path}", file=sys.stderr)
+            print(f"help_html: {guide_path}", file=sys.stderr)
+            print("下一步：补齐 data\\probes\\replay_manifest.json，或用 --case parsed.json=expected.json 指定单次验收。", file=sys.stderr)
+            return 1
+        print(f"ERROR: {exc}", file=sys.stderr)
+        print("准确率验收入口：MihoProbe.exe replay --manifest data\\probes\\replay_manifest.json", file=sys.stderr)
+        return 1
+    except OSError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         print("准确率验收入口：MihoProbe.exe replay --manifest data\\probes\\replay_manifest.json", file=sys.stderr)
         return 1
