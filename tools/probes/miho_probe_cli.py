@@ -56,10 +56,43 @@ LEGACY_DASHBOARD_MARKERS = (
     "watch_only",
 )
 _REPLAY_TOOL = None
+TOP_LEVEL_HELP_FLAGS = {"--help", "-h", "help", "菜单", "menu"}
 
 
 class CliReplayError(RuntimeError):
     pass
+
+
+def render_user_help() -> str:
+    return """MihoProbe 本地体验入口
+
+最常用：
+  MihoProbe.exe
+    打开已有 Dashboard，不跑 OCR。验收界面优先点这个。
+
+  MihoProbe.exe fresh
+    识别 figs\\ 下新增或变更的官方分享图。会跑 PaddleOCR，可能慢。
+
+  MihoProbe.exe replay --no-open
+    用 expected diff 验收解析准确率。不重新 OCR。
+
+  MihoProbe.exe gpt-review --focus "本轮要审的问题"
+    生成给右侧 GPT 的固定审查包，避免反复摸索对话流程。
+
+先别踩坑：
+  - 只看界面，不要跑 fresh。
+  - fresh 卡住时先关掉，改用 MihoProbe.exe 看缓存 Dashboard。
+  - OCR 结果只进人工复核，不会直接写正式数据库。
+
+开发细参：
+  MihoProbe.exe dashboard --help
+  MihoProbe.exe fresh --help
+  MihoProbe.exe replay --help
+"""
+
+
+def should_show_top_level_help(argv: list[str]) -> bool:
+    return len(argv) == 2 and argv[1].lower() in TOP_LEVEL_HELP_FLAGS
 
 
 def load_replay_tool():
@@ -534,6 +567,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    if should_show_top_level_help(sys.argv):
+        sys.stdout.write(render_user_help())
+        return 0
     if len(sys.argv) == 1:
         args = argparse.Namespace(
             dashboard=str(DEFAULT_DASHBOARD_HTML),

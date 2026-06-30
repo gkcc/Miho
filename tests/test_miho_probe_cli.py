@@ -46,6 +46,30 @@ def minimal_summary() -> dict:
 
 
 class MihoProbeCliTests(unittest.TestCase):
+    def test_top_level_help_is_user_facing_chinese_menu(self) -> None:
+        help_text = cli_tool.render_user_help()
+
+        self.assertIn("MihoProbe 本地体验入口", help_text)
+        self.assertIn("打开已有 Dashboard，不跑 OCR", help_text)
+        self.assertIn("识别 figs\\ 下新增或变更的官方分享图", help_text)
+        self.assertIn("用 expected diff 验收解析准确率", help_text)
+        self.assertIn("生成给右侧 GPT 的固定审查包", help_text)
+        self.assertNotIn("positional arguments", help_text)
+        self.assertNotIn("Local Miho probe command shell", help_text)
+
+    def test_main_intercepts_top_level_help_before_argparse(self) -> None:
+        output = io.StringIO()
+        with (
+            mock.patch.object(sys, "argv", ["MihoProbe.exe", "--help"]),
+            contextlib.redirect_stdout(output),
+        ):
+            result = cli_tool.main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("MihoProbe 本地体验入口", output.getvalue())
+        self.assertIn("MihoProbe.exe fresh", output.getvalue())
+        self.assertNotIn("positional arguments", output.getvalue())
+
     def test_dashboard_command_refreshes_legacy_cached_html(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

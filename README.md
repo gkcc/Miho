@@ -57,6 +57,12 @@ dist\MihoProbe.exe dashboard --open
 scripts\run_miho_demo.bat
 ```
 
+需要帮助时先看中文入口菜单：
+
+```powershell
+dist\MihoProbe.exe --help
+```
+
 确实要重新识别新图时才用：
 
 ```powershell
