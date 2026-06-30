@@ -29,6 +29,10 @@ class GptReviewPromptTests(unittest.TestCase):
         )
 
         self.assertIn("给右侧 GPT 的审查包", prompt)
+        self.assertIn("使用方式：", prompt)
+        self.assertIn("把这份审查包完整发给右侧 GPT", prompt)
+        self.assertIn("只审本包，不需要读取聊天历史", prompt)
+        self.assertIn("Codex 会自行实现、测试、提交和推送", prompt)
         self.assertIn("目标：", prompt)
         self.assertIn("- 让 demo 入口更像软件入口", prompt)
         self.assertIn("- 202 tests OK", prompt)

@@ -110,6 +110,8 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("dist\\MihoProbe.exe gpt-review", opener)
         self.assertIn("dist\\MihoProbe.exe gpt-review", protocol)
         self.assertIn("python tools/probes/build_gpt_review_prompt.py", protocol)
+        self.assertIn("禁止重复探索", protocol)
+        self.assertIn("不再让 Codex 读取右侧 GPT 的长历史", protocol)
 
 
 if __name__ == "__main__":

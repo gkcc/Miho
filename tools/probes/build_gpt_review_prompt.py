@@ -26,6 +26,12 @@ DEFAULT_REVIEW_QUESTIONS = (
     "下一步最小可验证实验是什么？",
 )
 
+REVIEWER_PROTOCOL = (
+    "你是右侧 GPT reviewer，只审本包，不需要读取聊天历史或让 Codex 重新探索页面。",
+    "请优先挑 P0/P1 缺陷；没有硬证据时明确写“证据不足”。",
+    "不要要求改代码，给出最小实验和验收证据即可；Codex 会自行实现、测试、提交和推送。",
+)
+
 EXPECTED_REPLY = (
     "Findings：",
     "- [P0/P1/P2] 问题、影响、证据。",
@@ -112,6 +118,14 @@ def render_prompt(
 
     sections = [
         "给右侧 GPT 的审查包",
+        "",
+        "使用方式：",
+        "- 把这份审查包完整发给右侧 GPT。",
+        "- 右侧 GPT 只按本包审方案和风险，不要求 Codex 继续翻右侧历史。",
+        "- 收到 Findings 后，Codex 先本地验证，再决定是否改代码。",
+        "",
+        "Reviewer protocol：",
+        *bullet_lines(REVIEWER_PROTOCOL, "只审本包，按证据输出。"),
         "",
         "目标：",
         f"- {focus.strip() or '请审视当前方案并指出最高风险。'}",
