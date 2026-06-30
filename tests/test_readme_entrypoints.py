@@ -158,15 +158,17 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("dist\\MihoProbe.exe check", readme)
         self.assertIn("data/probes/replay_manifest.json", readme)
         self.assertIn("dist\\MihoProbe.exe ask-gpt", readme)
-        self.assertIn("dist\\MihoProbe.exe gpt-review", readme)
+        self.assertNotIn("dist\\MihoProbe.exe gpt-review", readme)
         self.assertIn("--mode progress", readme)
 
     def test_cli_examples_expose_gpt_review_entry(self) -> None:
         opener = (PROJECT_ROOT / "scripts" / "open_miho_probe_cli.bat").read_text(encoding="utf-8")
         protocol = (PROJECT_ROOT / "docs" / "notes" / "codex-gpt-adversarial-loop.md").read_text(encoding="utf-8")
 
-        self.assertIn("dist\\MihoProbe.exe gpt-review", opener)
-        self.assertIn("dist\\MihoProbe.exe gpt-review", protocol)
+        self.assertIn("dist\\MihoProbe.exe ask-gpt", opener)
+        self.assertNotIn("dist\\MihoProbe.exe gpt-review", opener)
+        self.assertIn("dist\\MihoProbe.exe ask-gpt", protocol)
+        self.assertNotIn("dist\\MihoProbe.exe gpt-review", protocol)
         self.assertIn("--mode progress", protocol)
         self.assertIn("不要再为发送这一条消息重试浏览器自动化", protocol)
         self.assertIn("python tools/probes/build_gpt_review_prompt.py", protocol)

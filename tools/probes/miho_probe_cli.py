@@ -166,7 +166,7 @@ def render_user_help() -> str:
   MihoProbe.exe rank-check --help
   MihoProbe.exe fresh --help
   MihoProbe.exe replay --help
-  MihoProbe.exe gpt-review --help
+  MihoProbe.exe ask-gpt --help
 """
 
 

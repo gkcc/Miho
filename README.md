@@ -107,7 +107,7 @@ dist\MihoProbe.exe update --rescan-all --open
 固定入口：
 
 - `dist\MihoProbe.exe ask-gpt --focus "本轮要审的问题" --copy`
-- `dist\MihoProbe.exe gpt-review --mode progress --focus "本轮已完成，继续找 P0/P1" --copy`
+- `dist\MihoProbe.exe ask-gpt --mode progress --focus "本轮已完成，继续找 P0/P1" --copy`
 
 剪贴板不可用时，工具会写 `data\probes\demo\gpt_review_prompt.md`，手动复制给右侧 GPT 即可。协议细节在 `docs/notes/codex-gpt-adversarial-loop.md`。
 

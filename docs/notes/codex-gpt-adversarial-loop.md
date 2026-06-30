@@ -47,7 +47,7 @@
 优先用工具生成，不要手写长上下文：
 
 ```powershell
-dist\MihoProbe.exe gpt-review `
+dist\MihoProbe.exe ask-gpt `
   --focus "本轮要推进的用户可见结果" `
   --evidence "关键命令结果，最多 5 行" `
   --changed-file "path/to/file.py: 改了什么" `
@@ -89,7 +89,7 @@ dist\MihoProbe.exe gpt-review `
 Codex 完成一刀、跑完测试、提交推送后，不再尝试直接给右侧 ChatGPT 发消息。用 progress 模式生成可粘贴同步包：
 
 ```powershell
-dist\MihoProbe.exe gpt-review `
+dist\MihoProbe.exe ask-gpt `
   --mode progress `
   --focus "本轮已完成，继续找 P0/P1" `
   --completed "用户可见行为 A 已落地" `
@@ -154,7 +154,7 @@ Acceptance：
 
 - Demo 体验：`scripts/run_miho_demo.bat`
 - Fresh OCR：`scripts/run_miho_demo.bat --fresh`
-- GPT 审查包：`dist\MihoProbe.exe gpt-review --focus "..."`
+- GPT 审查包：`dist\MihoProbe.exe ask-gpt --focus "..."`
 - P0.9 准确率：`python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json`
 - 全量回归：`python -m unittest discover tests`
 
