@@ -1401,11 +1401,20 @@ def run_app_export_run(args: argparse.Namespace) -> int:
     if args.open:
         webbrowser.open(Path(html_path).resolve().as_uri())
     print("app_export_run_scope: calibrated_official_ui_only")
-    print("app_export_run_note: 默认 dry-run；真正点击必须 --execute --confirm-official-ui，且清单内每步都需 confirmed_official_ui=true。")
+    print("app_export_run_note: 默认只读预检；真正点击必须 --execute --confirm-official-ui，且清单内每步都需 confirmed_official_ui=true。")
     print(f"app_export_run_status: {report.get('status')}")
+    print(f"app_export_run_operator_status: {report.get('operator_status')}")
+    print(f"app_export_run_status_label: {report.get('status_label')}")
+    print(f"app_export_run_headline: {report.get('headline')}")
+    print(f"app_export_run_next_command: {report.get('next_command')}")
     print(f"app_export_run_html: {html_path}")
     print(f"app_export_run_json: {json_path}")
     print(f"app_export_run_next: {report.get('next_action')}")
+    route = report.get("operator_route") if isinstance(report.get("operator_route"), list) else []
+    for index, item in enumerate(route, start=1):
+        print(f"app_export_run_route_{index}: {item}")
+    boundary = report.get("safety_boundary") if isinstance(report.get("safety_boundary"), list) else []
+    print(f"app_export_run_safety_boundary: {'、'.join(str(item) for item in boundary)}")
     return 1 if report.get("status") == "blocked" else 0
 
 

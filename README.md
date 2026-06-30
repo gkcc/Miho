@@ -49,13 +49,13 @@ scripts\install_miho_demo_shortcut.bat
 | 一键更新练度 | `MihoProbe Update` 或 `dist\MihoProbe.exe update` | 只处理 `figs\` 里的官方分享图。 |
 | 查看 APP 导出路线 | `MihoProbe App Export Workflow` 或 `dist\MihoProbe.exe app-export` | 生成官方分享图路线、readiness gates 和校准命令，不自动点击。 |
 | 生成 APP 坐标网格 | `dist\MihoProbe.exe app-export-calibrate` | 捕获米游社窗口网格截图，显示每一步需要填的 x/y。 |
-| 校准 APP 导出点击 | `dist\MihoProbe.exe app-export-run --no-open` | 读取校准清单，默认 dry-run；缺坐标会明确提示，不会点击。 |
+| 校准 APP 导出点击 | `dist\MihoProbe.exe app-export-run --no-open` | 读取校准清单，默认输出预检路线图；缺坐标会明确提示，不会点击。 |
 | 更新高难配队 | `MihoProbe Plan Update` 或 `dist\MihoProbe.exe plan-update` | 重算高难、Tier / 保值观察、行动卡和队伍卡；默认不联网。 |
 | 排查 A/S 评级 | `MihoProbe Rank Check` 或 `dist\MihoProbe.exe rank-check` | 不跑 OCR，只看头像左上角和音擎评级区域的艺术字。 |
 | 准确率验收 | `MihoProbe Accuracy Check` 或 `dist\MihoProbe.exe check --no-open` | 用 expected diff 回放，不重新 OCR。 |
 | 开发慢路径 | `MihoProbe Fresh OCR` 或 `dist\MihoProbe.exe fresh` | 会加载 PaddleOCR，日常不要先点。 |
 
-`app-export` 不是“自动导出已可用”的按钮。它会生成工作流页和 `miyoushe_app_export_calibration_template.json`。下一步先跑 `dist\MihoProbe.exe app-export-calibrate` 生成米游社窗口网格截图；把坐标填进清单后，再跑 `dist\MihoProbe.exe app-export-run --no-open`。只有当 dry-run 报告显示坐标已就绪，并且你逐步确认每个坐标都是米游社官方 UI 后，才允许加 `--execute --confirm-official-ui`。这仍然不会登录、不会读 token/cookie、不会控制游戏客户端。
+`app-export` 不是“自动导出已可用”的按钮。它会生成工作流页和 `miyoushe_app_export_calibration_template.json`。下一步先跑 `dist\MihoProbe.exe app-export-calibrate` 生成米游社窗口网格截图；把坐标填进清单后，再跑 `dist\MihoProbe.exe app-export-run --no-open`。这个命令默认先给预检路线图：当前状态、下一步命令、推荐路线和安全边界。只有当 dry-run 报告显示坐标已就绪，并且你逐步确认每个坐标都是米游社官方 UI 后，才允许加 `--execute --confirm-official-ui`。这仍然不会登录、不会读 token/cookie、不会控制游戏客户端。
 
 ## Dashboard 怎么看
 

@@ -1267,6 +1267,11 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["status"], "needs_coordinates")
             self.assertEqual(report["clicked_count"], 0)
             self.assertIn("app_export_run_status: needs_coordinates", output.getvalue())
+            self.assertIn("app_export_run_operator_status: not_calibrated", output.getvalue())
+            self.assertIn("app_export_run_status_label: 校准未完成", output.getvalue())
+            self.assertIn("app_export_run_next_command: dist\\MihoProbe.exe app-export-calibrate", output.getvalue())
+            self.assertIn("app_export_run_route_1: 手动在米游社 APP 保存官方分享图到 figs\\", output.getvalue())
+            self.assertIn("app_export_run_safety_boundary: 不自动登录、不读取 token/cookie", output.getvalue())
 
     def test_run_gpt_review_writes_compact_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

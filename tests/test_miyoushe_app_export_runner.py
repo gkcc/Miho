@@ -135,7 +135,10 @@ class MiyousheAppExportRunnerTests(unittest.TestCase):
             root = Path(temp_dir)
             manifest_path = root / "calibration.json"
             manifest_path.write_text(
-                json.dumps(runner.build_calibration_template(manifest_path=manifest_path), ensure_ascii=False),
+                json.dumps(
+                    runner.build_calibration_template(manifest_path=manifest_path, image_inbox=root / "empty_figs"),
+                    ensure_ascii=False,
+                ),
                 encoding="utf-8",
             )
 
@@ -150,7 +153,43 @@ class MiyousheAppExportRunnerTests(unittest.TestCase):
             self.assertTrue(result["html_path"].exists())
             report = json.loads(result["json_path"].read_text(encoding="utf-8"))
             self.assertEqual(report["status"], "needs_coordinates")
+            self.assertEqual(report["operator_status"], "not_calibrated")
+            self.assertEqual(report["status_label"], "校准未完成")
+            self.assertIn("app-export-calibrate", report["next_command"])
+            self.assertIn("手动在米游社 APP 保存官方分享图到 figs\\", report["operator_route"])
+            self.assertIn("不读取 token/cookie", report["safety_boundary"])
+            self.assertFalse(report["gates"]["coordinates_complete"])
             self.assertIn("缺坐标", result["html_path"].read_text(encoding="utf-8"))
+            html = result["html_path"].read_text(encoding="utf-8")
+            self.assertIn("米游社官方分享图预检报告", html)
+            self.assertIn("下一步命令", html)
+            self.assertIn("推荐路线", html)
+            self.assertIn("安全边界", html)
+
+    def test_saved_images_take_operator_route_to_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            inbox = root / "figs"
+            inbox.mkdir()
+            (inbox / "share.png").write_bytes(b"fake")
+            manifest_path = root / "calibration.json"
+            manifest = runner.build_calibration_template(image_inbox=inbox, manifest_path=manifest_path)
+            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+
+            result = runner.run_manifest(
+                manifest_path=manifest_path,
+                output_dir=root / "reports",
+                execute=False,
+                confirm_official_ui=False,
+            )
+
+            report = json.loads(result["json_path"].read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "needs_coordinates")
+            self.assertEqual(report["operator_status"], "saved_images_ready")
+            self.assertEqual(report["status_label"], "已有分享图可更新")
+            self.assertEqual(report["saved_image_count"], 1)
+            self.assertEqual(report["next_command"], "dist\\MihoProbe.exe update --open")
+            self.assertTrue(report["gates"]["saved_images_detected"])
 
 
 if __name__ == "__main__":

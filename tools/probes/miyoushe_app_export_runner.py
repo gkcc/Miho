@@ -18,7 +18,7 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo" / "app_export_wor
 DEFAULT_MANIFEST = DEFAULT_OUTPUT_DIR / "miyoushe_app_export_calibration_template.json"
 DEFAULT_IMAGE_INBOX = PROJECT_ROOT / "figs"
 CALIBRATION_SCHEMA_VERSION = "p4.4-miyoushe-app-export-calibration"
-REPORT_SCHEMA_VERSION = "p4.4-miyoushe-app-export-run-report"
+REPORT_SCHEMA_VERSION = "p4.5-miyoushe-app-export-run-report"
 
 FORBIDDEN_CAPABILITIES = (
     "auto_login",
@@ -45,6 +45,23 @@ RISKY_STEP_KEYWORDS = (
     "captcha",
     "password",
     "credential",
+)
+
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+SAFETY_BOUNDARY = (
+    "不自动登录",
+    "不读取 token/cookie",
+    "不抓包",
+    "不 UIA",
+    "不初始化 Tauri",
+    "不自动入库",
+)
+
+OPERATOR_ROUTE = (
+    "手动在米游社 APP 保存官方分享图到 figs\\",
+    "运行 dist\\MihoProbe.exe update --open",
+    "Dashboard 人工复核后才进入本地角色库/高难建议",
 )
 
 
@@ -394,6 +411,135 @@ def next_action_for_status(status: str) -> str:
     }.get(status, "查看报告中的 warnings 和 blockers。")
 
 
+def count_saved_images(image_inbox: Any) -> int:
+    if not image_inbox:
+        return 0
+    try:
+        inbox = resolve_path(image_inbox)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return 0
+    if not inbox.is_dir():
+        return 0
+    count = 0
+    for path in inbox.iterdir():
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
+            count += 1
+    return count
+
+
+def command_with_manifest(*parts: str, manifest_path: Path) -> str:
+    return command_text([*parts, "--manifest", str(manifest_path), "--no-open"])
+
+
+def build_operator_state(
+    *,
+    status: str,
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    validation: dict[str, Any],
+    execute: bool,
+    confirm_official_ui: bool,
+    clicked_count: int,
+) -> dict[str, Any]:
+    saved_image_count = count_saved_images(manifest.get("image_inbox"))
+    has_saved_images = saved_image_count > 0
+    if status == "blocked":
+        operator_status = "blocked"
+        status_label = "存在阻断项"
+        headline = "当前不能执行 APP 导出流程；请先修复阻断项。"
+        next_command = ""
+    elif has_saved_images and not execute:
+        operator_status = "saved_images_ready"
+        status_label = "已有分享图可更新"
+        headline = "已检测到本地官方分享图；下一步进入一键更新和人工复核。"
+        next_command = "dist\\MihoProbe.exe update --open"
+    elif status == "needs_coordinates":
+        operator_status = "not_calibrated"
+        status_label = "校准未完成"
+        headline = "APP 自动点击未开启；需要先用网格截图填写官方 UI 坐标。"
+        next_command = command_with_manifest("dist\\MihoProbe.exe", "app-export-calibrate", manifest_path=manifest_path)
+    elif status == "needs_confirmation":
+        operator_status = "waiting_manual_confirm"
+        status_label = "等待人工确认"
+        headline = "坐标已填写，但还没有确认每个坐标都是米游社官方 UI。"
+        next_command = command_with_manifest("dist\\MihoProbe.exe", "app-export-run", manifest_path=manifest_path)
+    elif status == "ready_for_dry_run":
+        operator_status = "dry_run_ready"
+        status_label = "可 dry-run"
+        headline = "坐标已就绪；先 dry-run 确认窗口内解析结果，不点击。"
+        next_command = command_with_manifest("dist\\MihoProbe.exe", "app-export-run", manifest_path=manifest_path)
+    elif status == "ready_for_execute":
+        operator_status = "executable_after_confirm"
+        status_label = "可执行确认命令"
+        headline = "所有官方 UI 坐标已确认；只有显式确认命令才会点击。"
+        next_command = command_with_manifest(
+            "dist\\MihoProbe.exe",
+            "app-export-run",
+            "--execute",
+            "--confirm-official-ui",
+            manifest_path=manifest_path,
+        )
+    elif status == "executed":
+        operator_status = "executed"
+        status_label = "已执行点击流程"
+        headline = "点击流程已执行；分享图保存后进入一键更新和人工复核。"
+        next_command = "dist\\MihoProbe.exe update --open"
+    else:
+        operator_status = status
+        status_label = "查看报告"
+        headline = "查看报告中的下一步和安全边界。"
+        next_command = ""
+
+    return {
+        "operator_status": operator_status,
+        "status_label": status_label,
+        "headline": headline,
+        "next_command": next_command,
+        "operator_route": list(OPERATOR_ROUTE),
+        "automation_status": "disabled_until_calibrated"
+        if operator_status in {"not_calibrated", "waiting_manual_confirm", "blocked", "saved_images_ready"}
+        else "confirmed_coordinates_only",
+        "safety_boundary": list(SAFETY_BOUNDARY),
+        "saved_image_count": saved_image_count,
+        "gates": {
+            "calibration_exists": manifest_path.exists(),
+            "coordinates_complete": int(validation.get("missing_coordinate_count") or 0) == 0,
+            "manual_confirmation_complete": int(validation.get("unconfirmed_step_count") or 0) == 0,
+            "dry_run_available": status in {"ready_for_dry_run", "ready_for_execute", "executed"},
+            "execute_allowed": status in {"ready_for_execute", "executed"} and bool(confirm_official_ui),
+            "saved_images_detected": has_saved_images,
+            "clicked_this_run": clicked_count > 0,
+        },
+        "preflight_checks": [
+            {
+                "name": "官方分享图路线",
+                "status": "ready",
+                "detail": "只处理米游社官方分享图，候选结果必须人工复核。",
+            },
+            {
+                "name": "坐标校准",
+                "status": "ready" if int(validation.get("missing_coordinate_count") or 0) == 0 else "missing",
+                "detail": f"缺坐标步骤：{validation.get('missing_coordinate_count') or 0}",
+            },
+            {
+                "name": "人工确认",
+                "status": "ready" if int(validation.get("unconfirmed_step_count") or 0) == 0 else "waiting",
+                "detail": f"未确认步骤：{validation.get('unconfirmed_step_count') or 0}",
+            },
+            {
+                "name": "本地分享图",
+                "status": "ready" if has_saved_images else "empty",
+                "detail": f"figs 中检测到 {saved_image_count} 张图片。",
+            },
+            {
+                "name": "执行模式",
+                "status": "execute" if execute else "dry-run",
+                "detail": "默认只读预检；点击必须显式 --execute --confirm-official-ui。",
+            },
+        ],
+    }
+
+
 def build_report(
     *,
     manifest_path: Path,
@@ -462,6 +608,16 @@ def build_report(
                     }
                 )
 
+    operator_state = build_operator_state(
+        status=report_status,
+        manifest_path=manifest_path,
+        manifest=manifest,
+        validation=validation,
+        execute=execute,
+        confirm_official_ui=confirm_official_ui,
+        clicked_count=clicked_count,
+    )
+
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "created_at": now_iso(),
@@ -474,6 +630,16 @@ def build_report(
         "execute_requested": bool(execute),
         "confirm_official_ui": bool(confirm_official_ui),
         "status": report_status,
+        "operator_status": operator_state["operator_status"],
+        "status_label": operator_state["status_label"],
+        "headline": operator_state["headline"],
+        "operator_route": operator_state["operator_route"],
+        "next_command": operator_state["next_command"],
+        "automation_status": operator_state["automation_status"],
+        "safety_boundary": operator_state["safety_boundary"],
+        "gates": operator_state["gates"],
+        "preflight_checks": operator_state["preflight_checks"],
+        "saved_image_count": operator_state["saved_image_count"],
         "next_action": next_action_for_status(report_status),
         "validation": validation,
         "window": selected,
@@ -514,24 +680,53 @@ def render_html(report: dict[str, Any]) -> str:
     blockers = validation.get("blockers") if isinstance(validation.get("blockers"), list) else []
     warning_items = "".join(f"<li>{escape(str(item))}</li>" for item in warnings) or "<li>无</li>"
     blocker_items = "".join(f"<li>{escape(str(item))}</li>" for item in blockers) or "<li>无</li>"
+    route_items = "".join(f"<li>{escape(str(item))}</li>" for item in report.get("operator_route", [])) or "<li>无</li>"
+    safety_items = "".join(f"<li>{escape(str(item))}</li>" for item in report.get("safety_boundary", [])) or "<li>无</li>"
+    gates = report.get("gates") if isinstance(report.get("gates"), dict) else {}
+    gate_items = "".join(
+        f"<li><span>{escape(str(key))}</span><strong>{escape(str(value))}</strong></li>" for key, value in gates.items()
+    ) or "<li>无</li>"
+    checks = report.get("preflight_checks") if isinstance(report.get("preflight_checks"), list) else []
+    check_cards = []
+    for check in checks:
+        if not isinstance(check, dict):
+            continue
+        check_cards.append(
+            '<article class="check">'
+            f"<span>{escape(str(check.get('status') or ''))}</span>"
+            f"<h3>{escape(str(check.get('name') or ''))}</h3>"
+            f"<p>{escape(str(check.get('detail') or ''))}</p>"
+            "</article>"
+        )
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>米游社导出校准执行报告</title>
+  <title>米游社官方分享图预检报告</title>
   <style>
     body {{ margin: 0; background: #f6f8fb; color: #172033; font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; }}
     header {{ padding: 26px 30px; background: #101827; color: #fff; }}
     header h1 {{ margin: 0 0 8px; font-size: 28px; }}
     main {{ max-width: 1120px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }}
     .metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }}
-    .metric, .panel, .step {{ background: #fff; border: 1px solid #dbe3ef; border-radius: 8px; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08); }}
+    .metric, .panel, .step, .check {{ background: #fff; border: 1px solid #dbe3ef; border-radius: 8px; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08); }}
     .metric {{ padding: 14px; }}
     .metric span {{ display: block; color: #64748b; font-size: 13px; }}
     .metric strong {{ display: block; margin-top: 4px; font-size: 22px; overflow-wrap: anywhere; }}
+    .hero {{ padding: 18px; border-radius: 8px; border: 1px solid #b9d7ff; background: #eef6ff; color: #173f76; }}
+    .hero h2 {{ margin: 0 0 8px; font-size: 22px; }}
+    .hero p {{ margin: 0; line-height: 1.6; }}
     .panel {{ padding: 16px; }}
     .panel h2 {{ margin: 0 0 10px; font-size: 18px; }}
+    .two-col {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }}
+    .checks {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }}
+    .check {{ padding: 14px; }}
+    .check span {{ display: inline-block; margin-bottom: 7px; padding: 4px 8px; border-radius: 999px; background: #eef2f7; color: #475569; font-size: 12px; font-weight: 800; }}
+    .check h3 {{ margin: 0 0 6px; font-size: 15px; }}
+    .check p {{ margin: 0; color: #475569; line-height: 1.45; }}
+    .gate-list {{ display: grid; gap: 7px; padding-left: 0; list-style: none; }}
+    .gate-list li {{ display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid #e5eaf2; padding-bottom: 7px; }}
     .steps {{ display: grid; gap: 12px; }}
     .step {{ display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; padding: 14px; }}
     .step b {{ display: grid; place-items: center; width: 34px; height: 34px; border-radius: 999px; background: #fff4d8; color: #9a6500; }}
@@ -544,21 +739,45 @@ def render_html(report: dict[str, Any]) -> str:
 </head>
 <body>
   <header>
-    <h1>米游社导出校准执行报告</h1>
-    <p>默认 dry-run；真正点击必须显式 --execute --confirm-official-ui。</p>
+    <h1>米游社官方分享图预检报告</h1>
+    <p>默认只读预检；真正点击必须显式 --execute --confirm-official-ui。</p>
   </header>
   <main>
+    <section class="hero">
+      <h2>{escape(str(report.get("status_label") or report.get("status") or ""))}</h2>
+      <p>{escape(str(report.get("headline") or ""))}</p>
+    </section>
     <section class="metrics">
-      <div class="metric"><span>状态</span><strong>{escape(str(report.get("status") or ""))}</strong></div>
+      <div class="metric"><span>当前状态</span><strong>{escape(str(report.get("operator_status") or report.get("status") or ""))}</strong></div>
       <div class="metric"><span>模式</span><strong>{escape("dry-run" if report.get("dry_run") else "execute")}</strong></div>
       <div class="metric"><span>点击次数</span><strong>{escape(str(report.get("clicked_count") or 0))}</strong></div>
       <div class="metric"><span>缺坐标</span><strong>{escape(str(validation.get("missing_coordinate_count") or 0))}</strong></div>
       <div class="metric"><span>未确认</span><strong>{escape(str(validation.get("unconfirmed_step_count") or 0))}</strong></div>
+      <div class="metric"><span>本地分享图</span><strong>{escape(str(report.get("saved_image_count") or 0))}</strong></div>
     </section>
     <section class="panel">
-      <h2>下一步</h2>
+      <h2>下一步命令</h2>
+      <code>{escape(str(report.get("next_command") or "先处理阻断项，再重新运行预检。"))}</code>
+    </section>
+    <section class="two-col">
+      <div class="panel">
+        <h2>推荐路线</h2>
+        <ol>{route_items}</ol>
+      </div>
+      <div class="panel">
+        <h2>安全边界</h2>
+        <ul>{safety_items}</ul>
+      </div>
+    </section>
+    <section class="checks">{''.join(check_cards)}</section>
+    <section class="panel">
+      <h2>内部下一步</h2>
       <p>{escape(str(report.get("next_action") or ""))}</p>
       <code>{escape(str(report.get("manifest_path") or ""))}</code>
+    </section>
+    <section class="panel">
+      <h2>预检门禁</h2>
+      <ul class="gate-list">{gate_items}</ul>
     </section>
     <section class="panel">
       <h2>阻断项</h2>
@@ -641,9 +860,18 @@ def main() -> int:
         return 1
     report = result["report"]
     print(f"app_export_run_status: {report.get('status')}")
+    print(f"app_export_run_operator_status: {report.get('operator_status')}")
+    print(f"app_export_run_status_label: {report.get('status_label')}")
+    print(f"app_export_run_headline: {report.get('headline')}")
+    print(f"app_export_run_next_command: {report.get('next_command')}")
     print(f"app_export_run_json: {result['json_path']}")
     print(f"app_export_run_html: {result['html_path']}")
     print(f"app_export_run_next: {report.get('next_action')}")
+    route = report.get("operator_route") if isinstance(report.get("operator_route"), list) else []
+    for index, item in enumerate(route, start=1):
+        print(f"app_export_run_route_{index}: {item}")
+    boundary = report.get("safety_boundary") if isinstance(report.get("safety_boundary"), list) else []
+    print(f"app_export_run_safety_boundary: {'、'.join(str(item) for item in boundary)}")
     return 1 if report.get("status") == "blocked" else 0
 
 
