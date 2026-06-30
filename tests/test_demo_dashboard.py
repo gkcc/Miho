@@ -631,6 +631,29 @@ class DemoDashboardTests(unittest.TestCase):
 
         self.assertNotIn("启动器执行记录", html)
 
+    def test_dashboard_explains_new_only_cache_refresh_without_claiming_missing_data(self) -> None:
+        summary = dashboard_minimal_summary()
+        update_state = {
+            "discovered_image_count": 4,
+            "processed_image_count": 0,
+            "skipped_unchanged_count": 4,
+        }
+        summary["input"] = {
+            "source_mode": "OCR fresh image mode",
+            "new_only": True,
+            "images_dir": "figs",
+            "update_state": update_state,
+        }
+        summary["update_state"] = update_state
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("没有新分享图", html)
+        self.assertIn("已扫描 figs 中 4 张官方分享图", html)
+        self.assertIn("本次只刷新缓存页面，不会重新跑图片识别", html)
+        self.assertIn("放入新分享图或强制重扫", html)
+        self.assertNotIn("还没有本地数据", html)
+
     def test_dashboard_update_command_ready_is_copy_only(self) -> None:
         summary = dashboard_minimal_summary()
         summary["demo_doctor"] = {

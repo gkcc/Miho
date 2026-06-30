@@ -246,6 +246,13 @@ def summary_card(label: str, title: Any, body: Any, tone: str = "muted") -> str:
     )
 
 
+def int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def guide_card(title: str, body: str, command: str | None = None, tone: str = "muted") -> str:
     command_html = f"<code>{e(command)}</code>" if command else ""
     return (
@@ -2359,7 +2366,28 @@ def render_html(summary: dict[str, Any]) -> str:
     case_count = int(overall.get("case_count", 0) or 0)
     ready_count = int(endgame_summary.get("ready_now_count", 0) or 0) if endgame_summary else 0
     review_target_count = int(endgame_summary.get("needs_review_count", 0) or 0) if endgame_summary else 0
-    if case_count == 0:
+    input_update_state = input_info.get("update_state") if isinstance(input_info.get("update_state"), dict) else {}
+    update_state_for_notice = update_info or input_update_state
+    discovered_images = int_value(update_state_for_notice.get("discovered_image_count"))
+    processed_images = int_value(update_state_for_notice.get("processed_image_count"))
+    skipped_unchanged = int_value(update_state_for_notice.get("skipped_unchanged_count"))
+    new_only_no_new_images = (
+        case_count == 0
+        and input_info.get("source_mode") == "OCR fresh image mode"
+        and bool(input_info.get("new_only"))
+        and discovered_images > 0
+        and processed_images == 0
+        and skipped_unchanged > 0
+    )
+    status_tone = "bad"
+    if new_only_no_new_images:
+        status_title = "没有新分享图"
+        status_body = (
+            f"已扫描 figs 中 {discovered_images} 张官方分享图，{skipped_unchanged} 张都是已处理过的图片；"
+            "本次只刷新缓存页面，不会重新跑图片识别。"
+        )
+        status_tone = "warn"
+    elif case_count == 0:
         status_title = "还没有本地数据"
         status_body = "当前没有可用分享图或 parsed JSON；先放入官方分享图，或使用已有 manifest/parsed replay。"
     elif parse_fail_count:
@@ -2377,13 +2405,21 @@ def render_html(summary: dict[str, Any]) -> str:
     elif can_act_now:
         status_title = "可以按建议行动"
         status_body = "本轮数据已通过门禁，可以继续看下方建议。"
+        status_tone = "ok"
     else:
         status_title = "暂不能直接采用"
         status_body = "当前还有复核未完成、运行清单不一致或本地状态过期，先按下一步处理。"
-    next_action = action_label(doctor_info.get("primary_next_action")) if doctor_info else "查看页面明细"
+    next_action = (
+        "放入新分享图或强制重扫"
+        if new_only_no_new_images
+        else action_label(doctor_info.get("primary_next_action"))
+        if doctor_info
+        else "查看页面明细"
+    )
+    next_action_tone = "warn" if new_only_no_new_images else status_class(doctor_status)
     top_cards = [
-        summary_card("当前结论", status_title, status_body, "ok" if can_act_now else "bad"),
-        summary_card("下一步", next_action, f"模式：{source_mode_label(input_info.get('source_mode'))}", status_class(doctor_status)),
+        summary_card("当前结论", status_title, status_body, status_tone),
+        summary_card("下一步", next_action, f"模式：{source_mode_label(input_info.get('source_mode'))}", next_action_tone),
         summary_card(
             "解析概况",
             f"{parse_pass_count}/{case_count} 张可用",
