@@ -62,6 +62,10 @@ def humanize_text(value: Any) -> str:
             "缺少 运行清单；无法确认本轮产物是否同批生成。",
             "缺少本轮运行清单：这批识别结果、复核预览和建议可能不是同一次生成，先刷新本地演示。",
         ),
+        (
+            "评级视觉快检通过：完整解析失败时，可以优先相信 A/S 艺术字 fallback，再检查名称、等级和驱动盘字段。",
+            "评级视觉快检通过：完整解析失败时，可以先相信 A/S 艺术字识别，再检查名称、等级和驱动盘字段。",
+        ),
         ("missing_run_manifest", "缺少本轮运行清单"),
         ("launcher_command_path_not_canonical", "启动器命令路径不在允许范围"),
         ("launcher_report_follow_up_not_for_current_dashboard", "启动器后续建议不属于当前页面"),
@@ -192,6 +196,8 @@ def humanize_link_label(label: str) -> str:
         "review_apply_receipt.md": "复核应用回执",
         "review_apply_receipt.json": "复核应用数据",
         "review_log.json": "复核日志",
+        "rank_check.html": "评级快检页",
+        "rank_check.json": "评级快检数据",
         "parsed_json": "原始解析",
         "expected_json": "验收对照",
         "expected_diff_md": "差异报告",
@@ -358,6 +364,50 @@ def render_operation_bar() -> str:
         f'<div class="operation-grid">{"".join(cards)}</div>'
         "</section>"
     )
+
+
+def render_rank_check_panel(summary: dict[str, Any]) -> str:
+    report = summary.get("rank_check")
+    if not isinstance(report, dict):
+        return ""
+    entries = report.get("entries") if isinstance(report.get("entries"), list) else []
+    summary_status = str(report.get("summary_status") or "needs_review")
+    tone = "ok" if summary_status == "pass" else "warn" if summary_status in {"empty", "needs_review"} else status_class(summary_status)
+    recommendation = humanize_text(report.get("recommendation") or "评级快检只作为 A/S 视觉证据，不替代字段复核。")
+    entry_rows = []
+    for entry in entries[:4]:
+        if not isinstance(entry, dict):
+            continue
+        entry_rows.append(
+            "<li>"
+            f"<strong>{e(entry.get('image_name') or basename(entry.get('image')))}</strong>"
+            f"<span>{e(entry.get('rank_summary') or '评级未识别')}</span>"
+            "</li>"
+        )
+    more_count = max(0, len(entries) - 4)
+    if more_count:
+        entry_rows.append(f"<li><strong>更多图片</strong><span>还有 {e(more_count)} 张在快检报告里</span></li>")
+    entries_html = f'<ul class="rank-check-list">{"".join(entry_rows)}</ul>' if entry_rows else ""
+    links = [
+        link("rank_check.html", report.get("output_html")),
+        link("rank_check.json", report.get("output_json")),
+    ]
+    return f"""
+    <section class="rank-check-panel {e(tone)}">
+      <div class="rank-check-main">
+        <span>评级视觉快检</span>
+        <h2>{e("A/S 艺术字区域已通过" if summary_status == "pass" else "A/S 艺术字区域需复核")}</h2>
+        <p>{he(recommendation)}</p>
+      </div>
+      <div class="rank-check-metrics">
+        <div><span>图片</span><strong>{e(report.get("image_count", 0))}</strong></div>
+        <div><span>通过区域</span><strong>{e(report.get("ok_region_count", 0))}/{e(report.get("region_count", 0))}</strong></div>
+        <div><span>需复核</span><strong>{e(report.get("review_region_count", 0))}</strong></div>
+      </div>
+      {entries_html}
+      <div class="rank-check-links">{"".join(links)}</div>
+    </section>
+    """
 
 
 def render_plan_update_readiness(summary: dict[str, Any]) -> str:
@@ -2562,6 +2612,7 @@ def render_html(summary: dict[str, Any]) -> str:
         ),
     ]
     operation_bar = render_operation_bar()
+    rank_check_panel = render_rank_check_panel(summary)
     plan_update_readiness = render_plan_update_readiness(summary)
     acceptance_guide = render_acceptance_guide(
         can_act_now=can_act_now,
@@ -2642,6 +2693,24 @@ def render_html(summary: dict[str, Any]) -> str:
     .operation-card.safe strong {{ color: var(--ok); }}
     .operation-card.warn {{ border-color: #f6cf7c; background: var(--warn-bg); }}
     .operation-card.warn strong {{ color: var(--warn); }}
+    .rank-check-panel {{ display: grid; grid-template-columns: minmax(260px, 0.9fr) minmax(300px, 0.9fr) minmax(300px, 1.2fr); gap: 14px; align-items: stretch; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: var(--shadow); }}
+    .rank-check-panel.ok {{ border-color: #a7e0bd; background: linear-gradient(180deg, #ffffff 0%, #f3fbf6 100%); }}
+    .rank-check-panel.warn {{ border-color: #f6cf7c; background: linear-gradient(180deg, #ffffff 0%, #fff9e8 100%); }}
+    .rank-check-main {{ display: grid; gap: 7px; align-content: center; min-width: 0; }}
+    .rank-check-main span {{ color: var(--muted); font-size: 13px; font-weight: 800; }}
+    .rank-check-main h2 {{ margin: 0; font-size: 24px; line-height: 1.18; letter-spacing: 0; }}
+    .rank-check-main p {{ margin: 0; color: var(--muted); line-height: 1.5; }}
+    .rank-check-panel.ok .rank-check-main h2 {{ color: var(--ok); }}
+    .rank-check-panel.warn .rank-check-main h2 {{ color: var(--warn); }}
+    .rank-check-metrics {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-content: center; }}
+    .rank-check-metrics div {{ border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: rgba(255, 255, 255, 0.78); min-width: 0; }}
+    .rank-check-metrics span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .rank-check-metrics strong {{ display: block; margin-top: 4px; font-size: 22px; overflow-wrap: anywhere; }}
+    .rank-check-list {{ margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; align-content: center; min-width: 0; }}
+    .rank-check-list li {{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: rgba(255, 255, 255, 0.78); min-width: 0; }}
+    .rank-check-list strong {{ overflow-wrap: anywhere; }}
+    .rank-check-list span {{ color: var(--muted); font-size: 13px; font-weight: 800; }}
+    .rank-check-links {{ display: flex; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }}
     .plan-readiness {{ display: grid; grid-template-columns: minmax(280px, 0.8fr) minmax(520px, 1.6fr); gap: 16px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: var(--shadow); }}
     .plan-readiness span {{ color: var(--muted); font-size: 13px; font-weight: 800; }}
     .plan-readiness h2 {{ margin: 6px 0 8px; font-size: 26px; line-height: 1.15; letter-spacing: 0; }}
@@ -2806,6 +2875,7 @@ def render_html(summary: dict[str, Any]) -> str:
     @media (max-width: 900px) {{
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .operation-bar {{ grid-template-columns: 1fr; }}
+      .rank-check-panel {{ grid-template-columns: 1fr; }}
       .plan-readiness {{ grid-template-columns: 1fr; }}
       .acceptance-guide {{ grid-template-columns: 1fr; }}
       .guide-cards {{ grid-template-columns: 1fr; }}
@@ -2835,6 +2905,7 @@ def render_html(summary: dict[str, Any]) -> str:
   </header>
     <main>
     {operation_bar}
+    {rank_check_panel}
     {plan_update_readiness}
     {acceptance_guide}
     <section class="top-summary">{''.join(top_cards)}</section>

@@ -691,6 +691,37 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn(r"dist\MihoProbe.exe update --rescan-all --open", html)
         self.assertNotIn("还没有本地数据", html)
 
+    def test_dashboard_surfaces_visual_rank_check_panel(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["rank_check"] = {
+            "summary_status": "pass",
+            "recommendation": "评级视觉快检通过：完整解析失败时，可以优先相信 A/S 艺术字 fallback，再检查名称、等级和驱动盘字段。",
+            "image_count": 1,
+            "region_count": 2,
+            "ok_region_count": 2,
+            "review_region_count": 0,
+            "output_html": "data/probes/demo/rank_check/rank_check.html",
+            "output_json": "data/probes/demo/rank_check/rank_check.json",
+            "entries": [
+                {
+                    "image_name": "1782409461508.jpg",
+                    "rank_summary": "角色 S / 音擎 A",
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("评级视觉快检", html)
+        self.assertIn("A/S 艺术字区域已通过", html)
+        self.assertIn("评级视觉快检通过", html)
+        self.assertIn("A/S 艺术字识别", html)
+        self.assertNotIn("fallback", html)
+        self.assertIn("1782409461508.jpg", html)
+        self.assertIn("角色 S / 音擎 A", html)
+        self.assertIn("评级快检页", html)
+        self.assertIn("评级快检数据", html)
+
     def test_dashboard_update_command_ready_is_copy_only(self) -> None:
         summary = dashboard_minimal_summary()
         summary["demo_doctor"] = {

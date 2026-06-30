@@ -217,8 +217,32 @@ def has_stale_dashboard_renderer(path: Path) -> bool:
     return path.stat().st_mtime < renderer_path.stat().st_mtime
 
 
+def has_newer_rank_check_report(summary_path: Path, dashboard_path: Path) -> bool:
+    if not summary_path.exists() or not dashboard_path.exists():
+        return False
+    dashboard_mtime = dashboard_path.stat().st_mtime
+    rank_check_dir = summary_path.parent / "rank_check"
+    for report_path in (rank_check_dir / "rank_check.json", rank_check_dir / "rank_check.html"):
+        if report_path.exists() and dashboard_mtime < report_path.stat().st_mtime:
+            return True
+    return False
+
+
 def render_cached_dashboard(summary_path: Path, dashboard_path: Path) -> dict[str, str]:
     summary = dashboard_tool.load_json(summary_path)
+    rank_check_json = summary_path.parent / "rank_check" / "rank_check.json"
+    rank_check_html = summary_path.parent / "rank_check" / "rank_check.html"
+    if rank_check_json.exists() and isinstance(summary, dict) and "rank_check" not in summary:
+        try:
+            rank_check = dashboard_tool.load_json(rank_check_json)
+        except Exception:  # noqa: BLE001 - stale local diagnostic reports should not block opening the dashboard.
+            rank_check = None
+        if isinstance(rank_check, dict):
+            rank_check = dict(rank_check)
+            rank_check.setdefault("output_json", str(rank_check_json))
+            if rank_check_html.exists():
+                rank_check.setdefault("output_html", str(rank_check_html))
+            summary["rank_check"] = rank_check
     return dashboard_tool.render_dashboard(summary, dashboard_path)
 
 
@@ -491,6 +515,8 @@ def run_dashboard(args: argparse.Namespace) -> int:
     if dashboard_path.exists() and has_stale_dashboard_renderer(dashboard_path):
         should_refresh = True
     if dashboard_path.exists() and summary_path.exists() and dashboard_path.stat().st_mtime < summary_path.stat().st_mtime:
+        should_refresh = True
+    if has_newer_rank_check_report(summary_path, dashboard_path):
         should_refresh = True
     if not dashboard_path.exists() or should_refresh:
         if not summary_path.exists():
@@ -911,7 +937,7 @@ def rank_check_summary(entries: list[dict[str, Any]], *, ok_region_count: int, r
     if region_count and ok_region_count == region_count:
         return {
             "summary_status": "pass",
-            "recommendation": "评级视觉快检通过：完整解析失败时，可以优先相信 A/S 艺术字 fallback，再检查名称、等级和驱动盘字段。",
+            "recommendation": "评级视觉快检通过：完整解析失败时，可以先相信 A/S 艺术字识别，再检查名称、等级和驱动盘字段。",
         }
     return {
         "summary_status": "needs_review",

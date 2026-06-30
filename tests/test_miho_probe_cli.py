@@ -131,6 +131,50 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertNotIn("final_brief.md", html)
             self.assertNotIn("final_brief.json", html)
 
+    def test_dashboard_command_injects_cached_rank_check_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            summary_path = root / "demo_summary.json"
+            dashboard_path = root / "index.html"
+            rank_check_dir = root / "rank_check"
+            rank_check_dir.mkdir(parents=True)
+            summary_path.write_text(json.dumps(minimal_summary(), ensure_ascii=False), encoding="utf-8")
+            (rank_check_dir / "rank_check.json").write_text(
+                json.dumps(
+                    {
+                        "summary_status": "pass",
+                        "recommendation": "评级视觉快检通过：固定 A/S 艺术字区域均有可信颜色信号。",
+                        "image_count": 1,
+                        "region_count": 2,
+                        "ok_region_count": 2,
+                        "review_region_count": 0,
+                        "entries": [{"image_name": "1782409461508.jpg", "rank_summary": "角色 S / 音擎 A"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (rank_check_dir / "rank_check.html").write_text("<html>rank check</html>", encoding="utf-8")
+            dashboard_path.write_text("<html><body>Brief Warning</body></html>", encoding="utf-8")
+
+            result = cli_tool.run_dashboard(
+                argparse.Namespace(
+                    dashboard=str(dashboard_path),
+                    summary=str(summary_path),
+                    refresh=False,
+                    open=False,
+                )
+            )
+
+            self.assertEqual(result, 0)
+            html = dashboard_path.read_text(encoding="utf-8")
+            self.assertIn("评级视觉快检", html)
+            self.assertIn("A/S 艺术字区域已通过", html)
+            self.assertIn("1782409461508.jpg", html)
+            self.assertIn("角色 S / 音擎 A", html)
+            self.assertIn("评级快检页", html)
+            self.assertIn("评级快检数据", html)
+
     def test_dashboard_command_treats_old_brief_links_as_legacy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             dashboard_path = Path(temp_dir) / "index.html"
@@ -162,6 +206,51 @@ class MihoProbeCliTests(unittest.TestCase):
             html = dashboard_path.read_text(encoding="utf-8")
             self.assertIn("米游社练度识别体验台", html)
             self.assertNotIn("old cache", html)
+
+    def test_dashboard_command_refreshes_when_rank_check_report_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            summary_path = root / "demo_summary.json"
+            dashboard_path = root / "index.html"
+            rank_check_dir = root / "rank_check"
+            rank_check_dir.mkdir(parents=True)
+            summary_path.write_text(json.dumps(minimal_summary(), ensure_ascii=False), encoding="utf-8")
+            rank_check_json = rank_check_dir / "rank_check.json"
+            rank_check_json.write_text(
+                json.dumps(
+                    {
+                        "summary_status": "pass",
+                        "recommendation": "评级视觉快检通过：完整解析失败时，可以先相信 A/S 艺术字识别，再检查名称、等级和驱动盘字段。",
+                        "image_count": 1,
+                        "region_count": 2,
+                        "ok_region_count": 2,
+                        "review_region_count": 0,
+                        "entries": [{"image_name": "1782409461508.jpg", "rank_summary": "角色 S / 音擎 A"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            dashboard_path.write_text("<html><body>米游社练度识别体验台 old rank cache</body></html>", encoding="utf-8")
+            renderer_time = (PROJECT_ROOT / "tools" / "probes" / "render_demo_dashboard.py").stat().st_mtime
+            os.utime(summary_path, (renderer_time + 30, renderer_time + 30))
+            os.utime(dashboard_path, (renderer_time + 60, renderer_time + 60))
+            os.utime(rank_check_json, (renderer_time + 90, renderer_time + 90))
+
+            result = cli_tool.run_dashboard(
+                argparse.Namespace(
+                    dashboard=str(dashboard_path),
+                    summary=str(summary_path),
+                    refresh=False,
+                    open=False,
+                )
+            )
+
+            self.assertEqual(result, 0)
+            html = dashboard_path.read_text(encoding="utf-8")
+            self.assertIn("评级视觉快检", html)
+            self.assertIn("角色 S / 音擎 A", html)
+            self.assertNotIn("old rank cache", html)
 
     def test_dashboard_command_renders_first_run_page_without_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -830,6 +919,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["scope"], "visual_rank_regions_only")
             self.assertEqual(report["summary_status"], "pass")
             self.assertIn("评级视觉快检通过", report["recommendation"])
+            self.assertNotIn("fallback", report["recommendation"])
             self.assertEqual(report["image_count"], 1)
             self.assertEqual(report["ok_region_count"], 2)
             regions = {item["region"]: item for item in report["entries"][0]["regions"]}
@@ -847,6 +937,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("音擎评级", html)
             self.assertIn("rank_check_scope: visual_rank_regions_only", output.getvalue())
             self.assertIn("rank_check_status: pass", output.getvalue())
+            self.assertNotIn("fallback", output.getvalue())
 
     def test_run_app_export_writes_workflow_package_without_clicking(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
