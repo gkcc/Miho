@@ -293,6 +293,38 @@ class ExportParseEvaluateTests(unittest.TestCase):
             self.assertEqual(result["p0_9"]["average_pass_rate_percent"], 100.0)
             self.assertTrue(result["p0_9"]["meets_p0_9_batch_standard"])
 
+    def test_replay_batch_missing_manifest_explains_local_expected_setup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_manifest = Path(temp_dir) / "data" / "probes" / "replay_manifest.json"
+
+            with self.assertRaises(batch_tool.ReplayBatchError) as context:
+                batch_tool.load_manifest(missing_manifest)
+
+            message = str(context.exception)
+            self.assertIn("Replay manifest does not exist", message)
+            self.assertIn("dist\\MihoProbe.exe check --no-open", message)
+            self.assertIn("data/probes/expected/", message)
+            self.assertIn("不要把真实图片", message)
+
+    def test_replay_batch_missing_expected_explains_expected_is_local(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            parsed_path = root / "parsed.json"
+            expected_path = root / "missing_expected.json"
+            parsed_path.write_text(json.dumps(expected_json(), ensure_ascii=False, indent=2), encoding="utf-8")
+
+            with self.assertRaises(batch_tool.ReplayBatchError) as context:
+                batch_tool.evaluate_case(
+                    {"name": "case", "parsed": str(parsed_path), "expected": str(expected_path)},
+                    loose_numeric_text=True,
+                    rebuild=False,
+                )
+
+            message = str(context.exception)
+            self.assertIn("Replay case expected JSON does not exist", message)
+            self.assertIn("expected 是人工校对答案", message)
+            self.assertIn("data/probes/expected/", message)
+
     def test_core_stats_use_label_value_pairs_before_fixed_zones(self) -> None:
         blocks = [
             block("生命值", 800, 403, 100, 37),

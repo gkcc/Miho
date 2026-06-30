@@ -23,6 +23,34 @@ class ReplayBatchError(RuntimeError):
     pass
 
 
+def missing_manifest_message(path: Path) -> str:
+    return "\n".join(
+        [
+            f"Replay manifest does not exist: {path}",
+            "",
+            "准确率验收需要本机的 replay_manifest.json；这个文件通常不提交，因为它会指向真实 parsed/expected 产物。",
+            "如果只是验收产品入口，优先运行：dist\\MihoProbe.exe check --no-open",
+            "",
+            "如果要补 P0.9 准确率验收数据：",
+            "1. 先用 dist\\MihoProbe.exe update --open 生成/刷新 parsed JSON。",
+            "2. 用 tools/probes/make_expected_template.py 从 parsed JSON 生成 expected 模板，再人工校对。",
+            "3. 把 expected 放在 data/probes/expected/（本地目录，不提交）。",
+            "4. 创建 data/probes/replay_manifest.json，格式如下：",
+            '{ "cases": [ { "name": "case_name", "parsed": "data/probes/.../case_parsed.json", "expected": "data/probes/expected/case_expected.json" } ] }',
+            "",
+            "不要把真实图片、UID、OCR 原始结果或 data/probes/ 产物提交到 Git。",
+        ]
+    )
+
+
+def missing_case_file_message(kind: str, path: Path) -> str:
+    if kind == "expected":
+        hint = "expected 是人工校对答案，通常放在 data/probes/expected/，只保留本地。"
+    else:
+        hint = "parsed JSON 通常来自 dist\\MihoProbe.exe update 或 tools/probes/review_export_image.py 的输出。"
+    return f"Replay case {kind} JSON does not exist: {path}\n{hint}"
+
+
 def resolve_path(value: str) -> Path:
     path = Path(value).expanduser()
     if not path.is_absolute():
@@ -55,6 +83,8 @@ def parse_case_arg(value: str) -> dict[str, str]:
 
 
 def load_manifest(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise ReplayBatchError(missing_manifest_message(path))
     data = evaluator.load_json(path)
     if isinstance(data, list):
         raw_cases = data
@@ -146,6 +176,10 @@ def rebuild_parsed_from_text_blocks(parsed: dict[str, Any]) -> tuple[dict[str, A
 def evaluate_case(case: dict[str, str], *, loose_numeric_text: bool, rebuild: bool) -> dict[str, Any]:
     parsed_path = Path(case["parsed"])
     expected_path = Path(case["expected"])
+    if not parsed_path.is_file():
+        raise ReplayBatchError(missing_case_file_message("parsed", parsed_path))
+    if not expected_path.is_file():
+        raise ReplayBatchError(missing_case_file_message("expected", expected_path))
     parsed = evaluator.load_json(parsed_path)
     rebuilt_from_text_blocks = False
     if rebuild:

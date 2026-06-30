@@ -83,10 +83,11 @@ dist\MihoProbe.exe update
 
 ```powershell
 dist\MihoProbe.exe check --no-open
-python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json
 ```
 
 如果 manifest 还没准备好，`MihoProbe Accuracy Check` 会打开“准确率验收缺少样例清单”说明页，告诉你下一步是先跑 update、补 expected，还是只差写 manifest。
+
+底层开发调字段时才直接跑 replay 脚本：`python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json`。
 
 如果怀疑失败点在评级，先跑：
 
