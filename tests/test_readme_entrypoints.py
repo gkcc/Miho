@@ -31,6 +31,7 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("准确率怎么验收", readme)
         self.assertIn("不要先跑 OCR", readme)
         self.assertIn("十分钟", readme)
+        self.assertIn("默认入口现在不会自动跑 OCR", readme)
         self.assertIn("绿色才是可继续", readme)
         self.assertNotIn('"entries"', readme)
         self.assertNotIn("tier-stale-days", readme)
@@ -47,6 +48,17 @@ class ReadmeEntrypointTests(unittest.TestCase):
             "watch_only",
         ):
             self.assertIn(marker, launcher)
+
+    def test_demo_launcher_default_never_runs_ocr(self) -> None:
+        launcher = (PROJECT_ROOT / "scripts" / "run_miho_demo.ps1").read_text(encoding="utf-8")
+        installer = (PROJECT_ROOT / "scripts" / "install_miho_demo_shortcut.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("It never runs OCR automatically.", launcher)
+        self.assertIn("This shortcut does not run OCR automatically.", launcher)
+        self.assertIn("scripts\\run_miho_demo.bat --fresh only", launcher)
+        self.assertIn("Running fresh OCR", launcher)
+        self.assertIn("never reruns OCR automatically", installer)
+        self.assertNotIn("or run fresh OCR if no dashboard exists", installer)
 
     def test_shortcut_installer_exposes_app_like_exe_entry(self) -> None:
         installer = (PROJECT_ROOT / "scripts" / "install_miho_demo_shortcut.ps1").read_text(encoding="utf-8")

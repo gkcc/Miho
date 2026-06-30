@@ -20,13 +20,13 @@ scripts/install_miho_demo_shortcut.bat
 
 桌面会出现这些入口：
 
-- `Miho Demo`：秒开已有 Dashboard。普通验收先点这个。
+- `Miho Demo`：秒开已有 Dashboard。普通验收先点这个；没有缓存时只提示下一步，不会自动跑 OCR。
 - `Miho Demo Fresh OCR`：重新识别 `figs/` 下的官方分享图。PaddleOCR 首次加载会慢。
 - `MihoProbe`：构建过 `dist/MihoProbe.exe` 后出现，像软件入口一样直接打开本地 Dashboard。
 - `MihoProbe Accuracy Check`：构建过 EXE 后出现，一键跑 P0.9 replay 准确率验收，不重新 OCR。
 - `MihoProbe CLI`：打开 EXE 命令壳和常用命令示例。
 
-如果 `scripts/run_miho_demo.bat` 等了十分钟还没反应，通常是你正在跑 fresh OCR。PaddleOCR 首次加载模型会慢；只想看结果请直接点 `Miho Demo`，或运行：
+默认入口现在不会自动跑 OCR。如果 `Miho Demo Fresh OCR` 或 `scripts/run_miho_demo.bat --fresh` 等了十分钟还没反应，通常是 PaddleOCR 首次加载模型很慢；只想看结果请直接点 `Miho Demo`，或运行：
 
 ```powershell
 scripts\run_miho_demo.bat

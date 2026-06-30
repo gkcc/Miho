@@ -72,22 +72,27 @@ function Update-CachedDashboardIfNeeded {
 if ($ShowHelp) {
     Write-Host "Miho Demo Launcher"
     Write-Host ""
-    Write-Host "Default: open cached local demo dashboard immediately."
+    Write-Host "Default: open cached local demo dashboard immediately. It never runs OCR automatically."
     Write-Host "Fresh OCR: scripts\run_miho_demo.bat --fresh"
     Write-Host "Open only: scripts\run_miho_demo.bat --open-only"
     exit 0
 }
 
-if ((-not $Fresh) -and (Test-Path -Path $Dashboard -PathType Leaf)) {
-    Update-CachedDashboardIfNeeded
-    Start-Process $Dashboard
-    Write-Host "Opened cached local demo dashboard: $Dashboard"
-    Write-Host "To re-run OCR for figs, use: scripts\run_miho_demo.bat --fresh"
-    exit 0
+if ($Fresh -and $OpenOnly) {
+    Write-Error "--fresh and --open-only cannot be used together."
 }
 
-if ($OpenOnly) {
-    Write-Error "Dashboard does not exist yet: $Dashboard. Run scripts\run_miho_demo.bat --fresh first."
+if (-not $Fresh) {
+    if (Test-Path -Path $Dashboard -PathType Leaf) {
+        Update-CachedDashboardIfNeeded
+        Start-Process $Dashboard
+        Write-Host "Opened cached local demo dashboard: $Dashboard"
+        Write-Host "To re-run OCR for figs, use: scripts\run_miho_demo.bat --fresh"
+        exit 0
+    }
+    Write-Host "Dashboard cache does not exist yet: $Dashboard"
+    Write-Host "This shortcut does not run OCR automatically."
+    Write-Host "Run scripts\run_miho_demo.bat --fresh only when you want to scan figs."
     exit 1
 }
 

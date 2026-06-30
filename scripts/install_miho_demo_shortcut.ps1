@@ -83,7 +83,7 @@ if (-not $FreshOnly) {
         -Name "Miho Demo" `
         -TargetPath $RunBat `
         -Arguments "" `
-        -Description "Open the cached Miho dashboard immediately, or run fresh OCR if no dashboard exists."
+        -Description "Open the cached Miho dashboard immediately. It never runs OCR automatically."
 }
 
 if (-not $NoFreshShortcut) {
@@ -116,5 +116,5 @@ if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
         -Description "Open the local MihoProbe executable command shell help."
 }
 
-Write-Host "Done. Main shortcut opens cached dashboard first and does not rerun OCR when cache exists."
+Write-Host "Done. Main shortcut opens cached dashboard only and never reruns OCR automatically."
 Write-Host "If MihoProbe shortcuts were not created, build dist\MihoProbe.exe first and rerun this installer."
