@@ -94,21 +94,78 @@ def build_cases(args: argparse.Namespace) -> list[dict[str, str]]:
     return cases
 
 
+def resolve_replay_image_path(parsed: dict[str, Any]) -> Path | None:
+    metadata = parsed.get("metadata", {}) if isinstance(parsed.get("metadata"), dict) else {}
+    image_value = metadata.get("input_image")
+    if not image_value:
+        return None
+    image_path = Path(str(image_value)).expanduser()
+    if not image_path.is_absolute():
+        image_path = PROJECT_ROOT / image_path
+    try:
+        image_path = image_path.resolve()
+    except OSError:
+        return None
+    return image_path if image_path.is_file() else None
+
+
+def has_rank_block(blocks: list[dict[str, Any]], region_name: str) -> bool:
+    for block in blocks:
+        if block.get("region") != region_name:
+            continue
+        if parse_probe.rank_from_block_text(str(block.get("text", "")), rank_region=True):
+            return True
+    return False
+
+
+def visual_rank_blocks_from_image(parsed: dict[str, Any], blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    metadata = parsed.get("metadata", {}) if isinstance(parsed.get("metadata"), dict) else {}
+    if metadata.get("game") != "zzz" or str(metadata.get("layout") or "") != "zzz-agent-card":
+        return []
+    image_path = resolve_replay_image_path(parsed)
+    if image_path is None:
+        return []
+    try:
+        Image = parse_probe.load_image_dependency()
+        image = Image.open(image_path)
+    except (OSError, parse_probe.ProbeError):
+        return []
+    try:
+        result: list[dict[str, Any]] = []
+        specs = {spec.name: spec for spec in parse_probe.ZZZ_AGENT_CARD_REGIONS}
+        for region_name in ("character_rank", "equipment_rank"):
+            if has_rank_block(blocks, region_name):
+                continue
+            spec = specs.get(region_name)
+            if spec is None:
+                continue
+            region_box = parse_probe.ratio_box_to_pixels(spec.box_ratio, image.width, image.height)
+            visual_block = parse_probe.visual_rank_block_for_region(image, region_name=region_name, region_box=region_box)
+            if visual_block:
+                result.append(visual_block)
+        return result
+    finally:
+        image.close()
+
+
 def rebuild_parsed_from_text_blocks(parsed: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     blocks = parsed.get("text_blocks")
     if not isinstance(blocks, list):
         return parsed, False
     metadata = parsed.get("metadata", {}) if isinstance(parsed.get("metadata"), dict) else {}
+    replay_blocks = list(blocks)
+    replay_blocks.extend(visual_rank_blocks_from_image(parsed, replay_blocks))
     rebuilt = dict(parsed)
     draft = parse_probe.build_extracted_draft(
         game=metadata.get("game"),
         layout=str(metadata.get("layout") or ""),
-        blocks=blocks,
+        blocks=replay_blocks,
         layout_regions=parsed.get("layout_regions", []) if isinstance(parsed.get("layout_regions"), list) else [],
         image_info=parsed.get("image", {}) if isinstance(parsed.get("image"), dict) else {},
     )
     rebuilt["extracted_draft"] = draft
-    rebuilt["coverage_summary"] = parse_probe.summarize_coverage(draft, blocks)
+    rebuilt["text_blocks"] = replay_blocks
+    rebuilt["coverage_summary"] = parse_probe.summarize_coverage(draft, replay_blocks)
     return rebuilt, True
 
 

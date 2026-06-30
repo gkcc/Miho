@@ -1351,7 +1351,7 @@ def extract_equipment(blocks: list[dict[str, Any]], image_width: int, image_heig
     equipment_blocks = blocks_for_regions(blocks, {"equipment", "equipment_level", "equipment_rank"})
     text = render_region_text(equipment_blocks)
     level = first_lv(text)
-    rank_value, rank_evidence = None, []
+    rank_value, rank_evidence, rank_source = None, [], "equipment"
     rank_box = ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), image_width, image_height)
     for block in equipment_blocks:
         if not block_in_box(block, rank_box):
@@ -1360,6 +1360,7 @@ def extract_equipment(blocks: list[dict[str, Any]], image_width: int, image_heig
         if possible_rank:
             rank_value = possible_rank
             rank_evidence = [block.get("text", "")]
+            rank_source = str(block.get("region") or "equipment")
             break
 
     name_box = ratio_box_to_pixels((0.115, 0.380, 0.380, 0.455), image_width, image_height)
@@ -1372,7 +1373,7 @@ def extract_equipment(blocks: list[dict[str, Any]], image_width: int, image_heig
     return {
         "name": field(name, uncertain=name is None, evidence=[name] if name else [], source_region="equipment"),
         "level": field(level, uncertain=level is None, evidence=[level] if level else [], source_region="equipment"),
-        "rank": field(rank_value, uncertain=rank_value is None, evidence=rank_evidence, source_region="equipment"),
+        "rank": field(rank_value, uncertain=rank_value is None, evidence=rank_evidence, source_region=rank_source),
     }
 
 

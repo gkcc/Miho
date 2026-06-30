@@ -353,6 +353,16 @@ def command_details(title: str, commands: list[tuple[str, Any]]) -> str:
     return f"<details class=\"command-details\"><summary>{e(title)}</summary>{''.join(rows)}</details>"
 
 
+def stats_details(title: str, rows: list[tuple[str, Any]]) -> str:
+    if not rows:
+        return ""
+    cells = "".join(
+        f"<div><span>{e(label)}</span><strong>{e(value)}</strong></div>"
+        for label, value in rows
+    )
+    return f'<details class="soft-details"><summary>{e(title)}</summary><div class="input-grid">{cells}</div></details>'
+
+
 def command_hint_text(value: Any) -> str:
     text = str(value or "无命令提示")
     stripped = text.lstrip().lower()
@@ -1340,7 +1350,6 @@ def render_final_brief(summary: dict[str, Any]) -> str:
         body = '<div class="empty">暂无可执行事项；先补齐本地确认数据。</div>'
     else:
         rows = []
-        raw_commands = []
         hidden_items = valid_cards[VISIBLE_BRIEF_CARD_LIMIT:]
         for item in valid_cards[:VISIBLE_BRIEF_CARD_LIMIT]:
             evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
@@ -1358,10 +1367,8 @@ def render_final_brief(summary: dict[str, Any]) -> str:
                 quick_links.append(link("打开复核页", review_href))
             if evidence.get("normalized_json"):
                 quick_links.append(link("标准化 JSON", evidence.get("normalized_json")))
-            if item.get("command_hint"):
-                raw_commands.append((f"#{item.get('rank')} {humanize_text(item.get('title'))}", item.get("command_hint")))
             details = (
-                "<details class=\"brief-details\"><summary>证据与排障细节</summary>"
+                "<details class=\"brief-details\"><summary>证据明细</summary>"
                 f"<p class=\"detail-hint\"><strong>下一步说明</strong><span>{he(command_hint_summary(item.get('command_hint')))}</span></p>"
                 f"<ul class=\"brief-evidence\">{brief_evidence_rows(evidence)}</ul>"
                 "</details>"
@@ -1380,9 +1387,6 @@ def render_final_brief(summary: dict[str, Any]) -> str:
                 "</div>"
                 "</article>"
             )
-        for item in hidden_items:
-            if item.get("command_hint"):
-                raw_commands.append((f"#{item.get('rank')} {humanize_text(item.get('title'))}", item.get("command_hint")))
         hidden_block = ""
         if hidden_items:
             hidden_rows = "".join(
@@ -1397,8 +1401,7 @@ def render_final_brief(summary: dict[str, Any]) -> str:
                 f"<ul>{hidden_rows}</ul>"
                 "</details>"
             )
-        debug_commands = command_details("高级：原始命令（排障时再看）", raw_commands)
-        body = '<div class="brief-list">' + "".join(rows) + "</div>" + hidden_block + debug_commands
+        body = '<div class="brief-list">' + "".join(rows) + "</div>" + hidden_block
     status_text = human_status(brief.get("brief_status") or "N/A")
     status_note = ""
     if str(brief.get("brief_status") or "").lower() == "needs_review":
@@ -1406,23 +1409,24 @@ def render_final_brief(summary: dict[str, Any]) -> str:
             '<div class="warnings"><strong>当前不能直接按配队行动</strong>'
             "<ul><li>还有解析快照待人工确认。先打开复核页看图和字段，确认后再进入已确认角色库。</li></ul></div>"
         )
+    stat_rows = [
+        ("总判断", status_text),
+        ("可直接行动", brief_summary.get("trusted_plan_count", "N/A")),
+        ("待确认快照", brief_summary.get("pending_review_count", "N/A")),
+        ("可尝试目标", brief_summary.get("ready_now_target_count", "N/A")),
+        ("缺练度目标", brief_summary.get("needs_recording_target_count", "N/A")),
+        ("仅观察目标", brief_summary.get("watch_only_target_count", "N/A")),
+    ]
     return f"""
     <section class="panel final-brief">
       <h2>今日作战简报</h2>
       <p class="muted-line">先看这一块就够了：它只回答“现在能不能用、卡在哪里、下一步点哪里”。命令和技术证据默认折叠。</p>
       {overview}
       {next_step}
-      <div class="input-grid">
-        <div><span>总判断</span><strong>{e(status_text)}</strong></div>
-        <div><span>可直接行动</span><strong>{e(brief_summary.get("trusted_plan_count", "N/A"))}</strong></div>
-        <div><span>待确认快照</span><strong>{e(brief_summary.get("pending_review_count", "N/A"))}</strong></div>
-        <div><span>可尝试目标</span><strong>{e(brief_summary.get("ready_now_target_count", "N/A"))}</strong></div>
-        <div><span>缺练度目标</span><strong>{e(brief_summary.get("needs_recording_target_count", "N/A"))}</strong></div>
-        <div><span>仅观察目标</span><strong>{e(brief_summary.get("watch_only_target_count", "N/A"))}</strong></div>
-      </div>
       {status_note}
       {warning_block}
       {body}
+      {stats_details("统计数字", stat_rows)}
       {artifact_links}
     </section>
     """
@@ -1475,7 +1479,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
                 if value:
                     detail_rows.append(f"<li><strong>{e(label)}</strong><span>{e(rel_label(value) or value)}</span></li>")
             details = (
-                '<details class="brief-details"><summary>排障细节</summary>'
+                '<details class="brief-details"><summary>证据明细</summary>'
                 f'<p class="detail-hint"><strong>下一步说明</strong><span>{he(command_hint_summary(item.get("command_hint")))}</span></p>'
                 f'<ul class="brief-evidence">{"".join(detail_rows) or "<li><strong>证据</strong><span>N/A</span></li>"}</ul>'
                 "</details>"
@@ -1525,9 +1529,9 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
         <div><span>将写入角色库</span><strong>{e(preview_summary.get("would_update_roster_count", "N/A"))}</strong></div>
       </div>
       <p class="muted-line">复核决策必须先预览，再人工应用；预览不会写 accepted/rejected。</p>
-      {command_block}
       {warning_block}
       {body}
+      {command_block}
     </section>
     """
 
@@ -2232,12 +2236,14 @@ def render_html(summary: dict[str, Any]) -> str:
     .detail-hint strong {{ color: var(--text); }}
     .detail-hint span {{ font-size: 13px; color: var(--muted); }}
     .command-details {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
+    .soft-details {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
+    .soft-details .input-grid {{ margin-top: 10px; }}
     .artifact-links {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
     .artifact-links .links {{ margin-top: 8px; }}
     .brief-evidence {{ margin: 8px 0; padding: 0; display: grid; gap: 6px; list-style: none; }}
     .brief-evidence li {{ display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }}
     .brief-evidence strong {{ color: var(--text); }}
-    .final-brief .brief-list {{ grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }}
+    .final-brief .brief-list {{ grid-template-columns: 1fr; align-items: start; }}
     .final-brief .brief-card {{ grid-template-columns: 1fr; }}
     .final-brief .plan-rank {{ width: fit-content; height: auto; min-height: 0; padding: 5px 9px; border-radius: 999px; }}
     .more-brief-cards {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}

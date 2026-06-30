@@ -294,6 +294,7 @@ class ExportParseEvaluateTests(unittest.TestCase):
 
         self.assertEqual(equipment["name"]["value"], "维序者-特化型")
         self.assertEqual(equipment["rank"]["value"], "S")
+        self.assertEqual(equipment["rank"]["source_region"], "equipment_rank")
         self.assertEqual(equipment["level"]["value"], "50")
 
     def test_drive_disc_main_and_sub_stats_use_row_aliases(self) -> None:
@@ -338,6 +339,42 @@ class ExportParseEvaluateTests(unittest.TestCase):
 
         self.assertTrue(did_rebuild)
         self.assertEqual(rebuilt["extracted_draft"]["stats"]["hp"]["value"], "11708")
+
+    def test_replay_batch_adds_visual_rank_blocks_without_ocr(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = root / "share.png"
+            image = Image.new("RGB", (2136, 3566), (20, 20, 20))
+            character_box = parse_tool.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), 2136, 3566)
+            equipment_box = parse_tool.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), 2136, 3566)
+            for x in range(character_box["left"] + 10, character_box["right"] - 10):
+                for y in range(character_box["top"] + 10, character_box["bottom"] - 10):
+                    image.putpixel((x, y), (210, 55, 235))
+            for x in range(equipment_box["left"] + 16, equipment_box["right"] - 16):
+                for y in range(equipment_box["top"] + 16, equipment_box["bottom"] - 16):
+                    image.putpixel((x, y), (245, 145, 20))
+            image.save(image_path)
+            parsed = {
+                "metadata": {"game": "zzz", "layout": "zzz-agent-card", "input_image": str(image_path)},
+                "image": {"width": 2136, "height": 3566},
+                "layout_regions": [],
+                "text_blocks": [
+                    block("潘引壶 LV.55", 80, 460, 180, 40, "character_card"),
+                    block("LV.50", 320, 1560, 90, 30, "equipment"),
+                ],
+                "extracted_draft": {
+                    "character": {"rank": field(None)},
+                    "equipment": {"rank": field(None)},
+                },
+            }
+
+            rebuilt, did_rebuild = batch_tool.rebuild_parsed_from_text_blocks(parsed)
+
+        self.assertTrue(did_rebuild)
+        self.assertEqual(rebuilt["extracted_draft"]["character"]["rank"]["value"], "A")
+        self.assertEqual(rebuilt["extracted_draft"]["character"]["rank"]["source_region"], "character_rank")
+        self.assertEqual(rebuilt["extracted_draft"]["equipment"]["rank"]["value"], "S")
+        self.assertEqual(rebuilt["extracted_draft"]["equipment"]["rank"]["source_region"], "equipment_rank")
 
 
 if __name__ == "__main__":
