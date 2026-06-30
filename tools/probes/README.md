@@ -48,7 +48,18 @@ python tools/probes/run_zzz_box_value_pipeline.py `
   --output-dir data/probes/value/1782845579231
 ```
 
-如果 `--meta-snapshot` 不存在或加了 `--refresh-meta`，pipeline 会先读取公开 Prydwen 数据。原始 box 图片仍不会自动入库；当前需要先提供脱敏 roster JSON。
+也可以用米游社官方 box 总览图先生成一份本地 roster probe，再继续跑价值报告：
+
+```powershell
+python tools/probes/run_zzz_box_value_pipeline.py `
+  --box-image data/probes/exported_images/zzz_box_overview.png `
+  --meta-snapshot data/probes/meta/zzz_prydwen_meta_all_phases.json `
+  --output-dir data/probes/value/zzz_box_overview
+```
+
+`--box-image` 只读取用户显式提供的本地图片，输出脱敏 `roster_from_box_image.json` 和复核 Markdown；不保存 UID / 昵称 / header 原始 OCR，不读取 cookie/token，不写正式数据库。若 `needs_review_count > 0`，价值报告仍可生成，但该 roster 只能当作 probe 草案，人工确认前不得进入 accepted roster。
+
+如果 `--meta-snapshot` 不存在或加了 `--refresh-meta`，pipeline 会先读取公开 Prydwen 数据。所有输出仍在 `data/probes/` 下，不得提交真实图片、真实 roster probe 或公开数据快照。
 
 ## 推荐验证顺序
 

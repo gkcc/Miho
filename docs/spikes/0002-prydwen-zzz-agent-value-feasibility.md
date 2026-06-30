@@ -38,6 +38,15 @@ https://www.prydwen.gg/api/zenless/analytics?phaseId=<id>
 tools/probes/prepare_zzz_meta_snapshot.py
 ```
 
+后续补充的本地 box 图转 roster 草案：
+
+```text
+tools/probes/extract_zzz_box_roster.py
+tools/probes/run_zzz_box_value_pipeline.py --box-image ...
+```
+
+该草案只读取用户显式传入的米游社官方 box 总览图，输出脱敏 roster JSON / Markdown，不保存 header UID、昵称或原始 OCR 文本块，不读取 cookie/token，不写正式数据库。`needs_review_count > 0` 时只能作为 probe 输入，人工确认前不得进入 accepted roster。
+
 默认输出到：
 
 ```text
@@ -196,10 +205,10 @@ https://www.prydwen.gg/zenless/banners
    - 输入 `zzz_prydwen_meta_snapshot.json`；
    - 输出 box 内代理人现实价值、潜力价值、推荐状态、证据链。
 
-2. 新增 box roster 识别草案：
-   - 将官方 box 图转为脱敏 roster JSON；
-   - 不保存明文 UID、昵称、二维码；
-   - 人工确认前不进入 accepted roster。
+2. 收口 box roster 识别草案：
+   - 增加更多不同分辨率 / 语言 / 缩放 fixture 的人工对照；
+   - 将 `needs_review_count` 与 accepted roster 决策流打通；
+   - 人工确认前仍不得进入 accepted roster。
 
 3. 新增配队匹配：
    - 从公开 team usage 生成候选队伍；

@@ -32,6 +32,7 @@ def load_tool(module_name: str, filename: str) -> Any:
 
 meta_tool = load_tool("prepare_zzz_meta_snapshot", "prepare_zzz_meta_snapshot.py")
 value_tool = load_tool("build_agent_value_cards", "build_agent_value_cards.py")
+box_tool = load_tool("extract_zzz_box_roster", "extract_zzz_box_roster.py")
 
 
 def resolve_path(value: str) -> Path:
@@ -63,9 +64,34 @@ def build_meta_if_needed(args: argparse.Namespace, output_dir: Path) -> Path:
     return meta_snapshot
 
 
+def build_roster_if_needed(args: argparse.Namespace, output_dir: Path, meta_snapshot: Path) -> Path:
+    if args.roster_json:
+        return resolve_path(args.roster_json)
+    if not args.box_image:
+        raise RuntimeError("Either --roster-json or --box-image is required.")
+    roster_output = resolve_path(args.roster_output) if args.roster_output else output_dir / "roster_from_box_image.json"
+    markdown_output = roster_output.with_suffix(".md")
+    result = box_tool.extract_roster_from_image(
+        image_path=resolve_path(args.box_image),
+        output_json=roster_output,
+        meta_snapshot=meta_snapshot,
+        output_markdown=markdown_output,
+        ocr_scale=args.box_ocr_scale,
+        min_mindscape_confidence=args.min_mindscape_confidence,
+    )
+    if result.get("summary", {}).get("needs_review_count"):
+        print(
+            "WARNING: roster image extraction has slots needing review; value report will still be generated from detected fields.",
+            file=sys.stderr,
+        )
+    return roster_output
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--roster-json", required=True, help="Redacted local roster JSON. Raw images are not parsed by this pipeline yet.")
+    parser.add_argument("--roster-json", help="Redacted local roster JSON.")
+    parser.add_argument("--box-image", help="Official MiYouShe ZZZ box image. Used to create roster JSON when --roster-json is omitted.")
+    parser.add_argument("--roster-output", help="Where to write roster JSON extracted from --box-image.")
     parser.add_argument("--meta-snapshot", help="Existing public meta snapshot. If omitted, it is created under output-dir.")
     parser.add_argument("--output-dir", default="data/probes/value/box_value_pipeline")
     parser.add_argument("--refresh-meta", action="store_true", help="Fetch public Prydwen meta even if meta-snapshot already exists.")
@@ -73,6 +99,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--max-phases", type=int, default=None)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--request-delay", type=float, default=0.15)
+    parser.add_argument("--box-ocr-scale", type=int, default=2, help="Resize factor before box-image OCR. Default: 2.")
+    parser.add_argument("--min-mindscape-confidence", type=float, default=0.85)
     return parser.parse_args(argv)
 
 
@@ -82,15 +110,17 @@ def main(argv: list[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
         meta_snapshot = build_meta_if_needed(args, output_dir)
+        roster_json = build_roster_if_needed(args, output_dir, meta_snapshot)
         result = value_tool.build_agent_value_report(
             meta_snapshot=meta_snapshot,
-            roster_json=resolve_path(args.roster_json),
+            roster_json=roster_json,
             output_dir=output_dir,
         )
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     print(f"meta_snapshot: {meta_snapshot}")
+    print(f"roster_json: {roster_json}")
     print(f"value_json: {result['output_json']}")
     print(f"value_markdown: {result['output_markdown']}")
     print(f"owned_count: {result['summary']['owned_count']}")

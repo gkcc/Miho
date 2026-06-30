@@ -28,6 +28,7 @@ data/probes/exported_images/
 data/probes/parsed/
 data/raw/
 data/processed/
+figs/
 *.sqlite
 *.db
 cookies.json
