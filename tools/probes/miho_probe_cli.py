@@ -1128,6 +1128,7 @@ def rank_reason_label(reason: Any) -> str:
         "orange_local_peak": "局部橙色 S 信号",
         "purple_global": "紫色 A 信号稳定",
         "purple_local_peak": "局部紫色 A 信号",
+        "flat_color_fill": "整块颜色填充，不像 A/S 艺术字",
         "insufficient_color_signal": "颜色信号不足",
     }
     return labels.get(str(reason), str(reason or "未知原因"))
@@ -1208,7 +1209,7 @@ def render_rank_check_html(report: dict[str, Any]) -> str:
                 f'<div><span>{html_escape(str(region.get("label") or region.get("region") or ""))}</span>'
                 f'<strong>{html_escape(str(region.get("rank") or "未识别"))}</strong>'
                 f'<p>置信度 {html_escape(str(region.get("confidence")))} · {html_escape(rank_reason_label(region.get("reason")))}</p>'
-                f'<details><summary>颜色证据</summary><p>橙色占比 {html_escape(str(scores.get("orange", 0)))}；紫色占比 {html_escape(str(scores.get("purple", 0)))}；局部峰值 {html_escape(str(scores.get("orange_peak", 0)))} / {html_escape(str(scores.get("purple_peak", 0)))}</p></details>'
+                f'<details><summary>颜色/形状证据</summary><p>橙色占比 {html_escape(str(scores.get("orange", 0)))}；紫色占比 {html_escape(str(scores.get("purple", 0)))}；局部峰值 {html_escape(str(scores.get("orange_peak", 0)))} / {html_escape(str(scores.get("purple_peak", 0)))}；形状面积 {html_escape(str(scores.get("orange_bbox_area", 0)))} / {html_escape(str(scores.get("purple_bbox_area", 0)))}</p></details>'
                 f'<p>{html_file_link(crop, "打开 crop")}</p></div>'
                 "</article>"
             )

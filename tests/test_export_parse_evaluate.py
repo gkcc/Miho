@@ -59,6 +59,42 @@ def block(text: str, left: int, top: int, width: int = 80, height: int = 30, reg
     }
 
 
+def fill_rect(image: Image.Image, left: int, top: int, right: int, bottom: int, color: tuple[int, int, int]) -> None:
+    for x in range(max(0, left), min(image.width, right)):
+        for y in range(max(0, top), min(image.height, bottom)):
+            image.putpixel((x, y), color)
+
+
+def draw_mock_rank_glyph(image: Image.Image, box: dict[str, int], rank: str) -> None:
+    left = box["left"]
+    top = box["top"]
+    width = max(1, box["width"])
+    height = max(1, box["height"])
+
+    def rect(x1: float, y1: float, x2: float, y2: float, color: tuple[int, int, int]) -> None:
+        fill_rect(
+            image,
+            left + round(width * x1),
+            top + round(height * y1),
+            left + round(width * x2),
+            top + round(height * y2),
+            color,
+        )
+
+    if rank == "A":
+        color = (210, 55, 235)
+        rect(0.22, 0.18, 0.34, 0.82, color)
+        rect(0.64, 0.18, 0.76, 0.82, color)
+        rect(0.34, 0.47, 0.64, 0.60, color)
+    else:
+        color = (245, 145, 20)
+        rect(0.24, 0.18, 0.76, 0.29, color)
+        rect(0.24, 0.45, 0.76, 0.56, color)
+        rect(0.24, 0.72, 0.76, 0.83, color)
+        rect(0.24, 0.29, 0.36, 0.45, color)
+        rect(0.64, 0.56, 0.76, 0.72, color)
+
+
 def parsed_json(name: str = None, skill_5: str = "9") -> dict:
     return {
         "extracted_draft": {
@@ -347,12 +383,8 @@ class ExportParseEvaluateTests(unittest.TestCase):
             image = Image.new("RGB", (2136, 3566), (20, 20, 20))
             character_box = parse_tool.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), 2136, 3566)
             equipment_box = parse_tool.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), 2136, 3566)
-            for x in range(character_box["left"] + 10, character_box["right"] - 10):
-                for y in range(character_box["top"] + 10, character_box["bottom"] - 10):
-                    image.putpixel((x, y), (210, 55, 235))
-            for x in range(equipment_box["left"] + 16, equipment_box["right"] - 16):
-                for y in range(equipment_box["top"] + 16, equipment_box["bottom"] - 16):
-                    image.putpixel((x, y), (245, 145, 20))
+            draw_mock_rank_glyph(image, character_box, "A")
+            draw_mock_rank_glyph(image, equipment_box, "S")
             image.save(image_path)
             parsed = {
                 "metadata": {"game": "zzz", "layout": "zzz-agent-card", "input_image": str(image_path)},
@@ -375,6 +407,8 @@ class ExportParseEvaluateTests(unittest.TestCase):
         self.assertEqual(rebuilt["extracted_draft"]["character"]["rank"]["source_region"], "character_rank")
         self.assertEqual(rebuilt["extracted_draft"]["equipment"]["rank"]["value"], "S")
         self.assertEqual(rebuilt["extracted_draft"]["equipment"]["rank"]["source_region"], "equipment_rank")
+        visual_blocks = [item for item in rebuilt["text_blocks"] if item.get("visual_rank_fallback")]
+        self.assertTrue(all(item["visual_rank_scores"].get("purple_shape") is not None for item in visual_blocks))
 
 
 if __name__ == "__main__":

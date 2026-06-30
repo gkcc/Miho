@@ -55,6 +55,42 @@ def zzz_layout_regions() -> list[dict]:
     ]
 
 
+def fill_rect(image: Image.Image, left: int, top: int, right: int, bottom: int, color: tuple[int, int, int]) -> None:
+    for x in range(max(0, left), min(image.width, right)):
+        for y in range(max(0, top), min(image.height, bottom)):
+            image.putpixel((x, y), color)
+
+
+def draw_mock_rank_glyph(image: Image.Image, box: dict[str, int], rank: str) -> None:
+    left = box["left"]
+    top = box["top"]
+    width = max(1, box["width"])
+    height = max(1, box["height"])
+
+    def rect(x1: float, y1: float, x2: float, y2: float, color: tuple[int, int, int]) -> None:
+        fill_rect(
+            image,
+            left + round(width * x1),
+            top + round(height * y1),
+            left + round(width * x2),
+            top + round(height * y2),
+            color,
+        )
+
+    if rank == "A":
+        color = (210, 55, 235)
+        rect(0.22, 0.18, 0.34, 0.82, color)
+        rect(0.64, 0.18, 0.76, 0.82, color)
+        rect(0.34, 0.47, 0.64, 0.60, color)
+    else:
+        color = (245, 145, 20)
+        rect(0.24, 0.18, 0.76, 0.29, color)
+        rect(0.24, 0.45, 0.76, 0.56, color)
+        rect(0.24, 0.72, 0.76, 0.83, color)
+        rect(0.24, 0.29, 0.36, 0.45, color)
+        rect(0.64, 0.56, 0.76, 0.72, color)
+
+
 class ExportImageExtractTests(unittest.TestCase):
     def test_arg_parser_defaults_to_auto_engine(self) -> None:
         args = probe.build_arg_parser().parse_args(["--image", "example.png"])
@@ -178,9 +214,7 @@ class ExportImageExtractTests(unittest.TestCase):
     def test_visual_rank_fallback_classifies_purple_a(self) -> None:
         image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
         box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
-        for x in range(box["left"] + 10, box["right"] - 10):
-            for y in range(box["top"] + 10, box["bottom"] - 10):
-                image.putpixel((x, y), (210, 55, 235))
+        draw_mock_rank_glyph(image, box, "A")
 
         block = probe.visual_rank_block_for_region(image, region_name="character_rank", region_box=box)
 
@@ -219,12 +253,25 @@ class ExportImageExtractTests(unittest.TestCase):
         self.assertLess(block["visual_rank_scores"]["purple"], 0.025)
         self.assertGreaterEqual(block["visual_rank_scores"]["purple_peak"], 0.12)
 
+    def test_visual_rank_fallback_rejects_flat_color_fill(self) -> None:
+        image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
+        box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
+        fill_rect(image, box["left"], box["top"], box["right"], box["bottom"], (210, 55, 235))
+
+        block = probe.visual_rank_block_for_region(image, region_name="character_rank", region_box=box)
+        scores = probe.visual_rank_color_scores(image.crop((box["left"], box["top"], box["right"], box["bottom"])).convert("RGB"))
+        rank, confidence, reason = probe.visual_rank_decision(scores)
+
+        self.assertIsNone(block)
+        self.assertIsNone(rank)
+        self.assertEqual(confidence, 0.0)
+        self.assertEqual(reason, "flat_color_fill")
+        self.assertEqual(scores["purple_shape"], 0.0)
+
     def test_visual_rank_fallback_classifies_orange_s(self) -> None:
         image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
         box = probe.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), IMAGE_WIDTH, IMAGE_HEIGHT)
-        for x in range(box["left"] + 16, box["right"] - 16):
-            for y in range(box["top"] + 16, box["bottom"] - 16):
-                image.putpixel((x, y), (245, 145, 20))
+        draw_mock_rank_glyph(image, box, "S")
 
         block = probe.visual_rank_block_for_region(image, region_name="equipment_rank", region_box=box)
 
@@ -240,12 +287,8 @@ class ExportImageExtractTests(unittest.TestCase):
         image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
         character_box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
         equipment_box = probe.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), IMAGE_WIDTH, IMAGE_HEIGHT)
-        for x in range(character_box["left"] + 10, character_box["right"] - 10):
-            for y in range(character_box["top"] + 10, character_box["bottom"] - 10):
-                image.putpixel((x, y), (210, 55, 235))
-        for x in range(equipment_box["left"] + 16, equipment_box["right"] - 16):
-            for y in range(equipment_box["top"] + 16, equipment_box["bottom"] - 16):
-                image.putpixel((x, y), (245, 145, 20))
+        draw_mock_rank_glyph(image, character_box, "A")
+        draw_mock_rank_glyph(image, equipment_box, "S")
         blocks = [
             ocr_block("S", "character_rank", character_box["left"] + 4, character_box["top"] + 4),
             ocr_block("A", "equipment_rank", equipment_box["left"] + 4, equipment_box["top"] + 4),
@@ -325,12 +368,8 @@ class ExportImageExtractTests(unittest.TestCase):
             image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
             character_box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
             equipment_box = probe.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), IMAGE_WIDTH, IMAGE_HEIGHT)
-            for x in range(character_box["left"] + 10, character_box["right"] - 10):
-                for y in range(character_box["top"] + 10, character_box["bottom"] - 10):
-                    image.putpixel((x, y), (210, 55, 235))
-            for x in range(equipment_box["left"] + 16, equipment_box["right"] - 16):
-                for y in range(equipment_box["top"] + 16, equipment_box["bottom"] - 16):
-                    image.putpixel((x, y), (245, 145, 20))
+            draw_mock_rank_glyph(image, character_box, "A")
+            draw_mock_rank_glyph(image, equipment_box, "S")
             image.save(image_path)
             blocks = [
                 ocr_block("潘引壶 LV.55", "character_card", 70, 260, 150, 30),
@@ -380,12 +419,8 @@ class ExportImageExtractTests(unittest.TestCase):
             image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
             character_box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
             equipment_box = probe.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), IMAGE_WIDTH, IMAGE_HEIGHT)
-            for x in range(character_box["left"] + 10, character_box["right"] - 10):
-                for y in range(character_box["top"] + 10, character_box["bottom"] - 10):
-                    image.putpixel((x, y), (210, 55, 235))
-            for x in range(equipment_box["left"] + 16, equipment_box["right"] - 16):
-                for y in range(equipment_box["top"] + 16, equipment_box["bottom"] - 16):
-                    image.putpixel((x, y), (245, 145, 20))
+            draw_mock_rank_glyph(image, character_box, "A")
+            draw_mock_rank_glyph(image, equipment_box, "S")
             image.save(image_path)
             blocks = [
                 ocr_block("潘引壶 LV.55", "character_card", 70, 260, 150, 30),
@@ -431,12 +466,8 @@ class ExportImageExtractTests(unittest.TestCase):
             image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
             character_box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
             equipment_box = probe.ratio_box_to_pixels((0.825, 0.365, 0.970, 0.455), IMAGE_WIDTH, IMAGE_HEIGHT)
-            for x in range(character_box["left"] + 10, character_box["right"] - 10):
-                for y in range(character_box["top"] + 10, character_box["bottom"] - 10):
-                    image.putpixel((x, y), (210, 55, 235))
-            for x in range(equipment_box["left"] + 16, equipment_box["right"] - 16):
-                for y in range(equipment_box["top"] + 16, equipment_box["bottom"] - 16):
-                    image.putpixel((x, y), (245, 145, 20))
+            draw_mock_rank_glyph(image, character_box, "A")
+            draw_mock_rank_glyph(image, equipment_box, "S")
             image.save(image_path)
 
             result, exit_code = probe.build_result(

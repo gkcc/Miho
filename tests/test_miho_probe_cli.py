@@ -45,6 +45,42 @@ def minimal_summary() -> dict:
     }
 
 
+def fill_rect(image, left: int, top: int, right: int, bottom: int, color: tuple[int, int, int]) -> None:
+    for x in range(max(0, left), min(image.width, right)):
+        for y in range(max(0, top), min(image.height, bottom)):
+            image.putpixel((x, y), color)
+
+
+def draw_mock_rank_glyph(image, box: dict[str, int], rank: str) -> None:
+    left = box["left"]
+    top = box["top"]
+    width = max(1, box["width"])
+    height = max(1, box["height"])
+
+    def rect(x1: float, y1: float, x2: float, y2: float, color: tuple[int, int, int]) -> None:
+        fill_rect(
+            image,
+            left + round(width * x1),
+            top + round(height * y1),
+            left + round(width * x2),
+            top + round(height * y2),
+            color,
+        )
+
+    if rank == "A":
+        color = (170, 55, 205)
+        rect(0.22, 0.18, 0.34, 0.82, color)
+        rect(0.64, 0.18, 0.76, 0.82, color)
+        rect(0.34, 0.47, 0.64, 0.60, color)
+    else:
+        color = (230, 145, 24)
+        rect(0.24, 0.18, 0.76, 0.29, color)
+        rect(0.24, 0.45, 0.76, 0.56, color)
+        rect(0.24, 0.72, 0.76, 0.83, color)
+        rect(0.24, 0.29, 0.36, 0.45, color)
+        rect(0.64, 0.56, 0.76, 0.72, color)
+
+
 class MihoProbeCliTests(unittest.TestCase):
     def test_top_level_help_is_user_facing_chinese_menu(self) -> None:
         help_text = cli_tool.render_user_help()
@@ -1095,12 +1131,8 @@ class MihoProbeCliTests(unittest.TestCase):
             specs = {spec.name: spec for spec in cli_tool.parse_probe.ZZZ_AGENT_CARD_REGIONS}
             character_box = cli_tool.parse_probe.ratio_box_to_pixels(specs["character_rank"].box_ratio, image.width, image.height)
             equipment_box = cli_tool.parse_probe.ratio_box_to_pixels(specs["equipment_rank"].box_ratio, image.width, image.height)
-            for x in range(character_box["left"], character_box["right"]):
-                for y in range(character_box["top"], character_box["bottom"]):
-                    image.putpixel((x, y), (230, 145, 24))
-            for x in range(equipment_box["left"], equipment_box["right"]):
-                for y in range(equipment_box["top"], equipment_box["bottom"]):
-                    image.putpixel((x, y), (170, 55, 205))
+            draw_mock_rank_glyph(image, character_box, "S")
+            draw_mock_rank_glyph(image, equipment_box, "A")
             image.save(image_path)
 
             output = io.StringIO()
@@ -1131,12 +1163,14 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["entries"][0]["rank_summary"], "角色 S / 音擎 A")
             self.assertEqual(regions["character_rank"]["rank"], "S")
             self.assertEqual(regions["equipment_rank"]["rank"], "A")
+            self.assertGreater(regions["character_rank"]["scores"]["orange_shape"], 0)
+            self.assertGreater(regions["equipment_rank"]["scores"]["purple_shape"], 0)
             self.assertTrue(Path(regions["character_rank"]["crop"]).exists())
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("评级区域快检", html)
             self.assertIn("评级快检通过", html)
             self.assertIn("识别结论：角色 S / 音擎 A", html)
-            self.assertIn("颜色证据", html)
+            self.assertIn("颜色/形状证据", html)
             self.assertIn("不跑 OCR", html)
             self.assertIn("角色评级", html)
             self.assertIn("音擎评级", html)

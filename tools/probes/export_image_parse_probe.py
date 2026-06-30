@@ -525,21 +525,95 @@ def block_in_box(block: dict[str, Any], box: dict[str, int]) -> bool:
     return box["left"] <= center_x <= box["right"] and box["top"] <= center_y <= box["bottom"]
 
 
+def is_rank_orange(red: int, green: int, blue: int) -> bool:
+    return red > 150 and 70 < green < 195 and blue < 95 and red > green + 25
+
+
+def is_rank_purple(red: int, green: int, blue: int) -> bool:
+    return red > 120 and blue > 120 and green < 115 and abs(red - blue) < 130
+
+
 def rank_color_counts(pixels: list[tuple[int, int, int]]) -> tuple[int, int]:
     orange = 0
     purple = 0
     for red, green, blue in pixels:
-        if red > 150 and 70 < green < 195 and blue < 95 and red > green + 25:
+        if is_rank_orange(red, green, blue):
             orange += 1
-        if red > 120 and blue > 120 and green < 115 and abs(red - blue) < 130:
+        if is_rank_purple(red, green, blue):
             purple += 1
     return orange, purple
+
+
+def rank_color_shape_metrics(crop: Any) -> dict[str, float]:
+    width, height = crop.size
+    total = max(1, width * height)
+    metrics: dict[str, dict[str, int | None]] = {
+        "orange": {"count": 0, "min_x": None, "min_y": None, "max_x": None, "max_y": None},
+        "purple": {"count": 0, "min_x": None, "min_y": None, "max_x": None, "max_y": None},
+    }
+
+    def add_pixel(name: str, x: int, y: int) -> None:
+        item = metrics[name]
+        item["count"] = int(item["count"] or 0) + 1
+        item["min_x"] = x if item["min_x"] is None else min(int(item["min_x"]), x)
+        item["min_y"] = y if item["min_y"] is None else min(int(item["min_y"]), y)
+        item["max_x"] = x if item["max_x"] is None else max(int(item["max_x"]), x)
+        item["max_y"] = y if item["max_y"] is None else max(int(item["max_y"]), y)
+
+    for y in range(height):
+        for x in range(width):
+            red, green, blue = crop.getpixel((x, y))
+            if is_rank_orange(red, green, blue):
+                add_pixel("orange", x, y)
+            if is_rank_purple(red, green, blue):
+                add_pixel("purple", x, y)
+
+    result: dict[str, float] = {}
+    for name, item in metrics.items():
+        count = int(item["count"] or 0)
+        ratio = count / total
+        if not count:
+            result[f"{name}_bbox_area"] = 0.0
+            result[f"{name}_edge_touch"] = 0.0
+            result[f"{name}_shape"] = 0.0
+            continue
+        min_x = int(item["min_x"] or 0)
+        min_y = int(item["min_y"] or 0)
+        max_x = int(item["max_x"] or 0)
+        max_y = int(item["max_y"] or 0)
+        bbox_width = max_x - min_x + 1
+        bbox_height = max_y - min_y + 1
+        bbox_area = (bbox_width * bbox_height) / total
+        edge_touch = float(
+            int(min_x <= 1)
+            + int(min_y <= 1)
+            + int(max_x >= width - 2)
+            + int(max_y >= height - 2)
+        )
+        flat_fill = ratio >= 0.55 and bbox_area >= 0.55
+        border_fill = edge_touch >= 3 and bbox_area >= 0.60
+        shape_score = 0.0 if flat_fill or border_fill else 1.0
+        result[f"{name}_bbox_area"] = round(bbox_area, 4)
+        result[f"{name}_edge_touch"] = edge_touch
+        result[f"{name}_shape"] = shape_score
+    return result
 
 
 def visual_rank_color_scores(crop: Any) -> dict[str, float]:
     pixels = list(crop.getdata())
     if not pixels:
-        return {"orange": 0.0, "purple": 0.0, "orange_peak": 0.0, "purple_peak": 0.0}
+        return {
+            "orange": 0.0,
+            "purple": 0.0,
+            "orange_peak": 0.0,
+            "purple_peak": 0.0,
+            "orange_bbox_area": 0.0,
+            "purple_bbox_area": 0.0,
+            "orange_edge_touch": 0.0,
+            "purple_edge_touch": 0.0,
+            "orange_shape": 0.0,
+            "purple_shape": 0.0,
+        }
     total = len(pixels)
     orange, purple = rank_color_counts(pixels)
     orange_ratio = orange / total
@@ -568,6 +642,7 @@ def visual_rank_color_scores(crop: Any) -> dict[str, float]:
         "purple": round(purple_ratio, 4),
         "orange_peak": round(orange_peak, 4),
         "purple_peak": round(purple_peak, 4),
+        **rank_color_shape_metrics(crop),
     }
 
 
@@ -576,18 +651,25 @@ def visual_rank_decision(scores: dict[str, float]) -> tuple[str | None, float, s
     purple_ratio = float(scores.get("purple") or 0.0)
     orange_peak = float(scores.get("orange_peak") or 0.0)
     purple_peak = float(scores.get("purple_peak") or 0.0)
-    orange_signal = max(orange_ratio, orange_peak * 0.35)
-    purple_signal = max(purple_ratio, purple_peak * 0.35)
-    if purple_ratio >= 0.025 or purple_peak >= 0.12:
+    orange_shape = float(scores.get("orange_shape") if scores.get("orange_shape") is not None else 1.0)
+    purple_shape = float(scores.get("purple_shape") if scores.get("purple_shape") is not None else 1.0)
+    orange_signal = max(orange_ratio, orange_peak * 0.35) * orange_shape
+    purple_signal = max(purple_ratio, purple_peak * 0.35) * purple_shape
+    if purple_shape > 0 and (purple_ratio >= 0.025 or purple_peak >= 0.12):
         if purple_signal > orange_signal * 1.3:
             confidence = min(0.99, 0.58 + min(purple_signal * 1.8, 0.32) + min((purple_signal - orange_signal) * 1.5, 0.09))
             reason = "purple_global" if purple_ratio >= 0.025 else "purple_local_peak"
             return "A", round(confidence, 4), reason
-    if orange_ratio >= 0.02 or orange_peak >= 0.12:
+    if orange_shape > 0 and (orange_ratio >= 0.02 or orange_peak >= 0.12):
         if orange_signal > purple_signal * 1.25:
             confidence = min(0.99, 0.58 + min(orange_signal * 1.8, 0.32) + min((orange_signal - purple_signal) * 1.5, 0.09))
             reason = "orange_global" if orange_ratio >= 0.02 else "orange_local_peak"
             return "S", round(confidence, 4), reason
+    if (orange_ratio >= 0.02 or orange_peak >= 0.12 or purple_ratio >= 0.025 or purple_peak >= 0.12) and not max(
+        orange_shape,
+        purple_shape,
+    ):
+        return None, 0.0, "flat_color_fill"
     return None, 0.0, "insufficient_color_signal"
 
 
