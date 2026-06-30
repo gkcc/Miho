@@ -15,7 +15,7 @@ Miho 是一个本地优先的游戏练度更新与规划工具。最终目标很
 | 想做什么 | 点哪个 / 跑哪个 | 会不会重新识别图片 |
 | --- | --- | --- |
 | 看软件体验 | `MihoProbe` 或 `dist\MihoProbe.exe` | 不会 |
-| 查看 APP 一键导出流程 | `MihoProbe App Export Workflow` 或 `dist\MihoProbe.exe app-export` | 不会 |
+| 查看 APP 一键导出流程/校准 | `MihoProbe App Export Workflow` 或 `dist\MihoProbe.exe app-export` | 不会 |
 | 一键更新练度 | `MihoProbe Update` 或 `dist\MihoProbe.exe update` | 会，只处理 `figs/` 里的分享图 |
 | 一键更新高难配队 | `MihoProbe Plan Update` 或 `dist\MihoProbe.exe plan-update` | 不会 |
 | 快速排查评级 | `MihoProbe Rank Check` 或 `dist\MihoProbe.exe rank-check` | 不会，只看 A/S 艺术字区域 |
@@ -96,7 +96,7 @@ dist\MihoProbe.exe fresh --rescan-all
 能做：
 
 - 从官方分享图或已有 parsed JSON 生成本地 Dashboard。
-- `dist\MihoProbe.exe app-export` 生成米游社官方分享图工作流包，当前不自动点击。
+- `dist\MihoProbe.exe app-export` 生成米游社官方分享图工作流和校准命令包，当前不自动点击。
 - `dist\MihoProbe.exe update` 处理 `figs/` 中新增或变更的官方分享图。
 - `dist\MihoProbe.exe plan-update` 只重算高难、Tier / 保值观察、行动卡和队伍卡。
 - `dist\MihoProbe.exe rank-check` 快速检查角色/音擎 A/S 评级区域。

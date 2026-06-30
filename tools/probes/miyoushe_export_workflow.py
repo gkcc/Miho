@@ -28,6 +28,10 @@ FORBIDDEN_CAPABILITIES = (
 )
 
 
+def command_text(parts: list[str]) -> str:
+    return " ".join(parts)
+
+
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -124,6 +128,105 @@ def default_steps() -> list[dict[str, Any]]:
     ]
 
 
+def default_calibration_commands(*, game: str, window_title: str, image_inbox: Path) -> list[dict[str, Any]]:
+    inbox = rel_path(image_inbox)
+    return [
+        {
+            "id": "find_window",
+            "title": "确认能找到米游社窗口",
+            "purpose": "只读窗口标题和窗口大小，不截图、不点击。",
+            "command": command_text(
+                ["python", "tools/probes/window_screenshot_probe.py", "--window-title", window_title, "--dry-run"]
+            ),
+            "expected_signal": "输出 matched_windows，并且 selected.title 包含米游社。",
+        },
+        {
+            "id": "capture_grid",
+            "title": "生成坐标网格截图",
+            "purpose": "人工标注我的、战绩、代理人、分享、保存图片按钮的大致窗口相对坐标。",
+            "command": command_text(
+                ["python", "tools/probes/window_screenshot_probe.py", "--window-title", window_title, "--grid-size", "100"]
+            ),
+            "expected_signal": "data/probes/window_screenshots 下生成带网格的截图和 JSON。",
+        },
+        {
+            "id": "probe_visible_share_controls",
+            "title": "只读探测分享/保存按钮",
+            "purpose": "如果当前页已经在分享入口附近，尝试用可见控件文本找到官方分享或保存按钮。",
+            "command": command_text(
+                [
+                    "python",
+                    "tools/probes/miyoushe_export_image_probe.py",
+                    "--game",
+                    game,
+                    "--mode",
+                    "manual-page",
+                    "--window-title",
+                    window_title,
+                    "--dry-run",
+                ]
+            ),
+            "expected_signal": "报告 share/save 候选控件；找不到也不点击。",
+        },
+        {
+            "id": "dry_run_coordinate",
+            "title": "校验单个相对坐标",
+            "purpose": "把人工标注的坐标先 dry-run 解析成绝对坐标，确认仍在米游社窗口内。",
+            "command": command_text(
+                [
+                    "python",
+                    "tools/probes/click_relative_probe.py",
+                    "--window-title",
+                    window_title,
+                    "--x",
+                    "<x>",
+                    "--y",
+                    "<y>",
+                ]
+            ),
+            "expected_signal": "输出 clicked=false 和窗口内 absolute 坐标。",
+        },
+        {
+            "id": "execute_confirmed_coordinate",
+            "title": "只执行已确认官方 UI 坐标",
+            "purpose": "只有人工确认目标是米游社官方 UI 按钮后，才允许单点执行。",
+            "command": command_text(
+                [
+                    "python",
+                    "tools/probes/click_relative_probe.py",
+                    "--window-title",
+                    window_title,
+                    "--x",
+                    "<x>",
+                    "--y",
+                    "<y>",
+                    "--execute",
+                    "--confirm-official-ui",
+                ]
+            ),
+            "expected_signal": "只点击一次官方 UI；不得用于登录、验证码、游戏客户端或非米游社窗口。",
+        },
+        {
+            "id": "parse_saved_images",
+            "title": "解析保存后的分享图",
+            "purpose": "官方分享图保存到本地收件箱后，回到本地解析和人工复核。",
+            "command": command_text(["dist\\MihoProbe.exe", "update", "--images-dir", inbox]),
+            "expected_signal": "Dashboard、review HTML、parsed JSON 更新；OCR 结果仍需人工确认。",
+        },
+    ]
+
+
+def default_operator_checklist() -> list[str]:
+    return [
+        "用户先手动打开米游社 APP，并确认账号已登录。",
+        "先跑 find_window；找不到窗口时不继续。",
+        "先生成网格截图并人工标注官方 UI 坐标，不猜坐标。",
+        "每个坐标先 dry-run；确认在窗口内、目标是官方 UI 后才允许 execute。",
+        "不点击登录、验证码、广告、隐私弹窗、游戏客户端或任何非米游社窗口。",
+        "保存图片后只进入 figs/ 或用户指定图片收件箱，再走本地 update 和人工复核。",
+    ]
+
+
 def build_workflow(*, game: str, window_title: str, image_inbox: Path) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -137,6 +240,12 @@ def build_workflow(*, game: str, window_title: str, image_inbox: Path) -> dict[s
         "requires_user_logged_in_app": True,
         "does_not": list(FORBIDDEN_CAPABILITIES),
         "next_implementation_step": "把 planned 导航步骤逐个绑定 UIA selector 或经用户确认的窗口相对坐标。",
+        "operator_checklist": default_operator_checklist(),
+        "calibration_commands": default_calibration_commands(
+            game=game,
+            window_title=window_title,
+            image_inbox=image_inbox,
+        ),
         "steps": default_steps(),
     }
 
@@ -165,6 +274,9 @@ def validate_workflow(workflow: dict[str, Any]) -> dict[str, Any]:
         "step_count": len(steps),
         "implemented_step_count": len(implemented),
         "planned_step_count": len(planned),
+        "calibration_command_count": len(workflow.get("calibration_commands", []))
+        if isinstance(workflow.get("calibration_commands"), list)
+        else 0,
     }
 
 
@@ -190,6 +302,21 @@ def render_html(package: dict[str, Any]) -> str:
         )
     warnings = validation.get("warnings") if isinstance(validation.get("warnings"), list) else []
     warning_items = "".join(f"<li>{escape(str(item))}</li>" for item in warnings) or "<li>无</li>"
+    checklist = workflow.get("operator_checklist") if isinstance(workflow.get("operator_checklist"), list) else []
+    checklist_items = "".join(f"<li>{escape(str(item))}</li>" for item in checklist) or "<li>无</li>"
+    commands = workflow.get("calibration_commands") if isinstance(workflow.get("calibration_commands"), list) else []
+    command_cards = []
+    for command in commands:
+        if not isinstance(command, dict):
+            continue
+        command_cards.append(
+            '<article class="command">'
+            f"<h3>{escape(str(command.get('title') or command.get('id') or ''))}</h3>"
+            f"<p>{escape(str(command.get('purpose') or ''))}</p>"
+            f"<code>{escape(str(command.get('command') or ''))}</code>"
+            f"<span>{escape(str(command.get('expected_signal') or ''))}</span>"
+            "</article>"
+        )
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -217,6 +344,12 @@ def render_html(package: dict[str, Any]) -> str:
     .step.ok b {{ background: #e9f8ef; color: #16834a; }}
     .step.warn b {{ background: #fff4d8; color: #9a6500; }}
     .step.soft b {{ background: #eff6ff; color: #1d4ed8; }}
+    .commands {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }}
+    .command {{ display: grid; gap: 8px; padding: 14px; border: 1px solid #dbe3ef; border-radius: 8px; background: #fbfcff; }}
+    .command h3 {{ margin: 0; font-size: 16px; }}
+    .command p {{ margin: 0; color: #475569; line-height: 1.45; }}
+    .command code {{ display: block; padding: 10px; border-radius: 8px; background: #0f172a; color: #e2e8f0; white-space: pre-wrap; overflow-wrap: anywhere; }}
+    .command span {{ color: #64748b; font-size: 13px; }}
     ul {{ margin: 8px 0 0; padding-left: 20px; }}
   </style>
 </head>
@@ -238,8 +371,16 @@ def render_html(package: dict[str, Any]) -> str:
       <ul>{''.join(f"<li>{escape(str(item))}</li>" for item in workflow.get("does_not", []))}</ul>
     </section>
     <section class="panel">
+      <h2>操作前检查</h2>
+      <ul>{checklist_items}</ul>
+    </section>
+    <section class="panel">
       <h2>警告</h2>
       <ul>{warning_items}</ul>
+    </section>
+    <section class="panel">
+      <h2>下一步校准命令</h2>
+      <div class="commands">{''.join(command_cards)}</div>
     </section>
     <section class="steps">{''.join(step_cards)}</section>
   </main>

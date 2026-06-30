@@ -47,6 +47,17 @@ class MiyousheExportWorkflowTests(unittest.TestCase):
         self.assertIn("save_share_image", step_ids)
         self.assertIn("parse_saved_image", step_ids)
         self.assertGreater(validation["planned_step_count"], 0)
+        self.assertGreaterEqual(validation["calibration_command_count"], 5)
+        command_ids = [command["id"] for command in workflow["calibration_commands"]]
+        self.assertEqual(command_ids[0], "find_window")
+        self.assertIn("capture_grid", command_ids)
+        self.assertIn("execute_confirmed_coordinate", command_ids)
+        self.assertIn("parse_saved_images", command_ids)
+        self.assertTrue(any("--confirm-official-ui" in command["command"] for command in workflow["calibration_commands"]))
+        self.assertTrue(any("dist\\MihoProbe.exe update" in command["command"] for command in workflow["calibration_commands"]))
+        checklist = "\n".join(workflow["operator_checklist"])
+        self.assertIn("不点击登录", checklist)
+        self.assertIn("先生成网格截图", checklist)
 
     def test_build_package_writes_manifest_and_reader_friendly_html(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -67,6 +78,11 @@ class MiyousheExportWorkflowTests(unittest.TestCase):
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("米游社官方分享图一键更新练度", html)
             self.assertIn("不自动登录", html)
+            self.assertIn("操作前检查", html)
+            self.assertIn("下一步校准命令", html)
+            self.assertIn("window_screenshot_probe.py", html)
+            self.assertIn("click_relative_probe.py", html)
+            self.assertIn("--confirm-official-ui", html)
             self.assertIn("保存官方分享图", html)
             self.assertIn("解析保存后的分享图", html)
 
