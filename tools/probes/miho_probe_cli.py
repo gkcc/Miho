@@ -122,7 +122,7 @@ def render_user_help() -> str:
     只检查头像/音擎 A/S 艺术字固定区域。不跑 OCR，用来排查评级识别。
 
   MihoProbe.exe ask-gpt --focus "本轮要审的问题" --copy
-    生成并复制给右侧 GPT 的固定审查包，避免反复摸索对话流程。
+    生成并复制给右侧 GPT 的固定审查包。只手动粘贴，不让 Codex 自动点右侧页面。
 
 先别踩坑：
   - 只看界面，不要跑 fresh。
@@ -1051,8 +1051,11 @@ def run_gpt_review(args: argparse.Namespace) -> int:
         DEFAULT_GPT_REVIEW_PROMPT.write_text(prompt, encoding="utf-8")
         print(f"gpt_review_prompt: {DEFAULT_GPT_REVIEW_PROMPT}")
         print("gpt_review_next: 打开这个文件，把审查包粘贴到右侧 GPT。")
+        print("gpt_review_send_policy: manual_paste_only")
     elif copied:
         print("gpt_review_prompt: clipboard")
+        print("gpt_review_next: 粘贴到右侧 GPT 后手动点击发送；Codex 不自动操作右侧页面。")
+        print("gpt_review_send_policy: manual_paste_only")
     else:
         sys.stdout.write(prompt)
     return 0

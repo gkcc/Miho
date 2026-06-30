@@ -63,6 +63,7 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("用 expected diff 验收解析准确率", help_text)
         self.assertIn("MihoProbe.exe ask-gpt", help_text)
         self.assertIn("生成并复制给右侧 GPT 的固定审查包", help_text)
+        self.assertIn("只手动粘贴", help_text)
         self.assertNotIn("positional arguments", help_text)
         self.assertNotIn("Local Miho probe command shell", help_text)
 
@@ -725,6 +726,8 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn("gpt_review_clipboard: copied", output.getvalue())
         self.assertIn("gpt_review_prompt: clipboard", output.getvalue())
+        self.assertIn("gpt_review_send_policy: manual_paste_only", output.getvalue())
+        self.assertIn("Codex 不自动操作右侧页面", output.getvalue())
         self.assertNotIn("给右侧 GPT 的审查包", output.getvalue())
 
     def test_run_gpt_review_copy_fallback_writes_handoff_file(self) -> None:
@@ -756,6 +759,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertTrue((Path(temp_dir) / "gpt_review_prompt.md").exists())
             self.assertIn("gpt_review_clipboard: unavailable", output.getvalue())
             self.assertIn("gpt_review_next:", output.getvalue())
+            self.assertIn("gpt_review_send_policy: manual_paste_only", output.getvalue())
             self.assertNotIn("给右侧 GPT 的审查包", output.getvalue())
 
     def test_detect_project_root_points_to_workspace(self) -> None:

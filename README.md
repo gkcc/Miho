@@ -8,9 +8,15 @@ Miho 是一个本地优先的游戏练度更新与规划工具。最终目标很
 
 现在仍是 probe / demo 阶段，不是正式 Tauri 桌面应用。它不会自动登录，不读取 cookie/token，不控制游戏客户端，也不会把 OCR 结果直接写进正式数据库。
 
-## 现在先点哪里
+## 先按这 3 步用
 
-先记住一句：**验收界面点缓存入口，识别新图才点 Fresh OCR。不要先跑 OCR。**
+1. 先构建一次本地 EXE：`scripts\build_miho_probe_exe.bat`。
+2. 再装桌面快捷方式：`scripts\install_miho_demo_shortcut.bat`。
+3. 日常只点桌面图标，不用记脚本参数。
+
+最重要的一句：**只看界面点 `MihoProbe`；识别新分享图才点 `MihoProbe Update` 或 `MihoProbe Fresh OCR`。不要先跑 OCR。**
+
+## 桌面图标怎么选
 
 | 想做什么 | 点哪个 / 跑哪个 | 会不会重新识别图片 |
 | --- | --- | --- |
@@ -26,6 +32,8 @@ Miho 是一个本地优先的游戏练度更新与规划工具。最终目标很
 默认入口现在不会自动跑 OCR。第一次还没有 Dashboard 缓存时，`MihoProbe` 会打开初次启动页，不是报错。
 
 如果 `MihoProbe Fresh OCR` 或 `scripts\run_miho_demo.bat --fresh` 十分钟没反应，先关掉它，改点 `MihoProbe` 看缓存 Dashboard。Fresh OCR 慢通常是 PaddleOCR 模型加载或图片识别，不代表缓存界面坏了。
+
+评级失败先别重跑整张图。`MihoProbe Rank Check` 只检查角色头像左上角和音擎区域的 A/S 艺术字，几秒内就能判断是不是评级 crop 问题。
 
 ## 安装本地入口
 

@@ -20,6 +20,7 @@ DEFAULT_HANDOFF_PROMPT = PROJECT_ROOT / "data" / "probes" / "demo" / "gpt_review
 DEFAULT_CONSTRAINTS = (
     "不换 OCR 引擎，当前主线仍是 PaddleOCR + expected diff + replay batch。",
     "不 UIA，不初始化 Tauri，不自动登录米游社，不控制游戏客户端。",
+    "不要求 Codex 自动操作右侧 ChatGPT 页面；只使用审查包，用户手动粘贴和回传结果。",
     "不读取、打印、保存 cookie/token/stoken/ltoken。",
     "不提交 data/probes、真实图片、UID、OCR 原始结果或本地账号数据。",
     "OCR/解析结果只能进入人工复核区，不能自动写正式数据库。",
@@ -33,6 +34,7 @@ DEFAULT_REVIEW_QUESTIONS = (
 
 REVIEWER_PROTOCOL = (
     "你是右侧 GPT reviewer，只审本包，不需要读取聊天历史或让 Codex 重新探索页面。",
+    "不要要求 Codex 自动点击、发送或截图右侧 ChatGPT 页面；这条链路只靠审查包和用户手动回传。",
     "请优先挑 P0/P1 缺陷；没有硬证据时明确写“证据不足”。",
     "不要要求改代码，给出最小实验和验收证据即可；Codex 会自行实现、测试、提交和推送。",
 )
@@ -126,6 +128,7 @@ def render_prompt(
         "",
         "使用方式：",
         "- 把这份审查包完整发给右侧 GPT。",
+        "- 不让 Codex 自动点右侧页面；如果剪贴板不可用，就打开本地审查包文件手动复制。",
         "- 右侧 GPT 只按本包审方案和风险，不要求 Codex 继续翻右侧历史。",
         "- 收到 Findings 后，Codex 先本地验证，再决定是否改代码。",
         "",

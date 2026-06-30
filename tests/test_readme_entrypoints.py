@@ -28,12 +28,15 @@ class ReadmeEntrypointTests(unittest.TestCase):
     def test_readme_stays_product_facing(self) -> None:
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("现在先点哪里", readme)
+        self.assertIn("先按这 3 步用", readme)
+        self.assertIn("桌面图标怎么选", readme)
         self.assertIn("Dashboard 怎么看", readme)
         self.assertIn("准确率怎么验收", readme)
+        self.assertIn("日常只点桌面图标", readme)
         self.assertIn("不要先跑 OCR", readme)
         self.assertIn("十分钟", readme)
         self.assertIn("默认入口现在不会自动跑 OCR", readme)
+        self.assertIn("评级失败先别重跑整张图", readme)
         self.assertIn("绿色才是可继续", readme)
         self.assertIn("查看 APP 一键导出流程", readme)
         self.assertIn("dist\\MihoProbe.exe app-export", readme)
@@ -155,8 +158,8 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("python tools/probes/build_gpt_review_prompt.py", protocol)
         self.assertIn("禁止重复探索", protocol)
         self.assertIn("不再让 Codex 读取右侧 GPT 的长历史", protocol)
-        self.assertIn("只允许一次固定动作", protocol)
-        self.assertIn("不在同一轮里尝试三种以上输入方式", protocol)
+        self.assertIn("不再让 Codex 自动操作右侧 ChatGPT 页面", protocol)
+        self.assertIn("不尝试自动点击右侧发送按钮", protocol)
 
 
 if __name__ == "__main__":
