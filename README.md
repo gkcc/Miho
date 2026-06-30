@@ -23,6 +23,24 @@ scripts\install_miho_demo_shortcut.bat
 
 如果你只是验收“这个工具现在长什么样”，点 `MihoProbe`。第一次没有缓存时，它会打开初次启动页，不是报错。
 
+## 卡住时先看这里
+
+- 双击 `MihoProbe` 或运行 `scripts\run_miho_demo.bat`：只打开本地 Dashboard，不跑 OCR，正常应很快有浏览器页面。
+- 看到窗口提示 `Opening cached Dashboard only. OCR will NOT run.`：说明没有进入慢 OCR。
+- 只有 `MihoProbe Update`、`MihoProbe Fresh OCR`、`dist\MihoProbe.exe update`、`dist\MihoProbe.exe fresh` 才会加载 OCR。
+- 如果你等了 30 秒还没有页面，先跑 `dist\MihoProbe.exe dashboard --no-open`。它应该打印 `dashboard_html: ...\index.html`；然后直接打开那个 HTML。
+- 不要用“跑了很久”判断准确率。准确率只看 `MihoProbe Accuracy Check` 或 `dist\MihoProbe.exe check --no-open`。
+
+## 当前验收怎么看
+
+| 要验收什么 | 看哪里 | 通过口径 |
+| --- | --- | --- |
+| 软件入口是否能打开 | `MihoProbe` / `dist\MihoProbe.exe` | 浏览器打开 Dashboard 或初次启动页；不启动 OCR。 |
+| A/S 评级是否稳 | `MihoProbe Rank Check` | `ok_region_count` 覆盖所有角色/音擎评级区域，报告有 crop 和颜色/形状证据。 |
+| 分享图解析准确率 | `MihoProbe Accuracy Check` | manifest 控制的 expected diff 达标，不扫历史 parsed 目录。 |
+| APP 一键导出准备度 | `MihoProbe App Export Workflow` -> `MihoProbe App Export Calibrate` | 有工作流页、网格截图、待填坐标清单；默认不点击。 |
+| 配队/规划页面是否可信 | Dashboard 顶部 `当前结论` 和 `下一步` | 绿色继续；黄色先复核；红色先处理数据一致性。 |
+
 ## 点哪个图标
 
 | 目标 | 图标 / 命令 | 说明 |

@@ -17,30 +17,42 @@ if not exist "%EXE%" (
 )
 
 if "%~1"=="" (
+  echo [MihoProbe] Opening cached Dashboard only. OCR will NOT run.
+  echo [MihoProbe] If you only want to inspect the UI, this is the right entry.
+  echo [MihoProbe] Slow OCR is only started by: scripts\run_miho_demo.bat --fresh
   "%EXE%" dashboard --open
   exit /b %ERRORLEVEL%
 )
 if /I "%~1"=="--fresh" (
+  echo [MihoProbe] Fresh OCR requested. This can be slow because it loads PaddleOCR.
+  echo [MihoProbe] For UI acceptance, close this and run scripts\run_miho_demo.bat without --fresh.
   "%EXE%" fresh --open
   exit /b %ERRORLEVEL%
 )
 if /I "%~1"=="-fresh" (
+  echo [MihoProbe] Fresh OCR requested. This can be slow because it loads PaddleOCR.
+  echo [MihoProbe] For UI acceptance, close this and run scripts\run_miho_demo.bat without --fresh.
   "%EXE%" fresh --open
   exit /b %ERRORLEVEL%
 )
 if /I "%~1"=="/fresh" (
+  echo [MihoProbe] Fresh OCR requested. This can be slow because it loads PaddleOCR.
+  echo [MihoProbe] For UI acceptance, close this and run scripts\run_miho_demo.bat without --fresh.
   "%EXE%" fresh --open
   exit /b %ERRORLEVEL%
 )
 if /I "%~1"=="--open-only" (
+  echo [MihoProbe] Opening cached Dashboard only. OCR will NOT run.
   "%EXE%" dashboard --open
   exit /b %ERRORLEVEL%
 )
 if /I "%~1"=="-open-only" (
+  echo [MihoProbe] Opening cached Dashboard only. OCR will NOT run.
   "%EXE%" dashboard --open
   exit /b %ERRORLEVEL%
 )
 if /I "%~1"=="/open-only" (
+  echo [MihoProbe] Opening cached Dashboard only. OCR will NOT run.
   "%EXE%" dashboard --open
   exit /b %ERRORLEVEL%
 )
