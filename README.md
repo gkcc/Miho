@@ -118,10 +118,11 @@ dist\MihoProbe.exe fresh --rescan-all
 dist\MihoProbe.exe ask-gpt `
   --focus "本轮要推进的用户可见结果" `
   --evidence "关键命令或页面现象" `
-  --changed-file "path/to/file.py: 改了什么"
+  --changed-file "path/to/file.py: 改了什么" `
+  --copy
 ```
 
-`dist\MihoProbe.exe gpt-review` 是同一个入口。还没构建 EXE 时，用 `python tools/probes/build_gpt_review_prompt.py`，参数相同。
+`--copy` 会尽量把审查包放进剪贴板，你直接粘贴到右侧 GPT。若系统剪贴板被占用，工具会改写 `data\probes\demo\gpt_review_prompt.md`，打开这个文件复制即可。不要再让 Codex 反复探索 ChatGPT 页面。`dist\MihoProbe.exe gpt-review` 是同一个入口。还没构建 EXE 时，用 `python tools/probes/build_gpt_review_prompt.py`，参数相同。
 
 协议说明见 `docs/notes/codex-gpt-adversarial-loop.md`。
 

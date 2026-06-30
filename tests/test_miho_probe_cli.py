@@ -62,7 +62,7 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("识别 figs\\ 下新增或变更的官方分享图", help_text)
         self.assertIn("用 expected diff 验收解析准确率", help_text)
         self.assertIn("MihoProbe.exe ask-gpt", help_text)
-        self.assertIn("生成给右侧 GPT 的固定审查包", help_text)
+        self.assertIn("生成并复制给右侧 GPT 的固定审查包", help_text)
         self.assertNotIn("positional arguments", help_text)
         self.assertNotIn("Local Miho probe command shell", help_text)
 
@@ -279,6 +279,12 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(args.command, "ask-gpt")
         self.assertEqual(args.focus, "验收入口太慢")
         self.assertTrue(args.no_git_status)
+
+    def test_ask_gpt_supports_copy_to_clipboard(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["ask-gpt", "--focus", "验收入口太慢", "--copy", "--no-git-status"])
+
+        self.assertTrue(args.copy)
 
     def test_replay_uses_default_manifest_only_without_inline_cases(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -696,6 +702,61 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("- 226 tests OK", prompt)
             self.assertIn("tools/probes/export_image_parse_probe.py：rank source", prompt)
             self.assertIn("Findings：", prompt)
+
+    def test_run_gpt_review_can_copy_without_dumping_prompt(self) -> None:
+        output = io.StringIO()
+        with (
+            mock.patch.object(cli_tool.gpt_prompt_tool, "copy_text_to_clipboard", return_value=(True, "mock clipboard")),
+            contextlib.redirect_stdout(output),
+        ):
+            result = cli_tool.run_gpt_review(
+                argparse.Namespace(
+                    focus="修右侧 GPT 流程",
+                    evidence=[],
+                    changed_file=[],
+                    question=[],
+                    constraint=[],
+                    no_git_status=True,
+                    output=None,
+                    copy=True,
+                )
+            )
+
+        self.assertEqual(result, 0)
+        self.assertIn("gpt_review_clipboard: copied", output.getvalue())
+        self.assertIn("gpt_review_prompt: clipboard", output.getvalue())
+        self.assertNotIn("给右侧 GPT 的审查包", output.getvalue())
+
+    def test_run_gpt_review_copy_fallback_writes_handoff_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_prompt = cli_tool.DEFAULT_GPT_REVIEW_PROMPT
+            cli_tool.DEFAULT_GPT_REVIEW_PROMPT = Path(temp_dir) / "gpt_review_prompt.md"
+            output = io.StringIO()
+            try:
+                with (
+                    mock.patch.object(cli_tool.gpt_prompt_tool, "copy_text_to_clipboard", return_value=(False, "clipboard locked")),
+                    contextlib.redirect_stdout(output),
+                ):
+                    result = cli_tool.run_gpt_review(
+                        argparse.Namespace(
+                            focus="修右侧 GPT 流程",
+                            evidence=[],
+                            changed_file=[],
+                            question=[],
+                            constraint=[],
+                            no_git_status=True,
+                            output=None,
+                            copy=True,
+                        )
+                    )
+            finally:
+                cli_tool.DEFAULT_GPT_REVIEW_PROMPT = old_prompt
+
+            self.assertEqual(result, 0)
+            self.assertTrue((Path(temp_dir) / "gpt_review_prompt.md").exists())
+            self.assertIn("gpt_review_clipboard: unavailable", output.getvalue())
+            self.assertIn("gpt_review_next:", output.getvalue())
+            self.assertNotIn("给右侧 GPT 的审查包", output.getvalue())
 
     def test_detect_project_root_points_to_workspace(self) -> None:
         self.assertEqual(cli_tool.detect_project_root(), PROJECT_ROOT)

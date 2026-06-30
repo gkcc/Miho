@@ -62,6 +62,7 @@ if PROJECT_PROBES_DIR.exists() and str(PROJECT_PROBES_DIR) not in sys.path:
 DEFAULT_DEMO_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_DASHBOARD_HTML = DEFAULT_DEMO_OUTPUT_DIR / "index.html"
 DEFAULT_DEMO_SUMMARY = DEFAULT_DEMO_OUTPUT_DIR / "demo_summary.json"
+DEFAULT_GPT_REVIEW_PROMPT = DEFAULT_DEMO_OUTPUT_DIR / "gpt_review_prompt.md"
 DEFAULT_FIGS_DIR = PROJECT_ROOT / "figs"
 DEFAULT_APP_EXPORT_WORKFLOW_DIR = DEFAULT_DEMO_OUTPUT_DIR / "app_export_workflow"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
@@ -120,8 +121,8 @@ def render_user_help() -> str:
   MihoProbe.exe rank-check
     只检查头像/音擎 A/S 艺术字固定区域。不跑 OCR，用来排查评级识别。
 
-  MihoProbe.exe ask-gpt --focus "本轮要审的问题"
-    生成给右侧 GPT 的固定审查包，避免反复摸索对话流程。
+  MihoProbe.exe ask-gpt --focus "本轮要审的问题" --copy
+    生成并复制给右侧 GPT 的固定审查包，避免反复摸索对话流程。
 
 先别踩坑：
   - 只看界面，不要跑 fresh。
@@ -1031,11 +1032,27 @@ def run_gpt_review(args: argparse.Namespace) -> int:
         constraints=args.constraint,
         include_git_status=not args.no_git_status,
     )
+    copied = False
+    copy_failed_detail = ""
+    if getattr(args, "copy", False):
+        copied, detail = gpt_prompt_tool.copy_text_to_clipboard(prompt)
+        if not copied:
+            copy_failed_detail = detail
+            print(f"gpt_review_clipboard: unavailable ({detail})")
+        else:
+            print("gpt_review_clipboard: copied")
     if args.output:
         output_path = resolve_cli_path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(prompt, encoding="utf-8")
         print(f"gpt_review_prompt: {output_path}")
+    elif copy_failed_detail:
+        DEFAULT_GPT_REVIEW_PROMPT.parent.mkdir(parents=True, exist_ok=True)
+        DEFAULT_GPT_REVIEW_PROMPT.write_text(prompt, encoding="utf-8")
+        print(f"gpt_review_prompt: {DEFAULT_GPT_REVIEW_PROMPT}")
+        print("gpt_review_next: 打开这个文件，把审查包粘贴到右侧 GPT。")
+    elif copied:
+        print("gpt_review_prompt: clipboard")
     else:
         sys.stdout.write(prompt)
     return 0
@@ -1121,6 +1138,7 @@ def add_gpt_review_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--constraint", action="append", default=[], help="额外约束，可重复。")
     parser.add_argument("--no-git-status", action="store_true", help="不要自动附带 git status --short。")
     parser.add_argument("--output", default=None, help="可选输出路径；不传则打印到 stdout。")
+    parser.add_argument("--copy", action="store_true", help="把审查包复制到系统剪贴板，方便直接粘贴到右侧 GPT。")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

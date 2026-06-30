@@ -63,6 +63,13 @@ class GptReviewPromptTests(unittest.TestCase):
 
         self.assertEqual(result, ["tools/probes/render_demo_dashboard.py：改中文文案"])
 
+    def test_parser_supports_copy_to_clipboard(self) -> None:
+        parser = prompt_tool.build_arg_parser()
+        args = parser.parse_args(["--focus", "修右侧 GPT 流程", "--copy", "--no-git-status"])
+
+        self.assertTrue(args.copy)
+        self.assertTrue(args.no_git_status)
+
 
 if __name__ == "__main__":
     unittest.main()

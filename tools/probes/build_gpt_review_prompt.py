@@ -4,13 +4,18 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import os
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Iterable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_HANDOFF_PROMPT = PROJECT_ROOT / "data" / "probes" / "demo" / "gpt_review_prompt.md"
 
 DEFAULT_CONSTRAINTS = (
     "不换 OCR 引擎，当前主线仍是 PaddleOCR + expected diff + replay batch。",
@@ -149,6 +154,88 @@ def render_prompt(
     return "\n".join(sections)
 
 
+def copy_text_to_windows_clipboard(text: str) -> tuple[bool, str]:
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    cf_unicode_text = 13
+    gmem_moveable = 0x0002
+    data = (text + "\0").encode("utf-16le")
+    for _attempt in range(5):
+        if user32.OpenClipboard(None):
+            break
+        time.sleep(0.08)
+    else:
+        return False, "OpenClipboard failed"
+    handle = None
+    try:
+        if not user32.EmptyClipboard():
+            return False, "EmptyClipboard failed"
+        handle = kernel32.GlobalAlloc(gmem_moveable, len(data))
+        if not handle:
+            return False, "GlobalAlloc failed"
+        locked = kernel32.GlobalLock(handle)
+        if not locked:
+            return False, "GlobalLock failed"
+        ctypes.memmove(locked, data, len(data))
+        kernel32.GlobalUnlock(handle)
+        if not user32.SetClipboardData(cf_unicode_text, handle):
+            return False, "SetClipboardData failed"
+        handle = None
+        return True, "Windows Unicode clipboard"
+    finally:
+        user32.CloseClipboard()
+        if handle:
+            kernel32.GlobalFree(handle)
+
+
+def copy_text_to_clipboard(text: str) -> tuple[bool, str]:
+    if not text:
+        return False, "empty prompt"
+    if sys.platform.startswith("win"):
+        copied, winapi_detail = copy_text_to_windows_clipboard(text)
+        if copied:
+            return copied, winapi_detail
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as handle:
+                handle.write(text)
+                temp_path = Path(handle.name)
+            literal_path = str(temp_path).replace("'", "''")
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    f"Get-Content -Raw -Encoding UTF8 -LiteralPath '{literal_path}' | Set-Clipboard",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            if result.returncode == 0:
+                return True, "powershell Set-Clipboard"
+            detail = (result.stderr or result.stdout or "").strip()
+            powershell_detail = detail or f"Set-Clipboard exited {result.returncode}"
+            return False, f"WinAPI failed: {winapi_detail}; PowerShell failed: {powershell_detail}"
+        except OSError as exc:
+            return False, str(exc)
+        finally:
+            if temp_path is not None:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+    return False, f"clipboard copy is not supported on {sys.platform}"
+
+
+def write_prompt_file(path: Path, prompt: str) -> Path:
+    output_path = path if path.is_absolute() else PROJECT_ROOT / path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(prompt, encoding="utf-8")
+    return output_path
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build a compact prompt for right-side GPT review.")
     parser.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
@@ -158,6 +245,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--constraint", action="append", default=[], help="额外约束，可重复。")
     parser.add_argument("--no-git-status", action="store_true", help="不要自动附带 git status --short。")
     parser.add_argument("--output", default=None, help="可选输出路径；不传则打印到 stdout。")
+    parser.add_argument("--copy", action="store_true", help="把审查包复制到系统剪贴板，方便直接粘贴到右侧 GPT。")
     return parser
 
 
@@ -171,13 +259,25 @@ def main() -> int:
         constraints=args.constraint,
         include_git_status=not args.no_git_status,
     )
+    copied = False
+    copy_failed_detail = ""
+    if args.copy:
+        copied, detail = copy_text_to_clipboard(prompt)
+        if not copied:
+            copy_failed_detail = detail
+            print(f"gpt_review_clipboard: unavailable ({detail})")
+        else:
+            print("gpt_review_clipboard: copied")
     if args.output:
-        output_path = Path(args.output)
-        if not output_path.is_absolute():
-            output_path = PROJECT_ROOT / output_path
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(prompt, encoding="utf-8")
+        output_path = write_prompt_file(Path(args.output), prompt)
         print(f"gpt_review_prompt: {output_path}")
+        return 0
+    if copy_failed_detail:
+        output_path = write_prompt_file(DEFAULT_HANDOFF_PROMPT, prompt)
+        print(f"gpt_review_prompt: {output_path}")
+        print("gpt_review_next: open the prompt file and paste it into the right-side GPT.")
+        return 0
+    if copied:
         return 0
     sys.stdout.write(prompt)
     return 0

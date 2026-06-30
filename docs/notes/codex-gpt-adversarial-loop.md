@@ -7,7 +7,7 @@
 默认不再让 Codex 读取右侧 GPT 的长历史，也不再临时摸索输入框、页面结构或复制方式。每轮只做这四步：
 
 1. Codex 用本地仓库、测试结果和当前用户目标生成审查包。
-2. 用户把审查包完整发给右侧 GPT。
+2. 工具把审查包复制到剪贴板，用户完整粘贴给右侧 GPT；剪贴板不可用时，使用 `data/probes/demo/gpt_review_prompt.md`。
 3. 用户把 GPT 的 `Findings / Risks / Next experiment / Acceptance` 回复贴回当前线程。
 4. Codex 只根据贴回来的结构化结论、本地代码和命令输出实现、验证、提交、推送。
 
@@ -48,7 +48,8 @@
 dist\MihoProbe.exe gpt-review `
   --focus "本轮要推进的用户可见结果" `
   --evidence "关键命令结果，最多 5 行" `
-  --changed-file "path/to/file.py: 改了什么"
+  --changed-file "path/to/file.py: 改了什么" `
+  --copy
 ```
 
 未构建 `dist\MihoProbe.exe` 时，使用 `python tools/probes/build_gpt_review_prompt.py`，参数保持一致。
