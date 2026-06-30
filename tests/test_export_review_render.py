@@ -36,9 +36,11 @@ def mock_layout_regions() -> list[dict]:
     names = [
         "header",
         "character_card",
+        "character_rank",
         "core_stats",
         "skill_levels",
         "equipment",
+        "equipment_rank",
         "drive_disc_1",
         "drive_disc_2",
         "drive_disc_3",
@@ -143,7 +145,20 @@ def mock_parsed_json(image_path: Path) -> dict:
             "warnings": [],
             "uncertain": True,
         },
-        "text_blocks": [],
+        "text_blocks": [
+            {
+                "text": "S",
+                "region": "character_rank",
+                "visual_rank_fallback": True,
+                "visual_rank_scores": {"orange": 0.1364, "purple": 0.0106},
+            },
+            {
+                "text": "S",
+                "region": "equipment_rank",
+                "visual_rank_fallback": True,
+                "visual_rank_scores": {"orange": 0.1187, "purple": 0.0},
+            },
+        ],
         "errors": [],
     }
 
@@ -194,6 +209,11 @@ class ExportReviewRenderTests(unittest.TestCase):
             self.assertIn("low", html_text)
             self.assertIn("驱动盘 1", html_text)
             self.assertIn("drive_disc_1", html_text)
+            self.assertIn("角色评级区域 (character_rank)", html_text)
+            self.assertIn("音擎评级区域 (equipment_rank)", html_text)
+            self.assertIn("评级视觉证据", html_text)
+            self.assertIn("固定区域视觉识别，不重新跑 OCR", html_text)
+            self.assertIn("橙色占比 0.1364", html_text)
             self.assertIn("攻击力: 219 (+2)", html_text)
             self.assertIn("equipment_name", html_text)
 

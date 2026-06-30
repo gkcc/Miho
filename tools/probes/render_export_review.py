@@ -19,9 +19,11 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "parsed"
 REVIEW_REGION_NAMES = (
     "header",
     "character_card",
+    "character_rank",
     "core_stats",
     "skill_levels",
     "equipment",
+    "equipment_rank",
     "drive_disc_1",
     "drive_disc_2",
     "drive_disc_3",
@@ -33,9 +35,11 @@ REVIEW_REGION_NAMES = (
 REGION_LABELS = {
     "header": "页眉",
     "character_card": "角色信息",
+    "character_rank": "角色评级",
     "core_stats": "核心属性",
     "skill_levels": "技能等级",
     "equipment": "音擎",
+    "equipment_rank": "音擎评级",
     "drive_disc_1": "驱动盘 1",
     "drive_disc_2": "驱动盘 2",
     "drive_disc_3": "驱动盘 3",
@@ -47,9 +51,11 @@ REGION_LABELS = {
 REGION_COLORS = {
     "header": "#4f46e5",
     "character_card": "#0ea5e9",
+    "character_rank": "#a855f7",
     "core_stats": "#16a34a",
     "skill_levels": "#f59e0b",
     "equipment": "#db2777",
+    "equipment_rank": "#f97316",
     "drive_disc_1": "#dc2626",
     "drive_disc_2": "#9333ea",
     "drive_disc_3": "#0891b2",
@@ -301,6 +307,16 @@ def format_value(value: Any) -> str:
     return str(value)
 
 
+def source_label(source: Any) -> str:
+    if not source:
+        return ""
+    source_text = str(source)
+    label = REGION_LABELS.get(source_text)
+    if label:
+        return f"{label}区域 ({source_text})"
+    return source_text
+
+
 def render_field(label: str, field: Any, path: str | None = None) -> str:
     status = field_status(field)
     value = format_value(field_value(field))
@@ -309,7 +325,7 @@ def render_field(label: str, field: Any, path: str | None = None) -> str:
     uncertainty = f"status={status}; uncertain={'true' if uncertain else 'false'}"
     display_label = FIELD_LABELS.get(label, STAT_LABELS.get(label, label))
     path_html = f"<span class=\"path\">{escape(path)}</span>" if path else ""
-    source_html = f"<span class=\"source\">{escape(source)}</span>" if source else ""
+    source_html = f"<span class=\"source\">{escape(source_label(source))}</span>" if source else ""
     return (
         f"<div class=\"field field-{status}\">"
         f"<div class=\"field-main\"><span class=\"field-label\">{escape(display_label)}</span>{path_html}</div>"
@@ -485,6 +501,67 @@ def render_invalid_card(coverage: dict[str, Any], draft: dict[str, Any]) -> str:
     return render_card("invalid_candidate 字段卡", body, "泛词或明显错字段不会计入可信覆盖")
 
 
+def visual_rank_entries(parsed: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    metadata = parsed.get("metadata", {}) if isinstance(parsed.get("metadata"), dict) else {}
+    for item in metadata.get("visual_rank_fallback", []) if isinstance(metadata.get("visual_rank_fallback"), list) else []:
+        if isinstance(item, dict):
+            entries.append(
+                {
+                    "region": item.get("region"),
+                    "rank": item.get("rank"),
+                    "scores": item.get("scores") if isinstance(item.get("scores"), dict) else {},
+                    "source": "metadata.visual_rank_fallback",
+                }
+            )
+    for block in parsed.get("text_blocks", []) if isinstance(parsed.get("text_blocks"), list) else []:
+        if not isinstance(block, dict) or not block.get("visual_rank_fallback"):
+            continue
+        entries.append(
+            {
+                "region": block.get("region"),
+                "rank": block.get("text"),
+                "scores": block.get("visual_rank_scores") if isinstance(block.get("visual_rank_scores"), dict) else {},
+                "source": "text_blocks.visual_rank_fallback",
+            }
+        )
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in entries:
+        key = (str(entry.get("region") or ""), str(entry.get("rank") or ""))
+        if key in seen or not key[0] or not key[1]:
+            continue
+        seen.add(key)
+        unique.append(entry)
+    return unique
+
+
+def render_visual_rank_card(parsed: dict[str, Any]) -> str:
+    entries = visual_rank_entries(parsed)
+    if not entries:
+        body = "<div class=\"empty-state\">无固定区域视觉评级补充</div>"
+        return render_card("评级视觉证据", body, "A/S 艺术字识别来源")
+
+    rows = []
+    for entry in entries:
+        region = str(entry.get("region") or "")
+        scores = entry.get("scores") if isinstance(entry.get("scores"), dict) else {}
+        orange = scores.get("orange")
+        purple = scores.get("purple")
+        score_text = f"橙色占比 {orange if orange is not None else 'N/A'}；紫色占比 {purple if purple is not None else 'N/A'}"
+        rows.append(
+            "<div class=\"visual-rank-row\">"
+            f"<div class=\"visual-rank-badge\">{escape(entry.get('rank'))}</div>"
+            "<div>"
+            f"<strong>{escape(source_label(region))}</strong>"
+            f"<span>固定区域视觉识别，不重新跑 OCR。{escape(score_text)}</span>"
+            f"<span>证据来源：{escape(entry.get('source'))}</span>"
+            "</div>"
+            "</div>"
+        )
+    return render_card("评级视觉证据", "".join(rows), "A/S 艺术字来自头像或音擎右侧固定区域")
+
+
 def render_coverage_card(coverage: dict[str, Any]) -> str:
     def count_or_list(name: str) -> str:
         values = coverage.get(name, [])
@@ -606,6 +683,7 @@ def render_html(parsed: dict[str, Any], image_path: Path, overlay_path: Path, ht
             render_skills_card(draft),
             render_equipment_card(draft),
             render_drive_discs_card(draft),
+            render_visual_rank_card(parsed),
             render_coverage_card(coverage),
             render_missing_card(coverage),
             render_invalid_card(coverage, draft),
@@ -777,6 +855,36 @@ def render_html(parsed: dict[str, Any], image_path: Path, overlay_path: Path, ht
       font-weight: 900;
       letter-spacing: 0;
       color: #243047;
+    }}
+    .visual-rank-row {{
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcff;
+    }}
+    .visual-rank-row strong,
+    .visual-rank-row span {{
+      display: block;
+      overflow-wrap: anywhere;
+    }}
+    .visual-rank-row span {{
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .visual-rank-badge {{
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: #172033;
+      color: #fff;
+      font-size: 24px;
+      font-weight: 900;
     }}
     .pill {{
       display: inline-flex;
