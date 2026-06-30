@@ -76,6 +76,8 @@ python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_man
 
 如果 `data\probes\replay_manifest.json` 还没准备好，`dist\MihoProbe.exe check --open` 会打开“准确率验收缺少样例清单”说明页。那不是 OCR 失败，只是缺固定验收样例。页面会同时显示当前检测到几张 `figs\` 分享图、几个 parsed JSON、几个 expected JSON，并告诉你下一步是先跑 `update`、补 expected，还是只差写 manifest。
 
+如果怀疑失败点在角色/音擎评级，先跑 `dist\MihoProbe.exe rank-check --no-open`。评级不是按中文识别，它只看角色头像左上角和音擎右侧的 A/S 艺术字区域；这个命令不会重新 OCR。
+
 通过口径：
 
 - 3 张以上图平均通过率达标。

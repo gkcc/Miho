@@ -403,9 +403,11 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("先识别这批图片", html)
             self.assertIn("检测到 1 张分享图", html)
             self.assertIn("MihoProbe.exe update", html)
-            self.assertIn("MihoProbe.exe fresh", html)
+            self.assertIn("先验评级区域", html)
+            self.assertIn("MihoProbe.exe rank-check", html)
             self.assertIn("准确率验收：缺少样例清单", stderr.getvalue())
             self.assertIn("help_html:", stderr.getvalue())
+            self.assertIn("评级怀疑：先跑 MihoProbe.exe rank-check", stderr.getvalue())
             self.assertEqual(stdout.getvalue(), "")
 
     def test_run_fresh_processes_new_or_changed_images_by_default(self) -> None:

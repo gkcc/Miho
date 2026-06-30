@@ -415,14 +415,14 @@ def render_missing_replay_manifest_page(manifest_path: Path, output_path: Path) 
           <code>{html_escape(primary_command)}</code>
         </article>
         <article class="card">
+          <strong>先验评级区域</strong>
+          <span>评级不是中文 OCR。它只看角色头像左上角和音擎右侧的 A/S 艺术字颜色信号。</span>
+          <code>MihoProbe.exe rank-check</code>
+        </article>
+        <article class="card">
           <strong>只想看软件界面</strong>
           <span>打开缓存 Dashboard，不重新 OCR，不要求 manifest。</span>
           <code>MihoProbe.exe</code>
-        </article>
-        <article class="card">
-          <strong>新图还没识别</strong>
-          <span>先把官方分享图放进 figs\\，再跑 fresh。这个入口会慢。</span>
-          <code>MihoProbe.exe fresh</code>
         </article>
       </div>
       <div class="paths">
@@ -922,6 +922,7 @@ def run_replay(args: argparse.Namespace) -> int:
             print(f"missing_manifest: {manifest_path}", file=sys.stderr)
             print(f"help_html: {guide_path}", file=sys.stderr)
             print("下一步：补齐 data\\probes\\replay_manifest.json，或用 --case parsed.json=expected.json 指定单次验收。", file=sys.stderr)
+            print("评级怀疑：先跑 MihoProbe.exe rank-check --no-open；它不跑 OCR，只看 A/S 艺术字区域。", file=sys.stderr)
             return 1
         print(f"ERROR: {exc}", file=sys.stderr)
         print("准确率验收入口：MihoProbe.exe replay --manifest data\\probes\\replay_manifest.json", file=sys.stderr)
