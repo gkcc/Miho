@@ -38,6 +38,7 @@ PROJECT_ROOT = detect_project_root()
 DEFAULT_DEMO_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_DASHBOARD_HTML = DEFAULT_DEMO_OUTPUT_DIR / "index.html"
 DEFAULT_DEMO_SUMMARY = DEFAULT_DEMO_OUTPUT_DIR / "demo_summary.json"
+DEFAULT_FIGS_DIR = PROJECT_ROOT / "figs"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 DEFAULT_NORMALIZED_DIR = PROJECT_ROOT / "data" / "probes" / "normalized"
@@ -165,6 +166,43 @@ def run_demo(args: argparse.Namespace) -> int:
         daily_stamina=args.daily_stamina,
         horizon_days=args.horizon_days,
     )
+    print(f"dashboard_html: {summary['dashboard_html']}")
+    print(f"summary_json: {summary['summary_json']}")
+    return 0
+
+
+def run_fresh(args: argparse.Namespace) -> int:
+    images_dir = resolve_cli_path(args.images_dir)
+    if not images_dir.exists() or not images_dir.is_dir():
+        print(f"ERROR: local image directory does not exist: {images_dir}", file=sys.stderr)
+        print("Put official share images under figs\\, then run MihoProbe.exe fresh.", file=sys.stderr)
+        return 1
+    summary = demo_tool.run_pipeline(
+        images_dir=images_dir,
+        parsed_dir=None,
+        manifest=None,
+        output_dir=resolve_cli_path(args.output_dir),
+        expected_dir=resolve_cli_path(args.expected_dir),
+        engine=args.engine,
+        game=args.game,
+        layout=args.layout,
+        open_dashboard=args.open,
+        latest_only=False,
+        clean_demo=args.clean_demo,
+        targets=resolve_cli_path(args.targets) if args.targets else None,
+        new_only=not args.rescan_all,
+        state_file=resolve_cli_path(args.state_file) if args.state_file else None,
+        history_dir=resolve_cli_path(args.history_dir) if args.history_dir else None,
+        target_source_manifest=resolve_cli_path(args.target_source_manifest) if args.target_source_manifest else None,
+        character_catalog=resolve_cli_path(args.character_catalog) if args.character_catalog else None,
+        roster_dir=resolve_cli_path(args.roster_dir) if args.roster_dir else None,
+        tier_snapshot=resolve_cli_path(args.tier_snapshot) if args.tier_snapshot else None,
+        tier_stale_days=args.tier_stale_days,
+        daily_stamina=args.daily_stamina,
+        horizon_days=args.horizon_days,
+    )
+    mode = "rescan_all" if args.rescan_all else "new_or_changed_only"
+    print(f"fresh_mode: {mode}")
     print(f"dashboard_html: {summary['dashboard_html']}")
     print(f"summary_json: {summary['summary_json']}")
     return 0
@@ -400,6 +438,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
     demo.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
     demo.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
     demo.set_defaults(handler=run_demo)
+
+    fresh = subparsers.add_parser("fresh", help="Run fresh OCR for local official share images under figs.")
+    fresh.add_argument("--images-dir", default=str(DEFAULT_FIGS_DIR), help="Image directory. Default: figs.")
+    fresh.add_argument("--output-dir", default=str(DEFAULT_DEMO_OUTPUT_DIR), help="Output directory.")
+    fresh.add_argument("--expected-dir", default=str(DEFAULT_EXPECTED_DIR), help="Expected JSON directory.")
+    fresh.add_argument("--engine", choices=("auto", "tesseract", "paddle", "rapidocr", "none"), default="paddle")
+    fresh.add_argument("--game", choices=("zzz", "hsr"), default="zzz")
+    fresh.add_argument("--layout", choices=("full", "zzz-agent-card"), default="zzz-agent-card")
+    fresh.add_argument("--open", action="store_true", default=True, help="Open generated dashboard. Default: true.")
+    fresh.add_argument("--no-open", action="store_false", dest="open", help="Do not open the dashboard.")
+    fresh.add_argument("--rescan-all", action="store_true", help="Rescan every image instead of only new or changed images.")
+    fresh.add_argument("--clean-demo", action="store_true", help="Clean the demo output directory before running. Limited to data/probes subdirectories.")
+    fresh.add_argument("--state-file", default=None, help="Image update state JSON. Default: <output-dir>/update_state.json.")
+    fresh.add_argument("--targets", default=None, help="Optional planner targets JSON. Generates a local training priority report.")
+    fresh.add_argument("--target-source-manifest", default=None, help="Optional public/local endgame source manifest. Generates targets before planner.")
+    fresh.add_argument("--character-catalog", default=None, help="Optional local character tag catalog JSON for planner target matching.")
+    fresh.add_argument("--roster-dir", default=str(DEFAULT_ROSTER_DIR), help="Local accepted roster directory. Default: data/probes/roster.")
+    fresh.add_argument("--tier-snapshot", default=None, help="Optional local tier/value snapshot JSON. Does not fetch network data.")
+    fresh.add_argument("--tier-stale-days", type=int, default=60, help="Mark tier sources older than this many days as stale. Default: 60.")
+    fresh.add_argument("--history-dir", default=None, help="Snapshot history directory. Default: <output-dir>/snapshot_history.")
+    fresh.add_argument("--daily-stamina", type=float, default=None, help="Daily stamina/power budget for planner. Default: 240.")
+    fresh.add_argument("--horizon-days", type=float, default=None, help="Planner horizon in days. Default: 7.")
+    fresh.set_defaults(handler=run_fresh)
 
     replay = subparsers.add_parser("replay", help="Run P0.9 parsed-vs-expected replay acceptance without OCR.")
     replay.add_argument("--manifest", default=None, help="Replay manifest. Default when no inline cases are provided: data/probes/replay_manifest.json.")

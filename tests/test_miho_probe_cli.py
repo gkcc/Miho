@@ -124,6 +124,15 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertFalse(args.open)
         self.assertIsNone(args.manifest)
 
+    def test_parser_has_fresh_ocr_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["fresh", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_fresh)
+        self.assertFalse(args.open)
+        self.assertFalse(args.rescan_all)
+        self.assertTrue(str(args.images_dir).endswith("figs"))
+
     def test_parser_has_gpt_review_entry(self) -> None:
         parser = cli_tool.build_arg_parser()
         args = parser.parse_args(["gpt-review", "--focus", "验收入口太慢", "--no-git-status"])
@@ -205,6 +214,52 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(fake_replay_tool.run_batch.call_count, 1)
         self.assertIn("准确率验收：通过", output.getvalue())
         self.assertIn("summary_md:", output.getvalue())
+
+    def test_run_fresh_processes_new_or_changed_images_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            figs = root / "figs"
+            figs.mkdir()
+            summary = {
+                "dashboard_html": str(root / "demo" / "index.html"),
+                "summary_json": str(root / "demo" / "demo_summary.json"),
+            }
+            fake_pipeline = mock.Mock(return_value=summary)
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli_tool.demo_tool, "run_pipeline", fake_pipeline),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_tool.run_fresh(
+                    argparse.Namespace(
+                        images_dir=str(figs),
+                        output_dir=str(root / "demo"),
+                        expected_dir=str(root / "expected"),
+                        engine="paddle",
+                        game="zzz",
+                        layout="zzz-agent-card",
+                        open=False,
+                        rescan_all=False,
+                        clean_demo=False,
+                        targets=None,
+                        state_file=None,
+                        history_dir=None,
+                        target_source_manifest=None,
+                        character_catalog=None,
+                        roster_dir=str(root / "roster"),
+                        tier_snapshot=None,
+                        tier_stale_days=60,
+                        daily_stamina=None,
+                        horizon_days=None,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            kwargs = fake_pipeline.call_args.kwargs
+            self.assertEqual(kwargs["images_dir"], figs.resolve())
+            self.assertTrue(kwargs["new_only"])
+            self.assertFalse(kwargs["open_dashboard"])
+            self.assertIn("fresh_mode: new_or_changed_only", output.getvalue())
 
     def test_run_gpt_review_writes_compact_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

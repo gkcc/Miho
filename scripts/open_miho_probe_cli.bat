@@ -17,6 +17,7 @@ echo.
 echo.
 echo Common examples:
 echo   dist\MihoProbe.exe dashboard --open
+echo   dist\MihoProbe.exe fresh --open
 echo   dist\MihoProbe.exe replay --no-open
 echo   dist\MihoProbe.exe gpt-review --focus "本轮要审的问题" --evidence "关键证据"
 echo   dist\MihoProbe.exe demo --images-dir figs --open

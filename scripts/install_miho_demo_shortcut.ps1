@@ -36,7 +36,7 @@ for ($Index = 0; $Index -lt $args.Count; $Index++) {
 if ($ShowHelp) {
     Write-Host "Miho Demo Shortcut Installer"
     Write-Host ""
-    Write-Host "Default: create desktop shortcuts for Miho Demo, Miho Demo Fresh OCR, MihoProbe, MihoProbe Accuracy Check, and MihoProbe CLI when available."
+    Write-Host "Default: create desktop shortcuts for Miho Demo, Miho Demo Fresh OCR, MihoProbe, MihoProbe Fresh OCR, MihoProbe Accuracy Check, and MihoProbe CLI when available."
     Write-Host "Usage: scripts\install_miho_demo_shortcut.bat"
     Write-Host "Test output: scripts\install_miho_demo_shortcut.bat --output-dir <dir>"
     Write-Host "Skip fresh OCR shortcut: scripts\install_miho_demo_shortcut.bat --no-fresh-shortcut"
@@ -101,6 +101,12 @@ if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
             -TargetPath $ProbeExe `
             -Arguments "dashboard --open" `
             -Description "Open the app-like local Miho dashboard without rerunning OCR."
+
+        New-MihoShortcut `
+            -Name "MihoProbe Fresh OCR" `
+            -TargetPath $ProbeExe `
+            -Arguments "fresh --open" `
+            -Description "Run fresh OCR for new or changed local official share images under figs, then open the dashboard."
 
         New-MihoShortcut `
             -Name "MihoProbe Accuracy Check" `

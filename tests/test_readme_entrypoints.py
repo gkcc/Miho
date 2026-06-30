@@ -67,16 +67,22 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn('-Name "MihoProbe"', installer)
         self.assertIn("dist\\MihoProbe.exe", installer)
         self.assertIn("dashboard --open", installer)
+        self.assertIn('-Name "MihoProbe Fresh OCR"', installer)
+        self.assertIn("fresh --open", installer)
         self.assertIn('-Name "MihoProbe Accuracy Check"', installer)
         self.assertIn("replay --open", installer)
         self.assertIn("MihoProbe local dashboard entry", opener)
         self.assertIn("dashboard --open", opener)
+        self.assertIn("fresh --open", opener)
         self.assertIn("replay --no-open", opener)
 
     def test_readme_exposes_exe_replay_acceptance_entry(self) -> None:
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
 
         self.assertIn("MihoProbe Accuracy Check", readme)
+        self.assertIn("MihoProbe Fresh OCR", readme)
+        self.assertIn("dist\\MihoProbe.exe fresh", readme)
+        self.assertIn("--rescan-all", readme)
         self.assertIn("dist\\MihoProbe.exe replay", readme)
         self.assertIn("data/probes/replay_manifest.json", readme)
         self.assertIn("dist\\MihoProbe.exe gpt-review", readme)

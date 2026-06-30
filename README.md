@@ -9,8 +9,8 @@
 如果你只是想验收当前体验，不要先跑 OCR。按这个顺序：
 
 1. 第一次使用先装桌面入口。
-2. 点桌面的 `Miho Demo`，它只打开已有 Dashboard，正常应该很快。
-3. 只有分享图换了，才点 `Miho Demo Fresh OCR` 重新识别图片。
+2. 点桌面的 `MihoProbe` 或 `Miho Demo`，它只打开已有 Dashboard，正常应该很快。
+3. 只有分享图换了，才点 `MihoProbe Fresh OCR` 或 `Miho Demo Fresh OCR` 重新识别图片。
 
 安装桌面入口：
 
@@ -23,20 +23,24 @@ scripts/install_miho_demo_shortcut.bat
 - `Miho Demo`：秒开已有 Dashboard。普通验收先点这个；没有缓存时只提示下一步，不会自动跑 OCR。
 - `Miho Demo Fresh OCR`：重新识别 `figs/` 下的官方分享图。PaddleOCR 首次加载会慢。
 - `MihoProbe`：构建过 `dist/MihoProbe.exe` 后出现，像软件入口一样直接打开本地 Dashboard。
+- `MihoProbe Fresh OCR`：构建过 `dist/MihoProbe.exe` 后出现，默认只识别 `figs/` 下新增或变更的分享图。
 - `MihoProbe Accuracy Check`：构建过 EXE 后出现，一键跑 P0.9 replay 准确率验收，不重新 OCR。
 - `MihoProbe CLI`：打开 EXE 命令壳和常用命令示例。
 
-默认入口现在不会自动跑 OCR。如果 `Miho Demo Fresh OCR` 或 `scripts/run_miho_demo.bat --fresh` 等了十分钟还没反应，通常是 PaddleOCR 首次加载模型很慢；只想看结果请直接点 `Miho Demo`，或运行：
+默认入口现在不会自动跑 OCR。如果 `MihoProbe Fresh OCR`、`Miho Demo Fresh OCR` 或 `scripts/run_miho_demo.bat --fresh` 等了十分钟还没反应，通常是 PaddleOCR 首次加载模型很慢；只想看结果请直接点 `MihoProbe` / `Miho Demo`，或运行：
 
 ```powershell
 scripts\run_miho_demo.bat
 ```
 
-它会打开缓存 Dashboard，不会重新 OCR。确实要重扫 `figs/` 时才运行：
+它会打开缓存 Dashboard，不会重新 OCR。确实要识别 `figs/` 下新增或变更的分享图时才运行：
 
 ```powershell
+dist\MihoProbe.exe fresh
 scripts\run_miho_demo.bat --fresh
 ```
+
+`dist\MihoProbe.exe fresh` 默认只处理新增或变更图片；要强制全量重扫时加 `--rescan-all`。
 
 想先生成 EXE 命令壳：
 
