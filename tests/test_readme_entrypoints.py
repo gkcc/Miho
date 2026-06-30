@@ -121,6 +121,7 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("build_miho_probe_exe.ps1", wrapper)
         self.assertIn("project_root", spec)
         self.assertIn("miho_probe_cli.py", spec)
+        self.assertIn("'PIL.Image'", spec)
         self.assertIn("name='MihoProbe'", spec)
 
     def test_readme_exposes_exe_replay_acceptance_entry(self) -> None:

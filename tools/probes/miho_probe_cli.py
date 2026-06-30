@@ -6,26 +6,44 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from html import escape as html_escape
+import importlib
 import importlib.util
 import json
 import sys
 import webbrowser
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import diff_normalized_snapshots as diff_tool  # noqa: E402
-import build_gpt_review_prompt as gpt_prompt_tool  # noqa: E402
-import export_image_parse_probe as parse_probe  # noqa: E402
-import miyoushe_export_workflow as app_export_workflow  # noqa: E402
-import normalize_export_parse as normalize_tool  # noqa: E402
-import plan_training_priorities as planner_tool  # noqa: E402
-import prepare_endgame_targets as target_tool  # noqa: E402
-import render_demo_dashboard as dashboard_tool  # noqa: E402
-import run_demo_pipeline as demo_tool  # noqa: E402
+
+class LazyModule:
+    def __init__(self, module_name: str) -> None:
+        self._module_name = module_name
+        self._module: ModuleType | None = None
+
+    def load(self) -> ModuleType:
+        if self._module is None:
+            self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.load(), name)
+
+
+diff_tool = LazyModule("diff_normalized_snapshots")
+gpt_prompt_tool = LazyModule("build_gpt_review_prompt")
+parse_probe = LazyModule("export_image_parse_probe")
+app_export_workflow = LazyModule("miyoushe_export_workflow")
+normalize_tool = LazyModule("normalize_export_parse")
+planner_tool = LazyModule("plan_training_priorities")
+target_tool = LazyModule("prepare_endgame_targets")
+dashboard_tool = LazyModule("render_demo_dashboard")
+demo_tool = LazyModule("run_demo_pipeline")
 
 
 def detect_project_root() -> Path:
@@ -38,6 +56,9 @@ def detect_project_root() -> Path:
 
 
 PROJECT_ROOT = detect_project_root()
+PROJECT_PROBES_DIR = PROJECT_ROOT / "tools" / "probes"
+if PROJECT_PROBES_DIR.exists() and str(PROJECT_PROBES_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_PROBES_DIR))
 DEFAULT_DEMO_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_DASHBOARD_HTML = DEFAULT_DEMO_OUTPUT_DIR / "index.html"
 DEFAULT_DEMO_SUMMARY = DEFAULT_DEMO_OUTPUT_DIR / "demo_summary.json"
@@ -50,6 +71,7 @@ DEFAULT_PLANNER_DIR = PROJECT_ROOT / "data" / "probes" / "planner"
 DEFAULT_TARGETS_DIR = PROJECT_ROOT / "data" / "probes" / "targets"
 DEFAULT_REPLAY_MANIFEST = PROJECT_ROOT / "data" / "probes" / "replay_manifest.json"
 DEFAULT_RANK_CHECK_DIR = DEFAULT_DEMO_OUTPUT_DIR / "rank_check"
+DEFAULT_MAX_SOURCE_AGE_HOURS = 168
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 LEGACY_DASHBOARD_MARKERS = (
     "Brief Warning",
@@ -1152,7 +1174,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     targets.add_argument("--skill-level", default=8)
     targets.add_argument("--drive-disc-level", default=12)
     targets.add_argument("--stat", action="append", default=[], help="Minimum stat in key=value form, e.g. atk=2000.")
-    targets.add_argument("--max-source-age-hours", type=float, default=target_tool.DEFAULT_MAX_SOURCE_AGE_HOURS)
+    targets.add_argument("--max-source-age-hours", type=float, default=DEFAULT_MAX_SOURCE_AGE_HOURS)
     targets.add_argument("--output-dir", default=str(DEFAULT_TARGETS_DIR), help="Output directory.")
     targets.set_defaults(handler=run_targets)
 

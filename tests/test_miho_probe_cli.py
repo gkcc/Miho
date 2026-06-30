@@ -80,6 +80,28 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("MihoProbe.exe fresh", output.getvalue())
         self.assertNotIn("positional arguments", output.getvalue())
 
+    def test_parser_check_path_does_not_import_heavy_workflow_modules(self) -> None:
+        lazy_modules = [
+            cli_tool.diff_tool,
+            cli_tool.gpt_prompt_tool,
+            cli_tool.parse_probe,
+            cli_tool.app_export_workflow,
+            cli_tool.normalize_tool,
+            cli_tool.planner_tool,
+            cli_tool.target_tool,
+            cli_tool.dashboard_tool,
+            cli_tool.demo_tool,
+        ]
+        for lazy_module in lazy_modules:
+            lazy_module._module = None
+
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["check", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_replay)
+        for lazy_module in lazy_modules:
+            self.assertIsNone(lazy_module._module)
+
     def test_dashboard_command_refreshes_legacy_cached_html(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
