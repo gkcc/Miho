@@ -449,6 +449,54 @@ def render_brief_next_step(item: dict[str, Any] | None) -> str:
     )
 
 
+def render_brief_flow(brief_summary: dict[str, Any], warnings: list[Any]) -> str:
+    pending = int_value(brief_summary.get("pending_review_count"))
+    ready_targets = int_value(brief_summary.get("ready_now_target_count"))
+    recording = int_value(brief_summary.get("needs_recording_target_count"))
+    watch_only = int_value(brief_summary.get("watch_only_target_count"))
+    if warnings:
+        steps = [
+            ("1", "刷新本地演示", "先让本轮识别、复核和建议来自同一批数据。"),
+            ("2", "确认复核结果", "打开复核页看原图和字段，别直接相信旧快照。"),
+            ("3", "再看配队建议", "绿色后再按本地清单尝试。"),
+        ]
+    elif pending:
+        steps = [
+            ("1", "打开复核页", f"还有 {pending} 张解析快照待确认。"),
+            ("2", "应用复核结果", "确认无误后再进入本地角色库。"),
+            ("3", "刷新建议", "让配队只使用已确认练度。"),
+        ]
+    elif ready_targets:
+        steps = [
+            ("1", "查看可尝试目标", f"当前有 {ready_targets} 个本地可尝试目标。"),
+            ("2", "按清单试一次", "只按已确认角色和本地高难目标行动。"),
+            ("3", "记录结果", "打完后再更新练度或目标状态。"),
+        ]
+    elif recording:
+        steps = [
+            ("1", "补录官方分享图", f"{recording} 个目标缺少关键练度。"),
+            ("2", "复核解析字段", "确认角色、音擎、驱动盘主副词条。"),
+            ("3", "重新生成建议", "补齐后再判断是否能打。"),
+        ]
+    elif watch_only:
+        steps = [
+            ("1", "只观察", f"{watch_only} 个目标还不能作为行动建议。"),
+            ("2", "补齐数据", "先补已拥有角色和练度快照。"),
+            ("3", "等待绿色状态", "可信前不按它练角色。"),
+        ]
+    else:
+        steps = [
+            ("1", "补充数据", "放入官方分享图或选择已有 parsed replay。"),
+            ("2", "生成 Dashboard", "先看本地缓存入口，不要直接跑慢 OCR。"),
+            ("3", "复核后再行动", "确认字段后才进入本地建议。"),
+        ]
+    cells = "".join(
+        f'<div class="brief-flow-step"><b>{e(number)}</b><strong>{e(title)}</strong><span>{he(body)}</span></div>'
+        for number, title, body in steps
+    )
+    return f'<div class="brief-flow"><h3>推荐操作路线</h3><div>{cells}</div></div>'
+
+
 def basename(value: Any) -> str:
     if not value:
         return ""
@@ -1373,15 +1421,7 @@ def render_final_brief(summary: dict[str, Any]) -> str:
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>为什么不能直接用</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     overview = render_brief_overview(brief, brief_summary, warnings)
-    artifact_links = f"""
-      <details class="artifact-links">
-        <summary>查看原始产物</summary>
-        <div class="links">
-          {link("简报 Markdown", brief.get("output_md"))}
-          {link("简报 JSON", brief.get("output_json"))}
-        </div>
-      </details>
-    """
+    flow = render_brief_flow(brief_summary, warnings)
     valid_cards = [item for item in top_cards if isinstance(item, dict)]
     next_step = render_brief_next_step(valid_cards[0] if valid_cards else None)
     if brief.get("error"):
@@ -1462,12 +1502,12 @@ def render_final_brief(summary: dict[str, Any]) -> str:
       <h2>今日作战简报</h2>
       <p class="muted-line">先看这一块就够了：它只回答“现在能不能用、卡在哪里、下一步点哪里”。命令和技术证据默认折叠。</p>
       {overview}
+      {flow}
       {next_step}
       {status_note}
       {warning_block}
       {body}
       {stats_details("统计数字", stat_rows)}
-      {artifact_links}
     </section>
     """
 
@@ -2257,6 +2297,13 @@ def render_html(summary: dict[str, Any]) -> str:
     .brief-overview.ok strong {{ color: var(--ok); }}
     .brief-overview.warn strong {{ color: var(--warn); }}
     .brief-overview.bad strong {{ color: var(--bad); }}
+    .brief-flow {{ margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #ffffff; }}
+    .brief-flow h3 {{ margin: 0 0 10px; font-size: 15px; }}
+    .brief-flow > div {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }}
+    .brief-flow-step {{ display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 8px; align-items: start; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: #fbfcff; min-width: 0; }}
+    .brief-flow-step b {{ display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: #e9f8ef; color: var(--ok); }}
+    .brief-flow-step strong {{ display: block; overflow-wrap: anywhere; }}
+    .brief-flow-step span {{ display: block; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }}
     .brief-next-step {{ margin: 12px 0; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px; background: #eff6ff; }}
     .brief-next-step span {{ display: block; color: #1d4ed8; font-size: 12px; font-weight: 800; }}
     .brief-next-step strong {{ display: block; margin-top: 4px; font-size: 24px; color: #1d4ed8; line-height: 1.2; }}
@@ -2278,8 +2325,6 @@ def render_html(summary: dict[str, Any]) -> str:
     .command-details {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
     .soft-details {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
     .soft-details .input-grid {{ margin-top: 10px; }}
-    .artifact-links {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
-    .artifact-links .links {{ margin-top: 8px; }}
     .brief-evidence {{ margin: 8px 0; padding: 0; display: grid; gap: 6px; list-style: none; }}
     .brief-evidence li {{ display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }}
     .brief-evidence strong {{ color: var(--text); }}
@@ -2319,6 +2364,7 @@ def render_html(summary: dict[str, Any]) -> str:
       .case-card {{ grid-template-columns: 1fr; }}
       .facts {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .plan-item {{ grid-template-columns: 1fr; }}
+      .brief-flow > div {{ grid-template-columns: 1fr; }}
       .brief-card {{ grid-template-columns: 1fr; }}
       .resource-item {{ grid-template-columns: 1fr; }}
       .history-item {{ grid-template-columns: 1fr; }}
