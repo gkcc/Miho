@@ -4,6 +4,41 @@
 
 所有输出写入 `data/probes/`，该目录必须保持在 `.gitignore` 中。
 
+## ZZZ 公开 Meta 数据快照
+
+如果目标是做 box 代理人价值判断，而不是继续解析完整练度，可以先准备 Prydwen ZZZ 公开数据快照：
+
+```powershell
+python tools/probes/prepare_zzz_meta_snapshot.py --output data/probes/meta/zzz_prydwen_meta_all_phases.json
+```
+
+该命令只读取公开 Prydwen 页面和公开 `api/zenless/analytics?phaseId=...` 数据，不读取账号、不读取 cookie/token、不抓包。默认会拉取 Shiyu Defense 与 Deadly Assault 页面当前列出的全部 phase，并把 Tier List、角色出场率、分数、队伍使用率归一化到本地 JSON。
+
+快速调试时只拉当前 phase：
+
+```powershell
+python tools/probes/prepare_zzz_meta_snapshot.py --current-only --output data/probes/meta/zzz_prydwen_meta_current.json
+```
+
+输出仍在 `data/probes/` 下，不得提交。方法论见 `docs/notes/zzz-agent-value-method.md`，数据可行性见 `docs/spikes/0002-prydwen-zzz-agent-value-feasibility.md`。
+
+准备好公开 meta snapshot 和脱敏 roster JSON 后，可以生成当前 box 代理人价值报告：
+
+```powershell
+python tools/probes/build_agent_value_cards.py `
+  --meta-snapshot data/probes/meta/zzz_prydwen_meta_all_phases.json `
+  --roster-json data/probes/box/1782845579231_roster_manual_draft.json `
+  --output-dir data/probes/value/1782845579231
+```
+
+输出包含：
+
+* 账号内代理人 Tier；
+* 现实价值 / 潜力价值；
+* Shiyu Defense / Deadly Assault 当前 phase 全 owned 队伍候选；
+* 缺一名角色的观察队；
+* 低等级投入成本、低价值角色不要为过关强拉的警告。
+
 ## 推荐验证顺序
 
 1. 用户手动导出一张米游社官方分享图。
