@@ -79,6 +79,15 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("MihoProbe Accuracy Check", readme)
         self.assertIn("dist\\MihoProbe.exe replay", readme)
         self.assertIn("data/probes/replay_manifest.json", readme)
+        self.assertIn("dist\\MihoProbe.exe gpt-review", readme)
+
+    def test_cli_examples_expose_gpt_review_entry(self) -> None:
+        opener = (PROJECT_ROOT / "scripts" / "open_miho_probe_cli.bat").read_text(encoding="utf-8")
+        protocol = (PROJECT_ROOT / "docs" / "notes" / "codex-gpt-adversarial-loop.md").read_text(encoding="utf-8")
+
+        self.assertIn("dist\\MihoProbe.exe gpt-review", opener)
+        self.assertIn("dist\\MihoProbe.exe gpt-review", protocol)
+        self.assertIn("python tools/probes/build_gpt_review_prompt.py", protocol)
 
 
 if __name__ == "__main__":

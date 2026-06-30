@@ -14,11 +14,13 @@
 优先用工具生成，不要手写长上下文：
 
 ```powershell
-python tools/probes/build_gpt_review_prompt.py `
+dist\MihoProbe.exe gpt-review `
   --focus "本轮要推进的用户可见结果" `
   --evidence "关键命令结果，最多 5 行" `
   --changed-file "path/to/file.py: 改了什么"
 ```
+
+未构建 `dist\MihoProbe.exe` 时，使用 `python tools/probes/build_gpt_review_prompt.py`，参数保持一致。
 
 每次只发一个紧凑包，不要贴长日志。工具会自动带上固定约束和当前 `git status --short`；需要手写时使用同样结构：
 
@@ -93,8 +95,9 @@ Acceptance：
 
 ## 本轮常用口径
 
-- Demo 体验：`scripts/run_miho_demo.bat --open-only`
+- Demo 体验：`scripts/run_miho_demo.bat`
 - Fresh OCR：`scripts/run_miho_demo.bat --fresh`
+- GPT 审查包：`dist\MihoProbe.exe gpt-review --focus "..."`
 - P0.9 准确率：`python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json`
 - 全量回归：`python -m unittest discover tests`
 

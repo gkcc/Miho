@@ -17,6 +17,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import diff_normalized_snapshots as diff_tool  # noqa: E402
+import build_gpt_review_prompt as gpt_prompt_tool  # noqa: E402
 import normalize_export_parse as normalize_tool  # noqa: E402
 import plan_training_priorities as planner_tool  # noqa: E402
 import prepare_endgame_targets as target_tool  # noqa: E402
@@ -343,6 +344,25 @@ def run_targets(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_gpt_review(args: argparse.Namespace) -> int:
+    prompt = gpt_prompt_tool.render_prompt(
+        focus=args.focus,
+        evidence=args.evidence,
+        changed_files=args.changed_file,
+        questions=args.question,
+        constraints=args.constraint,
+        include_git_status=not args.no_git_status,
+    )
+    if args.output:
+        output_path = resolve_cli_path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(prompt, encoding="utf-8")
+        print(f"gpt_review_prompt: {output_path}")
+    else:
+        sys.stdout.write(prompt)
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Local Miho probe command shell.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -439,6 +459,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     targets.add_argument("--max-source-age-hours", type=float, default=target_tool.DEFAULT_MAX_SOURCE_AGE_HOURS)
     targets.add_argument("--output-dir", default=str(DEFAULT_TARGETS_DIR), help="Output directory.")
     targets.set_defaults(handler=run_targets)
+
+    gpt_review = subparsers.add_parser("gpt-review", help="Build a compact review prompt for the right-side GPT.")
+    gpt_review.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
+    gpt_review.add_argument("--evidence", action="append", default=[], help="关键证据，可重复。")
+    gpt_review.add_argument("--changed-file", action="append", default=[], help='已改文件，可写 "path: 改了什么"，可重复。')
+    gpt_review.add_argument("--question", action="append", default=[], help="额外请审问题，可重复；不传则使用默认问题。")
+    gpt_review.add_argument("--constraint", action="append", default=[], help="额外约束，可重复。")
+    gpt_review.add_argument("--no-git-status", action="store_true", help="不要自动附带 git status --short。")
+    gpt_review.add_argument("--output", default=None, help="可选输出路径；不传则打印到 stdout。")
+    gpt_review.set_defaults(handler=run_gpt_review)
     return parser
 
 

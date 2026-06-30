@@ -124,6 +124,14 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertFalse(args.open)
         self.assertIsNone(args.manifest)
 
+    def test_parser_has_gpt_review_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["gpt-review", "--focus", "验收入口太慢", "--no-git-status"])
+
+        self.assertEqual(args.handler, cli_tool.run_gpt_review)
+        self.assertEqual(args.focus, "验收入口太慢")
+        self.assertTrue(args.no_git_status)
+
     def test_replay_uses_default_manifest_only_without_inline_cases(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -197,6 +205,29 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(fake_replay_tool.run_batch.call_count, 1)
         self.assertIn("准确率验收：通过", output.getvalue())
         self.assertIn("summary_md:", output.getvalue())
+
+    def test_run_gpt_review_writes_compact_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "review_prompt.md"
+            result = cli_tool.run_gpt_review(
+                argparse.Namespace(
+                    focus="修评级识别",
+                    evidence=["226 tests OK"],
+                    changed_file=["tools/probes/export_image_parse_probe.py: rank source"],
+                    question=[],
+                    constraint=[],
+                    no_git_status=True,
+                    output=str(output_path),
+                )
+            )
+
+            self.assertEqual(result, 0)
+            prompt = output_path.read_text(encoding="utf-8")
+            self.assertIn("给右侧 GPT 的审查包", prompt)
+            self.assertIn("- 修评级识别", prompt)
+            self.assertIn("- 226 tests OK", prompt)
+            self.assertIn("tools/probes/export_image_parse_probe.py：rank source", prompt)
+            self.assertIn("Findings：", prompt)
 
     def test_detect_project_root_points_to_workspace(self) -> None:
         self.assertEqual(cli_tool.detect_project_root(), PROJECT_ROOT)

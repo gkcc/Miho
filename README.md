@@ -106,11 +106,13 @@ python tools/probes/review_export_image.py --image "C:\path\to\share.jpg" --engi
 需要右侧 GPT 审方案时，直接生成固定审查包，不再重新摸索聊天流程：
 
 ```powershell
-python tools/probes/build_gpt_review_prompt.py `
+dist\MihoProbe.exe gpt-review `
   --focus "本轮要推进的用户可见结果" `
   --evidence "关键命令或页面现象" `
   --changed-file "path/to/file.py: 改了什么"
 ```
+
+还没构建 EXE 时，用 `python tools/probes/build_gpt_review_prompt.py`，参数相同。
 
 协议说明见 [docs/notes/codex-gpt-adversarial-loop.md](docs/notes/codex-gpt-adversarial-loop.md)。
 
