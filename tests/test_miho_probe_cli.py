@@ -714,8 +714,81 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(kwargs["engine"], "none")
             self.assertFalse(kwargs["open_dashboard"])
             self.assertFalse(kwargs["clean_demo"])
-            self.assertIn("plan_update_scope: local_roster_targets_tier_only", output.getvalue())
-            self.assertIn("不跑 OCR、不联网、不读取账号", output.getvalue())
+            text = output.getvalue()
+            self.assertIn("plan_update_scope: local_roster_targets_tier_only", text)
+            self.assertIn("不跑 OCR、不联网、不读取账号", text)
+            self.assertIn("plan_update_source_status: needs_accepted_roster", text)
+            self.assertIn("plan_update_missing_sources: accepted_roster,endgame_targets,tier_snapshot", text)
+            readiness_path = root / "demo" / "plan_update_readiness" / "plan_update_readiness.json"
+            readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+            self.assertEqual(readiness["source_status"], "needs_accepted_roster")
+            self.assertIn("accepted_roster", readiness["missing_blockers"])
+            self.assertTrue(readiness["input"]["no_ocr"])
+            self.assertTrue(readiness["input"]["no_network"])
+
+    def test_run_plan_update_readiness_reports_ready_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            roster_dir = root / "roster"
+            roster_dir.mkdir()
+            (roster_dir / "roster_index.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p1.4-lite-roster-index",
+                        "character_count": 1,
+                        "characters": [{"name": "星见雅"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            targets_path = root / "targets.json"
+            targets_path.write_text(json.dumps({"targets": []}, ensure_ascii=False), encoding="utf-8")
+            tier_path = root / "tier.json"
+            tier_path.write_text(json.dumps({"items": []}, ensure_ascii=False), encoding="utf-8")
+            summary = {
+                "dashboard_html": str(root / "demo" / "index.html"),
+                "summary_json": str(root / "demo" / "demo_summary.json"),
+            }
+            fake_pipeline = mock.Mock(return_value=summary)
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli_tool.demo_tool, "run_pipeline", fake_pipeline),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_tool.run_plan_update(
+                    argparse.Namespace(
+                        output_dir=str(root / "demo"),
+                        expected_dir=str(root / "expected"),
+                        game="zzz",
+                        layout="zzz-agent-card",
+                        open=False,
+                        clean_demo=False,
+                        targets=str(targets_path),
+                        target_source_manifest=None,
+                        character_catalog=None,
+                        roster_dir=str(roster_dir),
+                        tier_snapshot=str(tier_path),
+                        tier_stale_days=60,
+                        history_dir=None,
+                        daily_stamina=None,
+                        horizon_days=None,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            text = output.getvalue()
+            self.assertIn("plan_update_source_status: ready_for_local_planning", text)
+            self.assertIn("plan_update_missing_sources: none", text)
+            readiness_path = root / "demo" / "plan_update_readiness" / "plan_update_readiness.json"
+            readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+            self.assertEqual(readiness["source_status"], "ready_for_local_planning")
+            self.assertEqual(readiness["missing_blockers"], [])
+            statuses = {item["id"]: item["status"] for item in readiness["items"]}
+            self.assertEqual(statuses["accepted_roster"], "ready")
+            self.assertEqual(statuses["endgame_targets"], "ready")
+            self.assertEqual(statuses["tier_snapshot"], "ready")
+            self.assertEqual(statuses["character_catalog"], "optional_missing")
 
     def test_run_rank_check_writes_visual_region_report_without_ocr(self) -> None:
         Image = cli_tool.parse_probe.load_image_dependency()

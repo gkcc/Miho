@@ -195,6 +195,8 @@ def status_class(value: Any) -> str:
         "fresh",
         "ready",
         "ready_to_try",
+        "ready_for_local_planning",
+        "manifest_ready",
         "executed",
         "printed",
         "current",
@@ -215,10 +217,15 @@ def status_class(value: Any) -> str:
         "applied_with_warnings",
         "unknown",
         "needs_apply",
+        "sources_missing_local_only",
+        "missing",
+        "missing_path",
+        "empty",
+        "optional_missing",
         "executed_with_followup_warning",
     }:
         return "warn"
-    if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply", "needs_rerun", "stale"}:
+    if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply", "needs_rerun", "stale", "needs_accepted_roster"}:
         return "bad"
     return "muted"
 
@@ -312,6 +319,62 @@ def render_operation_bar() -> str:
         f'<div class="operation-grid">{"".join(cards)}</div>'
         "</section>"
     )
+
+
+def render_plan_update_readiness(summary: dict[str, Any]) -> str:
+    report = summary.get("plan_update_readiness")
+    if not isinstance(report, dict):
+        return ""
+    source_status = str(report.get("source_status") or "unknown")
+    tone = status_class(source_status)
+    status_title = {
+        "ready_for_local_planning": "高难/Tier 输入已就绪",
+        "needs_accepted_roster": "先补已确认角色库",
+        "sources_missing_local_only": "缺少规划数据源",
+    }.get(source_status, human_status(source_status))
+    items = report.get("items") if isinstance(report.get("items"), list) else []
+    item_cards = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_cards.append(
+            f'<article class="source-card {e(status_class(item.get("status")))}">'
+            f"<strong>{he(item.get('title'))}</strong>"
+            f"<span>{he(item.get('status'))}</span>"
+            f"<p>{he(item.get('detail'))}</p>"
+            f"<em>{e(rel_label(item.get('path')) if item.get('path') else '未提供')}</em>"
+            "</article>"
+        )
+    next_actions = report.get("next_actions") if isinstance(report.get("next_actions"), list) else []
+    actions = "".join(f"<li>{he(action)}</li>" for action in next_actions)
+    missing = report.get("missing_blockers") if isinstance(report.get("missing_blockers"), list) else []
+    missing_text = "无" if not missing else "、".join(str(item) for item in missing)
+    links = " ".join(
+        part
+        for part in (
+            link("readiness.md", report.get("output_md")),
+            link("readiness.json", report.get("output_json")),
+        )
+        if part
+    )
+    return f"""
+    <section class="plan-readiness {e(tone)}">
+      <div>
+        <span>Plan Update 数据源</span>
+        <h2>{e(status_title)}</h2>
+        <p>{he(report.get("warning"))}</p>
+        <p class="compact-line"><strong>缺失阻断：</strong>{e(missing_text)}</p>
+        <div class="soft-links">{links}</div>
+      </div>
+      <div>
+        <div class="source-grid">{"".join(item_cards)}</div>
+        <details class="soft-details" open>
+          <summary>下一步怎么做</summary>
+          <ul>{actions}</ul>
+        </details>
+      </div>
+    </section>
+    """
 
 
 def render_acceptance_guide(
@@ -2457,6 +2520,7 @@ def render_html(summary: dict[str, Any]) -> str:
         ),
     ]
     operation_bar = render_operation_bar()
+    plan_update_readiness = render_plan_update_readiness(summary)
     acceptance_guide = render_acceptance_guide(
         can_act_now=can_act_now,
         input_info=input_info,
@@ -2536,6 +2600,24 @@ def render_html(summary: dict[str, Any]) -> str:
     .operation-card.safe strong {{ color: var(--ok); }}
     .operation-card.warn {{ border-color: #f6cf7c; background: var(--warn-bg); }}
     .operation-card.warn strong {{ color: var(--warn); }}
+    .plan-readiness {{ display: grid; grid-template-columns: minmax(280px, 0.8fr) minmax(520px, 1.6fr); gap: 16px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: var(--shadow); }}
+    .plan-readiness span {{ color: var(--muted); font-size: 13px; font-weight: 800; }}
+    .plan-readiness h2 {{ margin: 6px 0 8px; font-size: 26px; line-height: 1.15; letter-spacing: 0; }}
+    .plan-readiness p {{ margin: 0; color: var(--muted); line-height: 1.55; }}
+    .plan-readiness.ok {{ border-color: #a7e0bd; background: linear-gradient(180deg, #ffffff 0%, #f3fbf6 100%); }}
+    .plan-readiness.warn {{ border-color: #f6cf7c; background: linear-gradient(180deg, #ffffff 0%, #fff9e8 100%); }}
+    .plan-readiness.bad {{ border-color: #ffc0ba; background: linear-gradient(180deg, #ffffff 0%, #fff1ef 100%); }}
+    .plan-readiness.ok h2 {{ color: var(--ok); }} .plan-readiness.warn h2 {{ color: var(--warn); }} .plan-readiness.bad h2 {{ color: var(--bad); }}
+    .source-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }}
+    .source-card {{ display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fff; min-width: 0; }}
+    .source-card strong {{ overflow-wrap: anywhere; }}
+    .source-card p {{ margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }}
+    .source-card em {{ color: var(--muted); font-style: normal; font-size: 12px; overflow-wrap: anywhere; }}
+    .source-card.ok {{ border-color: #a7e0bd; background: var(--ok-bg); }}
+    .source-card.warn {{ border-color: #f6cf7c; background: var(--warn-bg); }}
+    .source-card.bad {{ border-color: #ffc0ba; background: var(--bad-bg); }}
+    .compact-line {{ margin-top: 8px !important; }}
+    .soft-links {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
     .top-summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }}
     .summary-card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); min-width: 0; }}
     .summary-card span {{ display: block; color: var(--muted); font-size: 13px; }}
@@ -2682,6 +2764,7 @@ def render_html(summary: dict[str, Any]) -> str:
     @media (max-width: 900px) {{
       .metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .operation-bar {{ grid-template-columns: 1fr; }}
+      .plan-readiness {{ grid-template-columns: 1fr; }}
       .acceptance-guide {{ grid-template-columns: 1fr; }}
       .guide-cards {{ grid-template-columns: 1fr; }}
       .top-summary {{ grid-template-columns: 1fr; }}
@@ -2710,6 +2793,7 @@ def render_html(summary: dict[str, Any]) -> str:
   </header>
     <main>
     {operation_bar}
+    {plan_update_readiness}
     {acceptance_guide}
     <section class="top-summary">{''.join(top_cards)}</section>
     {final_brief}

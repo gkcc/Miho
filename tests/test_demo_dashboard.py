@@ -294,6 +294,42 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("OCR、复核", html)
         self.assertNotIn("run_miho_本地演示.bat", html)
 
+    def test_dashboard_shows_plan_update_readiness_panel(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["plan_update_readiness"] = {
+            "source_status": "sources_missing_local_only",
+            "warning": "当前包含缺失数据源，平均结果只代表本地/demo 诊断，不代表 P0/P1 高难规划验收。",
+            "missing_blockers": ["endgame_targets", "tier_snapshot"],
+            "output_json": "data/probes/demo/plan_update_readiness/plan_update_readiness.json",
+            "output_md": "data/probes/demo/plan_update_readiness/plan_update_readiness.md",
+            "items": [
+                {
+                    "id": "accepted_roster",
+                    "title": "已确认角色库",
+                    "status": "ready",
+                    "path": "data/probes/roster/roster_index.json",
+                    "detail": "accepted roster 已就绪，当前确认角色数 3。",
+                },
+                {
+                    "id": "endgame_targets",
+                    "title": "高难目标数据",
+                    "status": "missing",
+                    "path": None,
+                    "detail": "缺少高难目标输入；规划只能显示本地/demo 诊断。",
+                },
+            ],
+            "next_actions": ["补充 --targets 或 --target-source-manifest，再运行 MihoProbe.exe plan-update --open。"],
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("Plan Update 数据源", html)
+        self.assertIn("缺少规划数据源", html)
+        self.assertIn("已确认角色库", html)
+        self.assertIn("高难目标数据", html)
+        self.assertIn("补充 --targets", html)
+        self.assertIn("readiness.md", html)
+
     def test_dashboard_layout_is_bounded_for_wide_screens(self) -> None:
         html = dashboard_tool.render_html(dashboard_minimal_summary())
 
@@ -2030,6 +2066,57 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["overall"]["expected_available_count"], 1)
             self.assertEqual(summary["cases"][0]["expected_json_name"], "custom_expected.json")
             self.assertEqual(summary["cases"][0]["pass_rate"], 1.0)
+
+    def test_run_demo_pipeline_includes_plan_update_readiness_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_dir = root / "demo"
+            readiness_dir = output_dir / "plan_update_readiness"
+            readiness_dir.mkdir(parents=True)
+            readiness_path = readiness_dir / "plan_update_readiness.json"
+            readiness_md = readiness_dir / "plan_update_readiness.md"
+            readiness_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "p4.4-plan-update-readiness",
+                        "source_status": "needs_accepted_roster",
+                        "warning": "缺少 accepted roster，本轮不能把 pending/demo snapshot 当作已拥有 box。",
+                        "missing_blockers": ["accepted_roster"],
+                        "items": [
+                            {
+                                "id": "accepted_roster",
+                                "title": "已确认角色库",
+                                "status": "missing",
+                                "path": str(root / "roster" / "roster_index.json"),
+                                "detail": "缺少 accepted roster。",
+                            }
+                        ],
+                        "next_actions": ["先运行 MihoProbe.exe update --open。"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            readiness_md.write_text("# readiness\n", encoding="utf-8")
+            manifest_path = root / "empty_manifest.json"
+            manifest_path.write_text(json.dumps({"cases": []}, ensure_ascii=False), encoding="utf-8")
+
+            summary = pipeline_tool.run_pipeline(
+                images_dir=None,
+                parsed_dir=None,
+                manifest=manifest_path,
+                output_dir=output_dir,
+                roster_dir=root / "roster",
+                open_dashboard=False,
+            )
+
+            self.assertIn("plan_update_readiness", summary)
+            self.assertEqual(summary["plan_update_readiness"]["source_status"], "needs_accepted_roster")
+            self.assertEqual(summary["plan_update_readiness"]["output_json"], str(readiness_path))
+            self.assertEqual(summary["plan_update_readiness"]["output_md"], str(readiness_md))
+            dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
+            self.assertIn("Plan Update 数据源", dashboard_html)
+            self.assertIn("先补已确认角色库", dashboard_html)
 
     def test_run_demo_pipeline_with_targets_generates_training_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

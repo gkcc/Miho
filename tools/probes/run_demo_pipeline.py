@@ -2116,6 +2116,21 @@ def run_pipeline(
     print("[Miho Demo] Building local dashboard artifacts...", flush=True)
     snapshot_history = build_snapshot_history(cases, history_dir or (output_dir / SNAPSHOT_HISTORY_DIRNAME))
     summary = summarize(cases, output_dir, input_info, snapshot_history)
+    plan_update_readiness_path = output_dir / "plan_update_readiness" / "plan_update_readiness.json"
+    if plan_update_readiness_path.exists():
+        try:
+            plan_update_readiness = load_json(plan_update_readiness_path)
+            plan_update_readiness["output_json"] = str(plan_update_readiness_path)
+            readiness_md = plan_update_readiness_path.with_suffix(".md")
+            if readiness_md.exists():
+                plan_update_readiness["output_md"] = str(readiness_md)
+            summary["plan_update_readiness"] = plan_update_readiness
+        except Exception as exc:  # noqa: BLE001 - readiness is diagnostic and must not break demo rendering.
+            summary["plan_update_readiness"] = {
+                "source_status": "error",
+                "warning": f"Plan update readiness report could not be loaded: {exc}",
+                "output_json": str(plan_update_readiness_path),
+            }
     demo_command_info = build_demo_command_summary(
         output_dir=output_dir,
         images_dir=images_dir,

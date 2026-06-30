@@ -16,6 +16,17 @@ from types import ModuleType
 from typing import Any
 
 
+def configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 - stdio can be a PyInstaller or test harness wrapper.
+            pass
+
+
+configure_stdio()
+
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
@@ -626,13 +637,180 @@ def write_plan_update_manifest(output_dir: Path) -> Path:
     return manifest_path
 
 
+def load_optional_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - this is a diagnostic helper, not the parser boundary.
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def plan_update_item(item_id: str, title: str, status: str, path: Path | None, detail: str) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "title": title,
+        "status": status,
+        "path": str(path) if path else None,
+        "exists": bool(path and path.exists()),
+        "detail": detail,
+    }
+
+
+def build_plan_update_readiness(args: argparse.Namespace, output_dir: Path, manifest_path: Path) -> dict[str, Any]:
+    roster_dir = resolve_cli_path(args.roster_dir) if args.roster_dir else DEFAULT_ROSTER_DIR
+    roster_index = roster_dir / "roster_index.json"
+    roster_data = load_optional_json(roster_index)
+    character_count = 0
+    if isinstance(roster_data, dict):
+        character_count = int(roster_data.get("character_count") or len(roster_data.get("characters") or []) or 0)
+    if roster_data and character_count > 0:
+        roster_status = "ready"
+        roster_detail = f"accepted roster 已就绪，当前确认角色数 {character_count}。"
+    elif roster_data:
+        roster_status = "empty"
+        roster_detail = "roster_index 存在，但 accepted roster 角色数为 0。"
+    else:
+        roster_status = "missing"
+        roster_detail = "缺少 accepted roster；pending/demo snapshot 不能当作已拥有练度。"
+
+    targets_path = resolve_cli_path(args.targets) if args.targets else None
+    target_manifest = resolve_cli_path(args.target_source_manifest) if args.target_source_manifest else None
+    if targets_path and targets_path.exists():
+        target_status = "ready"
+        target_detail = "已提供本地高难目标 JSON。"
+        target_path = targets_path
+    elif target_manifest and target_manifest.exists():
+        target_status = "manifest_ready"
+        target_detail = "已提供高难目标 source manifest，本轮会尝试生成本地 targets。"
+        target_path = target_manifest
+    elif targets_path or target_manifest:
+        target_status = "missing_path"
+        target_path = targets_path or target_manifest
+        target_detail = "声明了高难目标输入，但文件不存在。"
+    else:
+        target_status = "missing"
+        target_path = None
+        target_detail = "缺少高难目标输入；规划只能显示本地/demo 诊断，不能代表 P0/P1 高难建议。"
+
+    tier_snapshot = resolve_cli_path(args.tier_snapshot) if args.tier_snapshot else None
+    if tier_snapshot and tier_snapshot.exists():
+        tier_status = "ready"
+        tier_detail = "已提供本地 Tier/保值快照。"
+    elif tier_snapshot:
+        tier_status = "missing_path"
+        tier_detail = "声明了 Tier/保值快照，但文件不存在。"
+    else:
+        tier_status = "missing"
+        tier_detail = "缺少 Tier/保值快照；队伍排序不会使用保值信号。"
+
+    catalog_path = resolve_cli_path(args.character_catalog) if args.character_catalog else None
+    if catalog_path and catalog_path.exists():
+        catalog_status = "ready"
+        catalog_detail = "已提供本地角色标签 catalog，可辅助目标匹配。"
+    elif catalog_path:
+        catalog_status = "missing_path"
+        catalog_detail = "声明了角色标签 catalog，但文件不存在；本项不阻断 plan-update。"
+    else:
+        catalog_status = "optional_missing"
+        catalog_detail = "未提供角色标签 catalog；本项不阻断 plan-update。"
+
+    items = [
+        plan_update_item("accepted_roster", "已确认角色库", roster_status, roster_index, roster_detail),
+        plan_update_item("endgame_targets", "高难目标数据", target_status, target_path, target_detail),
+        plan_update_item("tier_snapshot", "Tier/保值快照", tier_status, tier_snapshot, tier_detail),
+        plan_update_item("character_catalog", "角色标签 catalog", catalog_status, catalog_path, catalog_detail),
+    ]
+    blocking_missing = [
+        item["id"]
+        for item in items
+        if item["id"] in {"accepted_roster", "endgame_targets", "tier_snapshot"}
+        and item["status"] not in {"ready", "manifest_ready"}
+    ]
+    if not blocking_missing:
+        source_status = "ready_for_local_planning"
+        warning = "本轮可作为本地高难/Tier/配队建议的输入闭环；仍不代表自动联网或官方保证。"
+    elif "accepted_roster" in blocking_missing:
+        source_status = "needs_accepted_roster"
+        warning = "缺少 accepted roster，本轮不能把 pending/demo snapshot 当作已拥有 box。"
+    else:
+        source_status = "sources_missing_local_only"
+        warning = "当前包含缺失数据源，平均结果只代表本地/demo 诊断，不代表 P0/P1 高难规划验收。"
+
+    next_actions = []
+    if "accepted_roster" in blocking_missing:
+        next_actions.append("先运行 MihoProbe.exe update --open，人工复核并 accept 后生成 accepted roster。")
+    if "endgame_targets" in blocking_missing:
+        next_actions.append("补充 --targets 或 --target-source-manifest，再运行 MihoProbe.exe plan-update --open。")
+    if "tier_snapshot" in blocking_missing:
+        next_actions.append("补充 --tier-snapshot，再运行 MihoProbe.exe plan-update --open。")
+    if not next_actions:
+        next_actions.append("直接查看 Dashboard 的今日作战简报、队伍建议和高难目标卡。")
+
+    return {
+        "schema_version": "p4.4-plan-update-readiness",
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "source_status": source_status,
+        "missing_blockers": blocking_missing,
+        "warning": warning,
+        "items": items,
+        "next_actions": next_actions,
+        "input": {
+            "output_dir": str(output_dir),
+            "plan_update_manifest": str(manifest_path),
+            "no_ocr": True,
+            "no_network": True,
+            "no_account_read": True,
+        },
+    }
+
+
+def render_plan_update_readiness_markdown(report: dict[str, Any]) -> str:
+    lines = [
+        "# Plan Update 数据源就绪度",
+        "",
+        f"- source_status: {report.get('source_status')}",
+        f"- warning: {report.get('warning')}",
+        "",
+        "## 数据源",
+        "",
+    ]
+    for item in report.get("items", []):
+        lines.append(f"- {item.get('title')}: {item.get('status')}")
+        lines.append(f"  - path: {item.get('path') or 'N/A'}")
+        lines.append(f"  - detail: {item.get('detail')}")
+    lines.extend(["", "## 下一步", ""])
+    for action in report.get("next_actions", []):
+        lines.append(f"- {action}")
+    lines.extend(["", "## 安全边界", "", "- 不跑 OCR。", "- 不联网。", "- 不读取账号、cookie 或 token。"])
+    return "\n".join(lines) + "\n"
+
+
+def write_plan_update_readiness(output_dir: Path, report: dict[str, Any]) -> dict[str, str]:
+    report_dir = output_dir / "plan_update_readiness"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / "plan_update_readiness.json"
+    md_path = report_dir / "plan_update_readiness.md"
+    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    md_path.write_text(render_plan_update_readiness_markdown(report), encoding="utf-8")
+    return {"json": str(json_path), "md": str(md_path)}
+
+
 def run_plan_update(args: argparse.Namespace) -> int:
     output_dir = resolve_cli_path(args.output_dir)
     if args.clean_demo:
         demo_tool.clean_demo_output_dir(output_dir)
     manifest_path = write_plan_update_manifest(output_dir)
+    readiness = build_plan_update_readiness(args, output_dir, manifest_path)
+    readiness_paths = write_plan_update_readiness(output_dir, readiness)
     print("plan_update_scope: local_roster_targets_tier_only")
     print("plan_update_note: 不跑 OCR、不联网、不读取账号；只重算本地角色库、高难目标、Tier/保值观察和配队建议。")
+    print(f"plan_update_source_status: {readiness['source_status']}")
+    print(f"plan_update_missing_sources: {','.join(readiness['missing_blockers']) if readiness['missing_blockers'] else 'none'}")
+    print(f"plan_update_warning: {readiness['warning']}")
+    print(f"plan_update_readiness_json: {readiness_paths['json']}")
+    print(f"plan_update_readiness_md: {readiness_paths['md']}")
     summary = demo_tool.run_pipeline(
         images_dir=None,
         parsed_dir=None,
