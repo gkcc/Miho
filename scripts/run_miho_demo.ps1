@@ -83,7 +83,10 @@ function Update-CachedDashboardIfNeeded {
 }
 
 if ($ShowHelp) {
-    Write-Host "Miho Demo Launcher"
+    Write-Host "Miho Legacy Demo Launcher"
+    Write-Host ""
+    Write-Host "Product entry: dist\MihoProbe.exe dashboard --open"
+    Write-Host "This PowerShell launcher is kept for development fallback only."
     Write-Host ""
     Write-Host "Default: open cached local dashboard immediately. It never runs OCR automatically."
     Write-Host "Fresh OCR: scripts\run_miho_demo.bat --fresh"

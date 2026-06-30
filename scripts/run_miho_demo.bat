@@ -1,49 +1,61 @@
 @echo off
 setlocal
 set "EXE=%~dp0..\dist\MihoProbe.exe"
+set "BUILD=%~dp0build_miho_probe_exe.bat"
 
-if exist "%EXE%" (
-  if "%~1"=="" (
-    "%EXE%" dashboard --open
-    exit /b %ERRORLEVEL%
-  )
-  if /I "%~1"=="--fresh" (
-    "%EXE%" fresh --open
-    exit /b %ERRORLEVEL%
-  )
-  if /I "%~1"=="-fresh" (
-    "%EXE%" fresh --open
-    exit /b %ERRORLEVEL%
-  )
-  if /I "%~1"=="/fresh" (
-    "%EXE%" fresh --open
-    exit /b %ERRORLEVEL%
-  )
-  if /I "%~1"=="--open-only" (
-    "%EXE%" dashboard --open
-    exit /b %ERRORLEVEL%
-  )
-  if /I "%~1"=="-open-only" (
-    "%EXE%" dashboard --open
-    exit /b %ERRORLEVEL%
-  )
-  if /I "%~1"=="/open-only" (
-    "%EXE%" dashboard --open
-    exit /b %ERRORLEVEL%
-  )
-  if /I "%~1"=="--help" (
-    "%EXE%" --help
-    exit /b %ERRORLEVEL%
-  )
-  if /I "%~1"=="-help" (
-    "%EXE%" --help
-    exit /b %ERRORLEVEL%
-  )
-  if "%~1"=="/?" (
-    "%EXE%" --help
-    exit /b %ERRORLEVEL%
-  )
+if not exist "%EXE%" (
+  echo MihoProbe executable is missing:
+  echo   "%EXE%"
+  echo.
+  echo This launcher is EXE-first and will not fall back to the slow Python/OCR path by default.
+  echo Build it first:
+  echo   "%BUILD%"
+  echo.
+  echo Legacy Python launcher is still available for development:
+  echo   powershell -ExecutionPolicy Bypass -File "%~dp0run_miho_demo.ps1" --help
+  exit /b 1
 )
 
-powershell -ExecutionPolicy Bypass -File "%~dp0run_miho_demo.ps1" %*
+if "%~1"=="" (
+  "%EXE%" dashboard --open
+  exit /b %ERRORLEVEL%
+)
+if /I "%~1"=="--fresh" (
+  "%EXE%" fresh --open
+  exit /b %ERRORLEVEL%
+)
+if /I "%~1"=="-fresh" (
+  "%EXE%" fresh --open
+  exit /b %ERRORLEVEL%
+)
+if /I "%~1"=="/fresh" (
+  "%EXE%" fresh --open
+  exit /b %ERRORLEVEL%
+)
+if /I "%~1"=="--open-only" (
+  "%EXE%" dashboard --open
+  exit /b %ERRORLEVEL%
+)
+if /I "%~1"=="-open-only" (
+  "%EXE%" dashboard --open
+  exit /b %ERRORLEVEL%
+)
+if /I "%~1"=="/open-only" (
+  "%EXE%" dashboard --open
+  exit /b %ERRORLEVEL%
+)
+if /I "%~1"=="--help" (
+  "%EXE%" --help
+  exit /b %ERRORLEVEL%
+)
+if /I "%~1"=="-help" (
+  "%EXE%" --help
+  exit /b %ERRORLEVEL%
+)
+if "%~1"=="/?" (
+  "%EXE%" --help
+  exit /b %ERRORLEVEL%
+)
+
+"%EXE%" %*
 exit /b %ERRORLEVEL%

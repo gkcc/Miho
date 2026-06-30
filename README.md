@@ -113,7 +113,7 @@ dist\MihoProbe.exe update --rescan-all --open
 
 - 构建 EXE：`scripts/build_miho_probe_exe.bat`、`scripts/build_miho_probe_exe.ps1`、`packaging/MihoProbe.spec`
 - 安装桌面入口：`scripts/install_miho_demo_shortcut.bat`
-- 兼容脚本入口：`scripts/run_miho_demo.bat`
+- EXE-first 兼容脚本入口：`scripts/run_miho_demo.bat`。如果 `dist\MihoProbe.exe` 不存在，它会提示先构建，不会自动掉进慢 OCR 脚本。
 - Probe 命令细节：`tools/probes/README.md`
 - GPT 审查包生成器：`tools/probes/build_gpt_review_prompt.py`
 - Replay batch 验收：`tools/probes/run_export_replay_batch.py`
