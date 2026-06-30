@@ -59,6 +59,7 @@ class MiyousheExportWorkflowTests(unittest.TestCase):
         self.assertIn("parse_saved_images", command_ids)
         self.assertTrue(any("--confirm-official-ui" in command["command"] for command in workflow["calibration_commands"]))
         self.assertTrue(any("dist\\MihoProbe.exe update" in command["command"] for command in workflow["calibration_commands"]))
+        self.assertTrue(any("app-export-run" in command["command"] for command in workflow["calibration_commands"]))
         self.assertTrue(any("--open" in command["command"] for command in workflow["calibration_commands"]))
         checklist = "\n".join(workflow["operator_checklist"])
         self.assertIn("不点击登录", checklist)
@@ -76,14 +77,22 @@ class MiyousheExportWorkflowTests(unittest.TestCase):
 
             json_path = result["json_path"]
             html_path = result["html_path"]
+            calibration_path = result["calibration_template_path"]
             self.assertTrue(json_path.exists())
             self.assertTrue(html_path.exists())
+            self.assertTrue(calibration_path.exists())
             data = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(data["validation"]["status"], "ready_for_calibration")
             self.assertEqual(data["workflow"]["operator_route"]["current_route_status"], "calibration_required")
+            calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+            self.assertEqual(calibration["schema_version"], "p4.4-miyoushe-app-export-calibration")
+            self.assertIn("app-export-run", calibration["dry_run_command"])
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("米游社官方分享图一键更新练度", html)
             self.assertIn("当前还不是自动点击", html)
+            self.assertIn("可执行校准清单", html)
+            self.assertIn("miyoushe_app_export_calibration_template.json", html)
+            self.assertIn("app-export-run", html)
             self.assertIn("官方分享图路线", html)
             self.assertIn("dist\\MihoProbe.exe update --open", html)
             self.assertIn("Dashboard 人工复核", html)

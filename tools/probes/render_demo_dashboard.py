@@ -200,6 +200,9 @@ def humanize_link_label(label: str) -> str:
         "rank_check.json": "评级快检数据",
         "miyoushe_export_workflow.html": "APP 导出流程页",
         "miyoushe_export_workflow.json": "APP 导出流程数据",
+        "miyoushe_app_export_calibration_template.json": "APP 导出校准清单",
+        "miyoushe_app_export_run_report.html": "APP 导出执行报告",
+        "miyoushe_app_export_run_report.json": "APP 导出执行数据",
         "parsed_json": "原始解析",
         "expected_json": "验收对照",
         "expected_diff_md": "差异报告",
@@ -272,6 +275,10 @@ def status_class(value: Any) -> str:
         "ready_for_calibration",
         "calibration_required",
         "disabled_until_calibrated",
+        "needs_coordinates",
+        "needs_confirmation",
+        "ready_for_dry_run",
+        "ready_for_execute",
     }:
         return "warn"
     if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply", "needs_rerun", "stale", "needs_accepted_roster"}:
@@ -479,6 +486,11 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
     tone = status_class(status)
     status_title = {
         "ready_for_calibration": "已沉淀路线，等待校准",
+        "needs_coordinates": "缺少坐标，不能点击",
+        "needs_confirmation": "坐标未逐步确认",
+        "ready_for_dry_run": "坐标可 dry-run",
+        "ready_for_execute": "已校准，等待显式执行",
+        "executed": "已执行校准清单",
         "blocked": "导出路线被阻断",
     }.get(status, human_status(status))
     route_steps = report.get("route_steps") if isinstance(report.get("route_steps"), list) else []
@@ -501,6 +513,9 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
         for part in (
             link("miyoushe_export_workflow.html", report.get("workflow_html")),
             link("miyoushe_export_workflow.json", report.get("workflow_json")),
+            link("miyoushe_app_export_calibration_template.json", report.get("calibration_template_json")),
+            link("miyoushe_app_export_run_report.html", report.get("runner_report_html")),
+            link("miyoushe_app_export_run_report.json", report.get("runner_report_json")),
         )
         if part
     )
@@ -509,6 +524,15 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
     forbidden = report.get("forbidden_boundaries") if isinstance(report.get("forbidden_boundaries"), list) else []
     forbidden_text = "、".join(str(item) for item in forbidden[:8]) if forbidden else "不自动登录、不读 token/cookie、不抓包"
     update_command_text = str(report.get("update_command") or r"dist\MihoProbe.exe update --open")
+    dry_run_command = str(report.get("dry_run_command") or report.get("next_command") or r"dist\MihoProbe.exe app-export-run --no-open")
+    execute_command = str(report.get("execute_command") or r"dist\MihoProbe.exe app-export-run --execute --confirm-official-ui --no-open")
+    runner_status = str(report.get("runner_status") or status)
+    runner_next_action = str(report.get("runner_next_action") or "先生成 app-export 工作流包，再填校准清单。")
+    runner_counts = (
+        f"缺坐标 {e(report.get('runner_missing_coordinate_count', 0))}；"
+        f"未确认 {e(report.get('runner_unconfirmed_step_count', 0))}；"
+        f"已点击 {e(report.get('runner_clicked_count', 0))}"
+    )
     return f"""
     <section class="plan-readiness app-export-readiness {e(tone)}">
       <div>
@@ -522,14 +546,25 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
       <div>
         <div class="source-grid">
           <article class="source-card warn">
-            <strong>下一步校准</strong>
-            <span>{he(report.get("route_status"))}</span>
-            <p>{he(report.get("next_command") or "先生成 app-export 工作流包。")}</p>
+            <strong>校准清单状态</strong>
+            <span>{he(runner_status)}</span>
+            <p>{he(runner_next_action)}</p>
+            <p>{runner_counts}</p>
           </article>
           <article class="source-card ok">
             <strong>本地更新入口</strong>
             <span>{he(report.get("automation_status"))}</span>
             <p>{he(update_command_text)}</p>
+          </article>
+          <article class="source-card warn">
+            <strong>先 dry-run</strong>
+            <span>不会点击</span>
+            <p>{he(dry_run_command)}</p>
+          </article>
+          <article class="source-card warn">
+            <strong>确认后执行</strong>
+            <span>必须显式确认</span>
+            <p>{he(execute_command)}</p>
           </article>
           <article class="source-card warn">
             <strong>边界不变</strong>

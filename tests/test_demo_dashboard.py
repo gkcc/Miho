@@ -345,9 +345,12 @@ class DemoDashboardTests(unittest.TestCase):
             "status": "ready_for_calibration",
             "workflow_html": "data/probes/demo/app_export_workflow/miyoushe_export_workflow.html",
             "workflow_json": "data/probes/demo/app_export_workflow/miyoushe_export_workflow.json",
+            "calibration_template_json": "data/probes/demo/app_export_workflow/miyoushe_app_export_calibration_template.json",
             "route_status": "calibration_required",
             "automation_status": "disabled_until_calibrated",
             "next_command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --dry-run",
+            "dry_run_command": r"dist\MihoProbe.exe app-export-run --no-open",
+            "execute_command": r"dist\MihoProbe.exe app-export-run --execute --confirm-official-ui --no-open",
             "update_command": r"dist\MihoProbe.exe update --open",
             "manual_save_to_figs_step": "在米游社官方 UI 保存分享图到 figs，或手动把官方分享图放进该目录。",
             "review_gate": "Dashboard 人工复核通过后，才允许进入本地 accepted roster / 高难建议。",
@@ -374,13 +377,16 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("一键更新练度准备状态", html)
         self.assertIn("已沉淀路线，等待校准", html)
         self.assertIn("当前不会自动点击米游社", html)
-        self.assertIn("下一步校准", html)
-        self.assertIn("window_screenshot_probe.py", html)
+        self.assertIn("校准清单状态", html)
+        self.assertIn("先 dry-run", html)
+        self.assertIn("确认后执行", html)
+        self.assertIn("app-export-run", html)
         self.assertIn("本地更新入口", html)
         self.assertIn("MihoProbe.exe update", html)
         self.assertIn("Dashboard 人工复核", html)
         self.assertIn("APP 导出流程页", html)
         self.assertIn("APP 导出流程数据", html)
+        self.assertIn("APP 导出校准清单", html)
 
     def test_dashboard_layout_is_bounded_for_wide_screens(self) -> None:
         html = dashboard_tool.render_html(dashboard_minimal_summary())
@@ -2209,6 +2215,7 @@ class DemoDashboardTests(unittest.TestCase):
             workflow_dir.mkdir(parents=True)
             workflow_json = workflow_dir / "miyoushe_export_workflow.json"
             workflow_html = workflow_dir / "miyoushe_export_workflow.html"
+            calibration_template = workflow_dir / "miyoushe_app_export_calibration_template.json"
             workflow_json.write_text(
                 json.dumps(
                     {
@@ -2251,6 +2258,7 @@ class DemoDashboardTests(unittest.TestCase):
                 encoding="utf-8",
             )
             workflow_html.write_text("<!doctype html><title>workflow</title>", encoding="utf-8")
+            calibration_template.write_text(json.dumps({"schema_version": "p4.4-miyoushe-app-export-calibration"}, ensure_ascii=False), encoding="utf-8")
             manifest_path = root / "empty_manifest.json"
             manifest_path.write_text(json.dumps({"cases": []}, ensure_ascii=False), encoding="utf-8")
 
@@ -2267,10 +2275,12 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertEqual(summary["app_export_readiness"]["status"], "ready_for_calibration")
             self.assertEqual(summary["app_export_readiness"]["workflow_json"], str(workflow_json))
             self.assertEqual(summary["app_export_readiness"]["workflow_html"], str(workflow_html))
+            self.assertEqual(summary["app_export_readiness"]["calibration_template_json"], str(calibration_template))
             dashboard_html = Path(summary["dashboard_html"]).read_text(encoding="utf-8")
             self.assertIn("一键更新练度准备状态", dashboard_html)
             self.assertIn("已沉淀路线，等待校准", dashboard_html)
-            self.assertIn("window_screenshot_probe.py", dashboard_html)
+            self.assertIn("校准清单状态", dashboard_html)
+            self.assertIn("APP 导出校准清单", dashboard_html)
 
     def test_run_demo_pipeline_with_targets_generates_training_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

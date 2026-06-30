@@ -10,11 +10,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+import miyoushe_app_export_runner as app_export_runner
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo" / "app_export_workflow"
 DEFAULT_IMAGE_INBOX = PROJECT_ROOT / "figs"
 SCHEMA_VERSION = "p4.3-miyoushe-official-export-workflow"
+CALIBRATION_TEMPLATE_FILENAME = "miyoushe_app_export_calibration_template.json"
 
 FORBIDDEN_CAPABILITIES = (
     "auto_login",
@@ -169,6 +172,21 @@ def default_calibration_commands(*, game: str, window_title: str, image_inbox: P
             "expected_signal": "报告 share/save 候选控件；找不到也不点击。",
         },
         {
+            "id": "run_calibration_manifest",
+            "title": "运行整条校准清单 dry-run",
+            "purpose": "读取 calibration_template.json，统一提示缺坐标、未确认或可执行状态；默认不点击。",
+            "command": command_text(
+                [
+                    "dist\\MihoProbe.exe",
+                    "app-export-run",
+                    "--manifest",
+                    f"data/probes/demo/app_export_workflow/{CALIBRATION_TEMPLATE_FILENAME}",
+                    "--no-open",
+                ]
+            ),
+            "expected_signal": "输出 needs_coordinates / needs_confirmation / ready_for_dry_run，并生成执行报告。",
+        },
+        {
             "id": "dry_run_coordinate",
             "title": "校验单个相对坐标",
             "purpose": "把人工标注的坐标先 dry-run 解析成绝对坐标，确认仍在米游社窗口内。",
@@ -229,11 +247,18 @@ def default_operator_checklist() -> list[str]:
 
 def default_operator_route(image_inbox: Path) -> dict[str, Any]:
     inbox = rel_path(image_inbox)
+    calibration_path = f"data/probes/demo/app_export_workflow/{CALIBRATION_TEMPLATE_FILENAME}"
     return {
         "route_title": "官方分享图路线",
         "current_route_status": "calibration_required",
         "automation_status": "disabled_until_calibrated",
-        "next_command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --dry-run",
+        "next_command": f"dist\\MihoProbe.exe app-export-run --manifest {calibration_path} --no-open",
+        "calibration_manifest": calibration_path,
+        "dry_run_command": f"dist\\MihoProbe.exe app-export-run --manifest {calibration_path} --no-open",
+        "execute_command": (
+            f"dist\\MihoProbe.exe app-export-run --manifest {calibration_path} "
+            "--execute --confirm-official-ui --no-open"
+        ),
         "manual_save_to_figs_step": f"在米游社官方 UI 保存分享图到 {inbox}，或手动把官方分享图放进该目录。",
         "update_command": "dist\\MihoProbe.exe update --open",
         "review_gate": "Dashboard 人工复核通过后，才允许进入本地 accepted roster / 高难建议。",
@@ -247,7 +272,7 @@ def default_operator_route(image_inbox: Path) -> dict[str, Any]:
             {
                 "label": "2. 校准官方 UI",
                 "status": "needed",
-                "description": "只读确认窗口，再生成网格截图；坐标必须由用户确认是官方 UI。",
+                "description": "先生成校准清单，再用网格截图填 x/y；坐标必须由用户确认是官方 UI。",
                 "command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --grid-size 100",
             },
             {
@@ -327,6 +352,7 @@ def build_workflow(*, game: str, window_title: str, image_inbox: Path) -> dict[s
         "does_not": list(FORBIDDEN_CAPABILITIES),
         "next_implementation_step": "把 planned 导航步骤逐个绑定 UIA selector 或经用户确认的窗口相对坐标。",
         "operator_route": default_operator_route(image_inbox),
+        "calibration_template": f"data/probes/demo/app_export_workflow/{CALIBRATION_TEMPLATE_FILENAME}",
         "readiness_gates": default_readiness_gates(),
         "operator_checklist": default_operator_checklist(),
         "calibration_commands": default_calibration_commands(
@@ -394,6 +420,9 @@ def render_html(package: dict[str, Any]) -> str:
     warnings = validation.get("warnings") if isinstance(validation.get("warnings"), list) else []
     warning_items = "".join(f"<li>{escape(str(item))}</li>" for item in warnings) or "<li>无</li>"
     route = workflow.get("operator_route") if isinstance(workflow.get("operator_route"), dict) else {}
+    calibration_template = str(route.get("calibration_manifest") or workflow.get("calibration_template") or "")
+    dry_run_command = str(route.get("dry_run_command") or route.get("next_command") or "")
+    execute_command = str(route.get("execute_command") or "")
     route_steps = route.get("route_steps") if isinstance(route.get("route_steps"), list) else []
     route_cards = []
     for step in route_steps:
@@ -500,6 +529,25 @@ def render_html(package: dict[str, Any]) -> str:
       <div class="route">{''.join(route_cards)}</div>
     </section>
     <section class="panel">
+      <h2>可执行校准清单</h2>
+      <p>先打开 JSON 填 x/y；填完后先 dry-run。真正点击必须额外输入 execute 命令和确认参数。</p>
+      <p>清单：{escape(calibration_template)}</p>
+      <div class="commands">
+        <article class="command">
+          <h3>先 dry-run</h3>
+          <p>只解析窗口和坐标，不点击。</p>
+          <code>{escape(dry_run_command)}</code>
+          <span>缺坐标时报告 needs_coordinates，不会触碰窗口。</span>
+        </article>
+        <article class="command">
+          <h3>确认后执行</h3>
+          <p>只有全部坐标人工确认是米游社官方 UI 后才允许。</p>
+          <code>{escape(execute_command)}</code>
+          <span>仍然不登录、不读 token、不控制游戏客户端。</span>
+        </article>
+      </div>
+    </section>
+    <section class="panel">
       <h2>Readiness Gates</h2>
       <div class="gates">{''.join(gate_cards)}</div>
     </section>
@@ -530,13 +578,25 @@ def render_html(package: dict[str, Any]) -> str:
 def build_package(*, output_dir: Path, image_inbox: Path, game: str, window_title: str) -> dict[str, Path | dict[str, Any]]:
     output_dir.mkdir(parents=True, exist_ok=True)
     workflow = build_workflow(game=game, window_title=window_title, image_inbox=image_inbox)
+    calibration_template_path = output_dir / CALIBRATION_TEMPLATE_FILENAME
+    app_export_runner.write_calibration_template(
+        path=calibration_template_path,
+        game=game,
+        window_title=window_title,
+        image_inbox=image_inbox,
+    )
     validation = validate_workflow(workflow)
     package = {"workflow": workflow, "validation": validation}
     json_path = output_dir / "miyoushe_export_workflow.json"
     html_path = output_dir / "miyoushe_export_workflow.html"
     json_path.write_text(json.dumps(package, ensure_ascii=False, indent=2), encoding="utf-8")
     html_path.write_text(render_html(package), encoding="utf-8")
-    return {"workflow": package, "json_path": json_path, "html_path": html_path}
+    return {
+        "workflow": package,
+        "json_path": json_path,
+        "html_path": html_path,
+        "calibration_template_path": calibration_template_path,
+    }
 
 
 def resolve_path(value: str | Path) -> Path:
@@ -568,6 +628,7 @@ def main() -> int:
     print(f"workflow_status: {validation.get('status')}")
     print(f"workflow_json: {result['json_path']}")
     print(f"workflow_html: {result['html_path']}")
+    print(f"calibration_template_json: {result['calibration_template_path']}")
     return 0 if validation.get("status") != "blocked" else 1
 
 

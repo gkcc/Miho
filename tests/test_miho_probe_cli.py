@@ -55,6 +55,8 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("一键更新练度", help_text)
         self.assertIn("MihoProbe.exe app-export", help_text)
         self.assertIn("官方分享图工作流包", help_text)
+        self.assertIn("MihoProbe.exe app-export-run", help_text)
+        self.assertIn("默认 dry-run", help_text)
         self.assertIn("MihoProbe.exe plan-update", help_text)
         self.assertIn("一键更新高难/Tier/配队建议", help_text)
         self.assertIn("MihoProbe.exe rank-check", help_text)
@@ -87,6 +89,7 @@ class MihoProbeCliTests(unittest.TestCase):
             cli_tool.gpt_prompt_tool,
             cli_tool.parse_probe,
             cli_tool.app_export_workflow,
+            cli_tool.app_export_runner,
             cli_tool.normalize_tool,
             cli_tool.planner_tool,
             cli_tool.target_tool,
@@ -234,6 +237,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("一键更新练度准备状态", html)
             self.assertIn("已沉淀路线，等待校准", html)
             self.assertIn("当前不会自动点击米游社", html)
+            self.assertIn("校准清单状态", html)
             self.assertIn("APP 导出流程页", html)
 
     def test_dashboard_command_treats_old_brief_links_as_legacy(self) -> None:
@@ -419,6 +423,17 @@ class MihoProbeCliTests(unittest.TestCase):
             str(args.output_dir).endswith("data\\probes\\demo\\app_export_workflow")
             or str(args.output_dir).endswith("data/probes/demo/app_export_workflow")
         )
+
+    def test_parser_has_app_export_run_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["app-export-run", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_app_export_run)
+        self.assertEqual(args.command, "app-export-run")
+        self.assertFalse(args.open)
+        self.assertFalse(args.execute)
+        self.assertFalse(args.confirm_official_ui)
+        self.assertTrue(str(args.manifest).endswith("miyoushe_app_export_calibration_template.json"))
 
     def test_parser_has_gpt_review_entry(self) -> None:
         parser = cli_tool.build_arg_parser()
@@ -1134,12 +1149,48 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(result, 0)
             json_path = root / "workflow" / "miyoushe_export_workflow.json"
             html_path = root / "workflow" / "miyoushe_export_workflow.html"
+            calibration_path = root / "workflow" / "miyoushe_app_export_calibration_template.json"
             self.assertTrue(json_path.exists())
             self.assertTrue(html_path.exists())
+            self.assertTrue(calibration_path.exists())
             data = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(data["validation"]["status"], "ready_for_calibration")
             self.assertIn("app_export_scope: workflow_package_only", output.getvalue())
             self.assertIn("不自动登录、不读取 token/cookie", output.getvalue())
+            self.assertIn("calibration_template_json", output.getvalue())
+            self.assertIn("app_export_run_command", output.getvalue())
+
+    def test_run_app_export_run_reports_missing_coordinates_without_clicking(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workflow_result = cli_tool.app_export_workflow.build_package(
+                output_dir=root / "workflow",
+                image_inbox=root / "figs",
+                game="zzz",
+                window_title="米游社",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = cli_tool.run_app_export_run(
+                    argparse.Namespace(
+                        manifest=str(workflow_result["calibration_template_path"]),
+                        output_dir=str(root / "workflow"),
+                        match_index=0,
+                        execute=False,
+                        confirm_official_ui=False,
+                        open=False,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            report_json = root / "workflow" / "miyoushe_app_export_run_report.json"
+            report_html = root / "workflow" / "miyoushe_app_export_run_report.html"
+            self.assertTrue(report_json.exists())
+            self.assertTrue(report_html.exists())
+            report = json.loads(report_json.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "needs_coordinates")
+            self.assertEqual(report["clicked_count"], 0)
+            self.assertIn("app_export_run_status: needs_coordinates", output.getvalue())
 
     def test_run_gpt_review_writes_compact_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

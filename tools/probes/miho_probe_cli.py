@@ -50,6 +50,7 @@ diff_tool = LazyModule("diff_normalized_snapshots")
 gpt_prompt_tool = LazyModule("build_gpt_review_prompt")
 parse_probe = LazyModule("export_image_parse_probe")
 app_export_workflow = LazyModule("miyoushe_export_workflow")
+app_export_runner = LazyModule("miyoushe_app_export_runner")
 normalize_tool = LazyModule("normalize_export_parse")
 planner_tool = LazyModule("plan_training_priorities")
 target_tool = LazyModule("prepare_endgame_targets")
@@ -77,6 +78,8 @@ DEFAULT_GPT_REVIEW_PROMPT = DEFAULT_DEMO_OUTPUT_DIR / "gpt_review_prompt.md"
 DEFAULT_FIGS_DIR = PROJECT_ROOT / "figs"
 DEFAULT_APP_EXPORT_WORKFLOW_DIR = DEFAULT_DEMO_OUTPUT_DIR / "app_export_workflow"
 APP_EXPORT_WORKFLOW_FILENAME = "miyoushe_export_workflow.json"
+APP_EXPORT_CALIBRATION_FILENAME = "miyoushe_app_export_calibration_template.json"
+APP_EXPORT_RUN_REPORT_FILENAME = "miyoushe_app_export_run_report.json"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 DEFAULT_NORMALIZED_DIR = PROJECT_ROOT / "data" / "probes" / "normalized"
@@ -139,6 +142,9 @@ def render_user_help() -> str:
 
   MihoProbe.exe app-export
     生成米游社 APP 官方分享图工作流包。默认不点击，只沉淀一键更新练度的可审计步骤。
+
+  MihoProbe.exe app-export-run
+    运行米游社 APP 导出校准清单。默认 dry-run；真正点击必须加 --execute --confirm-official-ui。
 
   MihoProbe.exe fresh
     update 的开发别名：识别 figs\\ 下新增或变更的官方分享图。会跑 PaddleOCR，可能慢。
@@ -234,7 +240,13 @@ def has_newer_app_export_workflow(summary_path: Path, dashboard_path: Path) -> b
         return False
     dashboard_mtime = dashboard_path.stat().st_mtime
     workflow_dir = summary_path.parent / "app_export_workflow"
-    for report_path in (workflow_dir / APP_EXPORT_WORKFLOW_FILENAME, workflow_dir / "miyoushe_export_workflow.html"):
+    for report_path in (
+        workflow_dir / APP_EXPORT_WORKFLOW_FILENAME,
+        workflow_dir / "miyoushe_export_workflow.html",
+        workflow_dir / APP_EXPORT_CALIBRATION_FILENAME,
+        workflow_dir / APP_EXPORT_RUN_REPORT_FILENAME,
+        workflow_dir / "miyoushe_app_export_run_report.html",
+    ):
         if report_path.exists() and dashboard_mtime < report_path.stat().st_mtime:
             return True
     return False
@@ -252,8 +264,20 @@ def load_cached_app_export_readiness(summary_path: Path) -> dict[str, Any] | Non
     validation = package.get("validation") if isinstance(package.get("validation"), dict) else {}
     route = workflow.get("operator_route") if isinstance(workflow.get("operator_route"), dict) else {}
     workflow_html = workflow_path.with_suffix(".html")
+    workflow_dir = workflow_path.parent
+    calibration_template = workflow_dir / APP_EXPORT_CALIBRATION_FILENAME
+    run_report_json = workflow_dir / APP_EXPORT_RUN_REPORT_FILENAME
+    run_report_html = workflow_dir / "miyoushe_app_export_run_report.html"
+    run_report: dict[str, Any] | None = None
+    if run_report_json.exists():
+        try:
+            candidate = dashboard_tool.load_json(run_report_json)
+        except Exception:  # noqa: BLE001 - stale local runner reports should not block the dashboard.
+            candidate = None
+        if isinstance(candidate, dict):
+            run_report = candidate
     readiness: dict[str, Any] = {
-        "status": validation.get("status") or "unknown",
+        "status": (run_report.get("status") if run_report else None) or validation.get("status") or "unknown",
         "workflow_json": str(workflow_path),
         "route_status": route.get("current_route_status") or "unknown",
         "automation_status": route.get("automation_status") or "unknown",
@@ -267,9 +291,23 @@ def load_cached_app_export_readiness(summary_path: Path) -> dict[str, Any] | Non
         "warnings": validation.get("warnings") if isinstance(validation.get("warnings"), list) else [],
         "forbidden_boundaries": workflow.get("does_not") if isinstance(workflow.get("does_not"), list) else [],
         "route_steps": route.get("route_steps") if isinstance(route.get("route_steps"), list) else [],
+        "dry_run_command": route.get("dry_run_command") or route.get("next_command") or "",
+        "execute_command": route.get("execute_command") or "",
     }
     if workflow_html.exists():
         readiness["workflow_html"] = str(workflow_html)
+    if calibration_template.exists():
+        readiness["calibration_template_json"] = str(calibration_template)
+    if run_report:
+        readiness["runner_status"] = run_report.get("status") or "unknown"
+        readiness["runner_next_action"] = run_report.get("next_action") or ""
+        validation_report = run_report.get("validation") if isinstance(run_report.get("validation"), dict) else {}
+        readiness["runner_missing_coordinate_count"] = validation_report.get("missing_coordinate_count", 0)
+        readiness["runner_unconfirmed_step_count"] = validation_report.get("unconfirmed_step_count", 0)
+        readiness["runner_clicked_count"] = run_report.get("clicked_count", 0)
+        readiness["runner_report_json"] = str(run_report_json)
+        if run_report_html.exists():
+            readiness["runner_report_html"] = str(run_report_html)
     return readiness
 
 
@@ -1274,6 +1312,7 @@ def run_app_export(args: argparse.Namespace) -> int:
     validation = workflow["validation"] if isinstance(workflow, dict) else {}
     html_path = result["html_path"]
     json_path = result["json_path"]
+    calibration_template_path = result["calibration_template_path"]
     if args.open:
         webbrowser.open(Path(html_path).resolve().as_uri())
     print("app_export_scope: workflow_package_only")
@@ -1281,7 +1320,33 @@ def run_app_export(args: argparse.Namespace) -> int:
     print(f"workflow_status: {validation.get('status')}")
     print(f"workflow_html: {html_path}")
     print(f"workflow_json: {json_path}")
+    print(f"calibration_template_json: {calibration_template_path}")
+    print(f"app_export_run_command: dist\\MihoProbe.exe app-export-run --manifest {calibration_template_path} --no-open")
     return 0 if validation.get("status") != "blocked" else 1
+
+
+def run_app_export_run(args: argparse.Namespace) -> int:
+    manifest_path = resolve_cli_path(args.manifest)
+    output_dir = resolve_cli_path(args.output_dir)
+    result = app_export_runner.run_manifest(
+        manifest_path=manifest_path,
+        output_dir=output_dir,
+        execute=bool(args.execute),
+        confirm_official_ui=bool(args.confirm_official_ui),
+        match_index=int(args.match_index),
+    )
+    report = result["report"]
+    html_path = result["html_path"]
+    json_path = result["json_path"]
+    if args.open:
+        webbrowser.open(Path(html_path).resolve().as_uri())
+    print("app_export_run_scope: calibrated_official_ui_only")
+    print("app_export_run_note: 默认 dry-run；真正点击必须 --execute --confirm-official-ui，且清单内每步都需 confirmed_official_ui=true。")
+    print(f"app_export_run_status: {report.get('status')}")
+    print(f"app_export_run_html: {html_path}")
+    print(f"app_export_run_json: {json_path}")
+    print(f"app_export_run_next: {report.get('next_action')}")
+    return 1 if report.get("status") == "blocked" else 0
 
 
 def replay_default_output_dir() -> Path:
@@ -1590,6 +1655,24 @@ def add_app_export_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the HTML report.")
 
 
+def add_app_export_run_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--manifest",
+        default=str(DEFAULT_APP_EXPORT_WORKFLOW_DIR / APP_EXPORT_CALIBRATION_FILENAME),
+        help="Calibration manifest JSON. Default: data/probes/demo/app_export_workflow/miyoushe_app_export_calibration_template.json.",
+    )
+    parser.add_argument("--output-dir", default=str(DEFAULT_APP_EXPORT_WORKFLOW_DIR), help="Report output directory.")
+    parser.add_argument("--match-index", type=int, default=0, help="Window match index if multiple windows match. Default: 0")
+    parser.add_argument("--execute", action="store_true", help="Actually click calibrated official UI steps. Omit for dry-run.")
+    parser.add_argument(
+        "--confirm-official-ui",
+        action="store_true",
+        help="Required with --execute and every enabled click step must also be confirmed in the manifest.",
+    )
+    parser.add_argument("--open", action="store_true", default=True, help="Open generated HTML. Default: true.")
+    parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the HTML report.")
+
+
 def add_gpt_review_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--mode", choices=("review", "progress"), default="review", help="review=方案审查；progress=完成后同步验收证据。")
     parser.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
@@ -1649,6 +1732,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     app_export = subparsers.add_parser("app-export", help="Build the official MiYouShe share-image export workflow package.")
     add_app_export_args(app_export)
     app_export.set_defaults(handler=run_app_export)
+
+    app_export_run = subparsers.add_parser("app-export-run", help="Run the calibrated MiYouShe export checklist. Dry-run by default.")
+    add_app_export_run_args(app_export_run)
+    app_export_run.set_defaults(handler=run_app_export_run)
 
     fresh = subparsers.add_parser("fresh", help="Developer alias for update: run fresh OCR for official share images under figs.")
     add_fresh_update_args(fresh)

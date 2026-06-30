@@ -49,6 +49,8 @@ DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 APP_EXPORT_WORKFLOW_DIRNAME = "app_export_workflow"
 APP_EXPORT_WORKFLOW_FILENAME = "miyoushe_export_workflow.json"
+APP_EXPORT_CALIBRATION_FILENAME = "miyoushe_app_export_calibration_template.json"
+APP_EXPORT_RUN_REPORT_FILENAME = "miyoushe_app_export_run_report.json"
 UPDATE_STATE_FILENAME = "update_state.json"
 LAUNCHER_REPORT_DIRNAME = "launcher"
 LAUNCHER_REPORT_FILENAME = "launcher_report.json"
@@ -93,8 +95,20 @@ def load_app_export_readiness(output_dir: Path) -> dict[str, Any] | None:
     validation = package.get("validation") if isinstance(package.get("validation"), dict) else {}
     route = workflow.get("operator_route") if isinstance(workflow.get("operator_route"), dict) else {}
     workflow_html = workflow_path.with_suffix(".html")
+    workflow_dir = workflow_path.parent
+    calibration_template = workflow_dir / APP_EXPORT_CALIBRATION_FILENAME
+    run_report_json = workflow_dir / APP_EXPORT_RUN_REPORT_FILENAME
+    run_report_html = workflow_dir / "miyoushe_app_export_run_report.html"
+    run_report: dict[str, Any] | None = None
+    if run_report_json.exists():
+        try:
+            candidate = load_json(run_report_json)
+        except Exception:  # noqa: BLE001 - stale runner reports should not block demo summary.
+            candidate = None
+        if isinstance(candidate, dict):
+            run_report = candidate
     readiness = {
-        "status": validation.get("status") or "unknown",
+        "status": (run_report.get("status") if run_report else None) or validation.get("status") or "unknown",
         "workflow_json": str(workflow_path),
         "route_status": route.get("current_route_status") or "unknown",
         "automation_status": route.get("automation_status") or "unknown",
@@ -108,9 +122,23 @@ def load_app_export_readiness(output_dir: Path) -> dict[str, Any] | None:
         "warnings": validation.get("warnings") if isinstance(validation.get("warnings"), list) else [],
         "forbidden_boundaries": workflow.get("does_not") if isinstance(workflow.get("does_not"), list) else [],
         "route_steps": route.get("route_steps") if isinstance(route.get("route_steps"), list) else [],
+        "dry_run_command": route.get("dry_run_command") or route.get("next_command") or "",
+        "execute_command": route.get("execute_command") or "",
     }
     if workflow_html.exists():
         readiness["workflow_html"] = str(workflow_html)
+    if calibration_template.exists():
+        readiness["calibration_template_json"] = str(calibration_template)
+    if run_report:
+        readiness["runner_status"] = run_report.get("status") or "unknown"
+        readiness["runner_next_action"] = run_report.get("next_action") or ""
+        validation_report = run_report.get("validation") if isinstance(run_report.get("validation"), dict) else {}
+        readiness["runner_missing_coordinate_count"] = validation_report.get("missing_coordinate_count", 0)
+        readiness["runner_unconfirmed_step_count"] = validation_report.get("unconfirmed_step_count", 0)
+        readiness["runner_clicked_count"] = run_report.get("clicked_count", 0)
+        readiness["runner_report_json"] = str(run_report_json)
+        if run_report_html.exists():
+            readiness["runner_report_html"] = str(run_report_html)
     return readiness
 
 
