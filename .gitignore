@@ -40,3 +40,4 @@ __pycache__/
 build/
 dist/
 MihoProbe.spec
+!packaging/MihoProbe.spec

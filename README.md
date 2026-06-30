@@ -1,39 +1,57 @@
 # Miho
 
-本项目要做的是一个本地优先的练度跟踪与规划工具：从米游社官方分享图更新角色练度，再结合本地高难目标、Tier/保值观察和已确认 box，给出“练高价值角色，顺手拿奖励”的配队与培养建议。
+Miho 要做的是一个本地优先的游戏练度更新与规划软件：米游社 APP 已登录后，最终目标是一键保存官方分享图、解析练度、更新本地 box，再结合高难数据、Tier / 保值观察和已有角色，给出“只练高价值角色，顺手拿奖励”的配队建议。
 
-当前还处在 probe / demo 阶段，不是正式 Tauri 桌面应用。它不会自动登录，不读取 cookie/token，不控制游戏客户端，也不会把 OCR 结果直接写进正式数据库。
+当前还不是正式 Tauri 桌面应用，而是 probe / demo 版本。它不会自动登录，不读取 cookie/token，不控制游戏客户端，也不会把 OCR 结果直接写进正式数据库。
 
 ## 现在先点哪里
 
-如果你只是想验收当前体验，不要先跑 OCR。按这个顺序：
+你只想验收体验时，不要先跑 OCR。先用“秒开缓存”的入口看 Dashboard 是否可读：
 
-1. 第一次使用先装桌面入口。
-2. 点桌面的 `MihoProbe` 或 `Miho Demo`，它只打开已有 Dashboard，正常应该很快。
-3. 只有分享图换了，才点 `MihoProbe Fresh OCR` 或 `Miho Demo Fresh OCR` 重新识别图片。
+1. 构建一次本地 EXE：
 
-安装桌面入口：
+```powershell
+scripts\build_miho_probe_exe.bat
+```
+
+仓库路径：`scripts/build_miho_probe_exe.bat`。
+构建配置：`packaging/MihoProbe.spec`。
+
+等价 PowerShell 入口：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_miho_probe_exe.ps1
+```
+
+2. 安装桌面快捷方式：
 
 ```powershell
 scripts/install_miho_demo_shortcut.bat
 ```
 
-桌面会出现这些入口：
+3. 桌面优先点这些：
 
-- `Miho Demo`：秒开已有 Dashboard。普通验收先点这个；没有缓存时只提示下一步，不会自动跑 OCR。
-- `Miho Demo Fresh OCR`：重新识别 `figs/` 下的官方分享图。PaddleOCR 首次加载会慢。
-- `MihoProbe`：构建过 `dist/MihoProbe.exe` 后出现，像软件入口一样直接打开本地 Dashboard。
-- `MihoProbe Fresh OCR`：构建过 `dist/MihoProbe.exe` 后出现，默认只识别 `figs/` 下新增或变更的分享图。
-- `MihoProbe Accuracy Check`：构建过 EXE 后出现，一键跑 P0.9 replay 准确率验收，不重新 OCR。
-- `MihoProbe CLI`：打开 EXE 命令壳和常用命令示例。
+- `MihoProbe`：像软件一样打开已有 Dashboard，不重新 OCR，正常应该很快。
+- `MihoProbe Fresh OCR`：只在 `figs/` 里放了新的官方分享图后再点；会跑 PaddleOCR。
+- `MihoProbe Accuracy Check`：跑 P0.9 replay 准确率验收，不重新 OCR。
+- `MihoProbe CLI`：打开命令壳，给开发调试用。
 
-默认入口现在不会自动跑 OCR。如果 `MihoProbe Fresh OCR`、`Miho Demo Fresh OCR` 或 `scripts/run_miho_demo.bat --fresh` 等了十分钟还没反应，通常是 PaddleOCR 首次加载模型很慢；只想看结果请直接点 `MihoProbe` / `Miho Demo`，或运行：
+没有构建 EXE 时，也可以用脚本版入口：
+
+- `Miho Demo`：打开缓存 Dashboard，不跑 OCR。
+- `Miho Demo Fresh OCR`：识别 `figs/` 下新增或变更的分享图。
+
+默认入口现在不会自动跑 OCR。如果 `MihoProbe Fresh OCR`、`Miho Demo Fresh OCR` 或 `scripts/run_miho_demo.bat --fresh` 十分钟没反应，通常是 PaddleOCR 首次加载模型或图片识别卡住；先关掉它，改点 `MihoProbe` / `Miho Demo` 看缓存结果。
+
+命令行等价入口：
 
 ```powershell
+dist\MihoProbe.exe
+dist\MihoProbe.exe dashboard --open
 scripts\run_miho_demo.bat
 ```
 
-它会打开缓存 Dashboard，不会重新 OCR。确实要识别 `figs/` 下新增或变更的分享图时才运行：
+确实要重新识别新图时才用：
 
 ```powershell
 dist\MihoProbe.exe fresh
@@ -42,54 +60,50 @@ scripts\run_miho_demo.bat --fresh
 
 `dist\MihoProbe.exe fresh` 默认只处理新增或变更图片；要强制全量重扫时加 `--rescan-all`。
 
-想先生成 EXE 命令壳：
+## Dashboard 怎么看
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build_miho_probe_exe.ps1
-scripts/install_miho_demo_shortcut.bat
-```
+打开页面先只看第一屏：
 
-构建后也可以直接运行：
+- `当前结论`：能不能直接用本地建议。
+- `下一步`：该刷新数据、复核字段、人工应用，还是可以看队伍建议。
+- `今日作战简报`：只回答“现在能不能用、卡在哪里、下一步点哪里”。
+- `待确认快照`：OCR / 解析候选，人工确认前不算已拥有练度。
+
+颜色规则只记一句：绿色才是可继续，黄色是先复核，红色是先处理数据一致性。
+
+如果页面提示缺少运行清单或待复核，不要按配队行动；先点卡片里的复核入口确认字段。只有字段明显是旧图或图片缺失，才重新跑 Fresh OCR。
+
+## 当前三个验收入口
+
+### 1. 成品体验
 
 ```powershell
 dist\MihoProbe.exe
 ```
 
-无参数会打开缓存 Dashboard，不会重新 OCR。
+目标：秒开缓存 Dashboard，像软件入口一样可交互、可视化、可读。
 
-准确率验收也可以走 EXE：
+### 2. 新分享图识别
 
 ```powershell
-dist\MihoProbe.exe replay
+dist\MihoProbe.exe fresh
 ```
 
-它默认读取 `data/probes/replay_manifest.json`，生成 replay batch 报告并打开 Markdown 摘要。
+目标：读取 `figs/` 下官方分享图，解析练度，生成待人工确认的本地结果。这个入口可能慢，因为它会真的跑图片识别。
 
-## Dashboard 怎么看
+单张图调试用：
 
-打开 Dashboard 后先看第一屏：
+```powershell
+python tools/probes/review_export_image.py --image "C:\path\to\share.jpg" --engine paddle --lang chi_sim+eng --write-crops --open
+```
 
-- `当前结论`：能不能直接用本地建议。
-- `下一步`：重跑、复核、人工应用，还是可以看队伍建议。
-- `今日作战简报`：只回答“现在能不能用、卡在哪里、下一步点哪里”。
-- `待确认快照`：OCR/解析候选，人工确认前不算已拥有练度。
-
-如果页面提示缺少运行清单或待复核，不要按配队行动；先点卡片里的 `打开复核页` 确认字段。只有字段明显是旧图或图片缺失，才重新跑 `Miho Demo Fresh OCR`。
-
-看不懂时只记一句：绿色才是可继续，黄色是先复核，红色是先处理数据一致性。
-
-## 准确率怎么验收
+### 3. 准确率怎么验收
 
 解析准确率只用 manifest 验收，不要扫整个历史目录：
 
 ```powershell
-python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json
-```
-
-等价的软件入口：
-
-```powershell
 dist\MihoProbe.exe replay --no-open
+python tools/probes/run_export_replay_batch.py --manifest data/probes/replay_manifest.json
 ```
 
 通过口径：
@@ -99,15 +113,9 @@ dist\MihoProbe.exe replay --no-open
 - 角色或音擎不能全错还通过。
 - 驱动盘主词条和副词条不能全缺还通过。
 
-单张图调试用：
-
-```powershell
-python tools/probes/review_export_image.py --image "C:\path\to\share.jpg" --engine paddle --lang chi_sim+eng --write-crops --open
-```
-
 ## Codex / GPT 审查流
 
-需要右侧 GPT 审方案时，直接生成固定审查包，不再重新摸索聊天流程：
+右侧 GPT 只负责出方案和挑代码缺陷，Codex 负责落地、测试和推送。不要再临时摸索聊天流程，直接生成固定审查包：
 
 ```powershell
 dist\MihoProbe.exe gpt-review `
@@ -120,7 +128,7 @@ dist\MihoProbe.exe gpt-review `
 
 协议说明见 [docs/notes/codex-gpt-adversarial-loop.md](docs/notes/codex-gpt-adversarial-loop.md)。
 
-## 当前边界
+## 当前能做和不能做
 
 现在能做：
 
@@ -128,6 +136,7 @@ dist\MihoProbe.exe gpt-review `
 - 解析结果进入人工复核区，确认后才进入本地角色库。
 - 基于本地角色库、目标配置和本地 Tier snapshot 生成今日简报、队伍卡、行动卡。
 - 用 replay manifest 做解析准确率回归。
+- 构建 `dist\MihoProbe.exe` 作为本地软件入口。
 
 现在不能做：
 
@@ -137,9 +146,12 @@ dist\MihoProbe.exe gpt-review `
 - 自动联网刷新真实 Tier list 或高难出场率。
 - 把真实分享图、UID、OCR 原始结果或 `data/probes/` 产物提交到 Git。
 
-## 深入文档
+## 开发入口
 
 - Probe 命令细节：[tools/probes/README.md](tools/probes/README.md)
+- GPT 审查包生成器：[tools/probes/build_gpt_review_prompt.py](tools/probes/build_gpt_review_prompt.py)
+- Replay batch 验收：[tools/probes/run_export_replay_batch.py](tools/probes/run_export_replay_batch.py)
+- 单图解析复核：[tools/probes/review_export_image.py](tools/probes/review_export_image.py)
 - 技术栈边界：[docs/adr/0001-tech-stack-selection.md](docs/adr/0001-tech-stack-selection.md)、[docs/adr/0002-mvp-boundary-and-module-layering.md](docs/adr/0002-mvp-boundary-and-module-layering.md)、[docs/adr/0003-local-data-model-and-snapshot-strategy.md](docs/adr/0003-local-data-model-and-snapshot-strategy.md)
 - 米游社 APP 探针边界：[docs/spikes/0001-miyoushe-app-feasibility.md](docs/spikes/0001-miyoushe-app-feasibility.md)
 - 分享图解析记录：[docs/notes/share-image-parsing-result.md](docs/notes/share-image-parsing-result.md)

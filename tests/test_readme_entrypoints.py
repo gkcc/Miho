@@ -13,7 +13,9 @@ class ReadmeEntrypointTests(unittest.TestCase):
 
         for relative in (
             "scripts/install_miho_demo_shortcut.bat",
+            "scripts/build_miho_probe_exe.bat",
             "scripts/build_miho_probe_exe.ps1",
+            "packaging/MihoProbe.spec",
             "tools/probes/run_export_replay_batch.py",
             "tools/probes/review_export_image.py",
             "tools/probes/build_gpt_review_prompt.py",
@@ -75,6 +77,20 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("dashboard --open", opener)
         self.assertIn("fresh --open", opener)
         self.assertIn("replay --no-open", opener)
+
+    def test_exe_build_uses_tracked_spec_and_clear_dependency_message(self) -> None:
+        builder = (PROJECT_ROOT / "scripts" / "build_miho_probe_exe.ps1").read_text(encoding="utf-8")
+        wrapper = (PROJECT_ROOT / "scripts" / "build_miho_probe_exe.bat").read_text(encoding="utf-8")
+        spec = (PROJECT_ROOT / "packaging" / "MihoProbe.spec").read_text(encoding="utf-8")
+
+        self.assertIn("packaging\\MihoProbe.spec", builder)
+        self.assertIn("import PyInstaller", builder)
+        self.assertIn("python -m pip install pyinstaller", builder)
+        self.assertIn("dist\\MihoProbe.exe", builder)
+        self.assertIn("build_miho_probe_exe.ps1", wrapper)
+        self.assertIn("project_root", spec)
+        self.assertIn("miho_probe_cli.py", spec)
+        self.assertIn("name='MihoProbe'", spec)
 
     def test_readme_exposes_exe_replay_acceptance_entry(self) -> None:
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")

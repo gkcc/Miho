@@ -731,7 +731,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build_miho_probe_exe.ps1
 scripts/install_miho_demo_shortcut.bat
 ```
 
-该脚本使用 PyInstaller 构建 `dist/MihoProbe.exe`。无参数运行或执行 `dist\MihoProbe.exe dashboard --open` 会打开缓存 Dashboard，不重新 OCR；`dist\MihoProbe.exe replay` 会跑 P0.9 parsed-vs-expected replay 验收，也不重新 OCR；Fresh OCR 仍走 `Miho Demo Fresh OCR`。`build/`、`dist/` 和 `MihoProbe.spec` 是本地构建产物，已在 `.gitignore` 中排除，不提交。构建后重新运行 shortcut installer，会在桌面补 `MihoProbe`、`MihoProbe Accuracy Check` 和 `MihoProbe CLI` 入口。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
+该脚本使用 `packaging/MihoProbe.spec` 和 PyInstaller 构建 `dist/MihoProbe.exe`。无参数运行或执行 `dist\MihoProbe.exe dashboard --open` 会打开缓存 Dashboard，不重新 OCR；`dist\MihoProbe.exe replay` 会跑 P0.9 parsed-vs-expected replay 验收，也不重新 OCR；Fresh OCR 仍走 `Miho Demo Fresh OCR`。`build/`、`dist/` 和根目录临时 `MihoProbe.spec` 是本地构建产物，已在 `.gitignore` 中排除，不提交；受控 spec 放在 `packaging/MihoProbe.spec`。构建后重新运行 shortcut installer，会在桌面补 `MihoProbe`、`MihoProbe Accuracy Check` 和 `MihoProbe CLI` 入口。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
 
 ### P1.2 本地培养优先级 planner probe
 

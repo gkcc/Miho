@@ -6,11 +6,28 @@ if (-not $Python) {
     Write-Error "Python was not found in PATH. Install Python or activate the project environment first."
 }
 
+$SpecFile = Join-Path $RepoRoot "packaging\MihoProbe.spec"
+if (-not (Test-Path -Path $SpecFile -PathType Leaf)) {
+    Write-Error "Missing PyInstaller spec: $SpecFile"
+}
+
 Push-Location $RepoRoot
 try {
-    & $Python.Source -m PyInstaller tools/probes/miho_probe_cli.py --name MihoProbe --onefile --clean --noconfirm
+    & $Python.Source -c "import PyInstaller" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "PyInstaller is not installed in this Python environment."
+        Write-Host "Install it, then rerun:"
+        Write-Host "  python -m pip install pyinstaller"
+        exit 1
+    }
+
+    & $Python.Source -m PyInstaller $SpecFile --clean --noconfirm
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
+    }
+    $ExePath = Join-Path $RepoRoot "dist\MihoProbe.exe"
+    if (-not (Test-Path -Path $ExePath -PathType Leaf)) {
+        Write-Error "Build finished but dist\MihoProbe.exe was not found."
     }
     Write-Host "Built dist\MihoProbe.exe. Run it without args for the cached dashboard, dist\MihoProbe.exe fresh for new/changed share images, or dist\MihoProbe.exe replay for P0.9 accuracy acceptance."
 }
