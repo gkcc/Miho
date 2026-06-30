@@ -254,6 +254,7 @@ def default_operator_route(image_inbox: Path) -> dict[str, Any]:
         "automation_status": "disabled_until_calibrated",
         "next_command": f"dist\\MihoProbe.exe app-export-run --manifest {calibration_path} --no-open",
         "calibration_manifest": calibration_path,
+        "calibrate_command": f"dist\\MihoProbe.exe app-export-calibrate --manifest {calibration_path} --open",
         "dry_run_command": f"dist\\MihoProbe.exe app-export-run --manifest {calibration_path} --no-open",
         "execute_command": (
             f"dist\\MihoProbe.exe app-export-run --manifest {calibration_path} "
@@ -273,7 +274,7 @@ def default_operator_route(image_inbox: Path) -> dict[str, Any]:
                 "label": "2. 校准官方 UI",
                 "status": "needed",
                 "description": "先生成校准清单，再用网格截图填 x/y；坐标必须由用户确认是官方 UI。",
-                "command": "python tools/probes/window_screenshot_probe.py --window-title 米游社 --grid-size 100",
+                "command": f"dist\\MihoProbe.exe app-export-calibrate --manifest {calibration_path} --open",
             },
             {
                 "label": "3. 保存官方分享图",
@@ -421,6 +422,7 @@ def render_html(package: dict[str, Any]) -> str:
     warning_items = "".join(f"<li>{escape(str(item))}</li>" for item in warnings) or "<li>无</li>"
     route = workflow.get("operator_route") if isinstance(workflow.get("operator_route"), dict) else {}
     calibration_template = str(route.get("calibration_manifest") or workflow.get("calibration_template") or "")
+    calibrate_command = str(route.get("calibrate_command") or "")
     dry_run_command = str(route.get("dry_run_command") or route.get("next_command") or "")
     execute_command = str(route.get("execute_command") or "")
     route_steps = route.get("route_steps") if isinstance(route.get("route_steps"), list) else []
@@ -533,6 +535,12 @@ def render_html(package: dict[str, Any]) -> str:
       <p>先打开 JSON 填 x/y；填完后先 dry-run。真正点击必须额外输入 execute 命令和确认参数。</p>
       <p>清单：{escape(calibration_template)}</p>
       <div class="commands">
+        <article class="command">
+          <h3>先生成网格截图</h3>
+          <p>捕获米游社窗口并显示待填坐标表，不点击。</p>
+          <code>{escape(calibrate_command)}</code>
+          <span>没有打开米游社时会显示 window_missing。</span>
+        </article>
         <article class="command">
           <h3>先 dry-run</h3>
           <p>只解析窗口和坐标，不点击。</p>

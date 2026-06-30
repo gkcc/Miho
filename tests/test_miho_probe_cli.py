@@ -55,6 +55,8 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("一键更新练度", help_text)
         self.assertIn("MihoProbe.exe app-export", help_text)
         self.assertIn("官方分享图工作流包", help_text)
+        self.assertIn("MihoProbe.exe app-export-calibrate", help_text)
+        self.assertIn("捕获米游社窗口网格截图", help_text)
         self.assertIn("MihoProbe.exe app-export-run", help_text)
         self.assertIn("默认 dry-run", help_text)
         self.assertIn("MihoProbe.exe plan-update", help_text)
@@ -90,6 +92,7 @@ class MihoProbeCliTests(unittest.TestCase):
             cli_tool.parse_probe,
             cli_tool.app_export_workflow,
             cli_tool.app_export_runner,
+            cli_tool.app_export_calibrator,
             cli_tool.normalize_tool,
             cli_tool.planner_tool,
             cli_tool.target_tool,
@@ -433,6 +436,16 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertFalse(args.open)
         self.assertFalse(args.execute)
         self.assertFalse(args.confirm_official_ui)
+        self.assertTrue(str(args.manifest).endswith("miyoushe_app_export_calibration_template.json"))
+
+    def test_parser_has_app_export_calibrate_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["app-export-calibrate", "--no-capture", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_app_export_calibrate)
+        self.assertEqual(args.command, "app-export-calibrate")
+        self.assertFalse(args.open)
+        self.assertTrue(args.no_capture)
         self.assertTrue(str(args.manifest).endswith("miyoushe_app_export_calibration_template.json"))
 
     def test_parser_has_gpt_review_entry(self) -> None:
@@ -1158,7 +1171,36 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("app_export_scope: workflow_package_only", output.getvalue())
             self.assertIn("不自动登录、不读取 token/cookie", output.getvalue())
             self.assertIn("calibration_template_json", output.getvalue())
+            self.assertIn("app_export_calibrate_command", output.getvalue())
             self.assertIn("app_export_run_command", output.getvalue())
+
+    def test_run_app_export_calibrate_no_capture_writes_report_without_window_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = cli_tool.run_app_export_calibrate(
+                    argparse.Namespace(
+                        manifest=str(root / "workflow" / "miyoushe_app_export_calibration_template.json"),
+                        output_dir=str(root / "workflow"),
+                        image_inbox=str(root / "figs"),
+                        game="zzz",
+                        window_title="米游社",
+                        grid_size=100,
+                        match_index=0,
+                        no_capture=True,
+                        open=False,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            report_json = root / "workflow" / "miyoushe_app_export_calibration_report.json"
+            report_html = root / "workflow" / "miyoushe_app_export_calibration_report.html"
+            self.assertTrue(report_json.exists())
+            self.assertTrue(report_html.exists())
+            report = json.loads(report_json.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "needs_window_capture")
+            self.assertIn("app_export_calibration_status: needs_window_capture", output.getvalue())
 
     def test_run_app_export_run_reports_missing_coordinates_without_clicking(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -109,6 +109,12 @@ if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
             -Description "Open the auditable MiYouShe official share-image export workflow package without clicking."
 
         New-MihoShortcut `
+            -Name "MihoProbe App Export Calibrate" `
+            -TargetPath $ProbeExe `
+            -Arguments "app-export-calibrate --open" `
+            -Description "Capture a MiYouShe window grid screenshot for official share-image export calibration without clicking."
+
+        New-MihoShortcut `
             -Name "MihoProbe Update" `
             -TargetPath $ProbeExe `
             -Arguments "update --open" `

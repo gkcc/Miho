@@ -201,6 +201,9 @@ def humanize_link_label(label: str) -> str:
         "miyoushe_export_workflow.html": "APP 导出流程页",
         "miyoushe_export_workflow.json": "APP 导出流程数据",
         "miyoushe_app_export_calibration_template.json": "APP 导出校准清单",
+        "miyoushe_app_export_calibration_report.html": "APP 导出校准报告",
+        "miyoushe_app_export_calibration_report.json": "APP 导出校准数据",
+        "calibration_screenshot": "APP 导出网格截图",
         "miyoushe_app_export_run_report.html": "APP 导出执行报告",
         "miyoushe_app_export_run_report.json": "APP 导出执行数据",
         "parsed_json": "原始解析",
@@ -279,6 +282,9 @@ def status_class(value: Any) -> str:
         "needs_confirmation",
         "ready_for_dry_run",
         "ready_for_execute",
+        "needs_window_capture",
+        "window_missing",
+        "screenshot_captured",
     }:
         return "warn"
     if text in {"fail", "failed", "false", "error", "blocked", "has_parse_failure", "stale_after_apply", "needs_rerun", "stale", "needs_accepted_roster"}:
@@ -514,6 +520,9 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
             link("miyoushe_export_workflow.html", report.get("workflow_html")),
             link("miyoushe_export_workflow.json", report.get("workflow_json")),
             link("miyoushe_app_export_calibration_template.json", report.get("calibration_template_json")),
+            link("miyoushe_app_export_calibration_report.html", report.get("calibration_report_html")),
+            link("miyoushe_app_export_calibration_report.json", report.get("calibration_report_json")),
+            link("calibration_screenshot", report.get("calibration_screenshot")),
             link("miyoushe_app_export_run_report.html", report.get("runner_report_html")),
             link("miyoushe_app_export_run_report.json", report.get("runner_report_json")),
         )
@@ -524,6 +533,9 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
     forbidden = report.get("forbidden_boundaries") if isinstance(report.get("forbidden_boundaries"), list) else []
     forbidden_text = "、".join(str(item) for item in forbidden[:8]) if forbidden else "不自动登录、不读 token/cookie、不抓包"
     update_command_text = str(report.get("update_command") or r"dist\MihoProbe.exe update --open")
+    calibrate_command = str(report.get("calibrate_command") or r"dist\MihoProbe.exe app-export-calibrate --open")
+    calibration_status = str(report.get("calibration_status") or "needs_window_capture")
+    calibration_next_action = str(report.get("calibration_next_action") or "先打开米游社 APP，然后生成网格截图。")
     dry_run_command = str(report.get("dry_run_command") or report.get("next_command") or r"dist\MihoProbe.exe app-export-run --no-open")
     execute_command = str(report.get("execute_command") or r"dist\MihoProbe.exe app-export-run --execute --confirm-official-ui --no-open")
     runner_status = str(report.get("runner_status") or status)
@@ -532,6 +544,12 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
         f"缺坐标 {e(report.get('runner_missing_coordinate_count', 0))}；"
         f"未确认 {e(report.get('runner_unconfirmed_step_count', 0))}；"
         f"已点击 {e(report.get('runner_clicked_count', 0))}"
+    )
+    screenshot_src = file_href(report.get("calibration_screenshot"))
+    screenshot_html = (
+        f'<div class="app-export-shot"><img src="{e(screenshot_src)}" alt="APP 导出网格截图"></div>'
+        if screenshot_src
+        else ""
     )
     return f"""
     <section class="plan-readiness app-export-readiness {e(tone)}">
@@ -545,6 +563,12 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
       </div>
       <div>
         <div class="source-grid">
+          <article class="source-card warn">
+            <strong>先生成网格截图</strong>
+            <span>{he(calibration_status)}</span>
+            <p>{he(calibration_next_action)}</p>
+            <code>{e(calibrate_command)}</code>
+          </article>
           <article class="source-card warn">
             <strong>校准清单状态</strong>
             <span>{he(runner_status)}</span>
@@ -572,6 +596,7 @@ def render_app_export_readiness(summary: dict[str, Any]) -> str:
             <p>{e(forbidden_text)}</p>
           </article>
         </div>
+        {screenshot_html}
         <details class="soft-details" open>
           <summary>路线进度</summary>
           <div class="source-grid">{"".join(step_cards)}</div>
@@ -2892,6 +2917,8 @@ def render_html(summary: dict[str, Any]) -> str:
     .source-card.ok {{ border-color: #a7e0bd; background: var(--ok-bg); }}
     .source-card.warn {{ border-color: #f6cf7c; background: var(--warn-bg); }}
     .source-card.bad {{ border-color: #ffc0ba; background: var(--bad-bg); }}
+    .app-export-shot {{ margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #101827; }}
+    .app-export-shot img {{ display: block; width: 100%; max-height: 420px; object-fit: contain; }}
     .compact-line {{ margin-top: 8px !important; }}
     .soft-links {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }}
     .top-summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }}

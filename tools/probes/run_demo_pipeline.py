@@ -50,6 +50,7 @@ DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 APP_EXPORT_WORKFLOW_DIRNAME = "app_export_workflow"
 APP_EXPORT_WORKFLOW_FILENAME = "miyoushe_export_workflow.json"
 APP_EXPORT_CALIBRATION_FILENAME = "miyoushe_app_export_calibration_template.json"
+APP_EXPORT_CALIBRATION_REPORT_FILENAME = "miyoushe_app_export_calibration_report.json"
 APP_EXPORT_RUN_REPORT_FILENAME = "miyoushe_app_export_run_report.json"
 UPDATE_STATE_FILENAME = "update_state.json"
 LAUNCHER_REPORT_DIRNAME = "launcher"
@@ -97,8 +98,18 @@ def load_app_export_readiness(output_dir: Path) -> dict[str, Any] | None:
     workflow_html = workflow_path.with_suffix(".html")
     workflow_dir = workflow_path.parent
     calibration_template = workflow_dir / APP_EXPORT_CALIBRATION_FILENAME
+    calibration_report_json = workflow_dir / APP_EXPORT_CALIBRATION_REPORT_FILENAME
+    calibration_report_html = workflow_dir / "miyoushe_app_export_calibration_report.html"
     run_report_json = workflow_dir / APP_EXPORT_RUN_REPORT_FILENAME
     run_report_html = workflow_dir / "miyoushe_app_export_run_report.html"
+    calibration_report: dict[str, Any] | None = None
+    if calibration_report_json.exists():
+        try:
+            candidate = load_json(calibration_report_json)
+        except Exception:  # noqa: BLE001 - stale calibration reports should not block demo summary.
+            candidate = None
+        if isinstance(candidate, dict):
+            calibration_report = candidate
     run_report: dict[str, Any] | None = None
     if run_report_json.exists():
         try:
@@ -122,6 +133,7 @@ def load_app_export_readiness(output_dir: Path) -> dict[str, Any] | None:
         "warnings": validation.get("warnings") if isinstance(validation.get("warnings"), list) else [],
         "forbidden_boundaries": workflow.get("does_not") if isinstance(workflow.get("does_not"), list) else [],
         "route_steps": route.get("route_steps") if isinstance(route.get("route_steps"), list) else [],
+        "calibrate_command": route.get("calibrate_command") or "",
         "dry_run_command": route.get("dry_run_command") or route.get("next_command") or "",
         "execute_command": route.get("execute_command") or "",
     }
@@ -129,6 +141,15 @@ def load_app_export_readiness(output_dir: Path) -> dict[str, Any] | None:
         readiness["workflow_html"] = str(workflow_html)
     if calibration_template.exists():
         readiness["calibration_template_json"] = str(calibration_template)
+    if calibration_report:
+        readiness["calibration_status"] = calibration_report.get("status") or "unknown"
+        readiness["calibration_next_action"] = calibration_report.get("next_action") or ""
+        readiness["calibration_report_json"] = str(calibration_report_json)
+        if calibration_report_html.exists():
+            readiness["calibration_report_html"] = str(calibration_report_html)
+        screenshot = calibration_report.get("screenshot") if isinstance(calibration_report.get("screenshot"), dict) else {}
+        if screenshot.get("path"):
+            readiness["calibration_screenshot"] = screenshot.get("path")
     if run_report:
         readiness["runner_status"] = run_report.get("status") or "unknown"
         readiness["runner_next_action"] = run_report.get("next_action") or ""

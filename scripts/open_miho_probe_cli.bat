@@ -18,6 +18,8 @@ echo.
 echo Common examples:
 echo   dist\MihoProbe.exe dashboard --open
 echo   dist\MihoProbe.exe app-export --open
+echo   dist\MihoProbe.exe app-export-calibrate --open
+echo   dist\MihoProbe.exe app-export-run --no-open
 echo   dist\MihoProbe.exe update --open
 echo   dist\MihoProbe.exe plan-update --open
 echo   dist\MihoProbe.exe rank-check --open
