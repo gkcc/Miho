@@ -643,8 +643,8 @@ def render_brief_overview(brief: dict[str, Any], brief_summary: dict[str, Any], 
         tone = "bad"
         title = "这不是验收结果"
         body = (
-            "本轮数据来源缺失或不一致，页面只作为排查入口，不代表 P0.9 验收。"
-            "先打开缓存入口刷新页面；确实换了新图时，再跑 Fresh OCR。"
+            "本轮数据来源缺失或不一致，页面只作为排查入口，不代表准确率验收。"
+            "先点 MihoProbe 打开缓存页面；确实换了新分享图，再点 MihoProbe Update。"
         )
     elif status == "needs_review" or pending:
         tone = "warn"
@@ -674,6 +674,51 @@ def render_brief_overview(brief: dict[str, Any], brief_summary: dict[str, Any], 
         f"<p>{e(body)}</p>"
         "</div>"
     )
+
+
+def render_brief_trust_scope(brief_summary: dict[str, Any], warnings: list[Any]) -> str:
+    trusted = int_value(brief_summary.get("trusted_plan_count"))
+    pending = int_value(brief_summary.get("pending_review_count"))
+    ready_targets = int_value(brief_summary.get("ready_now_target_count"))
+    recording = int_value(brief_summary.get("needs_recording_target_count"))
+    watch_only = int_value(brief_summary.get("watch_only_target_count"))
+    if warnings:
+        can_trust = "只能把这页当排查入口"
+        cannot_trust = "不能按配队、培养或高难建议行动"
+        next_entry = "先点 MihoProbe；新图才点 MihoProbe Update"
+        tone = "bad"
+    elif pending:
+        can_trust = f"可以先复核 {pending} 张解析快照"
+        cannot_trust = "未确认角色不能算已拥有练度"
+        next_entry = "先打开复核页，确认后再刷新建议"
+        tone = "warn"
+    elif trusted or ready_targets:
+        can_trust = f"可以阅读 {ready_targets or trusted} 个本地可尝试目标"
+        cannot_trust = "这仍不是抽卡建议，也不会自动写正式数据库"
+        next_entry = "先按执行清单试一次，再记录结果"
+        tone = "ok"
+    elif recording:
+        can_trust = "可以看缺哪些练度数据"
+        cannot_trust = "不能用缺数据的队伍建议去培养角色"
+        next_entry = "先补官方分享图并复核字段"
+        tone = "warn"
+    elif watch_only:
+        can_trust = "只能观察目标和趋势"
+        cannot_trust = "不能因为奖励去练低价值角色"
+        next_entry = "先补已拥有 box 和高价值快照"
+        tone = "warn"
+    else:
+        can_trust = "当前没有可采信建议"
+        cannot_trust = "不要按空白数据做培养或配队决定"
+        next_entry = "先放入官方分享图，或用 replay manifest 验收"
+        tone = "muted"
+    cells = [
+        ("现在能信", can_trust),
+        ("现在不能信", cannot_trust),
+        ("下一步入口", next_entry),
+    ]
+    body = "".join(f"<div><span>{e(label)}</span><strong>{he(value)}</strong></div>" for label, value in cells)
+    return f'<div class="brief-trust-wrap"><h3>当前可采信范围</h3><div class="brief-trust-scope {e(tone)}">{body}</div></div>'
 
 
 def brief_evidence_rows(evidence: dict[str, Any]) -> str:
@@ -1777,6 +1822,7 @@ def render_final_brief(summary: dict[str, Any]) -> str:
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>为什么不能直接用</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     overview = render_brief_overview(brief, brief_summary, warnings)
+    trust_scope = render_brief_trust_scope(brief_summary, warnings)
     flow = render_brief_flow(brief_summary, warnings)
     valid_cards = [item for item in top_cards if isinstance(item, dict)]
     next_step = render_brief_next_step(valid_cards[0] if valid_cards else None)
@@ -1858,12 +1904,13 @@ def render_final_brief(summary: dict[str, Any]) -> str:
       <h2>今日作战简报</h2>
       <p class="muted-line">先看这一块就够了：它只回答“现在能不能用、卡在哪里、下一步点哪里”。命令和技术证据默认折叠。</p>
       {overview}
+      {trust_scope}
       {flow}
       {next_step}
       {status_note}
       {warning_block}
       {body}
-      {stats_details("统计数字", stat_rows)}
+      {stats_details("诊断统计（展开看）", stat_rows)}
     </section>
     """
 
@@ -2814,6 +2861,13 @@ def render_html(summary: dict[str, Any]) -> str:
     .brief-overview.ok strong {{ color: var(--ok); }}
     .brief-overview.warn strong {{ color: var(--warn); }}
     .brief-overview.bad strong {{ color: var(--bad); }}
+    .brief-trust-scope {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }}
+    .brief-trust-scope > div {{ border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; min-width: 0; }}
+    .brief-trust-scope span {{ display: block; color: var(--muted); font-size: 12px; font-weight: 800; margin-bottom: 5px; }}
+    .brief-trust-scope strong {{ display: block; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }}
+    .brief-trust-scope.ok > div {{ border-color: #a7e0bd; background: var(--ok-bg); }}
+    .brief-trust-scope.warn > div {{ border-color: #f6cf7c; background: var(--warn-bg); }}
+    .brief-trust-scope.bad > div {{ border-color: #ffc0ba; background: var(--bad-bg); }}
     .brief-flow {{ margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #ffffff; }}
     .brief-flow h3 {{ margin: 0 0 10px; font-size: 15px; }}
     .brief-flow > div {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }}
@@ -2888,6 +2942,7 @@ def render_html(summary: dict[str, Any]) -> str:
       .rank-sources {{ grid-template-columns: 1fr; }}
       .rank-source {{ grid-template-columns: minmax(72px, 0.8fr) auto minmax(0, 1.4fr); }}
       .plan-item {{ grid-template-columns: 1fr; }}
+      .brief-trust-scope {{ grid-template-columns: 1fr; }}
       .brief-flow > div {{ grid-template-columns: 1fr; }}
       .brief-card {{ grid-template-columns: 1fr; }}
       .resource-item {{ grid-template-columns: 1fr; }}
