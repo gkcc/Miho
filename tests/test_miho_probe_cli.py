@@ -53,6 +53,8 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("打开已有 Dashboard，不跑 OCR", help_text)
         self.assertIn("MihoProbe.exe update", help_text)
         self.assertIn("一键更新练度", help_text)
+        self.assertIn("MihoProbe.exe app-export", help_text)
+        self.assertIn("官方分享图工作流包", help_text)
         self.assertIn("MihoProbe.exe plan-update", help_text)
         self.assertIn("一键更新高难/Tier/配队建议", help_text)
         self.assertIn("MihoProbe.exe rank-check", help_text)
@@ -225,6 +227,19 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(args.command, "rank-check")
         self.assertFalse(args.open)
         self.assertTrue(str(args.images_dir).endswith("figs"))
+
+    def test_parser_has_app_export_workflow_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["app-export", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_app_export)
+        self.assertEqual(args.command, "app-export")
+        self.assertFalse(args.open)
+        self.assertTrue(str(args.image_inbox).endswith("figs"))
+        self.assertTrue(
+            str(args.output_dir).endswith("data\\probes\\demo\\app_export_workflow")
+            or str(args.output_dir).endswith("data/probes/demo/app_export_workflow")
+        )
 
     def test_parser_has_gpt_review_entry(self) -> None:
         parser = cli_tool.build_arg_parser()
@@ -503,6 +518,31 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("角色评级", html)
             self.assertIn("音擎评级", html)
             self.assertIn("rank_check_scope: visual_rank_regions_only", output.getvalue())
+
+    def test_run_app_export_writes_workflow_package_without_clicking(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = cli_tool.run_app_export(
+                    argparse.Namespace(
+                        output_dir=str(root / "workflow"),
+                        image_inbox=str(root / "figs"),
+                        game="zzz",
+                        window_title="米游社",
+                        open=False,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            json_path = root / "workflow" / "miyoushe_export_workflow.json"
+            html_path = root / "workflow" / "miyoushe_export_workflow.html"
+            self.assertTrue(json_path.exists())
+            self.assertTrue(html_path.exists())
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            self.assertEqual(data["validation"]["status"], "ready_for_calibration")
+            self.assertIn("app_export_scope: workflow_package_only", output.getvalue())
+            self.assertIn("不自动登录、不读取 token/cookie", output.getvalue())
 
     def test_run_gpt_review_writes_compact_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

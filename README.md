@@ -9,6 +9,7 @@ Miho 要做的是一个本地优先的游戏练度更新与规划软件：米游
 先记住一句：**验收界面点缓存入口，识别新图才点 Fresh OCR。**
 
 - 想看软件体验：点 `MihoProbe`，或运行 `dist\MihoProbe.exe`。它只打开已有 Dashboard，不跑 OCR。
+- 查看 APP 一键导出流程：点 `MihoProbe App Export Workflow`，或运行 `dist\MihoProbe.exe app-export`。它只生成米游社官方分享图工作流包，不自动点击。
 - 一键更新练度：点 `MihoProbe Update`，或运行 `dist\MihoProbe.exe update`。当前安全版只处理 `figs/` 里已保存的官方分享图，不会自动操作米游社 APP。
 - 一键更新高难配队：点 `MihoProbe Plan Update`，或运行 `dist\MihoProbe.exe plan-update`。它不跑 OCR、不联网，只用本地已确认角色库、目标配置和 Tier / 保值快照重算建议。
 - 快速排查评级：点 `MihoProbe Rank Check`，或运行 `dist\MihoProbe.exe rank-check`。它只看头像左上角和音擎评级的 A/S 艺术字区域，不跑 OCR。
@@ -49,6 +50,7 @@ scripts/install_miho_demo_shortcut.bat
 3. 桌面优先点这些：
 
 - `MihoProbe`：像软件一样打开已有 Dashboard，不重新 OCR，正常应该很快。
+- `MihoProbe App Export Workflow`：查看“米游社 APP -> 官方分享图 -> 本地解析”的可审计工作流；当前不自动点击。
 - `MihoProbe Update`：一键更新练度的当前安全版，处理 `figs/` 中新增或变更的官方分享图，然后打开 Dashboard。
 - `MihoProbe Plan Update`：一键刷新本地高难、Tier / 保值观察、行动卡和队伍卡，不跑 OCR。
 - `MihoProbe Rank Check`：快速看 A/S 艺术字固定区域是否能识别，不跑 OCR。
@@ -62,6 +64,7 @@ scripts/install_miho_demo_shortcut.bat
 
 ```powershell
 dist\MihoProbe.exe
+dist\MihoProbe.exe app-export
 dist\MihoProbe.exe update
 dist\MihoProbe.exe plan-update
 dist\MihoProbe.exe rank-check
@@ -159,6 +162,7 @@ dist\MihoProbe.exe ask-gpt `
 现在能做：
 
 - 从官方分享图或已有 parsed JSON 生成本地 Dashboard。
+- `dist\MihoProbe.exe app-export` 可以生成米游社官方分享图一键更新练度的本地工作流包，沉淀后续 UIA/RPA 步骤。
 - 解析结果进入人工复核区，确认后才进入本地角色库。
 - 基于本地角色库、目标配置和本地 Tier snapshot 生成今日简报、队伍卡、行动卡。
 - `dist\MihoProbe.exe plan-update` 可以只重算高难/Tier/队伍建议，不碰图片识别。

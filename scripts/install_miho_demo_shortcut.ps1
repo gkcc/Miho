@@ -103,6 +103,12 @@ if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
             -Description "Open the app-like local Miho dashboard without rerunning OCR."
 
         New-MihoShortcut `
+            -Name "MihoProbe App Export Workflow" `
+            -TargetPath $ProbeExe `
+            -Arguments "app-export --open" `
+            -Description "Open the auditable MiYouShe official share-image export workflow package without clicking."
+
+        New-MihoShortcut `
             -Name "MihoProbe Update" `
             -TargetPath $ProbeExe `
             -Arguments "update --open" `

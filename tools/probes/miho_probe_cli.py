@@ -20,6 +20,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import diff_normalized_snapshots as diff_tool  # noqa: E402
 import build_gpt_review_prompt as gpt_prompt_tool  # noqa: E402
 import export_image_parse_probe as parse_probe  # noqa: E402
+import miyoushe_export_workflow as app_export_workflow  # noqa: E402
 import normalize_export_parse as normalize_tool  # noqa: E402
 import plan_training_priorities as planner_tool  # noqa: E402
 import prepare_endgame_targets as target_tool  # noqa: E402
@@ -41,6 +42,7 @@ DEFAULT_DEMO_OUTPUT_DIR = PROJECT_ROOT / "data" / "probes" / "demo"
 DEFAULT_DASHBOARD_HTML = DEFAULT_DEMO_OUTPUT_DIR / "index.html"
 DEFAULT_DEMO_SUMMARY = DEFAULT_DEMO_OUTPUT_DIR / "demo_summary.json"
 DEFAULT_FIGS_DIR = PROJECT_ROOT / "figs"
+DEFAULT_APP_EXPORT_WORKFLOW_DIR = DEFAULT_DEMO_OUTPUT_DIR / "app_export_workflow"
 DEFAULT_EXPECTED_DIR = PROJECT_ROOT / "data" / "probes" / "expected"
 DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 DEFAULT_NORMALIZED_DIR = PROJECT_ROOT / "data" / "probes" / "normalized"
@@ -81,6 +83,9 @@ def render_user_help() -> str:
   MihoProbe.exe update
     一键更新练度（当前安全版）：处理 figs\\ 下已保存的官方分享图，然后打开 Dashboard。
 
+  MihoProbe.exe app-export
+    生成米游社 APP 官方分享图工作流包。默认不点击，只沉淀一键更新练度的可审计步骤。
+
   MihoProbe.exe fresh
     update 的开发别名：识别 figs\\ 下新增或变更的官方分享图。会跑 PaddleOCR，可能慢。
 
@@ -103,6 +108,7 @@ def render_user_help() -> str:
 
 开发细参：
   MihoProbe.exe dashboard --help
+  MihoProbe.exe app-export --help
   MihoProbe.exe plan-update --help
   MihoProbe.exe rank-check --help
   MihoProbe.exe fresh --help
@@ -642,6 +648,29 @@ def run_rank_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_app_export(args: argparse.Namespace) -> int:
+    output_dir = resolve_cli_path(args.output_dir)
+    image_inbox = resolve_cli_path(args.image_inbox)
+    result = app_export_workflow.build_package(
+        output_dir=output_dir,
+        image_inbox=image_inbox,
+        game=args.game,
+        window_title=args.window_title,
+    )
+    workflow = result["workflow"]
+    validation = workflow["validation"] if isinstance(workflow, dict) else {}
+    html_path = result["html_path"]
+    json_path = result["json_path"]
+    if args.open:
+        webbrowser.open(Path(html_path).resolve().as_uri())
+    print("app_export_scope: workflow_package_only")
+    print("app_export_note: 不自动登录、不读取 token/cookie、不抓包、不控制游戏客户端；当前只生成官方 UI 工作流包。")
+    print(f"workflow_status: {validation.get('status')}")
+    print(f"workflow_html: {html_path}")
+    print(f"workflow_json: {json_path}")
+    return 0 if validation.get("status") != "blocked" else 1
+
+
 def replay_default_output_dir() -> Path:
     stamp = datetime.now().astimezone().isoformat(timespec="seconds").replace(":", "").replace("+", "_").replace("-", "").replace("T", "_")
     return PROJECT_ROOT / "data" / "probes" / "replay_batches" / stamp
@@ -898,6 +927,15 @@ def add_rank_check_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the HTML report.")
 
 
+def add_app_export_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--output-dir", default=str(DEFAULT_APP_EXPORT_WORKFLOW_DIR), help="Output directory.")
+    parser.add_argument("--image-inbox", default=str(DEFAULT_FIGS_DIR), help="Where official share images should land. Default: figs.")
+    parser.add_argument("--game", choices=("zzz", "hsr"), default="zzz")
+    parser.add_argument("--window-title", default="米游社", help="Target app window title keyword.")
+    parser.add_argument("--open", action="store_true", default=True, help="Open generated HTML. Default: true.")
+    parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the HTML report.")
+
+
 def add_gpt_review_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--focus", required=True, help="本轮要推进的用户可见目标。")
     parser.add_argument("--evidence", action="append", default=[], help="关键证据，可重复。")
@@ -949,6 +987,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     update = subparsers.add_parser("update", help="One-click local practice update from saved official share images under figs.")
     add_fresh_update_args(update)
     update.set_defaults(handler=run_fresh)
+
+    app_export = subparsers.add_parser("app-export", help="Build the official MiYouShe share-image export workflow package.")
+    add_app_export_args(app_export)
+    app_export.set_defaults(handler=run_app_export)
 
     fresh = subparsers.add_parser("fresh", help="Developer alias for update: run fresh OCR for official share images under figs.")
     add_fresh_update_args(fresh)
