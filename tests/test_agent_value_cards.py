@@ -134,7 +134,20 @@ class AgentValueCardsTests(unittest.TestCase):
         self.assertEqual(by_slug["qingyi"]["name"], "青衣")
         self.assertIn(by_slug["velina"]["recommendation_status"], {"raise_if_team_needed", "usable_invest", "priority_raise_from_low_level"})
         self.assertEqual(by_slug["velina"]["investment_cost_note"], "from_scratch_raise_needed")
+        self.assertEqual(by_slug["velina"]["readiness_score"], 10.0)
         self.assertGreater(by_slug["velina"]["potential_score"], by_slug["velina"]["reality_score"])
+        self.assertIn("不会直接压低角色价值", " ".join(by_slug["velina"]["reasons"]))
+
+    def test_level_does_not_change_agent_value_score(self) -> None:
+        low_level = {"agents": [{"name": "维琳娜", "level": 1, "mindscape": 0}]}
+        high_level = {"agents": [{"name": "维琳娜", "level": 60, "mindscape": 0}]}
+
+        low_values, _ = value_tool.build_agent_values(meta=mock_meta(), roster=low_level)
+        high_values, _ = value_tool.build_agent_values(meta=mock_meta(), roster=high_level)
+
+        self.assertEqual(low_values[0]["reality_score"], high_values[0]["reality_score"])
+        self.assertEqual(low_values[0]["potential_score"], high_values[0]["potential_score"])
+        self.assertNotEqual(low_values[0]["investment_cost_note"], high_values[0]["investment_cost_note"])
 
     def test_team_recommendations_keep_missing_units_out_of_current_teams(self) -> None:
         roster = {
@@ -155,6 +168,26 @@ class AgentValueCardsTests(unittest.TestCase):
         self.assertEqual(deadly["top_owned_candidates"][0]["members"], ["zhu-yuan", "qingyi", "nicole-demara"])
         self.assertEqual(deadly["missing_one_watchlist"][0]["missing_agent_slugs"], ["ukinami-yuzuha"])
         self.assertIn("不能算入当前可用队", deadly["missing_one_watchlist"][0]["note"])
+
+    def test_executive_summary_exposes_human_readable_decisions(self) -> None:
+        roster = {
+            "agents": [
+                {"name": "青衣", "level": 60},
+                {"name": "朱鸢", "level": 60},
+                {"name": "妮可", "level": 50},
+                {"name": "维琳娜", "level": 1},
+                {"name": "派派", "level": 10},
+            ]
+        }
+        values, _ = value_tool.build_agent_values(meta=mock_meta(), roster=roster)
+        recs = value_tool.build_team_recommendations(mock_meta(), values)
+
+        summary = value_tool.build_executive_summary(values, recs)
+
+        self.assertIn("current_endgame_teams", summary)
+        team = summary["current_endgame_teams"]["deadly_assault"]["recommended_team"]
+        self.assertEqual(team["member_names"], ["朱鸢", "青衣", "妮可"])
+        self.assertTrue(summary["policy_notes"])
 
 
 if __name__ == "__main__":

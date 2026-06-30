@@ -365,17 +365,14 @@ def build_agent_values(
         potential_tags = any(tag.lower() in {"has_potential", "watchlist [up]", "watchlist [down]"} for tag in tags)
 
         reality = (
-            tier_component * 0.28
-            + usage_component * 0.2
-            + score_component * 0.14
-            + ready * 0.18
-            + team_component * 0.14
-            + history_component * 0.06
+            tier_component * 0.32
+            + usage_component * 0.22
+            + score_component * 0.16
+            + team_component * 0.2
+            + history_component * 0.1
         ) * role_multiplier
         if "down" in {mark.lower() for mark in marks}:
             reality -= 4.0
-        if level < 20 and owned_team_count == 0 and partial_team_count == 0:
-            reality -= 3.0
 
         potential = (
             tier_component * 0.32
@@ -414,6 +411,7 @@ def build_agent_values(
             "history_phase_presence_count": history_count,
             "owned_latest_team_count": owned_team_count,
             "missing_one_latest_team_count": partial_team_count,
+            "readiness_score": ready,
             "reality_score": reality,
             "potential_score": potential,
             "account_tier": rank_label(reality),
@@ -477,9 +475,9 @@ def reasons_for_agent(
     if latest_avg_score >= 30000:
         reasons.append(f"当前高难最高平均分约 {latest_avg_score:.0f}，上限信号较好。")
     if level >= 50:
-        reasons.append("当前等级已接近可用线，现实价值加权更高。")
+        reasons.append("当前等级已接近可用线，后续补强成本较低。")
     elif level <= 10:
-        reasons.append("当前等级很低，即使潜力高也先进入观察，不自动建议重投入。")
+        reasons.append("当前等级很低，只代表需要从头投入资源；不会直接压低角色价值。")
     if owned_team_count:
         reasons.append(f"当前 phase 公开队伍中存在 {owned_team_count} 个全 owned 候选。")
     elif partial_team_count:
@@ -563,6 +561,77 @@ def build_team_recommendations(meta: dict[str, Any], values: list[dict[str, Any]
     return result
 
 
+def build_executive_summary(values: list[dict[str, Any]], recommendations: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "top_current_investments": [
+            compact_agent(item)
+            for item in values
+            if item.get("recommendation_status") in {"core_invest", "priority_raise_from_low_level", "usable_invest"}
+        ][:6],
+        "raise_if_team_needed": [
+            compact_agent(item)
+            for item in values
+            if item.get("recommendation_status") == "raise_if_team_needed"
+        ][:8],
+        "do_not_raise_for_clear": [
+            compact_agent(item)
+            for item in values
+            if item.get("recommendation_status") == "do_not_raise_for_clear"
+        ][:8],
+        "current_endgame_teams": {
+            mode: summarize_mode_recommendation(rec)
+            for mode, rec in recommendations.items()
+        },
+        "policy_notes": [
+            "低等级只代表培养成本，不直接压低角色价值。",
+            "缺失角色只能进入观察队，不能算当前可用队。",
+            "低 tier、下坡、生态差、公开使用弱且无法改善终局结果的角色不为过关强拉。",
+        ],
+    }
+
+
+def compact_agent(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "agent_slug": item.get("agent_slug"),
+        "name": item.get("name"),
+        "account_tier": item.get("account_tier"),
+        "level": item.get("level"),
+        "reality_score": item.get("reality_score"),
+        "potential_score": item.get("potential_score"),
+        "readiness_score": item.get("readiness_score"),
+        "recommendation_status": item.get("recommendation_status"),
+        "investment_cost_note": item.get("investment_cost_note"),
+    }
+
+
+def summarize_mode_recommendation(rec: dict[str, Any]) -> dict[str, Any]:
+    candidates = rec.get("top_owned_candidates", [])
+    main = next((item for item in candidates if item.get("recommendation_class") == "main_candidate"), None)
+    fallback = candidates[0] if candidates else None
+    selected = main or fallback
+    return {
+        "recommended_team": compact_team(selected),
+        "recommendation_strength": "main_candidate" if main else "transition_or_low_confidence",
+        "owned_candidate_count": rec.get("owned_candidate_count", 0),
+        "missing_one_watchlist": rec.get("missing_one_watchlist", [])[:3],
+    }
+
+
+def compact_team(item: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not item:
+        return None
+    return {
+        "scope_key": item.get("scope_key"),
+        "members": item.get("members"),
+        "member_names": item.get("member_names"),
+        "team_score": item.get("team_score"),
+        "app_rate": item.get("app_rate"),
+        "avg_score": item.get("avg_score"),
+        "recommendation_class": item.get("recommendation_class"),
+        "warnings": item.get("warnings", []),
+    }
+
+
 def dedupe_team_members(teams: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     seen: set[tuple[str, ...]] = set()
@@ -591,6 +660,7 @@ def team_warnings(members: list[Any], value_by_slug: dict[str, dict[str, Any]]) 
 
 
 def render_markdown(result: dict[str, Any]) -> str:
+    executive = result.get("executive_summary", {}) if isinstance(result.get("executive_summary"), dict) else {}
     lines = [
         "# ZZZ Box 代理人价值报告",
         "",
@@ -598,11 +668,46 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"owned_count: {result.get('summary', {}).get('owned_count')}",
         f"unmapped_count: {result.get('summary', {}).get('unmapped_count')}",
         "",
+        "## 一屏结论",
+        "",
+        "### 当前优先看",
+        "",
+    ]
+    for item in executive.get("top_current_investments", [])[:5]:
+        lines.append(
+            f"- {item['name']}：{item['account_tier']}，现实 {item['reality_score']} / 潜力 {item['potential_score']}，{item['recommendation_status']}"
+        )
+    if executive.get("raise_if_team_needed"):
+        lines.extend(["", "### 队伍需要就拉起", ""])
+        for item in executive.get("raise_if_team_needed", [])[:5]:
+            lines.append(
+                f"- {item['name']}：等级 {item['level']}，现实 {item['reality_score']} / 潜力 {item['potential_score']}，成本={item['investment_cost_note']}"
+            )
+    if executive.get("do_not_raise_for_clear"):
+        lines.extend(["", "### 不为了过关强拉", ""])
+        for item in executive.get("do_not_raise_for_clear", [])[:5]:
+            lines.append(f"- {item['name']}：现实 {item['reality_score']} / 潜力 {item['potential_score']}")
+    lines.extend(["", "### 当前两类高难候选", ""])
+    for mode, rec in executive.get("current_endgame_teams", {}).items():
+        team = rec.get("recommended_team")
+        if not team:
+            lines.append(f"- {mode}: 暂无全 owned 候选。")
+            continue
+        warning = "；".join(team.get("warnings", []))
+        lines.append(
+            f"- {mode}: {' / '.join(str(name) for name in team.get('member_names', []))} "
+            f"(score={team.get('team_score')}, {rec.get('recommendation_strength')})"
+            + (f"；{warning}" if warning else "")
+        )
+    lines.extend(
+        [
+            "",
         "## 账号内代理人 Tier",
         "",
         "| Tier | 代理人 | 等级 | 影画 | 现实价值 | 潜力价值 | 建议 |",
         "| --- | --- | ---: | ---: | ---: | ---: | --- |",
-    ]
+        ]
+    )
     for item in result.get("agent_values", []):
         lines.append(
             f"| {item['account_tier']} | {item['name']} | {item['level']} | {item.get('mindscape', 0)} | "
@@ -642,7 +747,7 @@ def render_markdown(result: dict[str, Any]) -> str:
             "",
             "- 该报告基于 roster 图粗字段和 Prydwen 公开统计，不判断毕业度。",
             "- 缺失角色只能进入观察队，不能算当前可用队。",
-            "- 低等级/低现实价值角色只能标过渡，不建议为了过关重投入。",
+            "- 低等级只代表培养成本；低 tier、下坡、生态差且无法改善终局结果的角色才不建议为过关重投入。",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -653,6 +758,7 @@ def build_agent_value_report(meta_snapshot: Path, roster_json: Path, output_dir:
     roster = load_json(roster_json)
     values, summary = build_agent_values(meta=meta, roster=roster)
     recommendations = build_team_recommendations(meta, values)
+    executive_summary = build_executive_summary(values, recommendations)
     result = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": now_iso(),
@@ -661,6 +767,7 @@ def build_agent_value_report(meta_snapshot: Path, roster_json: Path, output_dir:
             "roster_json": str(roster_json),
         },
         "summary": summary,
+        "executive_summary": executive_summary,
         "agent_values": values,
         "team_recommendations": recommendations,
         "warnings": [

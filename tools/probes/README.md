@@ -37,7 +37,18 @@ python tools/probes/build_agent_value_cards.py `
 * 现实价值 / 潜力价值；
 * Shiyu Defense / Deadly Assault 当前 phase 全 owned 队伍候选；
 * 缺一名角色的观察队；
-* 低等级投入成本、低价值角色不要为过关强拉的警告。
+* 低等级只作为投入成本提示，低 tier / 下坡 / 生态差角色不要为过关强拉的警告。
+
+如果想一条命令完成“必要时刷新公开 meta + 生成价值报告”，用：
+
+```powershell
+python tools/probes/run_zzz_box_value_pipeline.py `
+  --roster-json data/probes/box/1782845579231_roster_manual_draft.json `
+  --meta-snapshot data/probes/meta/zzz_prydwen_meta_all_phases.json `
+  --output-dir data/probes/value/1782845579231
+```
+
+如果 `--meta-snapshot` 不存在或加了 `--refresh-meta`，pipeline 会先读取公开 Prydwen 数据。原始 box 图片仍不会自动入库；当前需要先提供脱敏 roster JSON。
 
 ## 推荐验证顺序
 
