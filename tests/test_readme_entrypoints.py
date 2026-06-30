@@ -58,9 +58,14 @@ class ReadmeEntrypointTests(unittest.TestCase):
             self.assertIn(marker, launcher)
 
     def test_demo_launcher_default_never_runs_ocr(self) -> None:
+        wrapper = (PROJECT_ROOT / "scripts" / "run_miho_demo.bat").read_text(encoding="utf-8")
         launcher = (PROJECT_ROOT / "scripts" / "run_miho_demo.ps1").read_text(encoding="utf-8")
         installer = (PROJECT_ROOT / "scripts" / "install_miho_demo_shortcut.ps1").read_text(encoding="utf-8")
 
+        self.assertIn("dist\\MihoProbe.exe", wrapper)
+        self.assertIn("dashboard --open", wrapper)
+        self.assertIn("fresh --open", wrapper)
+        self.assertIn("run_miho_demo.ps1", wrapper)
         self.assertIn("It never runs OCR automatically.", launcher)
         self.assertIn("This shortcut does not run OCR automatically.", launcher)
         self.assertIn("scripts\\run_miho_demo.bat --fresh only", launcher)

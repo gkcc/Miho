@@ -19,10 +19,10 @@ Miho 要做的是一个本地优先的游戏练度更新与规划软件：米游
 
 第一次还没有 Dashboard 缓存时，`MihoProbe` 会打开“初次启动”欢迎页，不会偷偷跑 OCR，也不是报错。
 
-没有 EXE 时才用脚本版入口：
+脚本版入口现在是兼容壳：有 `dist\MihoProbe.exe` 时优先走 EXE 快入口；没有 EXE 时才回落到 PowerShell 脚本。
 
-- `scripts\run_miho_demo.bat`：打开缓存 Dashboard，不跑 OCR。
-- `scripts\run_miho_demo.bat --fresh`：识别 `figs/` 下新增或变更的分享图。
+- `scripts\run_miho_demo.bat`：等价于 `dist\MihoProbe.exe dashboard --open`，打开缓存 Dashboard，不跑 OCR。
+- `scripts\run_miho_demo.bat --fresh`：等价于 `dist\MihoProbe.exe fresh --open`，识别 `figs/` 下新增或变更的分享图。
 
 如果你只想验收页面，不要先跑 OCR。先用“秒开缓存”的入口看 Dashboard 是否可读：
 
