@@ -2387,6 +2387,86 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("角色=A source=visual_fallback region=character_rank", log)
         self.assertIn("音擎=S source=ocr_or_text region=equipment_rank", log)
 
+    def test_run_demo_pipeline_image_mode_propagates_visual_rank_sources_from_review_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images_dir = root / "figs"
+            output_dir = root / "demo"
+            images_dir.mkdir()
+            image_path = images_dir / "share.jpg"
+            image_path.write_bytes(b"official-share-image")
+            original_run_review = pipeline_tool.review_once.run_review
+
+            def fake_run_review(*, image_path, output_dir, engine, lang, game, layout, write_crops, crop_output_dir):  # noqa: ANN001, ANN003
+                parsed = parsed_json("可琳", image=str(Path(image_path).resolve()))
+                parsed["metadata"]["visual_rank_fallback"] = [
+                    {
+                        "region": "character_rank",
+                        "rank": "A",
+                        "confidence": 0.91,
+                        "reason": "purple_local_peak",
+                        "method": "color_ratio_with_local_peak",
+                    },
+                    {
+                        "region": "equipment_rank",
+                        "rank": "S",
+                        "confidence": 0.95,
+                        "reason": "orange_global",
+                        "method": "color_ratio_with_local_peak",
+                    },
+                ]
+                parsed["extracted_draft"]["character"]["rank"] = field("A")
+                parsed["extracted_draft"]["character"]["rank"]["source_region"] = "character_rank"
+                parsed["extracted_draft"]["equipment"]["rank"] = field("S")
+                parsed["extracted_draft"]["equipment"]["rank"]["source_region"] = "equipment_rank"
+                parsed_path = Path(output_dir) / "share_parsed.json"
+                markdown_path = Path(output_dir) / "share_parsed.md"
+                review_html = Path(output_dir) / "share_review.html"
+                overlay_png = Path(output_dir) / "share_overlay.png"
+                parsed_path.write_text(json.dumps(parsed, ensure_ascii=False), encoding="utf-8")
+                markdown_path.write_text("# parsed\n", encoding="utf-8")
+                review_html.write_text("<html>review</html>", encoding="utf-8")
+                overlay_png.write_bytes(b"png")
+                return {
+                    "json_path": str(parsed_path),
+                    "markdown_path": str(markdown_path),
+                    "review_html": str(review_html),
+                    "overlay_png": str(overlay_png),
+                    "review_status": "PASS",
+                    "coverage_level": "medium",
+                    "errors": [],
+                }
+
+            pipeline_tool.review_once.run_review = fake_run_review
+            try:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    summary = pipeline_tool.run_pipeline(
+                        images_dir=images_dir,
+                        parsed_dir=None,
+                        manifest=None,
+                        output_dir=output_dir,
+                        state_file=root / "update_state.json",
+                        roster_dir=root / "roster",
+                        open_dashboard=False,
+                    )
+            finally:
+                pipeline_tool.review_once.run_review = original_run_review
+
+        self.assertEqual(summary["overall"]["case_count"], 1)
+        rank_sources = summary["cases"][0]["rank_sources"]
+        self.assertEqual(rank_sources["character"]["rank"], "A")
+        self.assertEqual(rank_sources["character"]["source"], "visual_fallback")
+        self.assertEqual(rank_sources["character"]["region"], "character_rank")
+        self.assertEqual(rank_sources["character"]["confidence"], 0.91)
+        self.assertEqual(rank_sources["equipment"]["rank"], "S")
+        self.assertEqual(rank_sources["equipment"]["source"], "visual_fallback")
+        self.assertEqual(rank_sources["equipment"]["region"], "equipment_rank")
+        self.assertEqual(rank_sources["equipment"]["confidence"], 0.95)
+        log = output.getvalue()
+        self.assertIn("角色=A source=visual_fallback region=character_rank", log)
+        self.assertIn("音擎=S source=visual_fallback region=equipment_rank", log)
+
     def test_cli_demo_command_calls_pipeline_core(self) -> None:
         calls = []
         original_run_pipeline = cli_tool.demo_tool.run_pipeline

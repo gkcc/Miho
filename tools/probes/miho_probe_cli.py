@@ -92,6 +92,25 @@ _REPLAY_TOOL = None
 TOP_LEVEL_HELP_FLAGS = {"--help", "-h", "help", "菜单", "menu"}
 
 
+def is_frozen_runtime() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def frozen_ocr_dependency_error(engine: str) -> str | None:
+    if not is_frozen_runtime() or engine != "paddle":
+        return None
+    try:
+        parse_probe.load_paddle_dependency()
+    except Exception as exc:  # noqa: BLE001 - report the frozen dependency boundary clearly.
+        detail = str(exc) or exc.__class__.__name__
+        return (
+            "PaddleOCR runtime is not available inside this MihoProbe.exe build. "
+            "Use the Python command for OCR fresh/update, or rebuild the EXE with OCR dependencies. "
+            f"Details: {detail}"
+        )
+    return None
+
+
 class CliReplayError(RuntimeError):
     pass
 
@@ -525,7 +544,7 @@ def run_fresh(args: argparse.Namespace) -> int:
     is_update = command_name == "update"
     if is_update:
         print("update_scope: saved_official_share_images_only", flush=True)
-        print("update_note: 当前安全版只处理 figs 下已保存的官方分享图；不会自动操作米游社 APP。", flush=True)
+        print("update_note: safe_mode; reads saved official share images under figs only; no app automation.", flush=True)
     else:
         print("fresh_scope: saved_official_share_images_only", flush=True)
     images_dir = resolve_cli_path(args.images_dir)
@@ -539,6 +558,16 @@ def run_fresh(args: argparse.Namespace) -> int:
         print(f"ERROR: local image directory does not exist: {images_dir}", file=sys.stderr, flush=True)
         print("Put official share images under figs\\, then run MihoProbe.exe update.", file=sys.stderr, flush=True)
         return 1
+    dependency_error = frozen_ocr_dependency_error(str(args.engine))
+    if dependency_error:
+        print("fresh_status: dependency_missing", flush=True)
+        print("fresh_dependency: paddleocr_unavailable_in_frozen_exe", flush=True)
+        print(f"fresh_note: {dependency_error}", flush=True)
+        print(
+            "fresh_python_fallback: python tools/probes/run_demo_pipeline.py --images-dir figs --engine paddle --open",
+            flush=True,
+        )
+        return 5
     summary = demo_tool.run_pipeline(
         images_dir=images_dir,
         parsed_dir=None,

@@ -568,9 +568,54 @@ class MihoProbeCliTests(unittest.TestCase):
 
             self.assertEqual(result, 0)
             self.assertIn("update_scope: saved_official_share_images_only", output.getvalue())
-            self.assertIn("不会自动操作米游社 APP", output.getvalue())
+            self.assertIn("no app automation", output.getvalue())
             self.assertIn("update_start:", output.getvalue())
             self.assertIn("mode=new_or_changed_only", output.getvalue())
+
+    def test_run_update_returns_dependency_code_when_frozen_paddleocr_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            figs = root / "figs"
+            figs.mkdir()
+            fake_pipeline = mock.Mock()
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli_tool, "is_frozen_runtime", return_value=True),
+                mock.patch.object(cli_tool.parse_probe, "load_paddle_dependency", side_effect=RuntimeError("missing paddleocr")),
+                mock.patch.object(cli_tool.demo_tool, "run_pipeline", fake_pipeline),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_tool.run_fresh(
+                    argparse.Namespace(
+                        command="update",
+                        images_dir=str(figs),
+                        output_dir=str(root / "demo"),
+                        expected_dir=str(root / "expected"),
+                        engine="paddle",
+                        game="zzz",
+                        layout="zzz-agent-card",
+                        open=False,
+                        rescan_all=True,
+                        clean_demo=False,
+                        targets=None,
+                        state_file=None,
+                        history_dir=None,
+                        target_source_manifest=None,
+                        character_catalog=None,
+                        roster_dir=str(root / "roster"),
+                        tier_snapshot=None,
+                        tier_stale_days=60,
+                        daily_stamina=None,
+                        horizon_days=None,
+                    )
+                )
+
+            self.assertEqual(result, 5)
+            fake_pipeline.assert_not_called()
+            text = output.getvalue()
+            self.assertIn("fresh_status: dependency_missing", text)
+            self.assertIn("fresh_dependency: paddleocr_unavailable_in_frozen_exe", text)
+            self.assertIn("fresh_python_fallback:", text)
 
     def test_run_plan_update_does_not_run_ocr_and_uses_empty_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
