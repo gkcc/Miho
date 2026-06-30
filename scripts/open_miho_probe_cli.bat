@@ -22,6 +22,8 @@ echo   dist\MihoProbe.exe app-export-calibrate --open
 echo   dist\MihoProbe.exe app-export-run --no-open
 echo   dist\MihoProbe.exe update --open
 echo   dist\MihoProbe.exe plan-update --open
+echo   dist\MihoProbe.exe box-roster --image data\probes\exported_images\zzz_box.png --no-open
+echo   dist\MihoProbe.exe box-value --box-image data\probes\exported_images\zzz_box.png --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json
 echo   dist\MihoProbe.exe rank-check --open
 echo   dist\MihoProbe.exe fresh --open
 echo   dist\MihoProbe.exe check --no-open

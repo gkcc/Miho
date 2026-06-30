@@ -57,6 +57,8 @@ planner_tool = LazyModule("plan_training_priorities")
 target_tool = LazyModule("prepare_endgame_targets")
 dashboard_tool = LazyModule("render_demo_dashboard")
 demo_tool = LazyModule("run_demo_pipeline")
+box_roster_tool = LazyModule("extract_zzz_box_roster")
+box_value_tool = LazyModule("run_zzz_box_value_pipeline")
 
 
 def detect_project_root() -> Path:
@@ -87,6 +89,8 @@ DEFAULT_ROSTER_DIR = PROJECT_ROOT / "data" / "probes" / "roster"
 DEFAULT_NORMALIZED_DIR = PROJECT_ROOT / "data" / "probes" / "normalized"
 DEFAULT_PLANNER_DIR = PROJECT_ROOT / "data" / "probes" / "planner"
 DEFAULT_TARGETS_DIR = PROJECT_ROOT / "data" / "probes" / "targets"
+DEFAULT_BOX_DIR = PROJECT_ROOT / "data" / "probes" / "box"
+DEFAULT_BOX_VALUE_DIR = PROJECT_ROOT / "data" / "probes" / "value" / "box_value_pipeline"
 DEFAULT_REPLAY_MANIFEST = PROJECT_ROOT / "data" / "probes" / "replay_manifest.json"
 DEFAULT_RANK_CHECK_DIR = DEFAULT_DEMO_OUTPUT_DIR / "rank_check"
 DEFAULT_MAX_SOURCE_AGE_HOURS = 168
@@ -160,6 +164,12 @@ def render_user_help() -> str:
   MihoProbe.exe plan-update
     一键更新高难/Tier/配队建议（安全版）：默认不图片识别、不联网；显式 source manifest 只访问公开来源。
 
+  MihoProbe.exe box-roster --image data\\probes\\exported_images\\zzz_box.png
+    从米游社官方 box 总览图生成脱敏 roster probe。人工确认前不能进入 accepted roster。
+
+  MihoProbe.exe box-value --box-image data\\probes\\exported_images\\zzz_box.png --meta-snapshot data\\probes\\meta\\zzz_prydwen_meta_all_phases.json
+    用本地 box 图或 roster JSON 加公开 Prydwen meta 生成账号内价值报告。
+
   MihoProbe.exe rank-check
     只检查头像/音擎 A/S 艺术字固定区域。不跑图片识别，用来排查评级识别。
 
@@ -176,6 +186,8 @@ def render_user_help() -> str:
   MihoProbe.exe app-export --help
   MihoProbe.exe app-export-calibrate --help
   MihoProbe.exe plan-update --help
+  MihoProbe.exe box-roster --help
+  MihoProbe.exe box-value --help
   MihoProbe.exe rank-check --help
   MihoProbe.exe fresh --help
   MihoProbe.exe replay --help
@@ -1640,6 +1652,73 @@ def run_targets(args: argparse.Namespace) -> int:
     return 0
 
 
+def default_box_roster_output(image_path: Path) -> Path:
+    return DEFAULT_BOX_DIR / f"{image_path.stem}_roster_from_box_image.json"
+
+
+def run_box_roster(args: argparse.Namespace) -> int:
+    image_path = resolve_cli_path(args.image)
+    output_json = resolve_cli_path(args.output) if args.output else default_box_roster_output(image_path)
+    output_markdown = resolve_cli_path(args.markdown) if args.markdown else output_json.with_suffix(".md")
+    meta_snapshot = resolve_cli_path(args.meta_snapshot) if args.meta_snapshot else None
+    print("[MihoProbe] Box roster probe：只读取用户显式提供的本地米游社官方 box 图。", flush=True)
+    print("[MihoProbe] 不读取账号、cookie/token，不保存 header UID/昵称/原始 OCR，不写正式数据库。", flush=True)
+    print("box_roster_scope: explicit_local_official_box_image_only", flush=True)
+    try:
+        result = box_roster_tool.extract_roster_from_image(
+            image_path=image_path,
+            output_json=output_json,
+            meta_snapshot=meta_snapshot,
+            output_markdown=output_markdown,
+            ocr_scale=args.ocr_scale,
+            min_mindscape_confidence=args.min_mindscape_confidence,
+        )
+    except box_roster_tool.BoxRosterExtractError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr, flush=True)
+        return 2
+    summary = result.get("summary", {}) if isinstance(result.get("summary"), dict) else {}
+    print(f"roster_json: {result['output_json']}", flush=True)
+    print(f"roster_markdown: {result['output_markdown']}", flush=True)
+    print(f"owned_count: {summary.get('owned_count', 0)}", flush=True)
+    print(f"mapped_count: {summary.get('mapped_count', 0)}", flush=True)
+    print(f"needs_review_count: {summary.get('needs_review_count', 0)}", flush=True)
+    print("box_roster_review_gate: manual_confirmation_required_before_accepted_roster", flush=True)
+    for warning in result.get("warnings", []):
+        print(f"warning: {warning}", flush=True)
+    if args.open and output_markdown.exists():
+        webbrowser.open(output_markdown.resolve().as_uri())
+        print(f"roster_markdown_opened: {output_markdown}", flush=True)
+    needs_review = int(summary.get("needs_review_count") or 0)
+    return 0 if needs_review == 0 else 1
+
+
+def run_box_value(args: argparse.Namespace) -> int:
+    argv: list[str] = ["--output-dir", str(resolve_cli_path(args.output_dir))]
+    if args.roster_json:
+        argv.extend(["--roster-json", str(resolve_cli_path(args.roster_json))])
+    if args.box_image:
+        argv.extend(["--box-image", str(resolve_cli_path(args.box_image))])
+    if args.roster_output:
+        argv.extend(["--roster-output", str(resolve_cli_path(args.roster_output))])
+    if args.meta_snapshot:
+        argv.extend(["--meta-snapshot", str(resolve_cli_path(args.meta_snapshot))])
+    if args.refresh_meta:
+        argv.append("--refresh-meta")
+    if args.current_only:
+        argv.append("--current-only")
+    if args.max_phases is not None:
+        argv.extend(["--max-phases", str(args.max_phases)])
+    argv.extend(["--timeout", str(args.timeout)])
+    argv.extend(["--request-delay", str(args.request_delay)])
+    argv.extend(["--box-ocr-scale", str(args.box_ocr_scale)])
+    argv.extend(["--min-mindscape-confidence", str(args.min_mindscape_confidence)])
+    print("[MihoProbe] Box value probe：用本地 roster/box 图和公开 Prydwen meta 生成账号内价值报告。", flush=True)
+    print("[MihoProbe] 不读取账号登录态，不抓包，不把未拥有角色算作当前可用队伍。", flush=True)
+    print("box_value_scope: local_roster_or_box_image_plus_public_meta", flush=True)
+    print("box_value_review_gate: image_roster_requires_manual_confirmation_before_accepted_roster", flush=True)
+    return int(box_value_tool.main(argv))
+
+
 def run_gpt_review(args: argparse.Namespace) -> int:
     prompt = gpt_prompt_tool.render_prompt(
         mode=args.mode,
@@ -1743,6 +1822,33 @@ def add_rank_check_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--layout", choices=("zzz-agent-card",), default="zzz-agent-card")
     parser.add_argument("--open", action="store_true", default=True, help="Open generated HTML. Default: true.")
     parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the HTML report.")
+
+
+def add_box_roster_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--image", required=True, help="Local official MiYouShe ZZZ box overview image.")
+    parser.add_argument("--output", default=None, help="Output roster JSON. Default: data/probes/box/<image>_roster_from_box_image.json.")
+    parser.add_argument("--markdown", default=None, help="Output Markdown review file. Default: output JSON with .md suffix.")
+    parser.add_argument("--meta-snapshot", default=None, help="Optional local Prydwen meta snapshot for alias mapping.")
+    parser.add_argument("--ocr-scale", type=int, default=2, help="Resize factor before full-image OCR. Default: 2.")
+    parser.add_argument("--min-mindscape-confidence", type=float, default=0.85)
+    parser.add_argument("--open", action="store_true", default=True, help="Open generated Markdown review file. Default: true.")
+    parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the Markdown review file.")
+
+
+def add_box_value_args(parser: argparse.ArgumentParser) -> None:
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--roster-json", help="Redacted local roster JSON.")
+    source.add_argument("--box-image", help="Local official MiYouShe ZZZ box overview image. Creates roster JSON before value report.")
+    parser.add_argument("--roster-output", default=None, help="Where to write roster JSON extracted from --box-image.")
+    parser.add_argument("--meta-snapshot", default=None, help="Existing public meta snapshot. If omitted, one is created under output-dir.")
+    parser.add_argument("--output-dir", default=str(DEFAULT_BOX_VALUE_DIR), help="Output directory. Default: data/probes/value/box_value_pipeline.")
+    parser.add_argument("--refresh-meta", action="store_true", help="Fetch public Prydwen meta even if meta-snapshot already exists.")
+    parser.add_argument("--current-only", action="store_true", help="Fetch only current Prydwen phases when refreshing meta.")
+    parser.add_argument("--max-phases", type=int, default=None)
+    parser.add_argument("--timeout", type=int, default=30)
+    parser.add_argument("--request-delay", type=float, default=0.15)
+    parser.add_argument("--box-ocr-scale", type=int, default=2, help="Resize factor before box-image OCR. Default: 2.")
+    parser.add_argument("--min-mindscape-confidence", type=float, default=0.85)
 
 
 def add_app_export_args(parser: argparse.ArgumentParser) -> None:
@@ -1872,6 +1978,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     plan_update = subparsers.add_parser("plan-update", help="One-click local endgame/Tier/team suggestion update without OCR.")
     add_plan_update_args(plan_update)
     plan_update.set_defaults(handler=run_plan_update)
+
+    box_roster = subparsers.add_parser("box-roster", help="Extract a redacted roster probe from a local MiYouShe ZZZ box overview image.")
+    add_box_roster_args(box_roster)
+    box_roster.set_defaults(handler=run_box_roster)
+
+    box_value = subparsers.add_parser("box-value", help="Build ZZZ box value report from a roster JSON or local box overview image.")
+    add_box_value_args(box_value)
+    box_value.set_defaults(handler=run_box_value)
 
     rank_check = subparsers.add_parser("rank-check", help="Check fixed A/S visual rank regions without OCR.")
     add_rank_check_args(rank_check)

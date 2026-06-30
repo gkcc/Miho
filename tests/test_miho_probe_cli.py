@@ -97,6 +97,10 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("默认 dry-run", help_text)
         self.assertIn("MihoProbe.exe plan-update", help_text)
         self.assertIn("一键更新高难/Tier/配队建议", help_text)
+        self.assertIn("MihoProbe.exe box-roster", help_text)
+        self.assertIn("脱敏 roster probe", help_text)
+        self.assertIn("MihoProbe.exe box-value", help_text)
+        self.assertIn("公开 Prydwen meta", help_text)
         self.assertIn("MihoProbe.exe rank-check", help_text)
         self.assertIn("只检查头像/音擎 A/S 艺术字固定区域", help_text)
         self.assertIn("识别 figs\\ 下新增或变更的官方分享图", help_text)
@@ -134,6 +138,8 @@ class MihoProbeCliTests(unittest.TestCase):
             cli_tool.target_tool,
             cli_tool.dashboard_tool,
             cli_tool.demo_tool,
+            cli_tool.box_roster_tool,
+            cli_tool.box_value_tool,
         ]
         for lazy_module in lazy_modules:
             lazy_module._module = None
@@ -488,6 +494,121 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(args.command, "rank-check")
         self.assertFalse(args.open)
         self.assertTrue(str(args.images_dir).endswith("figs"))
+
+    def test_parser_has_box_roster_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["box-roster", "--image", "data/probes/exported_images/zzz_box.png", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_box_roster)
+        self.assertEqual(args.command, "box-roster")
+        self.assertEqual(args.image, "data/probes/exported_images/zzz_box.png")
+        self.assertFalse(args.open)
+        self.assertEqual(args.ocr_scale, 2)
+
+    def test_parser_has_box_value_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(
+            [
+                "box-value",
+                "--box-image",
+                "data/probes/exported_images/zzz_box.png",
+                "--meta-snapshot",
+                "data/probes/meta/zzz_prydwen_meta_all_phases.json",
+            ]
+        )
+
+        self.assertEqual(args.handler, cli_tool.run_box_value)
+        self.assertEqual(args.command, "box-value")
+        self.assertEqual(args.box_image, "data/probes/exported_images/zzz_box.png")
+        self.assertIsNone(args.roster_json)
+        self.assertTrue(str(args.output_dir).endswith("data\\probes\\value\\box_value_pipeline") or str(args.output_dir).endswith("data/probes/value/box_value_pipeline"))
+
+    def test_run_box_roster_uses_redacted_probe_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image = root / "zzz_box.png"
+            image.write_bytes(b"fake image placeholder")
+            fake_box_tool = mock.Mock()
+            fake_box_tool.extract_roster_from_image.return_value = {
+                "output_json": str(root / "box" / "zzz_box_roster_from_box_image.json"),
+                "output_markdown": str(root / "box" / "zzz_box_roster_from_box_image.md"),
+                "summary": {"owned_count": 2, "mapped_count": 2, "needs_review_count": 0},
+                "warnings": [],
+            }
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli_tool, "DEFAULT_BOX_DIR", root / "box"),
+                mock.patch.object(cli_tool, "box_roster_tool", fake_box_tool),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_tool.run_box_roster(
+                    argparse.Namespace(
+                        image=str(image),
+                        output=None,
+                        markdown=None,
+                        meta_snapshot=None,
+                        ocr_scale=2,
+                        min_mindscape_confidence=0.85,
+                        open=False,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            call = fake_box_tool.extract_roster_from_image.call_args.kwargs
+            self.assertEqual(call["image_path"], image.resolve())
+            self.assertEqual(call["output_json"], (root / "box" / "zzz_box_roster_from_box_image.json").resolve())
+            self.assertEqual(call["output_markdown"], (root / "box" / "zzz_box_roster_from_box_image.md").resolve())
+            text = output.getvalue()
+            self.assertIn("box_roster_scope: explicit_local_official_box_image_only", text)
+            self.assertIn("box_roster_review_gate: manual_confirmation_required_before_accepted_roster", text)
+            self.assertIn("needs_review_count: 0", text)
+
+    def test_run_box_value_delegates_to_pipeline_with_safe_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image = root / "zzz_box.png"
+            meta = root / "meta.json"
+            output_dir = root / "value"
+            image.write_bytes(b"fake image placeholder")
+            meta.write_text("{}", encoding="utf-8")
+            fake_value_tool = mock.Mock()
+            fake_value_tool.main.return_value = 0
+            output = io.StringIO()
+            with (
+                mock.patch.object(cli_tool, "box_value_tool", fake_value_tool),
+                contextlib.redirect_stdout(output),
+            ):
+                result = cli_tool.run_box_value(
+                    argparse.Namespace(
+                        box_image=str(image),
+                        roster_json=None,
+                        roster_output=None,
+                        meta_snapshot=str(meta),
+                        output_dir=str(output_dir),
+                        refresh_meta=False,
+                        current_only=True,
+                        max_phases=1,
+                        timeout=9,
+                        request_delay=0.25,
+                        box_ocr_scale=3,
+                        min_mindscape_confidence=0.8,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            argv = fake_value_tool.main.call_args.args[0]
+            self.assertIn("--box-image", argv)
+            self.assertIn(str(image.resolve()), argv)
+            self.assertIn("--meta-snapshot", argv)
+            self.assertIn(str(meta.resolve()), argv)
+            self.assertIn("--current-only", argv)
+            self.assertIn("--max-phases", argv)
+            self.assertIn("1", argv)
+            self.assertIn("--box-ocr-scale", argv)
+            self.assertIn("3", argv)
+            text = output.getvalue()
+            self.assertIn("box_value_scope: local_roster_or_box_image_plus_public_meta", text)
+            self.assertIn("box_value_review_gate: image_roster_requires_manual_confirmation_before_accepted_roster", text)
 
     def test_parser_has_app_export_workflow_entry(self) -> None:
         parser = cli_tool.build_arg_parser()
