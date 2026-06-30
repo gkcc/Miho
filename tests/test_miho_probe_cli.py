@@ -359,8 +359,14 @@ class MihoProbeCliTests(unittest.TestCase):
             root = Path(temp_dir)
             old_manifest = cli_tool.DEFAULT_REPLAY_MANIFEST
             old_demo_dir = cli_tool.DEFAULT_DEMO_OUTPUT_DIR
+            old_figs_dir = cli_tool.DEFAULT_FIGS_DIR
+            old_expected_dir = cli_tool.DEFAULT_EXPECTED_DIR
             cli_tool.DEFAULT_REPLAY_MANIFEST = root / "missing_replay_manifest.json"
             cli_tool.DEFAULT_DEMO_OUTPUT_DIR = root / "demo"
+            cli_tool.DEFAULT_FIGS_DIR = root / "figs"
+            cli_tool.DEFAULT_EXPECTED_DIR = root / "expected"
+            cli_tool.DEFAULT_FIGS_DIR.mkdir()
+            (cli_tool.DEFAULT_FIGS_DIR / "sample.jpg").write_bytes(b"not-real-image")
             stderr = io.StringIO()
             stdout = io.StringIO()
             try:
@@ -384,6 +390,8 @@ class MihoProbeCliTests(unittest.TestCase):
             finally:
                 cli_tool.DEFAULT_REPLAY_MANIFEST = old_manifest
                 cli_tool.DEFAULT_DEMO_OUTPUT_DIR = old_demo_dir
+                cli_tool.DEFAULT_FIGS_DIR = old_figs_dir
+                cli_tool.DEFAULT_EXPECTED_DIR = old_expected_dir
 
             self.assertEqual(result, 1)
             html_path = root / "demo" / "accuracy_check_missing_manifest.html"
@@ -391,7 +399,10 @@ class MihoProbeCliTests(unittest.TestCase):
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("准确率验收缺少样例清单", html)
             self.assertIn("缺少 replay manifest", html)
-            self.assertIn("MihoProbe.exe check --open", html)
+            self.assertIn("figs\\ 分享图", html)
+            self.assertIn("先识别这批图片", html)
+            self.assertIn("检测到 1 张分享图", html)
+            self.assertIn("MihoProbe.exe update", html)
             self.assertIn("MihoProbe.exe fresh", html)
             self.assertIn("准确率验收：缺少样例清单", stderr.getvalue())
             self.assertIn("help_html:", stderr.getvalue())

@@ -330,7 +330,29 @@ def render_first_run_dashboard(dashboard_path: Path) -> dict[str, str]:
 
 def render_missing_replay_manifest_page(manifest_path: Path, output_path: Path) -> dict[str, str]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    expected_path = PROJECT_ROOT / "data" / "probes" / "expected"
+    readiness = replay_readiness_snapshot()
+    expected_path = readiness["expected_dir"]
+    figs_path = readiness["figs_dir"]
+    parsed_dir = readiness["parsed_dir"]
+    image_count = readiness["image_count"]
+    expected_count = readiness["expected_count"]
+    parsed_count = readiness["parsed_count"]
+    if image_count and not parsed_count:
+        primary_title = "先识别这批图片"
+        primary_text = f"检测到 {image_count} 张分享图，但还没有 parsed JSON。先跑 update 生成解析结果，再人工补 expected。"
+        primary_command = "MihoProbe.exe update"
+    elif parsed_count and not expected_count:
+        primary_title = "先补 expected"
+        primary_text = f"检测到 {parsed_count} 个 parsed JSON，但 expected 目录还是空的。打开 review HTML 肉眼确认后补 expected。"
+        primary_command = 'notepad "data\\probes\\expected\\<image>_expected.json"'
+    elif expected_count:
+        primary_title = "补 replay manifest"
+        primary_text = f"检测到 {expected_count} 个 expected JSON。现在缺的是把 parsed 和 expected 配对写进固定清单。"
+        primary_command = 'notepad "data\\probes\\replay_manifest.json"'
+    else:
+        primary_title = "先放入分享图"
+        primary_text = "还没检测到分享图、parsed 或 expected。先把米游社官方分享图放进 figs\\。"
+        primary_command = "MihoProbe.exe update"
     html = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -357,6 +379,10 @@ def render_missing_replay_manifest_page(manifest_path: Path, output_path: Path) 
     h1 {{ margin: 0 0 8px; font-size: 34px; letter-spacing: 0; color: var(--warn); }}
     p {{ margin: 0; color: var(--muted); }}
     .badge {{ display: inline-flex; width: fit-content; padding: 8px 12px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); font-weight: 900; }}
+    .metrics {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }}
+    .metric {{ padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fafcff; }}
+    .metric span {{ display: block; color: var(--muted); font-size: 12px; }}
+    .metric strong {{ display: block; margin-top: 4px; font-size: 26px; }}
     .grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }}
     .card {{ display: grid; gap: 10px; align-content: start; min-height: 180px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }}
     .card.primary {{ border-color: #bfdbfe; background: var(--blue-bg); }}
@@ -366,7 +392,7 @@ def render_missing_replay_manifest_page(manifest_path: Path, output_path: Path) 
     code {{ display: block; padding: 10px; border-radius: 8px; background: #0f172a; color: #e2e8f0; overflow-wrap: anywhere; white-space: pre-wrap; }}
     .paths {{ display: grid; gap: 8px; color: var(--muted); font-size: 13px; }}
     .paths code {{ display: inline; padding: 0; background: transparent; color: var(--text); }}
-    @media (max-width: 860px) {{ .grid {{ grid-template-columns: 1fr; }} h1 {{ font-size: 28px; }} }}
+    @media (max-width: 860px) {{ .grid, .metrics {{ grid-template-columns: 1fr; }} h1 {{ font-size: 28px; }} }}
   </style>
 </head>
 <body>
@@ -377,11 +403,16 @@ def render_missing_replay_manifest_page(manifest_path: Path, output_path: Path) 
         <h1>缺少 replay manifest</h1>
         <p>这不是 OCR 失败，也不是 Dashboard 坏了。准确率验收必须用固定样例清单，避免把历史 parsed JSON 混进平均通过率。</p>
       </div>
+      <div class="metrics">
+        <div class="metric"><span>figs\\ 分享图</span><strong>{html_escape(str(image_count))}</strong></div>
+        <div class="metric"><span>parsed JSON</span><strong>{html_escape(str(parsed_count))}</strong></div>
+        <div class="metric"><span>expected JSON</span><strong>{html_escape(str(expected_count))}</strong></div>
+      </div>
       <div class="grid">
         <article class="card primary">
-          <strong>已有 3 张 expected</strong>
-          <span>把 parsed JSON 和 expected JSON 写进固定清单，然后重新跑验收。</span>
-          <code>MihoProbe.exe check --open</code>
+          <strong>{html_escape(primary_title)}</strong>
+          <span>{html_escape(primary_text)}</span>
+          <code>{html_escape(primary_command)}</code>
         </article>
         <article class="card">
           <strong>只想看软件界面</strong>
@@ -396,6 +427,8 @@ def render_missing_replay_manifest_page(manifest_path: Path, output_path: Path) 
       </div>
       <div class="paths">
         <span>缺少的清单：<code>{html_escape(str(manifest_path))}</code></span>
+        <span>分享图目录：<code>{html_escape(str(figs_path))}</code></span>
+        <span>parsed 本地目录：<code>{html_escape(str(parsed_dir))}</code></span>
         <span>expected 本地目录：<code>{html_escape(str(expected_path))}</code></span>
         <span>本说明页：<code>{html_escape(str(output_path))}</code></span>
       </div>
@@ -588,6 +621,20 @@ def image_files_in_dir(images_dir: Path) -> list[Path]:
     if not images_dir.exists() or not images_dir.is_dir():
         return []
     return sorted(path for path in images_dir.iterdir() if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS)
+
+
+def replay_readiness_snapshot() -> dict[str, Any]:
+    parsed_dir = PROJECT_ROOT / "data" / "probes" / "parsed"
+    expected_files = sorted(DEFAULT_EXPECTED_DIR.glob("*.json")) if DEFAULT_EXPECTED_DIR.exists() else []
+    parsed_files = sorted(parsed_dir.glob("*_parsed_*.json")) if parsed_dir.exists() else []
+    return {
+        "figs_dir": DEFAULT_FIGS_DIR,
+        "parsed_dir": parsed_dir,
+        "expected_dir": DEFAULT_EXPECTED_DIR,
+        "image_count": len(image_files_in_dir(DEFAULT_FIGS_DIR)),
+        "parsed_count": len(parsed_files),
+        "expected_count": len(expected_files),
+    }
 
 
 def safe_output_stem(path: Path) -> str:
