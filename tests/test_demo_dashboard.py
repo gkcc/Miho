@@ -1816,6 +1816,12 @@ class DemoDashboardTests(unittest.TestCase):
             steps = {item["name"]: item["status"] for item in summary["pipeline_steps"]}
             self.assertEqual(steps["OCR Review"], "FAIL")
             self.assertEqual(steps["Manual Review Gate"], "BLOCKED")
+            output = root / "dashboard.html"
+            dashboard_tool.render_dashboard(summary, output)
+            html = output.read_text(encoding="utf-8")
+            self.assertIn("本轮识别失败", html)
+            self.assertIn("有 1 张图没有成功解析", html)
+            self.assertIn("fresh/update 会返回非 0", html)
 
     def test_run_demo_pipeline_latest_only_keeps_newest_parsed_per_source_image(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

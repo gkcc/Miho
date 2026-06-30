@@ -155,6 +155,8 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("python tools/probes/build_gpt_review_prompt.py", protocol)
         self.assertIn("禁止重复探索", protocol)
         self.assertIn("不再让 Codex 读取右侧 GPT 的长历史", protocol)
+        self.assertIn("只允许一次固定动作", protocol)
+        self.assertIn("不在同一轮里尝试三种以上输入方式", protocol)
 
 
 if __name__ == "__main__":

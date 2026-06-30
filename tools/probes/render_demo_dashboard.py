@@ -2263,12 +2263,27 @@ def render_html(summary: dict[str, Any]) -> str:
     case_count = int(overall.get("case_count", 0) or 0)
     ready_count = int(endgame_summary.get("ready_now_count", 0) or 0) if endgame_summary else 0
     review_target_count = int(endgame_summary.get("needs_review_count", 0) or 0) if endgame_summary else 0
-    status_title = "可以按建议行动" if can_act_now else "暂不能直接采用"
-    status_body = (
-        "本轮数据已通过门禁，可以继续看下方建议。"
-        if can_act_now
-        else "当前还有解析失败、复核未完成或运行清单不一致，先按下一步处理。"
-    )
+    if case_count == 0:
+        status_title = "还没有本地数据"
+        status_body = "当前没有可用分享图或 parsed JSON；先放入官方分享图，或使用已有 manifest/parsed replay。"
+    elif parse_fail_count:
+        status_title = "本轮识别失败"
+        status_body = (
+            f"有 {parse_fail_count} 张图没有成功解析。Dashboard 已生成用于诊断，"
+            "但本轮结果不会进入练度建议；fresh/update 会返回非 0。"
+        )
+    elif expected_fail_count:
+        status_title = "准确率验收未通过"
+        status_body = f"有 {expected_fail_count} 个样例和 expected 不一致；先看 top failed fields，再改解析规则。"
+    elif manual_review_count:
+        status_title = "先人工确认"
+        status_body = f"有 {manual_review_count} 个识别结果待确认；确认前不会进入本地角色库，也不会作为配队依据。"
+    elif can_act_now:
+        status_title = "可以按建议行动"
+        status_body = "本轮数据已通过门禁，可以继续看下方建议。"
+    else:
+        status_title = "暂不能直接采用"
+        status_body = "当前还有复核未完成、运行清单不一致或本地状态过期，先按下一步处理。"
     next_action = action_label(doctor_info.get("primary_next_action")) if doctor_info else "查看页面明细"
     top_cards = [
         summary_card("当前结论", status_title, status_body, "ok" if can_act_now else "bad"),
