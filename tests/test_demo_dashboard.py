@@ -652,6 +652,7 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("已扫描 figs 中 4 张官方分享图", html)
         self.assertIn("本次只刷新缓存页面，不会重新跑图片识别", html)
         self.assertIn("放入新分享图或强制重扫", html)
+        self.assertIn(r"dist\MihoProbe.exe update --rescan-all --open", html)
         self.assertNotIn("还没有本地数据", html)
 
     def test_dashboard_update_command_ready_is_copy_only(self) -> None:

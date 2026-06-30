@@ -2417,9 +2417,14 @@ def render_html(summary: dict[str, Any]) -> str:
         else "查看页面明细"
     )
     next_action_tone = "warn" if new_only_no_new_images else status_class(doctor_status)
+    next_action_body = (
+        r"已有图片未变化；新图放进 figs\ 后点一键更新。确实要重扫旧图：dist\MihoProbe.exe update --rescan-all --open"
+        if new_only_no_new_images
+        else f"模式：{source_mode_label(input_info.get('source_mode'))}"
+    )
     top_cards = [
         summary_card("当前结论", status_title, status_body, status_tone),
-        summary_card("下一步", next_action, f"模式：{source_mode_label(input_info.get('source_mode'))}", next_action_tone),
+        summary_card("下一步", next_action, next_action_body, next_action_tone),
         summary_card(
             "解析概况",
             f"{parse_pass_count}/{case_count} 张可用",
