@@ -828,18 +828,25 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertTrue(html_path.exists())
             report = json.loads(report_path.read_text(encoding="utf-8"))
             self.assertEqual(report["scope"], "visual_rank_regions_only")
+            self.assertEqual(report["summary_status"], "pass")
+            self.assertIn("评级视觉快检通过", report["recommendation"])
             self.assertEqual(report["image_count"], 1)
             self.assertEqual(report["ok_region_count"], 2)
             regions = {item["region"]: item for item in report["entries"][0]["regions"]}
+            self.assertEqual(report["entries"][0]["rank_summary"], "角色 S / 音擎 A")
             self.assertEqual(regions["character_rank"]["rank"], "S")
             self.assertEqual(regions["equipment_rank"]["rank"], "A")
             self.assertTrue(Path(regions["character_rank"]["crop"]).exists())
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("评级区域快检", html)
+            self.assertIn("评级快检通过", html)
+            self.assertIn("识别结论：角色 S / 音擎 A", html)
+            self.assertIn("颜色证据", html)
             self.assertIn("不跑 OCR", html)
             self.assertIn("角色评级", html)
             self.assertIn("音擎评级", html)
             self.assertIn("rank_check_scope: visual_rank_regions_only", output.getvalue())
+            self.assertIn("rank_check_status: pass", output.getvalue())
 
     def test_run_app_export_writes_workflow_package_without_clicking(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

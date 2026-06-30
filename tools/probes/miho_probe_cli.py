@@ -877,6 +877,48 @@ def html_file_link(path: Path, label: str) -> str:
     return f'<a href="{html_escape(href)}">{html_escape(label)}</a>'
 
 
+def rank_region_value(entry: dict[str, Any], region_name: str) -> str | None:
+    for region in entry.get("regions", []) if isinstance(entry.get("regions"), list) else []:
+        if isinstance(region, dict) and region.get("region") == region_name:
+            value = region.get("rank")
+            return str(value) if value else None
+    return None
+
+
+def rank_entry_summary(entry: dict[str, Any]) -> str:
+    character = rank_region_value(entry, "character_rank") or "未识别"
+    equipment = rank_region_value(entry, "equipment_rank") or "未识别"
+    return f"角色 {character} / 音擎 {equipment}"
+
+
+def rank_reason_label(reason: Any) -> str:
+    labels = {
+        "orange_global": "橙色 S 信号稳定",
+        "orange_local_peak": "局部橙色 S 信号",
+        "purple_global": "紫色 A 信号稳定",
+        "purple_local_peak": "局部紫色 A 信号",
+        "insufficient_color_signal": "颜色信号不足",
+    }
+    return labels.get(str(reason), str(reason or "未知原因"))
+
+
+def rank_check_summary(entries: list[dict[str, Any]], *, ok_region_count: int, region_count: int) -> dict[str, str]:
+    if not entries:
+        return {
+            "summary_status": "empty",
+            "recommendation": "没有找到分享图。把米游社官方分享图放到 figs\\，再运行 MihoProbe.exe rank-check。",
+        }
+    if region_count and ok_region_count == region_count:
+        return {
+            "summary_status": "pass",
+            "recommendation": "评级视觉快检通过：完整解析失败时，可以优先相信 A/S 艺术字 fallback，再检查名称、等级和驱动盘字段。",
+        }
+    return {
+        "summary_status": "needs_review",
+        "recommendation": "存在评级区域未识别。先打开对应 crop，确认框是否覆盖头像左上角或音擎评级字；若框偏移，再校准 character_rank / equipment_rank 区域。",
+    }
+
+
 def rank_check_entry(image_path: Path, output_dir: Path, *, game: str, layout: str) -> dict[str, Any]:
     Image = parse_probe.load_image_dependency()
     specs = rank_region_specs()
@@ -911,6 +953,7 @@ def rank_check_entry(image_path: Path, output_dir: Path, *, game: str, layout: s
         "game": game,
         "layout": layout,
         "status": status,
+        "rank_summary": rank_entry_summary({"regions": regions}),
         "regions": regions,
     }
 
@@ -933,19 +976,23 @@ def render_rank_check_html(report: dict[str, Any]) -> str:
                 f'<img src="{html_escape(crop.resolve().as_uri())}" alt="{html_escape(str(region.get("label") or ""))}">'
                 f'<div><span>{html_escape(str(region.get("label") or region.get("region") or ""))}</span>'
                 f'<strong>{html_escape(str(region.get("rank") or "未识别"))}</strong>'
-                f'<p>置信度 {html_escape(str(region.get("confidence")))} · {html_escape(str(region.get("reason") or ""))}</p>'
-                f'<p>orange {html_escape(str(scores.get("orange", 0)))} / purple {html_escape(str(scores.get("purple", 0)))} / peak {html_escape(str(scores.get("orange_peak", 0)))} / {html_escape(str(scores.get("purple_peak", 0)))}</p>'
+                f'<p>置信度 {html_escape(str(region.get("confidence")))} · {html_escape(rank_reason_label(region.get("reason")))}</p>'
+                f'<details><summary>颜色证据</summary><p>橙色占比 {html_escape(str(scores.get("orange", 0)))}；紫色占比 {html_escape(str(scores.get("purple", 0)))}；局部峰值 {html_escape(str(scores.get("orange_peak", 0)))} / {html_escape(str(scores.get("purple_peak", 0)))}</p></details>'
                 f'<p>{html_file_link(crop, "打开 crop")}</p></div>'
                 "</article>"
             )
         rows.append(
             '<section class="image-card">'
             f'<h2>{html_escape(str(entry.get("image_name") or ""))}</h2>'
+            f'<p class="verdict">识别结论：{html_escape(str(entry.get("rank_summary") or rank_entry_summary(entry)))}</p>'
             f'<p class="muted">只检测头像左上角角色评级、音擎右侧评级固定区域；不跑 OCR。</p>'
             f'<div class="regions">{"".join(region_cards)}</div>'
             "</section>"
         )
     body = "".join(rows) if rows else '<section class="image-card"><h2>没有图片</h2><p class="muted">请把官方分享图放到 figs/，或用 --images-dir 指向图片目录。</p></section>'
+    summary_status = str(report.get("summary_status") or "needs_review")
+    summary_tone = "ok" if summary_status == "pass" else "warn"
+    recommendation = str(report.get("recommendation") or "")
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -963,12 +1010,19 @@ def render_rank_check_html(report: dict[str, Any]) -> str:
     .metric {{ padding: 14px; }}
     .metric span, .region span, .muted {{ color: #64748b; font-size: 13px; }}
     .metric strong, .region strong {{ display: block; margin-top: 4px; font-size: 24px; }}
+    .callout {{ border-radius: 8px; padding: 14px 16px; border: 1px solid #dbe3ef; background: #fff; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08); }}
+    .callout.ok {{ border-color: #a7e0bd; background: #e8f7ee; color: #147a42; }}
+    .callout.warn {{ border-color: #f6cf7c; background: #fff4d5; color: #996500; }}
+    .callout strong {{ display: block; font-size: 18px; margin-bottom: 4px; }}
     .image-card {{ padding: 16px; }}
     .image-card h2 {{ margin: 0 0 6px; font-size: 18px; overflow-wrap: anywhere; }}
+    .verdict {{ margin: 0 0 6px; color: #172033; font-weight: 900; }}
     .regions {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }}
     .region {{ display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 12px; align-items: center; }}
     .region img {{ width: 96px; height: 86px; object-fit: contain; background: #111827; border-radius: 8px; }}
     .region p {{ margin: 5px 0 0; color: #64748b; font-size: 12px; overflow-wrap: anywhere; }}
+    .region details {{ margin-top: 6px; color: #64748b; font-size: 12px; }}
+    .region summary {{ cursor: pointer; font-weight: 800; }}
     .region.ok strong {{ color: #16834a; }}
     .region.warn strong {{ color: #9a6500; }}
     a {{ color: #155399; text-decoration: none; font-weight: 700; }}
@@ -980,6 +1034,10 @@ def render_rank_check_html(report: dict[str, Any]) -> str:
     <p>专门检查 A/S 艺术字固定区域：角色头像左上角、音擎评级区域。不跑 OCR，不接触账号数据。</p>
   </header>
   <main>
+    <section class="callout {html_escape(summary_tone)}">
+      <strong>{html_escape("评级快检通过" if summary_status == "pass" else "评级需要复核")}</strong>
+      <p>{html_escape(recommendation)}</p>
+    </section>
     <section class="summary">
       <div class="metric"><span>图片数</span><strong>{html_escape(str(report.get("image_count", 0)))}</strong></div>
       <div class="metric"><span>识别成功区域</span><strong>{html_escape(str(report.get("ok_region_count", 0)))}</strong></div>
@@ -1006,9 +1064,11 @@ def run_rank_check(args: argparse.Namespace) -> int:
         if isinstance(region, dict) and region.get("status") == "ok"
     )
     region_count = sum(len(entry.get("regions", [])) for entry in entries)
+    summary = rank_check_summary(entries, ok_region_count=ok_region_count, region_count=region_count)
     report = {
         "schema_version": "p4.1-rank-region-check",
         "scope": "visual_rank_regions_only",
+        **summary,
         "images_dir": str(images_dir),
         "game": args.game,
         "layout": args.layout,
@@ -1028,6 +1088,8 @@ def run_rank_check(args: argparse.Namespace) -> int:
     print("rank_check_note: 不跑 OCR；只检查角色头像左上角和音擎评级固定区域的 A/S 艺术字颜色信号。")
     print(f"rank_check_html: {html_path}")
     print(f"rank_check_json: {json_path}")
+    print(f"rank_check_status: {summary['summary_status']}")
+    print(f"rank_check_recommendation: {summary['recommendation']}")
     print(f"image_count: {len(entries)}")
     print(f"ok_region_count: {ok_region_count}")
     print(f"review_region_count: {region_count - ok_region_count}")
