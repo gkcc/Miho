@@ -525,13 +525,7 @@ def block_in_box(block: dict[str, Any], box: dict[str, int]) -> bool:
     return box["left"] <= center_x <= box["right"] and box["top"] <= center_y <= box["bottom"]
 
 
-def visual_rank_from_crop(image: Any, region_box: dict[str, int]) -> tuple[str | None, dict[str, float]]:
-    # ZZZ share cards render A/S as colored art glyphs; OCR often sees no text at all.
-    crop = image.crop((region_box["left"], region_box["top"], region_box["right"], region_box["bottom"])).convert("RGB")
-    pixels = list(crop.getdata())
-    if not pixels:
-        return None, {"orange": 0.0, "purple": 0.0}
-    total = len(pixels)
+def rank_color_counts(pixels: list[tuple[int, int, int]]) -> tuple[int, int]:
     orange = 0
     purple = 0
     for red, green, blue in pixels:
@@ -539,17 +533,76 @@ def visual_rank_from_crop(image: Any, region_box: dict[str, int]) -> tuple[str |
             orange += 1
         if red > 120 and blue > 120 and green < 115 and abs(red - blue) < 130:
             purple += 1
+    return orange, purple
+
+
+def visual_rank_color_scores(crop: Any) -> dict[str, float]:
+    pixels = list(crop.getdata())
+    if not pixels:
+        return {"orange": 0.0, "purple": 0.0, "orange_peak": 0.0, "purple_peak": 0.0}
+    total = len(pixels)
+    orange, purple = rank_color_counts(pixels)
     orange_ratio = orange / total
     purple_ratio = purple / total
-    if purple_ratio >= 0.025 and purple_ratio > orange_ratio * 1.6:
-        return "A", {"orange": round(orange_ratio, 4), "purple": round(purple_ratio, 4)}
-    if orange_ratio >= 0.02 and orange_ratio > purple_ratio * 1.4:
-        return "S", {"orange": round(orange_ratio, 4), "purple": round(purple_ratio, 4)}
-    return None, {"orange": round(orange_ratio, 4), "purple": round(purple_ratio, 4)}
+    width, height = crop.size
+    columns = max(1, min(6, width // 18 or 1))
+    rows = max(1, min(6, height // 18 or 1))
+    orange_peak = 0.0
+    purple_peak = 0.0
+    for row in range(rows):
+        for column in range(columns):
+            left = round(column * width / columns)
+            top = round(row * height / rows)
+            right = round((column + 1) * width / columns)
+            bottom = round((row + 1) * height / rows)
+            tile = crop.crop((left, top, right, bottom))
+            tile_pixels = list(tile.getdata())
+            if not tile_pixels:
+                continue
+            tile_orange, tile_purple = rank_color_counts(tile_pixels)
+            tile_total = len(tile_pixels)
+            orange_peak = max(orange_peak, tile_orange / tile_total)
+            purple_peak = max(purple_peak, tile_purple / tile_total)
+    return {
+        "orange": round(orange_ratio, 4),
+        "purple": round(purple_ratio, 4),
+        "orange_peak": round(orange_peak, 4),
+        "purple_peak": round(purple_peak, 4),
+    }
+
+
+def visual_rank_decision(scores: dict[str, float]) -> tuple[str | None, float, str]:
+    orange_ratio = float(scores.get("orange") or 0.0)
+    purple_ratio = float(scores.get("purple") or 0.0)
+    orange_peak = float(scores.get("orange_peak") or 0.0)
+    purple_peak = float(scores.get("purple_peak") or 0.0)
+    orange_signal = max(orange_ratio, orange_peak * 0.35)
+    purple_signal = max(purple_ratio, purple_peak * 0.35)
+    if purple_ratio >= 0.025 or purple_peak >= 0.12:
+        if purple_signal > orange_signal * 1.3:
+            confidence = min(0.99, 0.58 + min(purple_signal * 1.8, 0.32) + min((purple_signal - orange_signal) * 1.5, 0.09))
+            reason = "purple_global" if purple_ratio >= 0.025 else "purple_local_peak"
+            return "A", round(confidence, 4), reason
+    if orange_ratio >= 0.02 or orange_peak >= 0.12:
+        if orange_signal > purple_signal * 1.25:
+            confidence = min(0.99, 0.58 + min(orange_signal * 1.8, 0.32) + min((orange_signal - purple_signal) * 1.5, 0.09))
+            reason = "orange_global" if orange_ratio >= 0.02 else "orange_local_peak"
+            return "S", round(confidence, 4), reason
+    return None, 0.0, "insufficient_color_signal"
+
+
+def visual_rank_from_crop(image: Any, region_box: dict[str, int]) -> tuple[str | None, dict[str, float]]:
+    # ZZZ share cards render A/S as colored art glyphs; OCR often sees no text at all.
+    crop = image.crop((region_box["left"], region_box["top"], region_box["right"], region_box["bottom"])).convert("RGB")
+    scores = visual_rank_color_scores(crop)
+    rank, _confidence, _reason = visual_rank_decision(scores)
+    return rank, scores
 
 
 def visual_rank_block_for_region(image: Any, *, region_name: str, region_box: dict[str, int]) -> dict[str, Any] | None:
-    rank, scores = visual_rank_from_crop(image, region_box)
+    crop = image.crop((region_box["left"], region_box["top"], region_box["right"], region_box["bottom"])).convert("RGB")
+    scores = visual_rank_color_scores(crop)
+    rank, confidence, reason = visual_rank_decision(scores)
     if not rank:
         return None
     return {
@@ -563,9 +616,12 @@ def visual_rank_block_for_region(image: Any, *, region_name: str, region_box: di
         },
         "ocr_confidence_raw": None,
         "candidate_entities": ["rank"],
-        "confidence": 0.01,
-        "uncertain": True,
+        "confidence": confidence,
+        "uncertain": confidence < 0.65,
         "visual_rank_fallback": True,
+        "visual_rank_method": "color_ratio_with_local_peak",
+        "visual_rank_reason": reason,
+        "visual_rank_confidence": confidence,
         "visual_rank_scores": scores,
     }
 
@@ -2326,7 +2382,14 @@ def build_result_from_replay(
     if visual_rank_blocks:
         source_blocks.extend(visual_rank_blocks)
         result["metadata"]["visual_rank_fallback"] = [
-            {"region": block.get("region"), "rank": block.get("text"), "scores": block.get("visual_rank_scores")}
+            {
+                "region": block.get("region"),
+                "rank": block.get("text"),
+                "scores": block.get("visual_rank_scores"),
+                "method": block.get("visual_rank_method"),
+                "reason": block.get("visual_rank_reason"),
+                "confidence": block.get("visual_rank_confidence"),
+            }
             for block in visual_rank_blocks
         ]
 

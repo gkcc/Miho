@@ -511,6 +511,9 @@ def visual_rank_entries(parsed: dict[str, Any]) -> list[dict[str, Any]]:
                     "region": item.get("region"),
                     "rank": item.get("rank"),
                     "scores": item.get("scores") if isinstance(item.get("scores"), dict) else {},
+                    "method": item.get("method"),
+                    "reason": item.get("reason"),
+                    "confidence": item.get("confidence"),
                     "source": "metadata.visual_rank_fallback",
                 }
             )
@@ -522,6 +525,9 @@ def visual_rank_entries(parsed: dict[str, Any]) -> list[dict[str, Any]]:
                 "region": block.get("region"),
                 "rank": block.get("text"),
                 "scores": block.get("visual_rank_scores") if isinstance(block.get("visual_rank_scores"), dict) else {},
+                "method": block.get("visual_rank_method"),
+                "reason": block.get("visual_rank_reason"),
+                "confidence": block.get("visual_rank_confidence"),
                 "source": "text_blocks.visual_rank_fallback",
             }
         )
@@ -548,13 +554,23 @@ def render_visual_rank_card(parsed: dict[str, Any]) -> str:
         scores = entry.get("scores") if isinstance(entry.get("scores"), dict) else {}
         orange = scores.get("orange")
         purple = scores.get("purple")
-        score_text = f"橙色占比 {orange if orange is not None else 'N/A'}；紫色占比 {purple if purple is not None else 'N/A'}"
+        orange_peak = scores.get("orange_peak")
+        purple_peak = scores.get("purple_peak")
+        peak_text = ""
+        if orange_peak is not None or purple_peak is not None:
+            peak_text = f"；橙色局部峰值 {orange_peak if orange_peak is not None else 'N/A'}；紫色局部峰值 {purple_peak if purple_peak is not None else 'N/A'}"
+        score_text = f"橙色占比 {orange if orange is not None else 'N/A'}；紫色占比 {purple if purple is not None else 'N/A'}{peak_text}"
+        method = str(entry.get("method") or "color_ratio")
+        reason = str(entry.get("reason") or "N/A")
+        confidence = entry.get("confidence")
+        confidence_text = confidence if confidence is not None else "N/A"
         rows.append(
             "<div class=\"visual-rank-row\">"
             f"<div class=\"visual-rank-badge\">{escape(entry.get('rank'))}</div>"
             "<div>"
             f"<strong>{escape(source_label(region))}</strong>"
             f"<span>固定区域视觉识别，不重新跑 OCR。{escape(score_text)}</span>"
+            f"<span>判定方法：{escape(method)}；理由：{escape(reason)}；置信度：{escape(str(confidence_text))}</span>"
             f"<span>证据来源：{escape(entry.get('source'))}</span>"
             "</div>"
             "</div>"

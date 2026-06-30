@@ -150,13 +150,19 @@ def mock_parsed_json(image_path: Path) -> dict:
                 "text": "S",
                 "region": "character_rank",
                 "visual_rank_fallback": True,
-                "visual_rank_scores": {"orange": 0.1364, "purple": 0.0106},
+                "visual_rank_scores": {"orange": 0.1364, "purple": 0.0106, "orange_peak": 0.42, "purple_peak": 0.03},
+                "visual_rank_method": "color_ratio_with_local_peak",
+                "visual_rank_reason": "orange_global",
+                "visual_rank_confidence": 0.91,
             },
             {
                 "text": "S",
                 "region": "equipment_rank",
                 "visual_rank_fallback": True,
-                "visual_rank_scores": {"orange": 0.1187, "purple": 0.0},
+                "visual_rank_scores": {"orange": 0.1187, "purple": 0.0, "orange_peak": 0.38, "purple_peak": 0.0},
+                "visual_rank_method": "color_ratio_with_local_peak",
+                "visual_rank_reason": "orange_global",
+                "visual_rank_confidence": 0.88,
             },
         ],
         "errors": [],
@@ -214,6 +220,10 @@ class ExportReviewRenderTests(unittest.TestCase):
             self.assertIn("评级视觉证据", html_text)
             self.assertIn("固定区域视觉识别，不重新跑 OCR", html_text)
             self.assertIn("橙色占比 0.1364", html_text)
+            self.assertIn("橙色局部峰值 0.42", html_text)
+            self.assertIn("判定方法：color_ratio_with_local_peak", html_text)
+            self.assertIn("理由：orange_global", html_text)
+            self.assertIn("置信度：0.91", html_text)
             self.assertIn("攻击力: 219 (+2)", html_text)
             self.assertIn("equipment_name", html_text)
 

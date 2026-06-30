@@ -188,6 +188,9 @@ class ExportImageExtractTests(unittest.TestCase):
         assert block is not None
         self.assertEqual(block["text"], "A")
         self.assertTrue(block["visual_rank_fallback"])
+        self.assertEqual(block["visual_rank_method"], "color_ratio_with_local_peak")
+        self.assertIn(block["visual_rank_reason"], {"purple_global", "purple_local_peak"})
+        self.assertGreater(block["visual_rank_confidence"], 0.65)
 
         draft = probe.build_extracted_draft(
             game="zzz",
@@ -199,6 +202,22 @@ class ExportImageExtractTests(unittest.TestCase):
 
         self.assertEqual(draft["character"]["rank"]["value"], "A")
         self.assertEqual(draft["character"]["rank"]["source_region"], "character_rank")
+
+    def test_visual_rank_fallback_uses_local_peak_for_small_avatar_glyph(self) -> None:
+        image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
+        box = probe.ratio_box_to_pixels((0.030, 0.100, 0.120, 0.150), IMAGE_WIDTH, IMAGE_HEIGHT)
+        for x in range(box["left"] + 12, box["left"] + 24):
+            for y in range(box["top"] + 12, box["top"] + 24):
+                image.putpixel((x, y), (210, 55, 235))
+
+        block = probe.visual_rank_block_for_region(image, region_name="character_rank", region_box=box)
+
+        self.assertIsNotNone(block)
+        assert block is not None
+        self.assertEqual(block["text"], "A")
+        self.assertEqual(block["visual_rank_reason"], "purple_local_peak")
+        self.assertLess(block["visual_rank_scores"]["purple"], 0.025)
+        self.assertGreaterEqual(block["visual_rank_scores"]["purple_peak"], 0.12)
 
     def test_visual_rank_fallback_classifies_orange_s(self) -> None:
         image = Image.new("RGB", (IMAGE_WIDTH, IMAGE_HEIGHT), (20, 20, 20))
@@ -213,6 +232,9 @@ class ExportImageExtractTests(unittest.TestCase):
         assert block is not None
         self.assertEqual(block["text"], "S")
         self.assertGreater(block["visual_rank_scores"]["orange"], block["visual_rank_scores"]["purple"])
+        self.assertEqual(block["visual_rank_method"], "color_ratio_with_local_peak")
+        self.assertIn(block["visual_rank_reason"], {"orange_global", "orange_local_peak"})
+        self.assertGreater(block["visual_rank_confidence"], 0.65)
 
     def test_equipment_rank_prefers_dedicated_rank_region_over_broad_equipment_text(self) -> None:
         blocks = [
@@ -324,6 +346,9 @@ class ExportImageExtractTests(unittest.TestCase):
             {(block.get("region"), block.get("text")) for block in result["text_blocks"] if block.get("visual_rank_fallback")},
             {("character_rank", "A"), ("equipment_rank", "S")},
         )
+        metadata = result["metadata"]["visual_rank_fallback"]
+        self.assertTrue(all(item.get("method") == "color_ratio_with_local_peak" for item in metadata))
+        self.assertTrue(all(item.get("confidence") for item in metadata))
 
     def test_invalid_candidates_and_missing_drive_stats_force_low_coverage(self) -> None:
         draft = probe.empty_draft("zzz")
