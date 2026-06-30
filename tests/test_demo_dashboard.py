@@ -203,6 +203,16 @@ class DemoDashboardTests(unittest.TestCase):
 
     def test_final_brief_first_layer_is_reader_friendly(self) -> None:
         summary = dashboard_minimal_summary()
+        repeated_review_card = {
+            "rank": 2,
+            "card_type": "review_snapshot",
+            "title": "复核 珂蕾妲 的解析快照",
+            "reason": "pending snapshot 尚未进入 accepted roster；确认前不能进入 try_now。",
+            "character": "珂蕾妲",
+            "evidence": {"review_html": "data/probes/demo/cases/kole_review.html"},
+            "command_hint": "python tools/probes/apply_review_decisions.py --decision-manifest data/probes/review_decisions.json",
+            "warnings": [],
+        }
         summary["final_brief"] = {
             "brief_status": "needs_review",
             "output_json": "data/probes/demo/final_brief/final_brief.json",
@@ -224,7 +234,10 @@ class DemoDashboardTests(unittest.TestCase):
                     "evidence": {"artifact": "data/probes/demo/run_manifest.json"},
                     "command_hint": "python tools/probes/run_demo_pipeline.py --images-dir figs --open",
                     "warnings": [],
-                }
+                },
+                repeated_review_card,
+                {**repeated_review_card, "rank": 3, "title": "复核 星徽·比利 的解析快照", "character": "星徽·比利"},
+                {**repeated_review_card, "rank": 4, "title": "复核 潘引壶 的解析快照", "character": "潘引壶"},
             ],
         }
 
@@ -232,12 +245,15 @@ class DemoDashboardTests(unittest.TestCase):
 
         self.assertIn("一眼结论", html)
         self.assertIn("先别采用建议", html)
+        self.assertIn("现在先做", html)
+        self.assertIn("先处理数据一致性", html)
         self.assertIn("为什么不能直接用", html)
         self.assertIn("总判断", html)
         self.assertIn("可直接行动", html)
         self.assertIn("待确认快照", html)
         self.assertIn("查看原始产物", html)
-        self.assertIn("排障细节", html)
+        self.assertIn("证据与排障细节", html)
+        self.assertIn("还有 1 个待处理项", html)
         self.assertIn("下一步说明", html)
         self.assertIn("高级：原始命令（排障时再看）", html)
         self.assertLess(html.index("高级：原始命令（排障时再看）"), html.index("python tools/probes/run_demo_pipeline.py"))

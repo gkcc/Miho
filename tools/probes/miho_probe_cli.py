@@ -91,6 +91,18 @@ def has_legacy_dashboard_markup(path: Path) -> bool:
     return any(marker in text for marker in LEGACY_DASHBOARD_MARKERS)
 
 
+def has_stale_dashboard_renderer(path: Path) -> bool:
+    if not path.exists():
+        return False
+    renderer_file = getattr(dashboard_tool, "__file__", None)
+    if not renderer_file:
+        return False
+    renderer_path = Path(renderer_file)
+    if not renderer_path.exists():
+        return False
+    return path.stat().st_mtime < renderer_path.stat().st_mtime
+
+
 def render_cached_dashboard(summary_path: Path, dashboard_path: Path) -> dict[str, str]:
     summary = dashboard_tool.load_json(summary_path)
     return dashboard_tool.render_dashboard(summary, dashboard_path)
@@ -101,6 +113,8 @@ def run_dashboard(args: argparse.Namespace) -> int:
     summary_path = resolve_cli_path(args.summary)
     should_refresh = bool(args.refresh)
     if dashboard_path.exists() and has_legacy_dashboard_markup(dashboard_path):
+        should_refresh = True
+    if dashboard_path.exists() and has_stale_dashboard_renderer(dashboard_path):
         should_refresh = True
     if dashboard_path.exists() and summary_path.exists() and dashboard_path.stat().st_mtime < summary_path.stat().st_mtime:
         should_refresh = True

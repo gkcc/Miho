@@ -13,6 +13,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "probes" / "demo" / "index.html"
+VISIBLE_BRIEF_CARD_LIMIT = 3
 
 
 class DashboardError(RuntimeError):
@@ -374,6 +375,28 @@ def command_hint_summary(value: Any) -> str:
     if lowered.startswith(("python ", "powershell ", "scripts\\", "scripts/")) or ".py" in lowered:
         return "这是排障命令，普通验收不用复制。"
     return humanize_text(text)
+
+
+def render_brief_next_step(item: dict[str, Any] | None) -> str:
+    if not isinstance(item, dict):
+        return ""
+    action = brief_action_label(item)
+    title = humanize_text(item.get("title"))
+    reason = humanize_text(item.get("reason"))
+    target_bits = []
+    if item.get("target"):
+        target_bits.append(f"目标：{item.get('target')}")
+    if item.get("character"):
+        target_bits.append(f"角色：{item.get('character')}")
+    target_text = " · ".join(str(bit) for bit in target_bits if bit) or "不绑定具体目标/角色"
+    return (
+        '<div class="brief-next-step">'
+        "<span>现在先做</span>"
+        f"<strong>{e(action)}</strong>"
+        f"<p>{he(title)}：{he(reason)}</p>"
+        f"<em>{he(target_text)}</em>"
+        "</div>"
+    )
 
 
 def basename(value: Any) -> str:
@@ -1309,16 +1332,17 @@ def render_final_brief(summary: dict[str, Any]) -> str:
         </div>
       </details>
     """
+    valid_cards = [item for item in top_cards if isinstance(item, dict)]
+    next_step = render_brief_next_step(valid_cards[0] if valid_cards else None)
     if brief.get("error"):
         body = f'<div class="errors"><strong>简报生成失败</strong><ul><li>{he(brief.get("error"))}</li></ul></div>'
-    elif not top_cards:
+    elif not valid_cards:
         body = '<div class="empty">暂无可执行事项；先补齐本地确认数据。</div>'
     else:
         rows = []
         raw_commands = []
-        for item in top_cards:
-            if not isinstance(item, dict):
-                continue
+        hidden_items = valid_cards[VISIBLE_BRIEF_CARD_LIMIT:]
+        for item in valid_cards[:VISIBLE_BRIEF_CARD_LIMIT]:
             evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
             item_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
             warning_text = "；".join(str(warning) for warning in item_warnings if warning)
@@ -1337,7 +1361,7 @@ def render_final_brief(summary: dict[str, Any]) -> str:
             if item.get("command_hint"):
                 raw_commands.append((f"#{item.get('rank')} {humanize_text(item.get('title'))}", item.get("command_hint")))
             details = (
-                "<details class=\"brief-details\"><summary>排障细节</summary>"
+                "<details class=\"brief-details\"><summary>证据与排障细节</summary>"
                 f"<p class=\"detail-hint\"><strong>下一步说明</strong><span>{he(command_hint_summary(item.get('command_hint')))}</span></p>"
                 f"<ul class=\"brief-evidence\">{brief_evidence_rows(evidence)}</ul>"
                 "</details>"
@@ -1356,8 +1380,25 @@ def render_final_brief(summary: dict[str, Any]) -> str:
                 "</div>"
                 "</article>"
             )
+        for item in hidden_items:
+            if item.get("command_hint"):
+                raw_commands.append((f"#{item.get('rank')} {humanize_text(item.get('title'))}", item.get("command_hint")))
+        hidden_block = ""
+        if hidden_items:
+            hidden_rows = "".join(
+                "<li>"
+                f"<strong>#{e(item.get('rank'))} {he(item.get('title'))}</strong>"
+                f"<span>{e(brief_action_label(item))}</span>"
+                "</li>"
+                for item in hidden_items
+            )
+            hidden_block = (
+                f'<details class="more-brief-cards"><summary>还有 {len(hidden_items)} 个待处理项</summary>'
+                f"<ul>{hidden_rows}</ul>"
+                "</details>"
+            )
         debug_commands = command_details("高级：原始命令（排障时再看）", raw_commands)
-        body = '<div class="brief-list">' + "".join(rows) + "</div>" + debug_commands
+        body = '<div class="brief-list">' + "".join(rows) + "</div>" + hidden_block + debug_commands
     status_text = human_status(brief.get("brief_status") or "N/A")
     status_note = ""
     if str(brief.get("brief_status") or "").lower() == "needs_review":
@@ -1370,6 +1411,7 @@ def render_final_brief(summary: dict[str, Any]) -> str:
       <h2>今日作战简报</h2>
       <p class="muted-line">先看这一块就够了：它只回答“现在能不能用、卡在哪里、下一步点哪里”。命令和技术证据默认折叠。</p>
       {overview}
+      {next_step}
       <div class="input-grid">
         <div><span>总判断</span><strong>{e(status_text)}</strong></div>
         <div><span>可直接行动</span><strong>{e(brief_summary.get("trusted_plan_count", "N/A"))}</strong></div>
@@ -2171,6 +2213,11 @@ def render_html(summary: dict[str, Any]) -> str:
     .brief-overview.ok strong {{ color: var(--ok); }}
     .brief-overview.warn strong {{ color: var(--warn); }}
     .brief-overview.bad strong {{ color: var(--bad); }}
+    .brief-next-step {{ margin: 12px 0; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px; background: #eff6ff; }}
+    .brief-next-step span {{ display: block; color: #1d4ed8; font-size: 12px; font-weight: 800; }}
+    .brief-next-step strong {{ display: block; margin-top: 4px; font-size: 24px; color: #1d4ed8; line-height: 1.2; }}
+    .brief-next-step p {{ margin: 8px 0 0; line-height: 1.45; }}
+    .brief-next-step em {{ display: block; margin-top: 6px; color: var(--muted); font-style: normal; font-size: 13px; overflow-wrap: anywhere; }}
     .plan-item {{ display: grid; grid-template-columns: 54px minmax(0, 1fr) 72px; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
     .brief-card {{ display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 12px; align-items: start; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcff; }}
     .brief-main {{ display: grid; gap: 6px; min-width: 0; }}
@@ -2190,6 +2237,14 @@ def render_html(summary: dict[str, Any]) -> str:
     .brief-evidence {{ margin: 8px 0; padding: 0; display: grid; gap: 6px; list-style: none; }}
     .brief-evidence li {{ display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }}
     .brief-evidence strong {{ color: var(--text); }}
+    .final-brief .brief-list {{ grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }}
+    .final-brief .brief-card {{ grid-template-columns: 1fr; }}
+    .final-brief .plan-rank {{ width: fit-content; height: auto; min-height: 0; padding: 5px 9px; border-radius: 999px; }}
+    .more-brief-cards {{ margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }}
+    .more-brief-cards ul {{ margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }}
+    .more-brief-cards li {{ display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }}
+    .more-brief-cards strong {{ overflow-wrap: anywhere; }}
+    .more-brief-cards span {{ color: var(--warn); font-weight: 800; }}
     .badge.muted {{ background: #e2e8f0; color: #334155; }}
     .plan-rank {{ display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #e9f8ef; color: var(--ok); font-weight: 900; }}
     .plan-item h3 {{ margin: 0 0 4px; font-size: 16px; }}

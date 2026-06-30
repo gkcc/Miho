@@ -5,6 +5,7 @@ import contextlib
 import io
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -67,6 +68,31 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("米游社练度识别体验台", html)
             self.assertNotIn("Brief Warning", html)
             self.assertNotIn("trusted ready", html)
+
+    def test_dashboard_command_refreshes_when_renderer_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            summary_path = root / "demo_summary.json"
+            dashboard_path = root / "index.html"
+            summary_path.write_text(json.dumps(minimal_summary(), ensure_ascii=False), encoding="utf-8")
+            dashboard_path.write_text("<html><body>米游社练度识别体验台 old cache</body></html>", encoding="utf-8")
+            old_time = (PROJECT_ROOT / "tools" / "probes" / "render_demo_dashboard.py").stat().st_mtime - 120
+            os.utime(dashboard_path, (old_time, old_time))
+            os.utime(summary_path, (old_time - 60, old_time - 60))
+
+            result = cli_tool.run_dashboard(
+                argparse.Namespace(
+                    dashboard=str(dashboard_path),
+                    summary=str(summary_path),
+                    refresh=False,
+                    open=False,
+                )
+            )
+
+            self.assertEqual(result, 0)
+            html = dashboard_path.read_text(encoding="utf-8")
+            self.assertIn("米游社练度识别体验台", html)
+            self.assertNotIn("old cache", html)
 
     def test_dashboard_command_reports_missing_cache_without_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
