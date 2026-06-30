@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import subprocess
 import sys
 import unittest
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -72,6 +74,32 @@ class GptReviewPromptTests(unittest.TestCase):
 
         self.assertTrue(args.copy)
         self.assertTrue(args.no_git_status)
+
+    def test_windows_clipboard_falls_back_to_clip_exe_after_powershell_failure(self) -> None:
+        powershell_failed = subprocess.CompletedProcess(
+            args=["powershell"],
+            returncode=1,
+            stdout="",
+            stderr="clipboard locked",
+        )
+        clip_ok = subprocess.CompletedProcess(args=["clip.exe"], returncode=0, stdout="", stderr="")
+
+        with (
+            mock.patch.object(prompt_tool.sys, "platform", "win32"),
+            mock.patch.object(prompt_tool, "copy_text_to_windows_clipboard", return_value=(False, "OpenClipboard failed")),
+            mock.patch.object(prompt_tool.subprocess, "run", side_effect=[powershell_failed, clip_ok]) as run_mock,
+        ):
+            copied, detail = prompt_tool.copy_text_to_clipboard("给右侧 GPT 的审查包")
+
+        self.assertTrue(copied)
+        self.assertEqual(detail, "clip.exe")
+        self.assertEqual(run_mock.call_args_list[-1].args[0][0], "clip.exe")
+
+    def test_prompt_file_open_command_is_user_facing_on_windows(self) -> None:
+        with mock.patch.object(prompt_tool.sys, "platform", "win32"):
+            command = prompt_tool.prompt_file_open_command(Path(r"F:\Workspace\MiYo\data\probes\demo\gpt_review_prompt.md"))
+
+        self.assertEqual(command, r'notepad "F:\Workspace\MiYo\data\probes\demo\gpt_review_prompt.md"')
 
 
 if __name__ == "__main__":

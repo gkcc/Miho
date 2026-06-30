@@ -191,6 +191,28 @@ def copy_text_to_windows_clipboard(text: str) -> tuple[bool, str]:
             kernel32.GlobalFree(handle)
 
 
+def copy_text_with_clip_exe(text: str) -> tuple[bool, str]:
+    last_detail = "not attempted"
+    for _attempt in range(3):
+        try:
+            result = subprocess.run(
+                ["clip.exe"],
+                input=text,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            return False, f"clip.exe failed: {exc}"
+        if result.returncode == 0:
+            return True, "clip.exe"
+        detail = (result.stderr or result.stdout or "").strip()
+        last_detail = f"clip.exe exited {result.returncode}: {detail or 'no output'}"
+        time.sleep(0.1)
+    return False, last_detail
+
+
 def copy_text_to_clipboard(text: str) -> tuple[bool, str]:
     if not text:
         return False, "empty prompt"
@@ -220,7 +242,10 @@ def copy_text_to_clipboard(text: str) -> tuple[bool, str]:
                 return True, "powershell Set-Clipboard"
             detail = (result.stderr or result.stdout or "").strip()
             powershell_detail = detail or f"Set-Clipboard exited {result.returncode}"
-            return False, f"WinAPI failed: {winapi_detail}; PowerShell failed: {powershell_detail}"
+            copied, clip_detail = copy_text_with_clip_exe(text)
+            if copied:
+                return True, clip_detail
+            return False, f"WinAPI failed: {winapi_detail}; PowerShell failed: {powershell_detail}; {clip_detail}"
         except OSError as exc:
             return False, str(exc)
         finally:
@@ -230,6 +255,14 @@ def copy_text_to_clipboard(text: str) -> tuple[bool, str]:
                 except OSError:
                     pass
     return False, f"clipboard copy is not supported on {sys.platform}"
+
+
+def prompt_file_open_command(path: Path) -> str:
+    if sys.platform.startswith("win"):
+        return f'notepad "{path}"'
+    if sys.platform == "darwin":
+        return f'open "{path}"'
+    return f'xdg-open "{path}"'
 
 
 def write_prompt_file(path: Path, prompt: str) -> Path:
@@ -278,6 +311,7 @@ def main() -> int:
     if copy_failed_detail:
         output_path = write_prompt_file(DEFAULT_HANDOFF_PROMPT, prompt)
         print(f"gpt_review_prompt: {output_path}")
+        print(f"gpt_review_open_command: {prompt_file_open_command(output_path)}")
         print("gpt_review_next: open the prompt file and paste it into the right-side GPT.")
         return 0
     if copied:

@@ -770,6 +770,8 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertTrue((Path(temp_dir) / "gpt_review_prompt.md").exists())
             self.assertIn("gpt_review_clipboard: unavailable", output.getvalue())
+            self.assertIn("gpt_review_open_command:", output.getvalue())
+            self.assertIn("gpt_review_prompt.md", output.getvalue())
             self.assertIn("gpt_review_next:", output.getvalue())
             self.assertIn("gpt_review_send_policy: manual_paste_only", output.getvalue())
             self.assertNotIn("给右侧 GPT 的审查包", output.getvalue())

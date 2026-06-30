@@ -1069,6 +1069,7 @@ def run_gpt_review(args: argparse.Namespace) -> int:
         DEFAULT_GPT_REVIEW_PROMPT.parent.mkdir(parents=True, exist_ok=True)
         DEFAULT_GPT_REVIEW_PROMPT.write_text(prompt, encoding="utf-8")
         print(f"gpt_review_prompt: {DEFAULT_GPT_REVIEW_PROMPT}")
+        print(f"gpt_review_open_command: {gpt_prompt_tool.prompt_file_open_command(DEFAULT_GPT_REVIEW_PROMPT)}")
         print("gpt_review_next: 打开这个文件，把审查包粘贴到右侧 GPT。")
         print("gpt_review_send_policy: manual_paste_only")
     elif copied:
