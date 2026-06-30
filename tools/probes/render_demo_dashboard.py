@@ -675,6 +675,46 @@ def derived_case_status(case: dict[str, Any], key: str) -> str:
     return "N/A"
 
 
+def rank_source_label(source: Any) -> str:
+    source_text = str(source or "none")
+    labels = {
+        "visual_fallback": "A/S 艺术字识别",
+        "ocr_or_text": "OCR/文本识别",
+        "none": "未识别",
+    }
+    return labels.get(source_text, source_text)
+
+
+def rank_source_class(source: Any) -> str:
+    source_text = str(source or "none")
+    if source_text == "visual_fallback":
+        return "rank-visual"
+    if source_text == "ocr_or_text":
+        return "rank-ocr"
+    return "rank-none"
+
+
+def render_rank_sources(case: dict[str, Any]) -> str:
+    sources = case.get("rank_sources") if isinstance(case.get("rank_sources"), dict) else {}
+    labels = (("character", "角色评级", "character_rank"), ("equipment", "音擎评级", "equipment_rank"))
+    items: list[str] = []
+    for key, label, default_region in labels:
+        item = sources.get(key) if isinstance(sources.get(key), dict) else {}
+        rank = item.get("rank") or "未识别"
+        source = item.get("source") or "none"
+        region = item.get("region") or default_region
+        confidence = item.get("confidence")
+        confidence_text = f" · 置信度 {round(float(confidence) * 100)}%" if isinstance(confidence, (int, float)) else ""
+        items.append(
+            f'<div class="rank-source {rank_source_class(source)}">'
+            f"<span>{e(label)}</span>"
+            f"<strong>{e(rank)}</strong>"
+            f"<em>{e(rank_source_label(source))} · {e(region)}{e(confidence_text)}</em>"
+            "</div>"
+        )
+    return f'<div class="rank-sources">{"".join(items)}</div>'
+
+
 def evidence_hint(evidence: Any) -> str:
     if not isinstance(evidence, dict):
         return ""
@@ -1025,6 +1065,7 @@ def render_case(case: dict[str, Any]) -> str:
     normalized_status = derived_case_status(case, "normalized_status")
     import_status = derived_case_status(case, "import_status")
     import_blockers = case.get("import_blockers") if isinstance(case.get("import_blockers"), list) else []
+    rank_source_html = render_rank_sources(case)
     import_blocker_html = "".join(f"<li>{e(item)}</li>" for item in import_blockers)
     if import_blocker_html:
         import_blocker_html = f'<div class="errors"><strong>Import blockers</strong><ul>{import_blocker_html}</ul></div>'
@@ -1052,6 +1093,7 @@ def render_case(case: dict[str, Any]) -> str:
           <div><span>可信字段</span><strong>{e(quality.get("trusted_field_count"))}/{e(quality.get("field_count"))}</strong></div>
           <div><span>requires_review</span><strong>{e(quality.get("requires_manual_review"))}</strong></div>
         </div>
+        {rank_source_html}
         <div class="links">
           {link("review_html", case.get("review_html"))}
           {link("parsed_json", case.get("parsed_json"))}
@@ -2509,6 +2551,17 @@ def render_html(summary: dict[str, Any]) -> str:
     .facts div {{ border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-width: 0; }}
     .facts span {{ display: block; color: var(--muted); font-size: 12px; }}
     .facts strong {{ display: block; overflow-wrap: anywhere; }}
+    .rank-sources {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }}
+    .rank-source {{ display: grid; grid-template-columns: minmax(72px, 0.8fr) auto minmax(130px, 1.4fr); gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: #fbfcff; min-width: 0; }}
+    .rank-source span {{ color: var(--muted); font-size: 12px; font-weight: 800; }}
+    .rank-source strong {{ font-size: 18px; line-height: 1; overflow-wrap: anywhere; }}
+    .rank-source em {{ color: var(--muted); font-size: 12px; font-style: normal; overflow-wrap: anywhere; }}
+    .rank-source.rank-visual {{ border-color: #a7e0bd; background: var(--ok-bg); }}
+    .rank-source.rank-visual strong {{ color: var(--ok); }}
+    .rank-source.rank-ocr {{ border-color: #bfdbfe; background: #eff6ff; }}
+    .rank-source.rank-ocr strong {{ color: #1d4ed8; }}
+    .rank-source.rank-none {{ border-color: #f6cf7c; background: var(--warn-bg); }}
+    .rank-source.rank-none strong {{ color: var(--warn); }}
     .links {{ display: flex; flex-wrap: wrap; gap: 8px; }}
     .links a, .missing {{ border: 1px solid var(--line); border-radius: 999px; padding: 6px 9px; font-size: 12px; text-decoration: none; color: #155399; background: #f8fbff; }}
     .missing {{ color: var(--muted); }}
@@ -2596,6 +2649,8 @@ def render_html(summary: dict[str, Any]) -> str:
       .case-grid {{ grid-template-columns: 1fr; }}
       .case-card {{ grid-template-columns: 1fr; }}
       .facts {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .rank-sources {{ grid-template-columns: 1fr; }}
+      .rank-source {{ grid-template-columns: minmax(72px, 0.8fr) auto minmax(0, 1.4fr); }}
       .plan-item {{ grid-template-columns: 1fr; }}
       .brief-flow > div {{ grid-template-columns: 1fr; }}
       .brief-card {{ grid-template-columns: 1fr; }}

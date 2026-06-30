@@ -1550,6 +1550,19 @@ class DemoDashboardTests(unittest.TestCase):
                         "import_blockers": [],
                         "character": {"name": "星见雅", "level": "60", "rank": "S"},
                         "equipment": {"name": "幻变魔方"},
+                        "rank_sources": {
+                            "character": {
+                                "rank": "S",
+                                "source": "visual_fallback",
+                                "region": "character_rank",
+                                "confidence": 0.91,
+                            },
+                            "equipment": {
+                                "rank": "A",
+                                "source": "ocr_or_text",
+                                "region": "equipment_rank",
+                            },
+                        },
                         "quality": {
                             "trusted_field_count": 10,
                             "field_count": 12,
@@ -1598,6 +1611,11 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("parsed replay mode", html)
             self.assertIn("case_a", html)
             self.assertIn("星见雅", html)
+            self.assertIn("角色评级", html)
+            self.assertIn("音擎评级", html)
+            self.assertIn("A/S 艺术字识别", html)
+            self.assertIn("OCR/文本识别", html)
+            self.assertIn("character_rank", html)
             self.assertIn("normalized_json", html)
             self.assertIn("review_html", html)
             self.assertIn("case_expected.json", html)
