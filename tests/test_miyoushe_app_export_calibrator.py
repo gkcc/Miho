@@ -46,6 +46,12 @@ class MiyousheAppExportCalibratorTests(unittest.TestCase):
             self.assertIn("米游社导出坐标校准", html)
             self.assertIn("还没有截图", html)
             self.assertIn("需要填入清单的坐标", html)
+            self.assertIn("你不需要先填坐标", html)
+            self.assertIn("手动在米游社 APP 保存官方分享图", html)
+            self.assertIn("坐标到底怎么填", html)
+            self.assertIn("窗口相对坐标", html)
+            self.assertIn("按钮中心点", html)
+            self.assertIn("看不到目标时不要猜", html)
 
     def test_missing_window_is_visible_without_exception(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -98,6 +104,8 @@ class MiyousheAppExportCalibratorTests(unittest.TestCase):
             html = result["html_path"].read_text(encoding="utf-8")
             self.assertIn("窗口网格截图", html)
             self.assertIn("window_grid.png", html)
+            self.assertIn("应该点哪里", html)
+            self.assertIn("只允许点击米游社官方", html)
 
 
 if __name__ == "__main__":

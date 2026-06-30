@@ -192,6 +192,7 @@ def image_src(path_value: Any) -> str:
 
 def render_html(report: dict[str, Any]) -> str:
     tasks = report.get("tasks") if isinstance(report.get("tasks"), list) else []
+    manifest_path = str(report.get("manifest_path") or "")
     task_rows = []
     for task in tasks:
         if not isinstance(task, dict):
@@ -203,6 +204,7 @@ def render_html(report: dict[str, Any]) -> str:
             f"<td>{escape(str(task.get('y') if task.get('y') is not None else '待填'))}</td>"
             f"<td>{escape('已确认' if task.get('confirmed_official_ui') else '待确认')}</td>"
             f"<td>{escape(str(task.get('status') or ''))}</td>"
+            f"<td>{escape(str(task.get('note') or ''))}</td>"
             "</tr>"
         )
     warnings = report.get("warnings") if isinstance(report.get("warnings"), list) else []
@@ -232,6 +234,14 @@ def render_html(report: dict[str, Any]) -> str:
     .metric strong {{ display: block; margin-top: 4px; font-size: 22px; overflow-wrap: anywhere; }}
     .panel {{ padding: 16px; }}
     .panel h2 {{ margin: 0 0 10px; font-size: 18px; }}
+    .callout {{ padding: 16px; border: 1px solid #fed7aa; border-radius: 8px; background: #fff7ed; color: #7c2d12; }}
+    .callout h2 {{ margin: 0 0 8px; font-size: 20px; }}
+    .callout p {{ margin: 0; line-height: 1.6; }}
+    .guide {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }}
+    .guide article {{ padding: 14px; border: 1px solid #dbe3ef; border-radius: 8px; background: #fbfcff; }}
+    .guide b {{ display: inline-grid; place-items: center; width: 26px; height: 26px; margin-bottom: 8px; border-radius: 999px; background: #eef6ff; color: #1d4ed8; }}
+    .guide h3 {{ margin: 0 0 6px; font-size: 15px; }}
+    .guide p {{ margin: 0; color: #475569; line-height: 1.5; }}
     .shot {{ display: grid; gap: 10px; }}
     .shot img {{ width: 100%; max-height: 760px; object-fit: contain; border: 1px solid #dbe3ef; border-radius: 8px; background: #111827; }}
     table {{ width: 100%; border-collapse: collapse; }}
@@ -247,6 +257,10 @@ def render_html(report: dict[str, Any]) -> str:
     <p>这一步只生成网格截图和待填坐标表，不点击、不登录、不读 token/cookie。</p>
   </header>
   <main>
+    <section class="callout">
+      <h2>先说结论：你不需要先填坐标</h2>
+      <p>坐标校准只服务“以后自动点击米游社官方 UI”的实验路线。如果你现在只是想验收端到端体验，直接手动在米游社 APP 保存官方分享图到 <strong>figs\\</strong>，再运行 <strong>MihoProbe Update</strong> 或 <strong>dist\\MihoProbe.exe update --open</strong>。</p>
+    </section>
     <section class="metrics">
       <div class="metric"><span>状态</span><strong>{escape(str(report.get("status") or ""))}</strong></div>
       <div class="metric"><span>网格</span><strong>{escape(str(report.get("grid_size") or ""))} px</strong></div>
@@ -256,7 +270,19 @@ def render_html(report: dict[str, Any]) -> str:
     <section class="panel">
       <h2>下一步</h2>
       <p>{escape(str(report.get("next_action") or ""))}</p>
-      <code>{escape(str(report.get("manifest_path") or ""))}</code>
+      <code>{escape(manifest_path)}</code>
+    </section>
+    <section class="panel">
+      <h2>坐标到底怎么填</h2>
+      <div class="guide">
+        <article><b>1</b><h3>先看截图</h3><p>打开已登录的米游社 APP，停在当前步骤对应页面，运行 app-export-calibrate。下方截图会覆盖网格。</p></article>
+        <article><b>2</b><h3>读窗口相对坐标</h3><p>x/y 是米游社窗口左上角开始算的相对坐标，不是整个屏幕坐标。网格线间距就是上方显示的 px。</p></article>
+        <article><b>3</b><h3>取按钮中心点</h3><p>每一行填目标按钮或卡片中心点，比如“我的”就取底部“我的”按钮中心。看不到目标时不要猜。</p></article>
+        <article><b>4</b><h3>改清单 JSON</h3><p>在清单里给对应步骤填 x/y，并只在确认它是米游社官方 UI 后，把 confirmed_official_ui 改为 true。</p></article>
+      </div>
+      <p>清单文件：</p>
+      <code>{escape(manifest_path)}</code>
+      <p>如果某一步的目标按钮不在当前截图里，先手动切到那一步所在页面，再重新生成网格截图；不要凭记忆乱填坐标。</p>
     </section>
     <section class="panel shot">
       <h2>窗口网格截图</h2>
@@ -265,7 +291,7 @@ def render_html(report: dict[str, Any]) -> str:
     <section class="panel">
       <h2>需要填入清单的坐标</h2>
       <table>
-        <thead><tr><th>步骤</th><th>x</th><th>y</th><th>确认</th><th>状态</th></tr></thead>
+        <thead><tr><th>步骤</th><th>x</th><th>y</th><th>确认</th><th>状态</th><th>应该点哪里</th></tr></thead>
         <tbody>{''.join(task_rows)}</tbody>
       </table>
     </section>
