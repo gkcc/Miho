@@ -131,6 +131,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"value_markdown: {result['output_markdown']}")
     print(f"owned_count: {result['summary']['owned_count']}")
     print(f"unmapped_count: {result['summary']['unmapped_count']}")
+    roster_quality = result.get("roster_quality") if isinstance(result.get("roster_quality"), dict) else {}
+    print(f"roster_quality: {roster_quality.get('status', 'unknown')}")
+    print(f"roster_needs_review_count: {roster_quality.get('needs_review_count', 0)}")
     for mode, rec in result.get("executive_summary", {}).get("current_endgame_teams", {}).items():
         team = rec.get("recommended_team")
         names = " / ".join(team.get("member_names", [])) if team else "N/A"

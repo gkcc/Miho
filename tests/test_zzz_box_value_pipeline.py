@@ -38,13 +38,15 @@ class ZzzBoxValuePipelineTests(unittest.TestCase):
                 "output_json": str(output_dir / "value.json"),
                 "output_markdown": str(output_dir / "value.md"),
                 "summary": {"owned_count": 1, "unmapped_count": 0},
+                "roster_quality": {"status": "ok", "needs_review_count": 0},
                 "executive_summary": {"current_endgame_teams": {}},
             }
+            output = io.StringIO()
 
             with (
                 mock.patch.object(pipeline, "box_tool", fake_box_tool),
                 mock.patch.object(pipeline, "value_tool", fake_value_tool),
-                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stdout(output),
             ):
                 code = pipeline.main(
                     [
@@ -66,6 +68,8 @@ class ZzzBoxValuePipelineTests(unittest.TestCase):
             self.assertEqual(call["meta_snapshot"], meta)
             fake_value_tool.build_agent_value_report.assert_called_once()
             self.assertEqual(fake_value_tool.build_agent_value_report.call_args.kwargs["roster_json"], roster_path)
+            self.assertIn("roster_quality: ok", output.getvalue())
+            self.assertIn("roster_needs_review_count: 0", output.getvalue())
 
     def test_existing_roster_json_bypasses_image_extraction(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -82,13 +86,15 @@ class ZzzBoxValuePipelineTests(unittest.TestCase):
                 "output_json": str(output_dir / "value.json"),
                 "output_markdown": str(output_dir / "value.md"),
                 "summary": {"owned_count": 0, "unmapped_count": 0},
+                "roster_quality": {"status": "needs_review", "needs_review_count": 1},
                 "executive_summary": {"current_endgame_teams": {}},
             }
+            output = io.StringIO()
 
             with (
                 mock.patch.object(pipeline, "box_tool", fake_box_tool),
                 mock.patch.object(pipeline, "value_tool", fake_value_tool),
-                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stdout(output),
             ):
                 code = pipeline.main(
                     [
@@ -104,6 +110,8 @@ class ZzzBoxValuePipelineTests(unittest.TestCase):
             self.assertEqual(code, 0)
             fake_box_tool.extract_roster_from_image.assert_not_called()
             self.assertEqual(fake_value_tool.build_agent_value_report.call_args.kwargs["roster_json"], roster)
+            self.assertIn("roster_quality: needs_review", output.getvalue())
+            self.assertIn("roster_needs_review_count: 1", output.getvalue())
 
     def test_missing_roster_and_image_returns_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
