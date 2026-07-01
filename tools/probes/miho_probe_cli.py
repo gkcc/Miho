@@ -1830,21 +1830,60 @@ def load_roster_quality(path: str | Path | None) -> dict[str, Any]:
     }
 
 
-def paired_roster_markdown(path: str | Path | None) -> str | None:
+def roster_markdown_info(path: str | Path | None) -> dict[str, Any]:
     if not path:
-        return None
-    markdown = Path(path).with_suffix(".md")
-    return str(markdown) if markdown.exists() else None
+        return {
+            "path": None,
+            "expected_path": None,
+            "status": "not_applicable",
+            "older_than_roster": False,
+        }
+    roster_path = Path(path)
+    markdown = roster_path.with_suffix(".md")
+    expected_path = str(markdown)
+    if not markdown.exists():
+        return {
+            "path": None,
+            "expected_path": expected_path,
+            "status": "missing",
+            "older_than_roster": False,
+        }
+    try:
+        roster_mtime = roster_path.stat().st_mtime
+        markdown_mtime = markdown.stat().st_mtime
+    except OSError:
+        return {
+            "path": str(markdown),
+            "expected_path": expected_path,
+            "status": "unknown",
+            "older_than_roster": False,
+        }
+    older_than_roster = markdown_mtime < roster_mtime
+    return {
+        "path": str(markdown),
+        "expected_path": expected_path,
+        "status": "stale" if older_than_roster else "current",
+        "older_than_roster": older_than_roster,
+        "roster_mtime_epoch": roster_mtime,
+        "markdown_mtime_epoch": markdown_mtime,
+    }
 
 
 def build_roster_review_gate(
     latest_roster: str | None,
     roster_quality: dict[str, Any],
     roster_review_markdown: str | None = None,
+    roster_review_markdown_status: str | None = None,
 ) -> dict[str, Any]:
     quality_status = str(roster_quality.get("status") or "unknown")
     needs_review_count = probe_int(roster_quality.get("needs_review_count"), 0)
-    review_hint = f"复核文件：{roster_review_markdown}" if roster_review_markdown else "未找到 roster 复核 Markdown；可重新跑 box-roster 生成。"
+    markdown_status = roster_review_markdown_status or ("current" if roster_review_markdown else "missing" if latest_roster else "not_applicable")
+    if roster_review_markdown and markdown_status == "stale":
+        review_hint = f"复核 Markdown 旧于 roster JSON：{roster_review_markdown}；建议重新跑 box-roster。"
+    elif roster_review_markdown:
+        review_hint = f"复核文件：{roster_review_markdown}"
+    else:
+        review_hint = "未找到 roster 复核 Markdown；可重新跑 box-roster 生成。"
     if not latest_roster:
         status = "no_roster_probe"
         message = "还没有 roster probe；先生成 roster，再人工确认后才能进入 accepted roster。"
@@ -1852,6 +1891,18 @@ def build_roster_review_gate(
     elif quality_status == "needs_review":
         status = "needs_manual_review"
         message = f"当前 roster 有 {needs_review_count} 个待复核项；可跑 probe 价值报告，但不能当作 accepted roster。{review_hint}"
+        blocks_accepted_roster = True
+    elif quality_status == "ok" and markdown_status == "missing":
+        status = "review_markdown_missing"
+        message = "roster probe 质量检查为 ok，但缺少 paired 复核 Markdown；可跑 probe 价值报告，进入 accepted roster 前必须重新生成或补齐复核 Markdown。"
+        blocks_accepted_roster = True
+    elif quality_status == "ok" and markdown_status == "stale":
+        status = "review_markdown_stale"
+        message = f"roster probe 质量检查为 ok，但复核 Markdown 旧于 roster JSON；可跑 probe 价值报告，进入 accepted roster 前必须重新跑 box-roster。{review_hint}"
+        blocks_accepted_roster = True
+    elif quality_status == "ok" and markdown_status != "current":
+        status = "review_markdown_unknown"
+        message = f"roster probe 质量检查为 ok，但无法确认复核 Markdown 是否匹配当前 roster；可跑 probe 价值报告，进入 accepted roster 前必须重新生成复核 Markdown。{review_hint}"
         blocks_accepted_roster = True
     elif quality_status == "ok":
         status = "quality_ok_manual_confirmation_required"
@@ -1866,7 +1917,7 @@ def build_roster_review_gate(
         "message": message,
         "blocks_accepted_roster": blocks_accepted_roster,
         "review_markdown": roster_review_markdown,
-        "review_markdown_status": "available" if roster_review_markdown else "missing" if latest_roster else "not_applicable",
+        "review_markdown_status": markdown_status,
         "manual_confirmation_required_before_accepted_roster": True,
     }
 
@@ -1891,8 +1942,14 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     latest_roster = latest_roster_record["path"] if latest_roster_record else None
     roster_source = load_roster_source(latest_roster)
     roster_quality = load_roster_quality(latest_roster)
-    roster_review_markdown = paired_roster_markdown(latest_roster)
-    review_gate = build_roster_review_gate(latest_roster, roster_quality, roster_review_markdown)
+    roster_review_markdown_info = roster_markdown_info(latest_roster)
+    roster_review_markdown = roster_review_markdown_info.get("path") if isinstance(roster_review_markdown_info.get("path"), str) else None
+    review_gate = build_roster_review_gate(
+        latest_roster,
+        roster_quality,
+        roster_review_markdown,
+        str(roster_review_markdown_info.get("status") or "unknown"),
+    )
     latest_image_sha256: str | None = None
     latest_image_hash_error: str | None = None
     if latest_image:
@@ -1939,6 +1996,10 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
         readiness = "ready_for_box_value_from_roster"
         if review_gate.get("status") == "needs_manual_review":
             next_label = "可跑价值报告，但 roster 仍需人工复核"
+        elif review_gate.get("status") == "review_markdown_missing":
+            next_label = "可跑价值报告，但缺少复核 Markdown"
+        elif review_gate.get("status") == "review_markdown_stale":
+            next_label = "可跑价值报告，但复核 Markdown 已过期"
         else:
             next_label = "可用已生成 roster probe 跑价值报告"
     elif latest_image and latest_meta:
@@ -1984,6 +2045,9 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
             "meta_snapshot": latest_meta,
             "roster_probe": latest_roster,
             "roster_review_markdown": roster_review_markdown,
+            "roster_review_markdown_status": roster_review_markdown_info.get("status"),
+            "roster_review_markdown_expected_path": roster_review_markdown_info.get("expected_path"),
+            "roster_review_markdown_older_than_roster": roster_review_markdown_info.get("older_than_roster"),
             "value_report": value_reports[0]["path"] if value_reports else None,
         },
         "freshness": {
@@ -2128,6 +2192,7 @@ def run_box_status(args: argparse.Namespace) -> int:
     print(f"box_status_roster_needs_review_count: {roster_quality.get('needs_review_count', 0)}", flush=True)
     print(f"box_status_review_gate: {review_gate.get('status', 'unknown')}", flush=True)
     print(f"box_status_roster_review_markdown: {review_gate.get('review_markdown') or 'missing'}", flush=True)
+    print(f"box_status_roster_review_markdown_status: {review_gate.get('review_markdown_status', 'unknown')}", flush=True)
     print(f"box_status_next: {report['next_command']}", flush=True)
     print(f"box_status_json: {output_json}", flush=True)
     print(f"box_status_html: {output_html}", flush=True)

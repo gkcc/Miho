@@ -191,6 +191,7 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("box_status_roster_quality", readme)
         self.assertIn("box_status_review_gate", readme)
         self.assertIn("box_status_roster_review_markdown", readme)
+        self.assertIn("box_status_roster_review_markdown_status", readme)
         self.assertIn("accepted roster", readme)
         self.assertIn("源图 hash", readme)
         self.assertIn("dist\\MihoProbe.exe rank-check", readme)

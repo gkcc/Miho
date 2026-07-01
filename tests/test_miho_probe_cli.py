@@ -596,6 +596,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_roster_needs_review_count: 0", text)
             self.assertIn("box_status_review_gate: no_roster_probe", text)
             self.assertIn("box_status_roster_review_markdown: missing", text)
+            self.assertIn("box_status_roster_review_markdown_status: not_applicable", text)
 
     def test_box_status_prefers_existing_roster_over_rerunning_image_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -630,8 +631,46 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertFalse(report["freshness"]["latest_image_newer_than_roster"])
             self.assertEqual(report["roster_quality"]["status"], "ok")
             self.assertEqual(report["roster_quality"]["needs_review_count"], 0)
-            self.assertEqual(report["review_gate"]["status"], "quality_ok_manual_confirmation_required")
+            self.assertEqual(report["latest"]["roster_review_markdown_status"], "missing")
+            self.assertEqual(report["latest"]["roster_review_markdown_expected_path"], str(box / "zzz_box_roster_from_box_image.md"))
+            self.assertEqual(report["next_label"], "可跑价值报告，但缺少复核 Markdown")
+            self.assertEqual(report["review_gate"]["status"], "review_markdown_missing")
             self.assertEqual(report["review_gate"]["review_markdown_status"], "missing")
+            self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
+            self.assertIn("缺少 paired 复核 Markdown", report["review_gate"]["message"])
+
+    def test_box_status_allows_quality_ok_roster_after_review_markdown_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            for path in (images, meta, box, value):
+                path.mkdir()
+            (images / "zzz_box.png").write_bytes(b"fake")
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+            roster_json = box / "zzz_box_roster_from_box_image.json"
+            roster_json.write_text(json.dumps({"characters": []}, ensure_ascii=False), encoding="utf-8")
+            roster_json.with_suffix(".md").write_text("# review roster\n", encoding="utf-8")
+
+            report = cli_tool.build_box_status(
+                argparse.Namespace(
+                    image_dir=[str(images)],
+                    meta_dir=str(meta),
+                    box_dir=str(box),
+                    value_dir=str(value),
+                    max_items=8,
+                )
+            )
+
+            self.assertEqual(report["readiness"], "ready_for_box_value_from_roster")
+            self.assertEqual(report["next_label"], "可用已生成 roster probe 跑价值报告")
+            self.assertEqual(report["roster_quality"]["status"], "ok")
+            self.assertEqual(report["latest"]["roster_review_markdown_status"], "current")
+            self.assertFalse(report["latest"]["roster_review_markdown_older_than_roster"])
+            self.assertEqual(report["review_gate"]["status"], "quality_ok_manual_confirmation_required")
+            self.assertEqual(report["review_gate"]["review_markdown_status"], "current")
             self.assertFalse(report["review_gate"]["blocks_accepted_roster"])
 
     def test_run_box_status_exposes_roster_quality_review_summary(self) -> None:
@@ -681,15 +720,17 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["roster_quality"]["status"], "needs_review")
             self.assertEqual(report["roster_quality"]["needs_review_count"], 1)
             self.assertEqual(report["latest"]["roster_review_markdown"], str(roster_md))
+            self.assertEqual(report["latest"]["roster_review_markdown_status"], "current")
+            self.assertFalse(report["latest"]["roster_review_markdown_older_than_roster"])
             self.assertEqual(report["review_gate"]["status"], "needs_manual_review")
             self.assertEqual(report["review_gate"]["review_markdown"], str(roster_md))
-            self.assertEqual(report["review_gate"]["review_markdown_status"], "available")
+            self.assertEqual(report["review_gate"]["review_markdown_status"], "current")
             self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
             html = (output_dir / "box_value_status.html").read_text(encoding="utf-8")
             self.assertIn("roster_quality=needs_review", html)
             self.assertIn("roster_needs_review=1", html)
             self.assertIn("review_gate=needs_manual_review", html)
-            self.assertIn("review_markdown=available", html)
+            self.assertIn("review_markdown=current", html)
             self.assertIn("当前 roster 有 1 个待复核项", html)
             self.assertIn(str(roster_md), html)
             text = output.getvalue()
@@ -697,6 +738,47 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_roster_needs_review_count: 1", text)
             self.assertIn("box_status_review_gate: needs_manual_review", text)
             self.assertIn(f"box_status_roster_review_markdown: {roster_md}", text)
+            self.assertIn("box_status_roster_review_markdown_status: current", text)
+
+    def test_box_status_blocks_quality_ok_roster_when_review_markdown_is_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            for path in (images, meta, box, value):
+                path.mkdir()
+            image_path = images / "zzz_box.png"
+            image_path.write_bytes(b"fake")
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+            roster_json = box / "zzz_box_roster_from_box_image.json"
+            roster_md = box / "zzz_box_roster_from_box_image.md"
+            roster_json.write_text(json.dumps({"characters": []}, ensure_ascii=False), encoding="utf-8")
+            roster_md.write_text("# stale review roster\n", encoding="utf-8")
+            os.utime(image_path, (1_700_000_060, 1_700_000_060))
+            os.utime(roster_md, (1_700_000_000, 1_700_000_000))
+            os.utime(roster_json, (1_700_000_120, 1_700_000_120))
+
+            report = cli_tool.build_box_status(
+                argparse.Namespace(
+                    image_dir=[str(images)],
+                    meta_dir=str(meta),
+                    box_dir=str(box),
+                    value_dir=str(value),
+                    max_items=8,
+                )
+            )
+
+            self.assertEqual(report["readiness"], "ready_for_box_value_from_roster")
+            self.assertEqual(report["next_label"], "可跑价值报告，但复核 Markdown 已过期")
+            self.assertEqual(report["latest"]["roster_review_markdown"], str(roster_md))
+            self.assertEqual(report["latest"]["roster_review_markdown_status"], "stale")
+            self.assertTrue(report["latest"]["roster_review_markdown_older_than_roster"])
+            self.assertEqual(report["review_gate"]["status"], "review_markdown_stale")
+            self.assertEqual(report["review_gate"]["review_markdown_status"], "stale")
+            self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
+            self.assertIn("旧于 roster JSON", report["review_gate"]["message"])
 
     def test_box_status_counts_agent_review_status_when_summary_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
