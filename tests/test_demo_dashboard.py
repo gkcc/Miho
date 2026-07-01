@@ -199,10 +199,11 @@ class DemoDashboardTests(unittest.TestCase):
             "apply_status": "applied_with_warnings",
             "output_json": "data/probes/roster/review_apply_receipt.json",
         }
-        summary["review_inbox"] = {"safe_apply_status": "applied"}
+        summary["review_inbox"] = {"safe_apply_status": "applied", "pending": [], "accepted": [], "rejected": []}
 
         self.assertEqual(dashboard_tool.safe_apply_status(summary), "applied_with_warnings")
         self.assertEqual(dashboard_tool.human_status("applied_with_warnings"), "已应用，有警告")
+        self.assertIn("已应用，有警告", dashboard_tool.render_review_inbox(summary))
 
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(

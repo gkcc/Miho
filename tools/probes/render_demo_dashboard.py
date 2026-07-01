@@ -1962,6 +1962,7 @@ def render_review_inbox(summary: dict[str, Any]) -> str:
     pending_block = "".join(rows) if rows else '<div class="empty small">没有待确认快照。</div>'
     accepted_names = "、".join(str(item.get("character")) for item in accepted[:8] if isinstance(item, dict))
     rejected_names = "、".join(str(item.get("character")) for item in rejected[:8] if isinstance(item, dict))
+    apply_status = safe_apply_status(summary)
     apply_command = command_details(
         "复核应用命令（确认后再复制）",
         [("应用命令", inbox.get("decision_command"))],
@@ -1980,7 +1981,7 @@ def render_review_inbox(summary: dict[str, Any]) -> str:
         <div><span>待确认快照</span><strong>{e(inbox.get("pending_count", 0))}</strong></div>
         <div><span>已接收快照</span><strong>{e(inbox.get("accepted_count", 0))}</strong></div>
         <div><span>已拒绝快照</span><strong>{e(inbox.get("rejected_count", 0))}</strong></div>
-        <div><span>安全应用</span><strong>{e(human_status(inbox.get("safe_apply_status") or "not_applied"))}</strong></div>
+        <div><span>安全应用</span><strong>{e(human_status(apply_status))}</strong></div>
         <div><span>需要复核</span><strong>{e(inbox.get("needs_manual_review_count", 0))}</strong></div>
         <div><span>已确认角色</span><strong>{e(accepted_names or "无")}</strong></div>
         <div><span>已拒绝角色</span><strong>{e(rejected_names or "无")}</strong></div>
