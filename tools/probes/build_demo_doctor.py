@@ -163,6 +163,23 @@ def input_info(data: dict[str, Any] | None) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def apply_receipt_summary(review_apply_receipt: dict[str, Any] | None) -> dict[str, Any]:
+    summary = review_apply_receipt.get("summary") if isinstance(review_apply_receipt, dict) else {}
+    return summary if isinstance(summary, dict) else {}
+
+
+def accepted_missing_roster_index(review_apply_receipt: dict[str, Any] | None) -> bool:
+    if not isinstance(review_apply_receipt, dict):
+        return False
+    summary = apply_receipt_summary(review_apply_receipt)
+    accepted = int_value(summary.get("did_write_accepted_count"))
+    entered = int_value(summary.get("did_enter_roster_count"))
+    if accepted > 0 and entered < accepted:
+        return True
+    warnings = as_list(review_apply_receipt.get("warnings"))
+    return any("did not enter roster_index" in str(item) for item in warnings)
+
+
 def build_evidence_check(
     *,
     refresh_status: dict[str, Any] | None,
@@ -220,6 +237,10 @@ def build_evidence_check(
                 matched_preview_apply = False
                 strict_status = "blocked"
                 blockers.append("apply_receipt_decision_manifest_sha256_mismatch")
+            if accepted_missing_roster_index(review_apply_receipt):
+                matched_preview_apply = False
+                strict_status = "blocked"
+                blockers.append("apply_receipt_accepted_not_in_roster_index")
 
     if isinstance(review_preview, dict) and isinstance(run_manifest, dict):
         expected_run_hash = preview_input.get("run_manifest_sha256")

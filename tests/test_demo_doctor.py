@@ -288,6 +288,35 @@ class DemoDoctorTests(unittest.TestCase):
         self.assertEqual(result["evidence_check"]["strict_status"], "trusted")
         self.assertTrue(result["evidence_check"]["matched_preview_apply"])
 
+    def test_apply_receipt_accepted_without_roster_index_blocks_doctor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_path = write_json(root / "run_manifest.json", {"schema_version": "run"})
+            preview_data = preview(status="ready", accept_count=1, would_update=1)
+            preview_data["input"]["run_manifest_sha256"] = sha256(run_path)
+            preview_path = write_json(root / "review_preview.json", preview_data)
+            receipt = {
+                "schema_version": "p2.5-lite-review-apply-receipt",
+                "input": {"preview_result_sha256": sha256(preview_path), "decision_manifest_sha256": "decision-hash"},
+                "summary": {"did_write_accepted_count": 1, "did_enter_roster_count": 0},
+                "warnings": ["accepted snapshot was written but did not enter roster_index."],
+            }
+            result = doctor_tool.build_demo_doctor(
+                output_dir=root / "doctor",
+                refresh_status=write_json(root / "refresh_status.json", refresh("fresh")),
+                action_checklist=write_json(root / "action_checklist.json", checklist()),
+                review_preview=preview_path,
+                review_apply_receipt=write_json(root / "review_apply_receipt.json", receipt),
+                run_manifest=run_path,
+            )
+        self.assertEqual(result["doctor_status"], "blocked")
+        self.assertEqual(result["primary_next_action"], "repair_evidence_mismatch")
+        self.assertFalse(result["try_now_allowed"])
+        self.assertFalse(result["evidence_check"]["matched_preview_apply"])
+        self.assertEqual(result["evidence_check"]["strict_status"], "blocked")
+        self.assertIn("apply_receipt_accepted_not_in_roster_index", result["evidence_check"]["blockers"])
+        self.assertIn("ready_try_now_not_actionable_under_current_doctor_status", result["blocking_reasons"])
+
     def test_pending_review_requires_manual_review(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
