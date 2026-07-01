@@ -271,6 +271,38 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("进入 roster", html)
         self.assertNotIn("accepted snapshot was written", html)
 
+    def test_input_panel_uses_reader_friendly_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["input"] = {
+            "source_mode": "parsed replay mode",
+            "images_dir": None,
+            "parsed_dir": "data/probes/parsed",
+            "parsed_dir_discovered_count": 2,
+            "parsed_dir_selected_count": 1,
+            "latest_only": True,
+            "new_only": False,
+            "clean_demo": False,
+            "state_file": "data/probes/demo/update_state.json",
+        }
+        summary["warnings"] = ["当前包含历史 parsed 结果，平均通过率不代表 P0.9 replay batch"]
+
+        html = dashboard_tool.render_input_panel(summary)
+
+        self.assertIn("来源模式", html)
+        self.assertIn("解析结果回放模式", html)
+        self.assertIn("解析结果目录", html)
+        self.assertIn("发现解析结果", html)
+        self.assertIn("使用解析结果", html)
+        self.assertIn("只取最新解析", html)
+        self.assertIn(">是<", html)
+        self.assertIn(">否<", html)
+        self.assertIn("输入警告", html)
+        self.assertNotIn(">Mode<", html)
+        self.assertNotIn("images_dir", html)
+        self.assertNotIn("parsed found", html)
+        self.assertNotIn("latest_only", html)
+        self.assertNotIn("Warning</strong>", html)
+
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
             dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),
@@ -2057,7 +2089,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("米游社练度识别体验台", html)
             self.assertIn("当前结论", html)
             self.assertIn("调试与产物明细", html)
-            self.assertIn("parsed replay mode", html)
+            self.assertIn("解析结果回放模式", html)
             self.assertIn("case_a", html)
             self.assertIn("星见雅", html)
             self.assertIn("角色评级", html)
@@ -2272,8 +2304,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("启动器记录归属未知", dashboard_html)
             self.assertIn("launcher_report_20260629.json", dashboard_html)
             self.assertNotIn("游戏内可尝试", dashboard_html)
-            self.assertIn("parsed found", dashboard_html)
-            self.assertIn("parsed used", dashboard_html)
+            self.assertIn("发现解析结果", dashboard_html)
+            self.assertIn("使用解析结果", dashboard_html)
             self.assertIn("不会自动写入正式数据", dashboard_html)
             self.assertIn("练度更新收件箱", dashboard_html)
             self.assertTrue(Path(summary["cases"][0]["normalized_json"]).exists())

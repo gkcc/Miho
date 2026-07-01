@@ -1612,32 +1612,43 @@ def render_case(case: dict[str, Any]) -> str:
     """
 
 
+def source_mode_label(value: Any) -> str:
+    text = str(value or "").lower()
+    labels = {
+        "manifest controlled mode": "清单受控回放模式",
+        "parsed replay mode": "解析结果回放模式",
+        "ocr fresh image mode": "图片识别更新模式",
+        "unknown mode": "未知模式",
+    }
+    return labels.get(text, humanize_text(value or "未知模式"))
+
+
 def render_input_panel(summary: dict[str, Any]) -> str:
     input_info = summary.get("input", {}) if isinstance(summary.get("input"), dict) else {}
     warnings = summary.get("warnings", []) if isinstance(summary.get("warnings"), list) else []
     source_mode = input_info.get("source_mode") or "unknown mode"
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
-    warnings_block = f'<div class="warnings"><strong>Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warnings_block = f'<div class="warnings"><strong>输入警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     return f"""
     <section class="panel input-panel">
       <h2>输入模式</h2>
       <div class="input-grid">
-        <div><span>Mode</span><strong>{e(source_mode)}</strong></div>
-        <div><span>images_dir</span><strong>{e(rel_label(input_info.get("images_dir")) or "N/A")}</strong></div>
-        <div><span>parsed_dir</span><strong>{e(rel_label(input_info.get("parsed_dir")) or "N/A")}</strong></div>
-        <div><span>manifest</span><strong>{e(rel_label(input_info.get("manifest")) or "N/A")}</strong></div>
-        <div><span>parsed found</span><strong>{e(input_info.get("parsed_dir_discovered_count") if input_info.get("parsed_dir_discovered_count") is not None else "N/A")}</strong></div>
-        <div><span>parsed used</span><strong>{e(input_info.get("parsed_dir_selected_count") if input_info.get("parsed_dir_selected_count") is not None else "N/A")}</strong></div>
-        <div><span>targets</span><strong>{e(rel_label(input_info.get("targets")) or "N/A")}</strong></div>
-        <div><span>target_source_manifest</span><strong>{e(rel_label(input_info.get("target_source_manifest")) or "N/A")}</strong></div>
-        <div><span>character_catalog</span><strong>{e(rel_label(input_info.get("character_catalog")) or "N/A")}</strong></div>
-        <div><span>roster_dir</span><strong>{e(rel_label(input_info.get("roster_dir")) or "N/A")}</strong></div>
-        <div><span>tier_snapshot</span><strong>{e(rel_label(input_info.get("tier_snapshot")) or "N/A")}</strong></div>
-        <div><span>history_dir</span><strong>{e(rel_label(input_info.get("history_dir")) or "N/A")}</strong></div>
-        <div><span>latest_only</span><strong>{e(input_info.get("latest_only"))}</strong></div>
-        <div><span>new_only</span><strong>{e(input_info.get("new_only"))}</strong></div>
-        <div><span>clean_demo</span><strong>{e(input_info.get("clean_demo"))}</strong></div>
-        <div><span>state_file</span><strong>{e(rel_label(input_info.get("state_file")) or "N/A")}</strong></div>
+        <div><span>来源模式</span><strong>{e(source_mode_label(source_mode))}</strong></div>
+        <div><span>分享图目录</span><strong>{e(rel_label(input_info.get("images_dir")) or "N/A")}</strong></div>
+        <div><span>解析结果目录</span><strong>{e(rel_label(input_info.get("parsed_dir")) or "N/A")}</strong></div>
+        <div><span>样例清单</span><strong>{e(rel_label(input_info.get("manifest")) or "N/A")}</strong></div>
+        <div><span>发现解析结果</span><strong>{e(input_info.get("parsed_dir_discovered_count") if input_info.get("parsed_dir_discovered_count") is not None else "N/A")}</strong></div>
+        <div><span>使用解析结果</span><strong>{e(input_info.get("parsed_dir_selected_count") if input_info.get("parsed_dir_selected_count") is not None else "N/A")}</strong></div>
+        <div><span>目标配置</span><strong>{e(rel_label(input_info.get("targets")) or "N/A")}</strong></div>
+        <div><span>目标来源清单</span><strong>{e(rel_label(input_info.get("target_source_manifest")) or "N/A")}</strong></div>
+        <div><span>角色目录</span><strong>{e(rel_label(input_info.get("character_catalog")) or "N/A")}</strong></div>
+        <div><span>角色库目录</span><strong>{e(rel_label(input_info.get("roster_dir")) or "N/A")}</strong></div>
+        <div><span>保值快照</span><strong>{e(rel_label(input_info.get("tier_snapshot")) or "N/A")}</strong></div>
+        <div><span>历史快照目录</span><strong>{e(rel_label(input_info.get("history_dir")) or "N/A")}</strong></div>
+        <div><span>只取最新解析</span><strong>{e(bool_text(input_info.get("latest_only")))}</strong></div>
+        <div><span>只处理新图片</span><strong>{e(bool_text(input_info.get("new_only")))}</strong></div>
+        <div><span>清理演示目录</span><strong>{e(bool_text(input_info.get("clean_demo")))}</strong></div>
+        <div><span>更新状态文件</span><strong>{e(rel_label(input_info.get("state_file")) or "N/A")}</strong></div>
       </div>
       {warnings_block}
     </section>
