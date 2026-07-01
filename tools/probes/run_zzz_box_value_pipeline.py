@@ -9,6 +9,7 @@ not parse raw account cookies/tokens and does not treat missing agents as owned.
 from __future__ import annotations
 
 import argparse
+import importlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -20,6 +21,10 @@ TOOLS_DIR = PROJECT_ROOT / "tools" / "probes"
 
 
 def load_tool(module_name: str, filename: str) -> Any:
+    try:
+        return importlib.import_module(module_name)
+    except ImportError:
+        pass
     path = TOOLS_DIR / filename
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:

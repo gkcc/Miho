@@ -9,6 +9,7 @@ UID/nickname OCR is not persisted.
 from __future__ import annotations
 
 import argparse
+import importlib
 import importlib.util
 import json
 import re
@@ -99,6 +100,11 @@ class BoxRosterExtractError(RuntimeError):
 
 
 def load_tool(module_name: str, filename: str) -> Any:
+    import_name = Path(filename).stem
+    try:
+        return importlib.import_module(import_name)
+    except ImportError:
+        pass
     path = TOOLS_DIR / filename
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
