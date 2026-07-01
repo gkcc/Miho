@@ -450,33 +450,115 @@ def summary_for(
     }
 
 
+SUMMARY_LABELS = [
+    ("owned_character_count", "已确认角色"),
+    ("pending_snapshot_count", "待确认快照"),
+    ("snapshot_file_count", "快照文件"),
+    ("target_count", "目标数"),
+    ("covered_target_count", "已覆盖目标"),
+    ("uncovered_target_count", "未覆盖目标"),
+    ("needs_recording_count", "需补录或复核"),
+    ("high_priority_action_count", "高优先级行动"),
+    ("tier_signal_count", "保值信号"),
+    ("high_value_owned_action_count", "高保值行动"),
+    ("low_value_action_count", "低保值相关行动"),
+    ("low_value_review_count", "低保值复核"),
+]
+
+
+ACTION_LABELS = {
+    "train_owned_character": "培养已确认角色",
+    "review_low_value_investment": "复核低保值投入",
+    "review_candidate": "复核目录候选",
+    "record_missing_character": "补录角色分享图",
+    "review_pending_snapshot": "复核待确认快照",
+}
+
+
+STATUS_LABELS = {
+    "actionable": "可执行",
+    "needs_review": "需复核",
+    "needs_recording": "需补录",
+    "blocked": "已阻断",
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+    "accepted_roster": "已确认角色库",
+    "owned_snapshot": "已确认快照",
+    "pending_snapshot": "待确认快照",
+    "catalog_candidate": "目录候选",
+    "catalog_owned_missing_snapshot": "目录已拥有但缺快照",
+    "protect_investment": "保护当前投入",
+    "owned_high_value": "已有高保值",
+    "watch_candidate": "观察候选",
+    "non_owned_watch_only": "未拥有，仅观察",
+    "avoid_overinvestment": "避免继续加码",
+    "low_priority_candidate": "低优先级观察",
+    "owned_low_value_caution": "已有低保值，谨慎投入",
+    "non_owned_low_priority_watch": "未拥有，低优先级观察",
+}
+
+
+TEXT_REPLACEMENTS = (
+    ("pending snapshot", "待确认快照"),
+    ("catalog candidate", "目录候选"),
+    ("accepted roster", "已确认角色库"),
+    ("tier/保值", "保值"),
+    ("tier_signal", "保值信号"),
+)
+
+
+def label_status(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return STATUS_LABELS.get(text, text or "未知")
+
+
+def label_action(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return ACTION_LABELS.get(text, text or "后续行动")
+
+
+def human_text(value: Any) -> str:
+    text = str(value or "")
+    for old, new in TEXT_REPLACEMENTS:
+        text = text.replace(old, new)
+    return text
+
+
 def render_markdown(action_report: dict[str, Any]) -> str:
     lines = [
         "# 下一步行动卡",
         "",
-        "pending snapshot 和 catalog candidate 都不代表可用练度；只有 accepted roster 才算已确认拥有练度。",
+        "待确认快照和目录候选都不代表可用练度；只有已确认角色库才算已确认拥有练度。",
         "",
-        "## Summary",
+        "## 概览",
         "",
     ]
-    for key, value in action_report.get("summary", {}).items():
-        lines.append(f"- {key}: {value}")
-    lines.extend(["", "## Cards", ""])
+    summary = action_report.get("summary") if isinstance(action_report.get("summary"), dict) else {}
+    for key, label in SUMMARY_LABELS:
+        if key in summary:
+            lines.append(f"- {label}: {summary.get(key)}")
+    lines.extend(["", "## 行动卡", ""])
     for item in action_report.get("cards", []):
         evidence = item.get("evidence", {}) if isinstance(item.get("evidence"), dict) else {}
         tier_signal = item.get("tier_signal", {}) if isinstance(item.get("tier_signal"), dict) else {}
+        tier_bits = []
+        if tier_signal:
+            tier_bits.append(label_status(tier_signal.get("recommendation") or tier_signal.get("observation_status")))
+            if tier_signal.get("tier"):
+                tier_bits.append(f"评级 {tier_signal.get('tier')}")
         lines.extend(
             [
                 f"### #{item.get('rank')} {item.get('title')}",
-                f"- action_type: {item.get('action_type')}",
-                f"- priority: {item.get('priority')}",
-                f"- status: {item.get('status')}",
-                f"- source_class: {item.get('source_class')}",
-                f"- target: {item.get('target')}",
-                f"- reason: {item.get('reason')}",
-                f"- target_source: {evidence.get('target_source') or 'N/A'}",
-                f"- target_hash: {evidence.get('target_hash') or 'N/A'}",
-                f"- tier_signal: {tier_signal.get('recommendation') or 'N/A'} / {tier_signal.get('tier') or 'N/A'}",
+                f"- 行动: {label_action(item.get('action_type'))}",
+                f"- 优先级: {label_status(item.get('priority'))}",
+                f"- 状态: {label_status(item.get('status'))}",
+                f"- 来源: {label_status(item.get('source_class'))}",
+                f"- 目标: {item.get('target')}",
+                f"- 原因: {human_text(item.get('reason'))}",
+                f"- 目标来源: {evidence.get('target_source') or 'N/A'}",
+                f"- 目标校验: {evidence.get('target_hash') or 'N/A'}",
+                f"- 保值信号: {' / '.join(tier_bits) if tier_bits else 'N/A'}",
                 "",
             ]
         )

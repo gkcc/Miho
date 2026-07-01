@@ -233,9 +233,19 @@ class ActionCardTests(unittest.TestCase):
             self.assertEqual(record["tier_signal"]["recommendation"], "low_priority_candidate")
 
             markdown = Path(result["output_md"]).read_text(encoding="utf-8")
-            self.assertIn("accepted roster", markdown)
+            self.assertIn("## 概览", markdown)
+            self.assertIn("## 行动卡", markdown)
+            self.assertIn("已确认角色: 1", markdown)
+            self.assertIn("高保值行动: 1", markdown)
+            self.assertIn("行动: 培养已确认角色", markdown)
+            self.assertIn("来源: 已确认快照", markdown)
+            self.assertIn("保值信号: 保护当前投入 / 评级 S", markdown)
+            self.assertIn("只有已确认角色库才算已确认拥有练度", markdown)
             self.assertIn("珂蕾妲", markdown)
-            self.assertIn("tier_signal", markdown)
+            self.assertNotIn("accepted roster", markdown)
+            self.assertNotIn("action_type:", markdown)
+            self.assertNotIn("source_class:", markdown)
+            self.assertNotIn("tier_signal", markdown)
 
     def test_build_action_cards_keeps_unaccepted_snapshots_pending(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
