@@ -115,6 +115,17 @@ class ActionChecklistTests(unittest.TestCase):
             try_now = next(item for item in result["items"] if item["item_type"] == "try_now")
             self.assertEqual(try_now["status"], "blocked")
             self.assertIn("blocked_by_data_warning", try_now["warnings"])
+            markdown = Path(result["output_md"]).read_text(encoding="utf-8")
+            self.assertIn("当前状态：已阻断", markdown)
+            self.assertIn("已阻断：先处理数据一致性", markdown)
+            self.assertIn("## 概览", markdown)
+            self.assertIn("已阻断: 2", markdown)
+            self.assertIn("## 复核决策模板", markdown)
+            self.assertIn("## 复核决策预览", markdown)
+            self.assertIn("## 安全应用", markdown)
+            self.assertNotIn("[blocked]", markdown)
+            self.assertNotIn("try_now", markdown)
+            self.assertNotIn("## Warnings", markdown)
 
     def test_stale_refresh_status_blocks_try_now(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

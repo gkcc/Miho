@@ -279,28 +279,94 @@ def safe_apply_command_for(template_path: Path) -> str:
     )
 
 
+SUMMARY_LABELS = [
+    ("item_count", "清单项"),
+    ("hidden_item_count", "折叠项"),
+    ("ready_count", "可执行"),
+    ("needs_review_count", "需复核"),
+    ("blocked_count", "已阻断"),
+    ("review_decision_count", "复核决策"),
+]
+
+
+ITEM_TYPE_LABELS = {
+    "data_warning": "先处理数据一致性",
+    "try_now": "按清单试一次",
+    "review_snapshot": "复核解析快照",
+    "record_character": "补录角色分享图",
+    "watch_only": "仅观察",
+}
+
+
+STATUS_LABELS = {
+    "ready": "可执行",
+    "needs_review": "需复核",
+    "blocked": "已阻断",
+}
+
+
+TEXT_REPLACEMENTS = (
+    ("blocked_by_missing_refresh_status", "缺少刷新状态"),
+    ("blocked_by_unknown_refresh_status", "刷新状态未知"),
+    ("blocked_by_stale_apply_receipt", "安全应用后未刷新"),
+    ("blocked_by_data_warning", "数据一致性阻断"),
+    ("pending/catalog", "待确认快照或目录候选"),
+    ("ready try_now", "可执行的尝试项"),
+    ("Safe apply", "安全应用"),
+    ("accepted roster", "已确认角色库"),
+    ("try_now", "可尝试项"),
+    ("watch_only", "仅观察"),
+    ("refresh_status", "刷新状态"),
+    ("run_manifest", "运行清单"),
+    ("demo pipeline", "本地演示流程"),
+    ("apply", "应用"),
+)
+
+
+def label_status(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return STATUS_LABELS.get(text, text or "未知")
+
+
+def label_item_type(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return ITEM_TYPE_LABELS.get(text, text or "清单项")
+
+
+def human_text(value: Any) -> str:
+    text = str(value or "")
+    for old, new in TEXT_REPLACEMENTS:
+        text = text.replace(old, new)
+    return text
+
+
 def render_markdown(result: dict[str, Any]) -> str:
-    lines = ["# 执行清单", "", "## 今天最多 5 件事", ""]
+    lines = ["# 执行清单", "", f"当前状态：{label_status(result.get('checklist_status'))}", "", "## 今天最多 5 件事", ""]
     items = as_list(result.get("items"))
     if not items:
         lines.append("- 暂无可执行事项。")
     for item in items:
         if not isinstance(item, dict):
             continue
-        lines.append(f"- [{item.get('status')}] {item.get('item_type')}: {item.get('title')}")
-    lines.extend(["", "## Review Decision Template", ""])
+        lines.append(f"- {label_status(item.get('status'))}：{label_item_type(item.get('item_type'))}。{human_text(item.get('title'))}")
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    lines.extend(["", "## 概览", ""])
+    for key, label in SUMMARY_LABELS:
+        if key in summary:
+            lines.append(f"- {label}: {summary.get(key)}")
+    lines.extend(["", "## 复核决策模板", ""])
     lines.append(f"- {result.get('review_decisions_template')}")
-    lines.extend(["", "## Review Decision Preview", ""])
-    lines.append("先预览，再 apply；preview 不写 accepted/rejected。")
+    lines.extend(["", "## 复核决策预览", ""])
+    lines.append("先预览，再应用；预览不会写入接收/拒绝结果。")
     lines.append(f"- {result.get('preview_command')}")
-    lines.extend(["", "## Safe Apply", ""])
-    lines.append("apply 必须携带 preview_result，且 preview 必须 ready 或 ready_with_override。")
+    lines.extend(["", "## 安全应用", ""])
+    lines.append("安全应用必须携带预览结果，且预览状态必须允许应用。")
     lines.append(f"- {result.get('safe_apply_command')}")
     warnings = as_list(result.get("warnings"))
     if warnings:
-        lines.extend(["", "## Warnings", ""])
+        lines.extend(["", "## 需要注意", ""])
         for warning in warnings:
-            lines.append(f"- {warning}")
+            lines.append(f"- {human_text(warning)}")
     return "\n".join(lines) + "\n"
 
 
