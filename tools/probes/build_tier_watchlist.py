@@ -292,31 +292,31 @@ def recommendation_for(*, owned: bool, high_value: bool, low_value: bool, trend:
     if owned and high_value:
         return (
             "protect_investment",
-            "已在 accepted roster 中，且 tier/保值信号较强；后续培养和配队建议应优先保护这类投入。",
+            "已在已确认角色库中，且保值信号较强；后续培养和配队建议应优先保护这类投入。",
         )
     if owned and low_value:
         return (
             "avoid_overinvestment",
-            "已在 accepted roster 中，但保值或趋势偏弱；除非命中具体终局目标，否则不建议继续加码。",
+            "已在已确认角色库中，但保值或趋势偏弱；除非命中具体终局目标，否则不建议继续加码。",
         )
     if owned:
         return (
             "owned_observe",
-            "已在 accepted roster 中；当前信号不足以直接提高优先级，继续观察终局适配。",
+            "已在已确认角色库中；当前信号不足以直接提高优先级，继续观察终局适配。",
         )
     if high_value:
         return (
             "watch_candidate",
-            "未在 accepted roster 中，但 tier/保值信号较强；这里只做观察候选，不直接生成抽取建议。",
+            "未在已确认角色库中，但保值信号较强；这里只做观察候选，不直接生成抽取建议。",
         )
     if trend == "down" or low_value:
         return (
             "low_priority_candidate",
-            "未在 accepted roster 中，且趋势或保值偏弱；作为低优先级观察项。",
+            "未在已确认角色库中，且趋势或保值偏弱；作为低优先级观察项。",
         )
     return (
         "observe_candidate",
-        "未在 accepted roster 中；保留为普通观察项，等待明确终局目标或官方数据确认。",
+        "未在已确认角色库中；保留为普通观察项，等待明确终局目标或官方数据确认。",
     )
 
 
@@ -458,6 +458,49 @@ def percent_label(value: Any) -> str:
     return "N/A"
 
 
+SUMMARY_LABELS = [
+    ("entry_count", "观察条目"),
+    ("accepted_roster_count", "已确认角色库命中"),
+    ("owned_high_value_count", "已有高保值"),
+    ("watch_candidate_count", "未拥有观察候选"),
+    ("low_value_owned_count", "已有低保值提醒"),
+    ("verified_entry_count", "已验证条目"),
+    ("stale_entry_count", "过期条目"),
+    ("unverified_entry_count", "未验证条目"),
+]
+
+
+STATUS_LABELS = {
+    "accepted_roster": "已确认角色库",
+    "not_in_roster": "未在已确认角色库",
+    "owned_high_value": "已有高保值",
+    "non_owned_watch_only": "未拥有，仅观察",
+    "owned_low_value_caution": "已有低保值，谨慎投入",
+    "non_owned_low_priority_watch": "未拥有，低优先级观察",
+    "owned_observe": "已有，继续观察",
+    "non_owned_observe": "未拥有，普通观察",
+    "protect_investment": "保护当前投入",
+    "watch_candidate": "观察候选",
+    "avoid_overinvestment": "避免继续加码",
+    "low_priority_candidate": "低优先级观察",
+    "observe_candidate": "普通观察",
+    "verified": "已验证",
+    "stale": "已过期",
+    "unverified": "未验证",
+    "invalid_source": "来源无效",
+    "low_trust": "低信任",
+    "stable": "稳定",
+    "up": "上升",
+    "down": "下降",
+    "unknown": "未知",
+}
+
+
+def label_status(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return STATUS_LABELS.get(text, text or "未知")
+
+
 def render_markdown(result: dict[str, Any]) -> str:
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
     lines = [
@@ -465,32 +508,33 @@ def render_markdown(result: dict[str, Any]) -> str:
         "",
         "该文件只做本地观察，不直接生成抽取建议。",
         "",
-        f"- entry_count: {summary.get('entry_count', 0)}",
-        f"- accepted_roster_count: {summary.get('accepted_roster_count', 0)}",
-        f"- owned_high_value_count: {summary.get('owned_high_value_count', 0)}",
-        f"- watch_candidate_count: {summary.get('watch_candidate_count', 0)}",
-        f"- low_value_owned_count: {summary.get('low_value_owned_count', 0)}",
-        f"- verified_entry_count: {summary.get('verified_entry_count', 0)}",
-        f"- stale_entry_count: {summary.get('stale_entry_count', 0)}",
-        f"- unverified_entry_count: {summary.get('unverified_entry_count', 0)}",
-        "",
-        "## Entries",
+        "## 概览",
         "",
     ]
+    for key, label in SUMMARY_LABELS:
+        lines.append(f"- {label}: {summary.get(key, 0)}")
+    lines.extend(
+        [
+            "",
+            "## 条目",
+            "",
+        ]
+    )
     for index, item in enumerate(result.get("entries", []), start=1):
+        evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
         lines.extend(
             [
                 f"### {index}. {item.get('character')}",
-                f"- owned_status: {item.get('owned_status')}",
-                f"- tier: {item.get('tier')} ({item.get('tier_score')})",
-                f"- retention_score: {percent_label(item.get('retention_score'))}",
-                f"- usage_rate: {percent_label(item.get('usage_rate'))}",
-                f"- trend: {item.get('trend')}",
-                f"- observation_status: {item.get('observation_status')}",
-                f"- entry_status: {item.get('entry_status')}",
-                f"- source_period: {(item.get('evidence') or {}).get('period') if isinstance(item.get('evidence'), dict) else 'N/A'}",
-                f"- source_hash: {(item.get('evidence') or {}).get('content_sha256_short') if isinstance(item.get('evidence'), dict) else 'N/A'}",
-                f"- reason: {item.get('reason')}",
+                f"- 拥有状态: {label_status(item.get('owned_status'))}",
+                f"- 评级: {item.get('tier')} ({item.get('tier_score')})",
+                f"- 保值: {percent_label(item.get('retention_score'))}",
+                f"- 使用率: {percent_label(item.get('usage_rate'))}",
+                f"- 趋势: {label_status(item.get('trend'))}",
+                f"- 观察结论: {label_status(item.get('observation_status') or item.get('recommendation'))}",
+                f"- 证据状态: {label_status(item.get('entry_status'))}",
+                f"- 来源周期: {evidence.get('period') or 'N/A'}",
+                f"- 来源校验: {evidence.get('content_sha256_short') or 'N/A'}",
+                f"- 原因: {item.get('reason')}",
                 "",
             ]
         )

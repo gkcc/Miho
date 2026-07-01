@@ -118,9 +118,17 @@ class TierWatchlistTests(unittest.TestCase):
 
             markdown = Path(result["output_md"]).read_text(encoding="utf-8")
             self.assertIn("# 保值观察", markdown)
+            self.assertIn("已确认角色库命中: 1", markdown)
+            self.assertIn("已验证条目: 3", markdown)
+            self.assertIn("拥有状态: 已确认角色库", markdown)
+            self.assertIn("趋势: 稳定", markdown)
+            self.assertIn("观察结论: 已有高保值", markdown)
+            self.assertIn("证据状态: 已验证", markdown)
             self.assertNotIn("Tier / 保值观察", markdown)
-            self.assertIn("accepted_roster_count: 1", markdown)
-            self.assertIn("verified_entry_count: 3", markdown)
+            self.assertNotIn("owned_status:", markdown)
+            self.assertNotIn("observation_status:", markdown)
+            self.assertNotIn("entry_status:", markdown)
+            self.assertNotIn("accepted_roster_count:", markdown)
             self.assertIn("耀嘉音", markdown)
 
     def test_evidence_gate_marks_unverified_and_stale_entries(self) -> None:
