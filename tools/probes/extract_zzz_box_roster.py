@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Extract a redacted ZZZ roster JSON from an official MiYouShe box image.
+"""Extract a redacted ZZZ roster JSON from a local official ZZZ box overview image.
 
-This probe is intentionally local-only. It reads a user-provided image, runs OCR
-over the visible roster grid, and writes only normalized roster fields. Header
-UID/nickname OCR is not persisted.
+This probe is intentionally local-only. It reads a user-provided image, runs
+recognition over the visible roster grid, and writes only normalized roster
+fields. Header UID/nickname text is not persisted.
 """
 
 from __future__ import annotations
@@ -539,7 +539,7 @@ def extract_roster_from_image(
         },
         "recognition": {
             "engine": "rapidocr",
-            "layout": "miyoushe_zzz_box_grid_v1",
+            "layout": "zzz_box_overview_grid_v1",
             "ocr_scale": ocr_scale,
             "count_claim": count_claim,
             "slot_count": len(slots),
@@ -583,17 +583,17 @@ def render_markdown(result: dict[str, Any], output_json: Path) -> str:
             f"| {agent.get('source_slot', {}).get('index')} | {agent.get('name')} | {agent.get('level')} | "
             f"{agent.get('mindscape')} | {agent.get('review_status')} | {confidence} |"
         )
-    lines.extend(["", "## 边界", "", "- 不保存 UID / 昵称 / header 原始 OCR。", "- 不读取 cookie/token。", "- 识别结果只作为本地探针输入，仍可人工复核。"])
+    lines.extend(["", "## 边界", "", "- 不保存 UID / 昵称 / header 原始文本。", "- 不读取 cookie/token。", "- 识别结果只作为本地候选 box，仍需人工复核。"])
     return "\n".join(lines) + "\n"
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", required=True, help="Local official MiYouShe ZZZ box image.")
+    parser.add_argument("--image", required=True, help="Local official ZZZ box overview image.")
     parser.add_argument("--output", default="data/probes/box/zzz_roster_from_image.json", help="Output roster JSON.")
     parser.add_argument("--markdown", default=None, help="Optional Markdown review output. Defaults to output with .md suffix.")
     parser.add_argument("--meta-snapshot", default=None, help="Optional Prydwen meta snapshot for alias mapping.")
-    parser.add_argument("--ocr-scale", type=int, default=2, help="Resize factor before full-image OCR. Default: 2.")
+    parser.add_argument("--ocr-scale", type=int, default=2, help="Resize factor before full-image recognition. Default: 2.")
     parser.add_argument("--min-mindscape-confidence", type=float, default=0.85)
     return parser
 

@@ -215,8 +215,8 @@ class AgentValueCardsTests(unittest.TestCase):
 
             self.assertEqual(result["roster_quality"]["status"], "needs_review")
             self.assertEqual(result["roster_quality"]["needs_review_count"], 1)
-            self.assertTrue(result["roster_quality"]["manual_confirmation_required_before_accepted_roster"])
-            self.assertIn("人工确认前不得进入 accepted roster", " ".join(result["warnings"]))
+            self.assertTrue(result["roster_quality"]["manual_confirmation_required_before_planning"])
+            self.assertIn("人工确认前只能作为候选 box", " ".join(result["warnings"]))
             markdown = Path(result["output_markdown"]).read_text(encoding="utf-8")
             self.assertIn("roster_quality: needs_review", markdown)
             self.assertIn("roster_needs_review_count: 1", markdown)

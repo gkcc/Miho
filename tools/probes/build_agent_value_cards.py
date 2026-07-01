@@ -181,7 +181,7 @@ def roster_quality(roster: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "needs_review" if needs_review_count else "ok",
         "needs_review_count": needs_review_count,
-        "manual_confirmation_required_before_accepted_roster": True,
+        "manual_confirmation_required_before_planning": True,
     }
 
 
@@ -786,7 +786,7 @@ def build_agent_value_report(meta_snapshot: Path, roster_json: Path, output_dir:
         "Prydwen appearance rate 是公开使用信号，不是持有率或抽取价值。",
     ]
     if quality["status"] == "needs_review":
-        warnings.append("roster probe 仍有待复核识别项；人工确认前不得进入 accepted roster，也不能当作最终已拥有 box。")
+        warnings.append("roster 草案仍有待复核识别项；人工确认前只能作为候选 box，不能当作最终已拥有 box。")
     result = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": now_iso(),

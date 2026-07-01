@@ -29,7 +29,11 @@ try {
     if (-not (Test-Path -Path $ExePath -PathType Leaf)) {
         Write-Error "Build finished but dist\MihoProbe.exe was not found."
     }
-    Write-Host "Built dist\MihoProbe.exe. Run it without args for the cached dashboard, dist\MihoProbe.exe app-export for the official share-image workflow, dist\MihoProbe.exe app-export-calibrate for the coordinate grid, dist\MihoProbe.exe update for saved share images, dist\MihoProbe.exe plan-update for local endgame/Tier suggestions, dist\MihoProbe.exe box-status / box-roster / box-value for ZZZ box overview probes, dist\MihoProbe.exe rank-check for A/S rank crops, dist\MihoProbe.exe check for accuracy acceptance, or dist\MihoProbe.exe ask-gpt for the fixed review packet."
+    Write-Host "Built dist\MihoProbe.exe."
+    Write-Host "Try:"
+    Write-Host "  dist\MihoProbe.exe status"
+    Write-Host "  dist\MihoProbe.exe meta --current-only"
+    Write-Host "  dist\MihoProbe.exe box-value --roster-json data\probes\box\zzz_box_roster.json --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json"
 }
 finally {
     Pop-Location

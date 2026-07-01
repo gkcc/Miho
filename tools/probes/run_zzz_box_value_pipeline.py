@@ -96,7 +96,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--roster-json", help="Redacted local roster JSON.")
-    source.add_argument("--box-image", help="Official MiYouShe ZZZ box image. Used to create roster JSON when --roster-json is omitted.")
+    source.add_argument("--box-image", help="Local official ZZZ box overview image. Used to create roster JSON when --roster-json is omitted.")
     parser.add_argument("--roster-output", help="Where to write roster JSON extracted from --box-image.")
     parser.add_argument("--meta-snapshot", help="Existing public meta snapshot. If omitted, it is created under output-dir.")
     parser.add_argument("--output-dir", default="data/probes/value/box_value_pipeline")
@@ -105,7 +105,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--max-phases", type=int, default=None)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--request-delay", type=float, default=0.15)
-    parser.add_argument("--box-ocr-scale", type=int, default=2, help="Resize factor before box-image OCR. Default: 2.")
+    parser.add_argument("--box-ocr-scale", type=int, default=2, help="Resize factor before box overview recognition. Default: 2.")
     parser.add_argument("--min-mindscape-confidence", type=float, default=0.85)
     return parser.parse_args(argv)
 
