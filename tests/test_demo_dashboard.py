@@ -208,6 +208,12 @@ class DemoDashboardTests(unittest.TestCase):
 
         self.assertEqual(steps["Review Apply Receipt"], "warning")
 
+    def test_pipeline_step_warning_is_user_readable(self) -> None:
+        html = dashboard_tool.render_steps([{"name": "Review Apply Receipt", "status": "warning"}])
+
+        self.assertIn("有警告", html)
+        self.assertNotIn(">warning<", html)
+
     def test_safe_apply_status_preserves_apply_warnings(self) -> None:
         summary = dashboard_minimal_summary()
         summary["review_apply"] = {

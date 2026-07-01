@@ -1137,9 +1137,10 @@ def render_steps(steps: list[dict[str, Any]]) -> str:
     items = []
     for step in steps:
         status = str(step.get("status") or "skipped")
+        status_label = human_status(status) if status.lower() == "warning" else status
         items.append(
             f'<div class="step {status_class(status)}">'
-            f'<span class="dot"></span><strong>{e(step.get("name"))}</strong><em>{e(status)}</em></div>'
+            f'<span class="dot"></span><strong>{e(step.get("name"))}</strong><em>{e(status_label)}</em></div>'
         )
     return '<section class="panel"><h2>Pipeline 进度</h2><div class="steps">' + "".join(items) + "</div></section>"
 
