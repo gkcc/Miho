@@ -2395,7 +2395,7 @@ def render_review_apply(summary: dict[str, Any]) -> str:
             evidence = item.get("accept_evidence") if isinstance(item.get("accept_evidence"), dict) else {}
             evidence_checks = evidence.get("checks") if isinstance(evidence.get("checks"), list) else []
             evidence_summary = str(evidence.get("summary") or "")
-            evidence_text = "；".join(str(check) for check in evidence_checks[:4] if check)
+            evidence_text = "；".join(str(check) for check in evidence_checks if check)
             rows.append(
                 "<article class=\"resource-item\">"
                 f"<strong>{e(item.get('character'))}</strong>"

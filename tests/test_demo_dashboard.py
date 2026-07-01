@@ -827,6 +827,7 @@ class DemoDashboardTests(unittest.TestCase):
                                 "人工决定为 accept",
                                 "复核预览已就绪",
                                 "normalized JSON hash 已与预览结果匹配",
+                                "unsafe accept 阻断检查已通过",
                                 "已确认角色库索引已引用该快照",
                             ],
                             "roster_index_match": True,
