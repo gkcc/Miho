@@ -597,6 +597,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_roster_needs_review_count: 0", text)
             self.assertIn("box_status_review_gate: no_roster_probe", text)
             self.assertIn("box_status_blocks_accepted_roster: True", text)
+            self.assertIn("box_status_manual_confirmation_required_before_accepted_roster: True", text)
             self.assertIn("box_status_roster_review_markdown: missing", text)
             self.assertIn("box_status_roster_review_markdown_status: not_applicable", text)
 
@@ -710,10 +711,12 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["review_gate"]["repair_command_write_targets"], [])
             self.assertIsNone(report["review_gate"]["repair_command"])
             self.assertFalse(report["review_gate"]["blocks_accepted_roster"])
+            self.assertTrue(report["review_gate"]["manual_confirmation_required_before_accepted_roster"])
             status_html = root / "box_value_status.html"
             cli_tool.render_box_status_html(report, status_html)
             html = status_html.read_text(encoding="utf-8")
             self.assertIn("blocks_accepted_roster=False", html)
+            self.assertIn("manual_review_before_accepted_roster=True", html)
 
     def test_run_box_status_exposes_roster_quality_review_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -784,6 +787,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_roster_needs_review_count: 1", text)
             self.assertIn("box_status_review_gate: needs_manual_review", text)
             self.assertIn("box_status_blocks_accepted_roster: True", text)
+            self.assertIn("box_status_manual_confirmation_required_before_accepted_roster: True", text)
             self.assertIn(f"box_status_roster_review_markdown: {roster_md}", text)
             self.assertIn("box_status_roster_review_markdown_status: current", text)
             self.assertIn("box_status_review_repair_command_status: not_needed", text)

@@ -2306,6 +2306,11 @@ def run_box_status(args: argparse.Namespace) -> int:
     print(f"box_status_roster_needs_review_count: {roster_quality.get('needs_review_count', 0)}", flush=True)
     print(f"box_status_review_gate: {review_gate.get('status', 'unknown')}", flush=True)
     print(f"box_status_blocks_accepted_roster: {review_gate.get('blocks_accepted_roster', True)}", flush=True)
+    print(
+        "box_status_manual_confirmation_required_before_accepted_roster: "
+        f"{review_gate.get('manual_confirmation_required_before_accepted_roster', True)}",
+        flush=True,
+    )
     print(f"box_status_roster_review_markdown: {review_gate.get('review_markdown') or 'missing'}", flush=True)
     print(f"box_status_roster_review_markdown_status: {review_gate.get('review_markdown_status', 'unknown')}", flush=True)
     print(f"box_status_review_repair_command_status: {review_gate.get('repair_command_status', 'unknown')}", flush=True)
