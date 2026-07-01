@@ -589,6 +589,63 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("Target refresh failed", html)
         self.assertNotIn("public_web_snapshot", html)
 
+    def test_case_card_uses_reader_friendly_status_labels(self) -> None:
+        case = {
+            "name": "case_a",
+            "image": None,
+            "review_html": "data/probes/demo/cases/case_a_review.html",
+            "parsed_json": "data/probes/demo/cases/case_a.json",
+            "expected_json": "data/probes/expected/case_a_expected.json",
+            "expected_json_name": "case_a_expected.json",
+            "normalized_md": "data/probes/demo/normalized/case_a.md",
+            "normalized_json": "data/probes/demo/normalized/case_a.json",
+            "coverage_level": "medium",
+            "parse_status": "PASS",
+            "expected_status": "N/A",
+            "normalized_status": "GENERATED",
+            "import_status": "REQUIRES_REVIEW",
+            "pass_rate": None,
+            "character": {"name": "星见雅", "level": "60", "rank": "S"},
+            "equipment": {"name": "幻变魔方"},
+            "quality": {
+                "trusted_field_count": 10,
+                "field_count": 12,
+                "requires_manual_review": True,
+                "blockers": ["character.name 缺失或 uncertain"],
+            },
+            "import_blockers": ["人工复核前不得导入"],
+        }
+
+        html = dashboard_tool.render_case(case)
+
+        self.assertIn("无图片", html)
+        self.assertIn("解析 通过", html)
+        self.assertIn("覆盖程度", html)
+        self.assertIn(">中<", html)
+        self.assertIn("解析状态", html)
+        self.assertIn("验收状态", html)
+        self.assertIn("标准化状态", html)
+        self.assertIn("导入门禁", html)
+        self.assertIn("待复核", html)
+        self.assertIn("验收通过率", html)
+        self.assertIn("验收对照文件", html)
+        self.assertIn("需人工确认", html)
+        self.assertIn(">是<", html)
+        self.assertIn("质量阻断项", html)
+        self.assertIn("导入阻断项", html)
+        self.assertIn("复核页", html)
+        self.assertNotIn("No image", html)
+        self.assertNotIn("Parse PASS", html)
+        self.assertNotIn("<span>Parse</span>", html)
+        self.assertNotIn("Expected 状态", html)
+        self.assertNotIn("<span>Normalized</span>", html)
+        self.assertNotIn("<span>Import</span>", html)
+        self.assertNotIn("Expected JSON", html)
+        self.assertNotIn("requires_review", html)
+        self.assertNotIn("Quality blockers", html)
+        self.assertNotIn("Import blockers", html)
+        self.assertNotIn("review_html", html)
+
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
             dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),

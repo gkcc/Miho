@@ -247,6 +247,7 @@ def humanize_link_label(label: str) -> str:
         "normalized_md": "标准化说明",
         "normalized_json": "标准化结果",
         "crops_dir": "裁剪图片",
+        "review_html": "复核页",
         "review": "复核页",
         "json": "数据",
         "history_index": "历史索引",
@@ -760,6 +761,9 @@ def human_status(value: Any) -> str:
     text = str(value or "").lower()
     labels = {
         "ready": "就绪",
+        "pass": "通过",
+        "done": "完成",
+        "generated": "已生成",
         "ready_for_review": "待人工确认",
         "ready_to_try": "可尝试",
         "needs_review": "待复核",
@@ -1587,14 +1591,14 @@ def render_case(case: dict[str, Any]) -> str:
     image_html = (
         f'<img src="{e(image_src)}" alt="{e(case.get("name"))}">'
         if image_src
-        else '<div class="thumb-empty">No image</div>'
+        else '<div class="thumb-empty">无图片</div>'
     )
-    blocker_html = "".join(f"<li>{e(item)}</li>" for item in blockers) or "<li>none</li>"
+    blocker_html = "".join(f"<li>{e(item)}</li>" for item in blockers) or "<li>无</li>"
     errors = case.get("errors") if isinstance(case.get("errors"), list) else []
     error_html = "".join(f"<li>{e(item)}</li>" for item in errors)
     if error_html:
-        error_html = f'<div class="errors"><strong>Errors</strong><ul>{error_html}</ul></div>'
-    expected_name = case.get("expected_json_name") or basename(case.get("expected_json")) or "missing"
+        error_html = f'<div class="errors"><strong>解析错误</strong><ul>{error_html}</ul></div>'
+    expected_name = case.get("expected_json_name") or basename(case.get("expected_json")) or "缺失"
     parse_status = derived_case_status(case, "parse_status")
     expected_status = derived_case_status(case, "expected_status")
     normalized_status = derived_case_status(case, "normalized_status")
@@ -1603,7 +1607,7 @@ def render_case(case: dict[str, Any]) -> str:
     rank_source_html = render_rank_sources(case)
     import_blocker_html = "".join(f"<li>{e(item)}</li>" for item in import_blockers)
     if import_blocker_html:
-        import_blocker_html = f'<div class="errors"><strong>Import blockers</strong><ul>{import_blocker_html}</ul></div>'
+        import_blocker_html = f'<div class="errors"><strong>导入阻断项</strong><ul>{import_blocker_html}</ul></div>'
 
     return f"""
     <article class="case-card">
@@ -1611,22 +1615,22 @@ def render_case(case: dict[str, Any]) -> str:
       <div class="case-body">
         <div class="case-head">
           <h3>{e(case.get("name"))}</h3>
-          <span class="badge {status_class(parse_status)}">Parse {e(parse_status)}</span>
+          <span class="badge {status_class(parse_status)}">解析 {e(human_status(parse_status))}</span>
         </div>
         <div class="facts">
           <div><span>角色</span><strong>{e(character.get("name") or "")}</strong></div>
           <div><span>等级</span><strong>{e(character.get("level") or "")}</strong></div>
           <div><span>评级</span><strong>{e(character.get("rank") or "")}</strong></div>
           <div><span>音擎</span><strong>{e(equipment.get("name") or "")}</strong></div>
-          <div><span>覆盖</span><strong>{e(case.get("coverage_level") or "")}</strong></div>
-          <div><span>Parse</span><strong>{e(parse_status)}</strong></div>
-          <div><span>Expected 状态</span><strong>{e(expected_status)}</strong></div>
-          <div><span>Normalized</span><strong>{e(normalized_status)}</strong></div>
-          <div><span>Import</span><strong>{e(import_status)}</strong></div>
-          <div><span>Expected</span><strong>{e(pass_rate)}</strong></div>
-          <div><span>Expected JSON</span><strong>{e(expected_name)}</strong></div>
+          <div><span>覆盖程度</span><strong>{e(human_status(case.get("coverage_level") or ""))}</strong></div>
+          <div><span>解析状态</span><strong>{e(human_status(parse_status))}</strong></div>
+          <div><span>验收状态</span><strong>{e(human_status(expected_status))}</strong></div>
+          <div><span>标准化状态</span><strong>{e(human_status(normalized_status))}</strong></div>
+          <div><span>导入门禁</span><strong>{e(human_status(import_status))}</strong></div>
+          <div><span>验收通过率</span><strong>{e(pass_rate)}</strong></div>
+          <div><span>验收对照文件</span><strong>{e(expected_name)}</strong></div>
           <div><span>可信字段</span><strong>{e(quality.get("trusted_field_count"))}/{e(quality.get("field_count"))}</strong></div>
-          <div><span>requires_review</span><strong>{e(quality.get("requires_manual_review"))}</strong></div>
+          <div><span>需人工确认</span><strong>{e(bool_text(quality.get("requires_manual_review")))}</strong></div>
         </div>
         {rank_source_html}
         <div class="links">
@@ -1639,7 +1643,7 @@ def render_case(case: dict[str, Any]) -> str:
           {link("crops_dir", case.get("crops_dir"))}
         </div>
         <details>
-          <summary>Quality blockers</summary>
+          <summary>质量阻断项</summary>
           <ul>{blocker_html}</ul>
         </details>
         {import_blocker_html}
