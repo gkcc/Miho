@@ -73,6 +73,15 @@ def humanize_text(value: Any) -> str:
         ("launcher_report_doctor_hash_missing", "启动器诊断校验缺失"),
         ("follow_up_doctor_not_updated_after_rerun", "后续诊断没有在重跑后更新"),
         ("apply_receipt_preview_result_sha256_mismatch", "应用回执与复核预览校验不一致"),
+        ("source_review_inbox_sha256 与当前文件不一致。", "复核收件箱与模板记录不一致。"),
+        ("source_run_manifest_sha256 与当前文件不一致。", "运行清单与模板记录不一致。"),
+        ("source_review_inbox_sha256 缺失，无法确认模板来源。", "复核模板缺少收件箱校验，无法确认来源。"),
+        ("source_run_manifest_sha256 缺失，无法确认模板来源。", "复核模板缺少运行清单校验，无法确认来源。"),
+        ("template_source_mismatch", "复核模板来源不匹配"),
+        ("normalized_json_sha256 missing", "标准化结果校验缺失"),
+        ("normalized_json_sha256 mismatch", "标准化结果校验不一致"),
+        ("normalized_json is not in current review_inbox.pending", "标准化结果不在当前待复核收件箱"),
+        ("quality blockers 存在，accept 前需要填写 note 或 override_reason。", "该快照还有质量阻断项，接收前需要写明人工说明或覆盖原因。"),
         ("demo rerun command is safe to print", "演示重跑命令可安全展示"),
         ("official account data", "官方账号数据"),
         ("tokens/cookies/login state", "登录态、令牌或 Cookie"),
@@ -2106,6 +2115,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
     warnings = checklist.get("warnings") if isinstance(checklist.get("warnings"), list) else []
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>清单警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    preview_gate_block = render_review_preview_gate(preview)
     if checklist.get("error"):
         body = f'<div class="errors"><strong>执行清单生成失败</strong><ul><li>{e(checklist.get("error"))}</li></ul></div>'
     elif not items:
@@ -2194,10 +2204,53 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
       </div>
       <p class="muted-line">复核决策必须先预览，再人工应用；预览不会写 accepted/rejected。</p>
       {warning_block}
+      {preview_gate_block}
       {body}
       {command_block}
     </section>
     """
+
+
+def render_review_preview_gate(preview: dict[str, Any]) -> str:
+    if not isinstance(preview, dict):
+        return ""
+    preview_status = str(preview.get("preview_status") or "").lower()
+    source = preview.get("source_check") if isinstance(preview.get("source_check"), dict) else {}
+    reasons: list[str] = []
+    reasons.extend(str(item) for item in (source.get("warnings") if isinstance(source.get("warnings"), list) else []) if item)
+    preview_items = preview.get("items") if isinstance(preview.get("items"), list) else []
+    for item in preview_items:
+        if not isinstance(item, dict):
+            continue
+        issues = []
+        blockers = item.get("blockers") if isinstance(item.get("blockers"), list) else []
+        item_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
+        issues.extend(str(value) for value in blockers if value)
+        issues.extend(str(value) for value in item_warnings if value)
+        decision_status = str(item.get("decision_status") or "")
+        if not issues and decision_status not in {"", "ready"}:
+            issues.append(f"decision_status={decision_status}")
+        if issues:
+            character = item.get("character") or "unknown"
+            reasons.append(f"{character}: {'；'.join(issues)}")
+    if not reasons and preview_status not in {"blocked", "needs_review", "ready_with_override"}:
+        return ""
+    if preview_status == "blocked":
+        klass = "errors"
+        title = "复核预览已阻断"
+    elif preview_status == "needs_review":
+        klass = "warnings"
+        title = "复核预览仍需人工说明"
+    elif preview_status == "ready_with_override":
+        klass = "warnings"
+        title = "复核预览带人工说明"
+    else:
+        klass = "warnings"
+        title = "复核预览提示"
+    reason_items = "".join(f"<li>{he(reason)}</li>" for reason in reasons[:8]) or "<li>暂无具体阻断项。</li>"
+    hidden_count = max(0, len(reasons) - 8)
+    hidden_line = f"<li>另有 {hidden_count} 条预览提示，请打开复核预览数据查看。</li>" if hidden_count else ""
+    return f'<div class="{klass}"><strong>{title}</strong><ul>{reason_items}{hidden_line}</ul></div>'
 
 
 def safe_apply_status(summary: dict[str, Any]) -> str:

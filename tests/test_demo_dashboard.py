@@ -453,6 +453,43 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("watch_only 不是抽卡建议", html)
         self.assertNotIn("缺少 run_manifest；无法确认本轮产物是否同批生成。", html)
 
+    def test_action_checklist_surfaces_review_preview_gate_reasons(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["action_checklist"] = {
+            "checklist_status": "blocked",
+            "summary": {"item_count": 1, "ready_count": 0, "needs_review_count": 0, "blocked_count": 1},
+            "warnings": [],
+            "output_json": "data/probes/demo/action_checklist/action_checklist.json",
+            "output_md": "data/probes/demo/action_checklist/action_checklist.md",
+            "review_decisions_template": "data/probes/demo/action_checklist/review_decisions_template.json",
+        }
+        summary["review_decision_preview"] = {
+            "preview_status": "blocked",
+            "output_json": "data/probes/demo/review_preview/review_decision_preview.json",
+            "output_md": "data/probes/demo/review_preview/review_decision_preview.md",
+            "source_check": {"warnings": ["source_run_manifest_sha256 与当前文件不一致。"]},
+            "summary": {"would_update_roster_count": 0},
+            "items": [
+                {
+                    "character": "星见雅",
+                    "decision": "accept",
+                    "decision_status": "blocked",
+                    "blockers": ["normalized_json_sha256 mismatch"],
+                    "warnings": ["quality blockers 存在，accept 前需要填写 note 或 override_reason。"],
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("复核预览已阻断", html)
+        self.assertIn("运行清单与模板记录不一致", html)
+        self.assertIn("星见雅", html)
+        self.assertIn("标准化结果校验不一致", html)
+        self.assertIn("该快照还有质量阻断项", html)
+        self.assertNotIn("source_run_manifest_sha256", html)
+        self.assertNotIn("normalized_json_sha256 mismatch", html)
+
     def test_dashboard_shows_final_brief_before_details(self) -> None:
         summary = {
             "overall": {

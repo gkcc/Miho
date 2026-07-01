@@ -627,6 +627,7 @@ preview 规则：
 * `decision=accept` 且存在普通质量 blocker 时，必须填写 `note` 或 `override_reason`，否则只进入 `needs_review`；填写后为 `ready_with_override`；
 * `decision=pending` / `decision=reject` 不会进入 accepted roster；
 * preview 只输出 `would_enter_roster` / `would_replace_existing` 预览，不写 accepted/rejected，也不调用 apply。
+* Dashboard 的“执行清单”会直接展示 preview source mismatch、hash mismatch、quality blocker 等门禁原因；不用打开 JSON 才能知道为什么 safe apply 被 blocked。
 
 accept 决策必须使用 safe apply，不能绕过 preview：
 
