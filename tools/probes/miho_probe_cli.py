@@ -1830,6 +1830,33 @@ def load_roster_quality(path: str | Path | None) -> dict[str, Any]:
     }
 
 
+def build_roster_review_gate(latest_roster: str | None, roster_quality: dict[str, Any]) -> dict[str, Any]:
+    quality_status = str(roster_quality.get("status") or "unknown")
+    needs_review_count = probe_int(roster_quality.get("needs_review_count"), 0)
+    if not latest_roster:
+        status = "no_roster_probe"
+        message = "还没有 roster probe；先生成 roster，再人工确认后才能进入 accepted roster。"
+        blocks_accepted_roster = True
+    elif quality_status == "needs_review":
+        status = "needs_manual_review"
+        message = f"当前 roster 有 {needs_review_count} 个待复核项；可跑 probe 价值报告，但不能当作 accepted roster。"
+        blocks_accepted_roster = True
+    elif quality_status == "ok":
+        status = "quality_ok_manual_confirmation_required"
+        message = "roster probe 质量检查为 ok；进入 accepted roster 前仍需要人工确认。"
+        blocks_accepted_roster = False
+    else:
+        status = "quality_unknown"
+        message = "无法判断 roster 复核状态；不要把它当作 accepted roster。"
+        blocks_accepted_roster = True
+    return {
+        "status": status,
+        "message": message,
+        "blocks_accepted_roster": blocks_accepted_roster,
+        "manual_confirmation_required_before_accepted_roster": True,
+    }
+
+
 def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     image_dirs = [resolve_cli_path(item) for item in (args.image_dir or [])]
     if not image_dirs:
@@ -1850,6 +1877,7 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     latest_roster = latest_roster_record["path"] if latest_roster_record else None
     roster_source = load_roster_source(latest_roster)
     roster_quality = load_roster_quality(latest_roster)
+    review_gate = build_roster_review_gate(latest_roster, roster_quality)
     latest_image_sha256: str | None = None
     latest_image_hash_error: str | None = None
     if latest_image:
@@ -1894,7 +1922,10 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
             f"--meta-snapshot {shell_quote_path(latest_meta)}"
         )
         readiness = "ready_for_box_value_from_roster"
-        next_label = "可用已生成 roster probe 跑价值报告"
+        if review_gate.get("status") == "needs_manual_review":
+            next_label = "可跑价值报告，但 roster 仍需人工复核"
+        else:
+            next_label = "可用已生成 roster probe 跑价值报告"
     elif latest_image and latest_meta:
         next_command = (
             "dist\\MihoProbe.exe box-value "
@@ -1949,6 +1980,7 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
             "latest_roster_mtime": latest_roster_record.get("mtime") if latest_roster_record else None,
         },
         "roster_quality": roster_quality,
+        "review_gate": review_gate,
         "images": images,
         "meta_snapshots": metas,
         "roster_probes": rosters,
@@ -1983,6 +2015,7 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
     safety = report.get("safety", {}) if isinstance(report.get("safety"), dict) else {}
     freshness = report.get("freshness", {}) if isinstance(report.get("freshness"), dict) else {}
     roster_quality = report.get("roster_quality", {}) if isinstance(report.get("roster_quality"), dict) else {}
+    review_gate = report.get("review_gate", {}) if isinstance(report.get("review_gate"), dict) else {}
     tone = "ok" if str(report.get("readiness")).startswith("ready") else "warn"
     html = f"""<!doctype html>
 <html lang="zh-CN">
@@ -2041,7 +2074,9 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
         <span>freshness={html_escape(str(freshness.get("status") or "unknown"))}</span>
         <span>roster_quality={html_escape(str(roster_quality.get("status") or "unknown"))}</span>
         <span>roster_needs_review={html_escape(str(roster_quality.get("needs_review_count", 0)))}</span>
+        <span>review_gate={html_escape(str(review_gate.get("status") or "unknown"))}</span>
       </div>
+      <p>{html_escape(str(review_gate.get("message") or ""))}</p>
     </section>
     <section class="grid">
       <article class="card"><h2>图片候选</h2>{render_file_list(report.get("images", []), "没有找到本地图片候选。")}</article>
@@ -2067,12 +2102,14 @@ def run_box_status(args: argparse.Namespace) -> int:
     render_box_status_html(report, output_html)
     freshness = report.get("freshness", {}) if isinstance(report.get("freshness"), dict) else {}
     roster_quality = report.get("roster_quality", {}) if isinstance(report.get("roster_quality"), dict) else {}
+    review_gate = report.get("review_gate", {}) if isinstance(report.get("review_gate"), dict) else {}
     print("box_status_scope: local_files_only_no_ocr_no_network", flush=True)
     print(f"box_status_readiness: {report['readiness']}", flush=True)
     print(f"box_status_freshness: {freshness.get('status', 'unknown')}", flush=True)
     print(f"box_status_source_hash_checked: {freshness.get('source_hash_checked', False)}", flush=True)
     print(f"box_status_roster_quality: {roster_quality.get('status', 'unknown')}", flush=True)
     print(f"box_status_roster_needs_review_count: {roster_quality.get('needs_review_count', 0)}", flush=True)
+    print(f"box_status_review_gate: {review_gate.get('status', 'unknown')}", flush=True)
     print(f"box_status_next: {report['next_command']}", flush=True)
     print(f"box_status_json: {output_json}", flush=True)
     print(f"box_status_html: {output_html}", flush=True)

@@ -574,12 +574,15 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertTrue(report["safety"]["no_network"])
             self.assertEqual(report["roster_quality"]["status"], "unknown")
             self.assertEqual(report["roster_quality"]["needs_review_count"], 0)
+            self.assertEqual(report["review_gate"]["status"], "no_roster_probe")
+            self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
             self.assertIn("box-value", report["next_command"])
             html = status_html.read_text(encoding="utf-8")
             self.assertIn("Box 价值输入检查", html)
             self.assertIn("no_ocr=True", html)
             self.assertIn("roster_quality=unknown", html)
             self.assertIn("roster_needs_review=0", html)
+            self.assertIn("review_gate=no_roster_probe", html)
             self.assertIn("zzz_box.png", html)
             text = output.getvalue()
             self.assertIn("box_status_scope: local_files_only_no_ocr_no_network", text)
@@ -588,6 +591,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_source_hash_checked: False", text)
             self.assertIn("box_status_roster_quality: unknown", text)
             self.assertIn("box_status_roster_needs_review_count: 0", text)
+            self.assertIn("box_status_review_gate: no_roster_probe", text)
 
     def test_box_status_prefers_existing_roster_over_rerunning_image_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -622,6 +626,8 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertFalse(report["freshness"]["latest_image_newer_than_roster"])
             self.assertEqual(report["roster_quality"]["status"], "ok")
             self.assertEqual(report["roster_quality"]["needs_review_count"], 0)
+            self.assertEqual(report["review_gate"]["status"], "quality_ok_manual_confirmation_required")
+            self.assertFalse(report["review_gate"]["blocks_accepted_roster"])
 
     def test_run_box_status_exposes_roster_quality_review_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -663,14 +669,20 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(result, 0)
             report = json.loads((output_dir / "box_value_status.json").read_text(encoding="utf-8"))
             self.assertEqual(report["readiness"], "ready_for_box_value_from_roster")
+            self.assertEqual(report["next_label"], "可跑价值报告，但 roster 仍需人工复核")
             self.assertEqual(report["roster_quality"]["status"], "needs_review")
             self.assertEqual(report["roster_quality"]["needs_review_count"], 1)
+            self.assertEqual(report["review_gate"]["status"], "needs_manual_review")
+            self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
             html = (output_dir / "box_value_status.html").read_text(encoding="utf-8")
             self.assertIn("roster_quality=needs_review", html)
             self.assertIn("roster_needs_review=1", html)
+            self.assertIn("review_gate=needs_manual_review", html)
+            self.assertIn("当前 roster 有 1 个待复核项", html)
             text = output.getvalue()
             self.assertIn("box_status_roster_quality: needs_review", text)
             self.assertIn("box_status_roster_needs_review_count: 1", text)
+            self.assertIn("box_status_review_gate: needs_manual_review", text)
 
     def test_box_status_counts_agent_review_status_when_summary_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -703,6 +715,7 @@ class MihoProbeCliTests(unittest.TestCase):
 
             self.assertEqual(report["roster_quality"]["status"], "needs_review")
             self.assertEqual(report["roster_quality"]["needs_review_count"], 1)
+            self.assertEqual(report["review_gate"]["status"], "needs_manual_review")
 
     def test_box_status_requires_roster_refresh_when_box_image_is_newer(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
