@@ -820,6 +820,17 @@ class DemoDashboardTests(unittest.TestCase):
                         "did_write_accepted": True,
                         "did_write_rejected": False,
                         "preview_validation_status": "validated",
+                        "preview_decision_status": "ready",
+                        "accept_evidence": {
+                            "summary": "进入已确认角色库的依据：人工接收、复核预览就绪、源文件 hash 匹配，且 unsafe accept 检查通过。",
+                            "checks": [
+                                "人工决定为 accept",
+                                "复核预览已就绪",
+                                "normalized JSON hash 已与预览结果匹配",
+                                "已确认角色库索引已引用该快照",
+                            ],
+                            "roster_index_match": True,
+                        },
                     }
                 ],
                 "warnings": [],
@@ -900,6 +911,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("--require-preview-ready", html)
         self.assertIn("复核应用回执", html)
         self.assertIn("进入 roster", html)
+        self.assertIn("证据：人工决定为 accept", html)
+        self.assertIn("已确认角色库索引已引用该快照", html)
         self.assertIn("review_apply_receipt.md", html)
         self.assertIn("可先尝试：危局强袭战", html)
         self.assertLess(html.index("软件入口"), html.index("验收助手"))

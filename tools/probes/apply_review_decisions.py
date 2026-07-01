@@ -239,6 +239,12 @@ def apply_audit(
     input_info = preview_result.get("input") if isinstance(preview_result.get("input"), dict) else {}
     status = str((preview_item or {}).get("decision_status") or "")
     note = decision_note(decision)
+    evidence = accept_evidence(
+        decision=decision,
+        source_path=source_path,
+        preview_item=preview_item,
+        normalized_json_sha256=sha256_file(source_path),
+    )
     return {
         "schema_version": APPLY_AUDIT_SCHEMA,
         "decision_manifest": str(decision_manifest),
@@ -251,6 +257,42 @@ def apply_audit(
         "applied_at": roster_index.now_iso(),
         "override_used": status == "ready_with_override",
         "override_note": note if status == "ready_with_override" else "",
+        "accept_evidence": evidence,
+    }
+
+
+def accept_evidence(
+    *,
+    decision: dict[str, Any],
+    source_path: Path,
+    preview_item: dict[str, Any] | None,
+    normalized_json_sha256: str | None,
+) -> dict[str, Any]:
+    status = str((preview_item or {}).get("decision_status") or "not_provided")
+    status_label = {
+        "ready": "复核预览已就绪",
+        "ready_with_override": "复核预览带人工说明",
+        "not_provided": "未提供复核预览",
+    }.get(status, f"复核预览状态为 {status}")
+    checks = [
+        "人工决定为 accept",
+        status_label,
+        "normalized JSON hash 已与预览结果匹配",
+        "unsafe accept 阻断检查已通过",
+    ]
+    note = decision_note(decision)
+    if status == "ready_with_override":
+        checks.append("质量提示已有人工说明")
+    if note:
+        checks.append("人工说明已记录")
+    return {
+        "summary": "进入已确认角色库的依据：人工接收、复核预览就绪、源文件 hash 匹配，且 unsafe accept 检查通过。",
+        "checks": checks,
+        "source_normalized_json": str(source_path),
+        "normalized_json_sha256": normalized_json_sha256,
+        "review_html": decision.get("review_html"),
+        "decision_note_present": bool(note),
+        "preview_decision_status": status,
     }
 
 
@@ -282,6 +324,7 @@ def apply_decision_item(
         "did_enter_roster": False,
         "preview_validation_status": "validated" if preview_result else "not_provided",
         "preview_decision_status": preview_item.get("decision_status") if isinstance(preview_item, dict) else None,
+        "accept_evidence": None,
     }
     if decision_value in {"pending", ""}:
         record["status"] = "pending"
@@ -316,6 +359,7 @@ def apply_decision_item(
         )
         if audit:
             snapshot["review_apply_audit"] = audit
+            record["accept_evidence"] = audit.get("accept_evidence")
         target_dir = roster_dir / "accepted"
     else:
         target_dir = roster_dir / "rejected"
@@ -362,6 +406,17 @@ def update_roster_entry_status(records: list[dict[str, Any]], index_result: dict
             continue
         if record.get("normalized_json") in entered_sources:
             record["did_enter_roster"] = True
+            evidence = record.get("accept_evidence") if isinstance(record.get("accept_evidence"), dict) else {}
+            checks = evidence.get("checks") if isinstance(evidence.get("checks"), list) else []
+            checks.append("已确认角色库索引已引用该快照")
+            evidence["checks"] = list(dict.fromkeys(str(item) for item in checks if item))
+            evidence["roster_index_match"] = True
+            record["accept_evidence"] = evidence
+        else:
+            evidence = record.get("accept_evidence") if isinstance(record.get("accept_evidence"), dict) else {}
+            if evidence:
+                evidence["roster_index_match"] = False
+                record["accept_evidence"] = evidence
 
 
 def receipt_warnings(records: list[dict[str, Any]], preview_data: dict[str, Any] | None) -> list[str]:
@@ -426,6 +481,11 @@ def render_receipt_markdown(receipt: dict[str, Any]) -> str:
         )
         if item.get("error"):
             lines.append(f"  - error: {item.get('error')}")
+        evidence = item.get("accept_evidence") if isinstance(item.get("accept_evidence"), dict) else {}
+        if evidence:
+            lines.append(f"  - evidence: {evidence.get('summary')}")
+            for check in evidence.get("checks", []) if isinstance(evidence.get("checks"), list) else []:
+                lines.append(f"    - {check}")
     return "\n".join(lines) + "\n"
 
 

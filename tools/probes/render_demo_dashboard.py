@@ -2392,10 +2392,15 @@ def render_review_apply(summary: dict[str, Any]) -> str:
                 effect.append("写 rejected")
             if not effect:
                 effect.append("无写入")
+            evidence = item.get("accept_evidence") if isinstance(item.get("accept_evidence"), dict) else {}
+            evidence_checks = evidence.get("checks") if isinstance(evidence.get("checks"), list) else []
+            evidence_summary = str(evidence.get("summary") or "")
+            evidence_text = "；".join(str(check) for check in evidence_checks[:4] if check)
             rows.append(
                 "<article class=\"resource-item\">"
                 f"<strong>{e(item.get('character'))}</strong>"
-                f"<span>{e(item.get('decision'))} · {e(item.get('status'))} · {e(' / '.join(effect))} · preview={e(item.get('preview_validation_status'))}</span>"
+                f"<span>{e(item.get('decision'))} · {e(item.get('status'))} · {e(' / '.join(effect))} · preview={e(item.get('preview_validation_status'))}"
+                f"{'<br>证据：' + he(evidence_text or evidence_summary) if evidence else ''}</span>"
                 f"<em>{e(item.get('preview_decision_status') or item.get('normalized_json_sha256') or 'N/A')}</em>"
                 "</article>"
             )

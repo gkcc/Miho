@@ -265,11 +265,18 @@ class ReviewApplyGateTests(unittest.TestCase):
             self.assertEqual(accepted["review_apply_audit"]["decision_manifest"], str(decision_path))
             self.assertEqual(accepted["review_apply_audit"]["preview_result"], str(preview_path))
             self.assertTrue(accepted["review_apply_audit"]["normalized_json_sha256"])
+            self.assertIn("进入已确认角色库的依据", accepted["review_apply_audit"]["accept_evidence"]["summary"])
+            self.assertIn("人工决定为 accept", accepted["review_apply_audit"]["accept_evidence"]["checks"])
             receipt = json.loads(Path(result["receipt_json"]).read_text(encoding="utf-8"))
             self.assertEqual(receipt["schema_version"], "p2.5-lite-review-apply-receipt")
             self.assertEqual(receipt["summary"]["did_enter_roster_count"], 1)
             self.assertEqual(receipt["summary"]["preview_validated_count"], 1)
             self.assertTrue(receipt["records"][0]["did_enter_roster"])
+            self.assertTrue(receipt["records"][0]["accept_evidence"]["roster_index_match"])
+            self.assertIn("已确认角色库索引已引用该快照", receipt["records"][0]["accept_evidence"]["checks"])
+            receipt_md = Path(result["receipt_md"]).read_text(encoding="utf-8")
+            self.assertIn("进入已确认角色库的依据", receipt_md)
+            self.assertIn("已确认角色库索引已引用该快照", receipt_md)
 
     def test_reject_with_changed_manifest_preview_fails_apply(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

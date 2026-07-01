@@ -651,6 +651,7 @@ safe apply 规则：
 * CLI 只要传入 `--preview-result`，就会按 `--require-preview-ready` 的安全语义执行，避免误用非 ready preview；
 * Dashboard 的“安全应用”状态会区分 `blocked`、`ready`、`ready_with_override`、`applied` 和 `not_applied`，避免把可人工应用的预览误看成尚未准备；
 * apply 会额外写入 `data/probes/roster/review_apply_receipt.json/md`，每条记录包含 `did_write_accepted`、`did_write_rejected`、`did_enter_roster`、`preview_validation_status` 和 source hash；
+* accepted 记录还会写入 `accept_evidence`：说明人工接收、复核预览、normalized JSON hash、unsafe accept 检查和 roster index 命中情况，Dashboard 会直接展示这段证据；
 * demo pipeline 会读取该 receipt，并在 Dashboard 的“复核应用回执”面板展示应用结果，不需要先打开 JSON 才知道是否真正进入 roster；
 * demo pipeline 还会生成 `data/probes/demo/demo_command.json/md`、`data/probes/demo/refresh_status/refresh_status.json/md` 和 `data/probes/demo/demo_doctor/demo_doctor.json/md`。如果 receipt 比 run manifest 新、当前 `roster_index.json` SHA256 与 run manifest 记录不一致、下游 `final_brief/action_checklist` 缺失或旧于 accepted roster 变更，或刷新状态无法确认，`refresh_status=stale_after_apply/unknown`，Final Brief、Action Checklist 和 Demo Doctor 会阻断 `try_now`，提示先按 `demo_command` 记录的真实命令重跑 demo pipeline；如果该命令本身 `safe_to_rerun=false`，Demo Doctor 会显示 `doctor_status=blocked` 和 `primary_next_action=repair_demo_command`。
 
