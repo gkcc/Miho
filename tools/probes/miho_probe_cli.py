@@ -1998,9 +1998,19 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
         freshness_status = "current_or_unknown"
     review_repair_command: str | None = None
     review_repair_status = "not_needed"
+    review_repair_execution = "not_applicable"
+    review_repair_writes_probe_files = False
+    review_repair_write_targets: list[str] = []
     if review_gate.get("status") in {"review_markdown_missing", "review_markdown_stale", "review_markdown_unknown"}:
         expected_markdown = roster_review_markdown_info.get("expected_path")
-        if latest_image:
+        if roster_needs_refresh:
+            review_repair_status = "blocked_by_roster_refresh"
+            review_repair_execution = "use_box_status_next"
+        elif latest_image:
+            if isinstance(latest_roster, str):
+                review_repair_write_targets.append(latest_roster)
+            if isinstance(expected_markdown, str):
+                review_repair_write_targets.append(expected_markdown)
             review_repair_command = box_roster_command(
                 latest_image,
                 meta_snapshot=latest_meta,
@@ -2008,12 +2018,18 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
                 output_markdown=expected_markdown if isinstance(expected_markdown, str) else None,
             )
             review_repair_status = "available"
+            review_repair_execution = "manual_only"
+            review_repair_writes_probe_files = True
         else:
             review_repair_status = "missing_box_image"
+            review_repair_execution = "blocked_missing_box_image"
     review_gate = {
         **review_gate,
         "repair_command": review_repair_command,
         "repair_command_status": review_repair_status,
+        "repair_command_execution": review_repair_execution,
+        "repair_command_writes_probe_files": review_repair_writes_probe_files,
+        "repair_command_write_targets": review_repair_write_targets,
     }
     if roster_needs_refresh and latest_image and latest_meta:
         next_command = box_roster_command(latest_image, meta_snapshot=latest_meta)
@@ -2193,6 +2209,7 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
         <span>review_gate={html_escape(str(review_gate.get("status") or "unknown"))}</span>
         <span>review_markdown={html_escape(str(review_gate.get("review_markdown_status") or "unknown"))}</span>
         <span>repair_command={html_escape(str(review_gate.get("repair_command_status") or "unknown"))}</span>
+        <span>repair_execution={html_escape(str(review_gate.get("repair_command_execution") or "unknown"))}</span>
       </div>
       <p>{html_escape(str(review_gate.get("message") or ""))}</p>
       {repair_command_html}
@@ -2232,6 +2249,8 @@ def run_box_status(args: argparse.Namespace) -> int:
     print(f"box_status_roster_review_markdown: {review_gate.get('review_markdown') or 'missing'}", flush=True)
     print(f"box_status_roster_review_markdown_status: {review_gate.get('review_markdown_status', 'unknown')}", flush=True)
     print(f"box_status_review_repair_command_status: {review_gate.get('repair_command_status', 'unknown')}", flush=True)
+    print(f"box_status_review_repair_command_execution: {review_gate.get('repair_command_execution', 'unknown')}", flush=True)
+    print(f"box_status_review_repair_writes_probe_files: {review_gate.get('repair_command_writes_probe_files', False)}", flush=True)
     print(f"box_status_review_repair_command: {review_gate.get('repair_command') or 'none'}", flush=True)
     print(f"box_status_next: {report['next_command']}", flush=True)
     print(f"box_status_json: {output_json}", flush=True)

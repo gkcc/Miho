@@ -637,6 +637,15 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["review_gate"]["status"], "review_markdown_missing")
             self.assertEqual(report["review_gate"]["review_markdown_status"], "missing")
             self.assertEqual(report["review_gate"]["repair_command_status"], "available")
+            self.assertEqual(report["review_gate"]["repair_command_execution"], "manual_only")
+            self.assertTrue(report["review_gate"]["repair_command_writes_probe_files"])
+            self.assertEqual(
+                report["review_gate"]["repair_command_write_targets"],
+                [
+                    str(box / "zzz_box_roster_from_box_image.json"),
+                    str(box / "zzz_box_roster_from_box_image.md"),
+                ],
+            )
             self.assertIn("box-roster", report["review_gate"]["repair_command"])
             self.assertIn("--image", report["review_gate"]["repair_command"])
             self.assertIn("--meta-snapshot", report["review_gate"]["repair_command"])
@@ -651,6 +660,7 @@ class MihoProbeCliTests(unittest.TestCase):
             cli_tool.render_box_status_html(report, status_html)
             html = status_html.read_text(encoding="utf-8")
             self.assertIn("repair_command=available", html)
+            self.assertIn("repair_execution=manual_only", html)
             self.assertIn("box-roster", html)
             self.assertIn(str(box / "zzz_box_roster_from_box_image.md"), html)
 
@@ -687,6 +697,9 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["review_gate"]["status"], "quality_ok_manual_confirmation_required")
             self.assertEqual(report["review_gate"]["review_markdown_status"], "current")
             self.assertEqual(report["review_gate"]["repair_command_status"], "not_needed")
+            self.assertEqual(report["review_gate"]["repair_command_execution"], "not_applicable")
+            self.assertFalse(report["review_gate"]["repair_command_writes_probe_files"])
+            self.assertEqual(report["review_gate"]["repair_command_write_targets"], [])
             self.assertIsNone(report["review_gate"]["repair_command"])
             self.assertFalse(report["review_gate"]["blocks_accepted_roster"])
 
@@ -743,6 +756,8 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["review_gate"]["review_markdown"], str(roster_md))
             self.assertEqual(report["review_gate"]["review_markdown_status"], "current")
             self.assertEqual(report["review_gate"]["repair_command_status"], "not_needed")
+            self.assertEqual(report["review_gate"]["repair_command_execution"], "not_applicable")
+            self.assertFalse(report["review_gate"]["repair_command_writes_probe_files"])
             self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
             html = (output_dir / "box_value_status.html").read_text(encoding="utf-8")
             self.assertIn("roster_quality=needs_review", html)
@@ -758,6 +773,8 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn(f"box_status_roster_review_markdown: {roster_md}", text)
             self.assertIn("box_status_roster_review_markdown_status: current", text)
             self.assertIn("box_status_review_repair_command_status: not_needed", text)
+            self.assertIn("box_status_review_repair_command_execution: not_applicable", text)
+            self.assertIn("box_status_review_repair_writes_probe_files: False", text)
             self.assertIn("box_status_review_repair_command: none", text)
 
     def test_box_status_blocks_quality_ok_roster_when_review_markdown_is_stale(self) -> None:
@@ -798,6 +815,9 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["review_gate"]["status"], "review_markdown_stale")
             self.assertEqual(report["review_gate"]["review_markdown_status"], "stale")
             self.assertEqual(report["review_gate"]["repair_command_status"], "available")
+            self.assertEqual(report["review_gate"]["repair_command_execution"], "manual_only")
+            self.assertTrue(report["review_gate"]["repair_command_writes_probe_files"])
+            self.assertEqual(report["review_gate"]["repair_command_write_targets"], [str(roster_json), str(roster_md)])
             self.assertIn("box-roster", report["review_gate"]["repair_command"])
             self.assertIn(str(roster_json), report["review_gate"]["repair_command"])
             self.assertIn(str(roster_md), report["review_gate"]["repair_command"])
@@ -849,6 +869,9 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["review_gate"]["status"], "review_markdown_unknown")
             self.assertEqual(report["review_gate"]["review_markdown_status"], "unknown")
             self.assertEqual(report["review_gate"]["repair_command_status"], "available")
+            self.assertEqual(report["review_gate"]["repair_command_execution"], "manual_only")
+            self.assertTrue(report["review_gate"]["repair_command_writes_probe_files"])
+            self.assertEqual(report["review_gate"]["repair_command_write_targets"], [str(roster_json), str(roster_md)])
             self.assertIn("box-roster", report["review_gate"]["repair_command"])
             self.assertIn(str(roster_json), report["review_gate"]["repair_command"])
             self.assertIn(str(roster_md), report["review_gate"]["repair_command"])
@@ -1015,6 +1038,10 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["freshness"]["status"], "source_hash_mismatch")
             self.assertFalse(report["freshness"]["latest_image_newer_than_roster"])
             self.assertFalse(report["freshness"]["source_hash_matches_latest_image"])
+            self.assertEqual(report["review_gate"]["status"], "review_markdown_missing")
+            self.assertEqual(report["review_gate"]["repair_command_status"], "blocked_by_roster_refresh")
+            self.assertEqual(report["review_gate"]["repair_command_execution"], "use_box_status_next")
+            self.assertIsNone(report["review_gate"]["repair_command"])
             self.assertIn("box-roster", report["next_command"])
             self.assertNotIn("box-value", report["next_command"])
 

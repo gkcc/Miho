@@ -45,7 +45,7 @@ tools/probes/extract_zzz_box_roster.py
 tools/probes/run_zzz_box_value_pipeline.py --box-image ...
 ```
 
-该草案只读取用户显式传入的米游社官方 box 总览图，输出脱敏 roster JSON / Markdown，不保存 header UID、昵称或原始 OCR 文本块，不读取 cookie/token，不写正式数据库。`needs_review_count > 0` 时只能作为 probe 输入，人工确认前不得进入 accepted roster。`box-status` 已补充 `box_status_review_gate`、`box_status_roster_review_markdown`、`box_status_roster_review_markdown_status` 和 `box_status_review_repair_command`，用于区分“可继续生成 probe 价值报告”“该看哪份复核 Markdown”和“是否允许进入 accepted roster”；即使质量检查为 `ok`，如果 paired 复核 Markdown 缺失、旧于 roster JSON 或状态无法确认，也会阻断进入 accepted roster，并给出重新生成复核材料的本地命令。
+该草案只读取用户显式传入的米游社官方 box 总览图，输出脱敏 roster JSON / Markdown，不保存 header UID、昵称或原始 OCR 文本块，不读取 cookie/token，不写正式数据库。`needs_review_count > 0` 时只能作为 probe 输入，人工确认前不得进入 accepted roster。`box-status` 已补充 `box_status_review_gate`、`box_status_roster_review_markdown`、`box_status_roster_review_markdown_status` 和 `box_status_review_repair_command`，用于区分“可继续生成 probe 价值报告”“该看哪份复核 Markdown”和“是否允许进入 accepted roster”；即使质量检查为 `ok`，如果 paired 复核 Markdown 缺失、旧于 roster JSON 或状态无法确认，也会阻断进入 accepted roster，并给出重新生成复核材料的本地命令。该命令必须手动执行，只覆盖本地 probe JSON/Markdown。
 
 默认输出到：
 
