@@ -610,6 +610,44 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("--roster-json", report["next_command"])
             self.assertNotIn("--box-image", report["next_command"])
             self.assertTrue(report["safety"]["no_ocr"])
+            self.assertFalse(report["freshness"]["latest_image_newer_than_roster"])
+
+    def test_box_status_requires_roster_refresh_when_box_image_is_newer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            for path in (images, meta, box, value):
+                path.mkdir()
+            image_path = images / "zzz_box.png"
+            roster_path = box / "zzz_box_roster_from_box_image.json"
+            meta_path = meta / "zzz_prydwen_meta_all_phases.json"
+            image_path.write_bytes(b"new fake image")
+            roster_path.write_text(json.dumps({"characters": []}, ensure_ascii=False), encoding="utf-8")
+            meta_path.write_text("{}", encoding="utf-8")
+            os.utime(roster_path, (1_700_000_000, 1_700_000_000))
+            os.utime(image_path, (1_700_000_120, 1_700_000_120))
+
+            report = cli_tool.build_box_status(
+                argparse.Namespace(
+                    image_dir=[str(images)],
+                    meta_dir=str(meta),
+                    box_dir=str(box),
+                    value_dir=str(value),
+                    max_items=8,
+                )
+            )
+
+            self.assertEqual(report["readiness"], "needs_roster_refresh")
+            self.assertEqual(report["freshness"]["status"], "roster_stale")
+            self.assertTrue(report["freshness"]["latest_image_newer_than_roster"])
+            self.assertIn("box-roster", report["next_command"])
+            self.assertIn("--image", report["next_command"])
+            self.assertIn("--meta-snapshot", report["next_command"])
+            self.assertIn("--no-open", report["next_command"])
+            self.assertNotIn("box-value", report["next_command"])
 
     def test_box_status_default_does_not_treat_figs_as_box_overview_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

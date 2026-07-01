@@ -1779,10 +1779,27 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     rosters = recent_local_files([box_dir, value_dir], suffixes={".json"}, name_contains=("roster",), recursive=True, limit=args.max_items)
     value_reports = recent_local_files([value_dir], suffixes={".json", ".md"}, name_contains=("agent_value_cards",), recursive=True, limit=args.max_items)
 
-    latest_image = images[0]["path"] if images else None
-    latest_meta = metas[0]["path"] if metas else None
-    latest_roster = rosters[0]["path"] if rosters else None
-    if latest_roster and latest_meta:
+    latest_image_record = images[0] if images else None
+    latest_meta_record = metas[0] if metas else None
+    latest_roster_record = rosters[0] if rosters else None
+    latest_image = latest_image_record["path"] if latest_image_record else None
+    latest_meta = latest_meta_record["path"] if latest_meta_record else None
+    latest_roster = latest_roster_record["path"] if latest_roster_record else None
+    roster_is_older_than_image = bool(
+        latest_image_record
+        and latest_roster_record
+        and float(latest_image_record.get("mtime_epoch") or 0) > float(latest_roster_record.get("mtime_epoch") or 0)
+    )
+    if roster_is_older_than_image and latest_image and latest_meta:
+        next_command = (
+            "dist\\MihoProbe.exe box-roster "
+            f"--image {shell_quote_path(latest_image)} "
+            f"--meta-snapshot {shell_quote_path(latest_meta)} "
+            "--no-open"
+        )
+        readiness = "needs_roster_refresh"
+        next_label = "最新 box 图晚于 roster probe，先刷新 roster"
+    elif latest_roster and latest_meta:
         next_command = (
             "dist\\MihoProbe.exe box-value "
             f"--roster-json {shell_quote_path(latest_roster)} "
@@ -1811,7 +1828,7 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
         readiness = "missing_inputs"
         next_label = "缺少 box 图和公开 meta"
     return {
-        "schema_version": "p0.2-zzz-box-value-status",
+        "schema_version": "p0.3-zzz-box-value-status",
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "readiness": readiness,
         "next_label": next_label,
@@ -1833,6 +1850,12 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
             "meta_snapshot": latest_meta,
             "roster_probe": latest_roster,
             "value_report": value_reports[0]["path"] if value_reports else None,
+        },
+        "freshness": {
+            "status": "roster_stale" if roster_is_older_than_image else "current_or_unknown",
+            "latest_image_newer_than_roster": roster_is_older_than_image,
+            "latest_image_mtime": latest_image_record.get("mtime") if latest_image_record else None,
+            "latest_roster_mtime": latest_roster_record.get("mtime") if latest_roster_record else None,
         },
         "images": images,
         "meta_snapshots": metas,
@@ -1866,6 +1889,7 @@ def render_file_list(items: list[dict[str, Any]], empty: str) -> str:
 def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
     counts = report.get("counts", {}) if isinstance(report.get("counts"), dict) else {}
     safety = report.get("safety", {}) if isinstance(report.get("safety"), dict) else {}
+    freshness = report.get("freshness", {}) if isinstance(report.get("freshness"), dict) else {}
     tone = "ok" if str(report.get("readiness")).startswith("ready") else "warn"
     html = f"""<!doctype html>
 <html lang="zh-CN">
@@ -1921,6 +1945,7 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
         <span>no_network={html_escape(str(safety.get("no_network")))}</span>
         <span>no_account_read={html_escape(str(safety.get("no_account_read")))}</span>
         <span>manual_review_before_accepted_roster={html_escape(str(safety.get("manual_confirmation_required_before_accepted_roster")))}</span>
+        <span>freshness={html_escape(str(freshness.get("status") or "unknown"))}</span>
       </div>
     </section>
     <section class="grid">
