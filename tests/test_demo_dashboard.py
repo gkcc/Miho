@@ -212,7 +212,30 @@ class DemoDashboardTests(unittest.TestCase):
         html = dashboard_tool.render_steps([{"name": "Review Apply Receipt", "status": "warning"}])
 
         self.assertIn("有警告", html)
+        self.assertIn("复核应用回执", html)
         self.assertNotIn(">warning<", html)
+        self.assertNotIn("Review Apply Receipt", html)
+
+    def test_pipeline_steps_use_reader_friendly_labels(self) -> None:
+        html = dashboard_tool.render_steps(
+            [
+                {"name": "Normalized Snapshot", "status": "GENERATED"},
+                {"name": "Manual Review Gate", "status": "REQUIRES_REVIEW"},
+                {"name": "Target Refresh", "status": "done"},
+            ]
+        )
+
+        self.assertIn("标准化快照", html)
+        self.assertIn("已生成", html)
+        self.assertIn("人工复核门禁", html)
+        self.assertIn("待复核", html)
+        self.assertIn("终局目标刷新", html)
+        self.assertIn("完成", html)
+        self.assertNotIn("Normalized Snapshot", html)
+        self.assertNotIn("Manual Review Gate", html)
+        self.assertNotIn("Target Refresh", html)
+        self.assertNotIn("GENERATED", html)
+        self.assertNotIn("REQUIRES_REVIEW", html)
 
     def test_safe_apply_status_preserves_apply_warnings(self) -> None:
         summary = dashboard_minimal_summary()
@@ -645,6 +668,46 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("Quality blockers", html)
         self.assertNotIn("Import blockers", html)
         self.assertNotIn("review_html", html)
+
+    def test_dashboard_debug_metrics_use_reader_friendly_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["overall"].update(
+            {
+                "case_count": 1,
+                "parse_success_count": 1,
+                "parse_status_counts": {"PASS": 1, "FAIL": 0},
+                "expected_status_counts": {"PASS": 0, "FAIL": 0, "N/A": 1},
+                "normalized_status_counts": {"GENERATED": 1},
+                "import_status_counts": {"BLOCKED": 0, "REQUIRES_REVIEW": 1},
+                "review_status_counts": {"PASS": 0, "NEEDS_REVIEW": 1, "FAIL": 0},
+                "demo_status": "MISSING_EXPECTED",
+                "normalized_count": 1,
+            }
+        )
+        summary["run_manifest"] = {"artifact_status": {"consistent": True, "stale_or_mismatched": []}}
+        summary["endgame_plan"] = {"plan_trust_level": "warning", "summary": {"target_count": 1}}
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("缺少验收对照", html)
+        self.assertIn("图片项数", html)
+        self.assertIn("解析成功", html)
+        self.assertIn("解析通过", html)
+        self.assertIn("未配置验收", html)
+        self.assertIn("标准化已生成", html)
+        self.assertIn("导入待复核", html)
+        self.assertIn("待复核", html)
+        self.assertIn("运行一致性", html)
+        self.assertIn(">是<", html)
+        self.assertIn("方案可信度", html)
+        self.assertIn("有警告", html)
+        self.assertNotIn("Parse PASS", html)
+        self.assertNotIn("Expected N/A", html)
+        self.assertNotIn("Normalized GENERATED", html)
+        self.assertNotIn("Import Review", html)
+        self.assertNotIn("NEEDS_REVIEW", html)
+        self.assertNotIn("MISSING_EXPECTED", html)
+        self.assertNotIn("方案 Trust", html)
 
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
@@ -2444,13 +2507,13 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("复核页", html)
             self.assertIn("case_expected.json", html)
             self.assertIn("演示状态", html)
-            self.assertIn("MISSING_EXPECTED", html)
-            self.assertIn("Parse PASS", html)
-            self.assertIn("Expected N/A", html)
-            self.assertIn("Normalized Snapshot", html)
-            self.assertIn("GENERATED", html)
-            self.assertIn("Manual Review Gate", html)
-            self.assertIn("REQUIRES_REVIEW", html)
+            self.assertIn("缺少验收对照", html)
+            self.assertIn("解析通过", html)
+            self.assertIn("未配置验收", html)
+            self.assertIn("标准化快照", html)
+            self.assertIn("已生成", html)
+            self.assertIn("人工复核门禁", html)
+            self.assertIn("待复核", html)
             self.assertIn("不会自动写入正式数据", html)
             self.assertIn("下一步行动", html)
             self.assertIn("候选 ≠ 已拥有", html)
@@ -2506,7 +2569,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("run_manifest.json", html)
             self.assertIn("输入产物校验", html)
             self.assertIn("demo_test_run", html)
-            self.assertIn("方案 Trust", html)
+            self.assertIn("方案可信度", html)
             self.assertIn("本期高难方案", html)
             self.assertIn("endgame_plan.json", html)
             self.assertIn("不是抽卡建议", html)

@@ -764,6 +764,8 @@ def human_status(value: Any) -> str:
         "pass": "通过",
         "done": "完成",
         "generated": "已生成",
+        "skipped": "已跳过",
+        "missing_expected": "缺少验收对照",
         "ready_for_review": "待人工确认",
         "ready_to_try": "可尝试",
         "needs_review": "待复核",
@@ -1213,16 +1215,40 @@ def evidence_hint(evidence: Any) -> str:
     return ""
 
 
+def pipeline_step_label(value: Any) -> str:
+    text = str(value or "")
+    labels = {
+        "Normalized Snapshot": "标准化快照",
+        "Manual Review Gate": "人工复核门禁",
+        "Action Cards": "行动卡",
+        "Review Inbox": "复核收件箱",
+        "Tier Watchlist": "保值观察",
+        "Team Cards": "队伍卡",
+        "Roster Delta": "角色库变化",
+        "Run Manifest": "运行一致性",
+        "Endgame Plan": "高难方案",
+        "Training Plan": "培养规划",
+        "Final Brief": "今日建议",
+        "Action Checklist": "执行清单",
+        "Review Decision Preview": "复核决定预览",
+        "Review Apply Receipt": "复核应用回执",
+        "Refresh Status": "刷新状态",
+        "Demo Doctor": "状态诊断",
+        "Target Refresh": "终局目标刷新",
+    }
+    return labels.get(text, humanize_text(text))
+
+
 def render_steps(steps: list[dict[str, Any]]) -> str:
     if not steps:
         return ""
     items = []
     for step in steps:
         status = str(step.get("status") or "skipped")
-        status_label = human_status(status) if status.lower() == "warning" else status
+        status_label = human_status(status)
         items.append(
             f'<div class="step {status_class(status)}">'
-            f'<span class="dot"></span><strong>{e(step.get("name"))}</strong><em>{e(status_label)}</em></div>'
+            f'<span class="dot"></span><strong>{e(pipeline_step_label(step.get("name")))}</strong><em>{e(status_label)}</em></div>'
         )
     return '<section class="panel"><h2>Pipeline 进度</h2><div class="steps">' + "".join(items) + "</div></section>"
 
@@ -2923,28 +2949,28 @@ def render_html(summary: dict[str, Any]) -> str:
         ),
         metric_card("允许尝试", bool_text(doctor_info.get("try_now_allowed")) if doctor_info else "N/A", "ok" if doctor_info.get("try_now_allowed") else "bad" if doctor_info else "muted"),
         metric_card("刷新状态", human_status(refresh_info.get("refresh_status", "N/A")) if refresh_info else "N/A", status_class(refresh_info.get("refresh_status")) if refresh_info else "muted"),
-        metric_card("需要重跑", refresh_summary.get("needs_demo_refresh", "N/A") if refresh_summary else "N/A", "bad" if refresh_summary.get("needs_demo_refresh") else "muted"),
+        metric_card("需要重跑", bool_text(refresh_summary.get("needs_demo_refresh")) if refresh_summary else "N/A", "bad" if refresh_summary.get("needs_demo_refresh") else "muted"),
         metric_card("简报状态", human_status(final_info.get("brief_status", "N/A")) if final_info else "N/A", status_class(final_info.get("brief_status")) if final_info else "muted"),
         metric_card("清单状态", human_status(checklist_info.get("checklist_status", "N/A")) if checklist_info else "N/A", status_class(checklist_info.get("checklist_status")) if checklist_info else "muted"),
         metric_card("复核预览", human_status(preview_info.get("preview_status", "N/A")) if preview_info else "N/A", status_class(preview_info.get("preview_status")) if preview_info else "muted"),
         metric_card("安全应用", human_status(safe_apply), status_class(safe_apply)),
         metric_card("已进角色库", apply_summary.get("did_enter_roster_count", "N/A") if apply_summary else "N/A", "ok" if apply_summary.get("did_enter_roster_count") else "muted"),
         metric_card("模式", source_mode_label(input_info.get("source_mode")), "muted"),
-        metric_card("Case 数", overall.get("case_count", 0), "muted"),
-        metric_card("Parsed 成功", overall.get("parse_success_count", 0), "ok"),
-        metric_card("Parse PASS", parse_counts.get("PASS", 0), "ok"),
-        metric_card("Parse FAIL", parse_counts.get("FAIL", 0), "bad"),
-        metric_card("Expected PASS", expected_counts.get("PASS", 0), "ok"),
-        metric_card("Expected FAIL", expected_counts.get("FAIL", 0), "bad"),
-        metric_card("Expected N/A", expected_counts.get("N/A", 0), "warn"),
-        metric_card("Normalized GENERATED", normalized_counts.get("GENERATED", overall.get("normalized_count", 0)), "ok"),
-        metric_card("Import BLOCKED", import_counts.get("BLOCKED", 0), "bad"),
-        metric_card("Import Review", import_counts.get("REQUIRES_REVIEW", 0), "warn"),
-        metric_card("PASS", review_counts.get("PASS", 0), "ok"),
-        metric_card("NEEDS_REVIEW", review_counts.get("NEEDS_REVIEW", 0), "warn"),
-        metric_card("FAIL", review_counts.get("FAIL", 0), "bad"),
-        metric_card("Expected 平均", average_pass_rate, "muted"),
-        metric_card("Normalized", overall.get("normalized_count", 0), "ok"),
+        metric_card("图片项数", overall.get("case_count", 0), "muted"),
+        metric_card("解析成功", overall.get("parse_success_count", 0), "ok"),
+        metric_card("解析通过", parse_counts.get("PASS", 0), "ok"),
+        metric_card("解析失败", parse_counts.get("FAIL", 0), "bad"),
+        metric_card("验收通过", expected_counts.get("PASS", 0), "ok"),
+        metric_card("验收失败", expected_counts.get("FAIL", 0), "bad"),
+        metric_card("未配置验收", expected_counts.get("N/A", 0), "warn"),
+        metric_card("标准化已生成", normalized_counts.get("GENERATED", overall.get("normalized_count", 0)), "ok"),
+        metric_card("导入已阻断", import_counts.get("BLOCKED", 0), "bad"),
+        metric_card("导入待复核", import_counts.get("REQUIRES_REVIEW", 0), "warn"),
+        metric_card("复核通过", review_counts.get("PASS", 0), "ok"),
+        metric_card("待复核", review_counts.get("NEEDS_REVIEW", 0), "warn"),
+        metric_card("复核失败", review_counts.get("FAIL", 0), "bad"),
+        metric_card("验收平均", average_pass_rate, "muted"),
+        metric_card("标准化数量", overall.get("normalized_count", 0), "ok"),
         metric_card("需人工确认", overall.get("requires_manual_review_count", 0), "warn"),
         metric_card("本轮处理图片", update_info.get("processed_image_count", "N/A") if update_info else "N/A", "ok" if update_info.get("processed_image_count") else "muted"),
         metric_card("历史变化", history_info.get("changed_character_count", "N/A") if history_info else "N/A", "warn" if history_info.get("changed_character_count") else "muted"),
@@ -2961,9 +2987,9 @@ def render_html(summary: dict[str, Any]) -> str:
         metric_card("本次新增", delta_summary.get("new_character_count", "N/A") if delta_summary else "N/A", "ok" if delta_summary.get("new_character_count") else "muted"),
         metric_card("本次更新", delta_summary.get("updated_character_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("updated_character_count") else "muted"),
         metric_card("更新影响队伍", delta_summary.get("team_impact_count", "N/A") if delta_summary else "N/A", "warn" if delta_summary.get("team_impact_count") else "muted"),
-        metric_card("运行一致性", run_status.get("consistent", "N/A") if run_status else "N/A", "ok" if run_status.get("consistent") else "warn" if run_info else "muted"),
+        metric_card("运行一致性", bool_text(run_status.get("consistent")) if run_status else "N/A", "ok" if run_status.get("consistent") else "warn" if run_info else "muted"),
         metric_card("错批产物", len(run_status.get("stale_or_mismatched", [])) if run_status else "N/A", "bad" if run_status.get("stale_or_mismatched") else "ok" if run_info else "muted"),
-        metric_card("方案 Trust", endgame_info.get("plan_trust_level", "N/A") if endgame_info else "N/A", status_class(endgame_info.get("plan_trust_level")) if endgame_info else "muted"),
+        metric_card("方案可信度", human_status(endgame_info.get("plan_trust_level", "N/A")) if endgame_info else "N/A", status_class(endgame_info.get("plan_trust_level")) if endgame_info else "muted"),
         metric_card("高难方案目标", endgame_summary.get("target_count", "N/A") if endgame_summary else "N/A", "ok" if endgame_summary.get("target_count") else "muted"),
         metric_card("可直接尝试", endgame_summary.get("ready_now_count", "N/A") if endgame_summary else "N/A", "ok" if endgame_summary.get("ready_now_count") else "muted"),
         metric_card("先复核", endgame_summary.get("needs_review_count", "N/A") if endgame_summary else "N/A", "warn" if endgame_summary.get("needs_review_count") else "muted"),
