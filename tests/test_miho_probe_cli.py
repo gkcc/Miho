@@ -636,8 +636,23 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["next_label"], "可跑价值报告，但缺少复核 Markdown")
             self.assertEqual(report["review_gate"]["status"], "review_markdown_missing")
             self.assertEqual(report["review_gate"]["review_markdown_status"], "missing")
+            self.assertEqual(report["review_gate"]["repair_command_status"], "available")
+            self.assertIn("box-roster", report["review_gate"]["repair_command"])
+            self.assertIn("--image", report["review_gate"]["repair_command"])
+            self.assertIn("--meta-snapshot", report["review_gate"]["repair_command"])
+            self.assertIn("--output", report["review_gate"]["repair_command"])
+            self.assertIn(str(box / "zzz_box_roster_from_box_image.json"), report["review_gate"]["repair_command"])
+            self.assertIn("--markdown", report["review_gate"]["repair_command"])
+            self.assertIn(str(box / "zzz_box_roster_from_box_image.md"), report["review_gate"]["repair_command"])
+            self.assertIn("--no-open", report["review_gate"]["repair_command"])
             self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
             self.assertIn("缺少 paired 复核 Markdown", report["review_gate"]["message"])
+            status_html = root / "box_value_status.html"
+            cli_tool.render_box_status_html(report, status_html)
+            html = status_html.read_text(encoding="utf-8")
+            self.assertIn("repair_command=available", html)
+            self.assertIn("box-roster", html)
+            self.assertIn(str(box / "zzz_box_roster_from_box_image.md"), html)
 
     def test_box_status_allows_quality_ok_roster_after_review_markdown_exists(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -671,6 +686,8 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertFalse(report["latest"]["roster_review_markdown_older_than_roster"])
             self.assertEqual(report["review_gate"]["status"], "quality_ok_manual_confirmation_required")
             self.assertEqual(report["review_gate"]["review_markdown_status"], "current")
+            self.assertEqual(report["review_gate"]["repair_command_status"], "not_needed")
+            self.assertIsNone(report["review_gate"]["repair_command"])
             self.assertFalse(report["review_gate"]["blocks_accepted_roster"])
 
     def test_run_box_status_exposes_roster_quality_review_summary(self) -> None:
@@ -725,6 +742,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["review_gate"]["status"], "needs_manual_review")
             self.assertEqual(report["review_gate"]["review_markdown"], str(roster_md))
             self.assertEqual(report["review_gate"]["review_markdown_status"], "current")
+            self.assertEqual(report["review_gate"]["repair_command_status"], "not_needed")
             self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
             html = (output_dir / "box_value_status.html").read_text(encoding="utf-8")
             self.assertIn("roster_quality=needs_review", html)
@@ -739,6 +757,8 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_review_gate: needs_manual_review", text)
             self.assertIn(f"box_status_roster_review_markdown: {roster_md}", text)
             self.assertIn("box_status_roster_review_markdown_status: current", text)
+            self.assertIn("box_status_review_repair_command_status: not_needed", text)
+            self.assertIn("box_status_review_repair_command: none", text)
 
     def test_box_status_blocks_quality_ok_roster_when_review_markdown_is_stale(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -777,8 +797,63 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertTrue(report["latest"]["roster_review_markdown_older_than_roster"])
             self.assertEqual(report["review_gate"]["status"], "review_markdown_stale")
             self.assertEqual(report["review_gate"]["review_markdown_status"], "stale")
+            self.assertEqual(report["review_gate"]["repair_command_status"], "available")
+            self.assertIn("box-roster", report["review_gate"]["repair_command"])
+            self.assertIn(str(roster_json), report["review_gate"]["repair_command"])
+            self.assertIn(str(roster_md), report["review_gate"]["repair_command"])
             self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
             self.assertIn("旧于 roster JSON", report["review_gate"]["message"])
+
+    def test_box_status_labels_unknown_review_markdown_status_as_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            for path in (images, meta, box, value):
+                path.mkdir()
+            image_path = images / "zzz_box.png"
+            image_path.write_bytes(b"fake")
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+            roster_json = box / "zzz_box_roster_from_box_image.json"
+            roster_md = box / "zzz_box_roster_from_box_image.md"
+            roster_json.write_text(json.dumps({"characters": []}, ensure_ascii=False), encoding="utf-8")
+            os.utime(image_path, (1_700_000_060, 1_700_000_060))
+            os.utime(roster_json, (1_700_000_120, 1_700_000_120))
+
+            with mock.patch.object(
+                cli_tool,
+                "roster_markdown_info",
+                return_value={
+                    "path": str(roster_md),
+                    "expected_path": str(roster_md),
+                    "status": "unknown",
+                    "older_than_roster": False,
+                },
+            ):
+                report = cli_tool.build_box_status(
+                    argparse.Namespace(
+                        image_dir=[str(images)],
+                        meta_dir=str(meta),
+                        box_dir=str(box),
+                        value_dir=str(value),
+                        max_items=8,
+                    )
+                )
+
+            self.assertEqual(report["readiness"], "ready_for_box_value_from_roster")
+            self.assertEqual(report["next_label"], "可跑价值报告，但复核 Markdown 状态未知")
+            self.assertEqual(report["latest"]["roster_review_markdown"], str(roster_md))
+            self.assertEqual(report["latest"]["roster_review_markdown_status"], "unknown")
+            self.assertEqual(report["review_gate"]["status"], "review_markdown_unknown")
+            self.assertEqual(report["review_gate"]["review_markdown_status"], "unknown")
+            self.assertEqual(report["review_gate"]["repair_command_status"], "available")
+            self.assertIn("box-roster", report["review_gate"]["repair_command"])
+            self.assertIn(str(roster_json), report["review_gate"]["repair_command"])
+            self.assertIn(str(roster_md), report["review_gate"]["repair_command"])
+            self.assertTrue(report["review_gate"]["blocks_accepted_roster"])
+            self.assertIn("无法确认复核 Markdown", report["review_gate"]["message"])
 
     def test_box_status_counts_agent_review_status_when_summary_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

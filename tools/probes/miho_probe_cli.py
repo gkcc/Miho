@@ -1768,6 +1768,24 @@ def shell_quote_path(path: str | Path) -> str:
     return f'"{text}"' if any(char.isspace() for char in text) else text
 
 
+def box_roster_command(
+    image: str | Path,
+    *,
+    meta_snapshot: str | Path | None = None,
+    output_json: str | Path | None = None,
+    output_markdown: str | Path | None = None,
+) -> str:
+    parts = ["dist\\MihoProbe.exe box-roster", f"--image {shell_quote_path(image)}"]
+    if meta_snapshot:
+        parts.append(f"--meta-snapshot {shell_quote_path(meta_snapshot)}")
+    if output_json:
+        parts.append(f"--output {shell_quote_path(output_json)}")
+    if output_markdown:
+        parts.append(f"--markdown {shell_quote_path(output_markdown)}")
+    parts.append("--no-open")
+    return " ".join(parts)
+
+
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -1978,13 +1996,27 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
         freshness_status = "roster_stale_by_mtime"
     else:
         freshness_status = "current_or_unknown"
+    review_repair_command: str | None = None
+    review_repair_status = "not_needed"
+    if review_gate.get("status") in {"review_markdown_missing", "review_markdown_stale", "review_markdown_unknown"}:
+        expected_markdown = roster_review_markdown_info.get("expected_path")
+        if latest_image:
+            review_repair_command = box_roster_command(
+                latest_image,
+                meta_snapshot=latest_meta,
+                output_json=latest_roster,
+                output_markdown=expected_markdown if isinstance(expected_markdown, str) else None,
+            )
+            review_repair_status = "available"
+        else:
+            review_repair_status = "missing_box_image"
+    review_gate = {
+        **review_gate,
+        "repair_command": review_repair_command,
+        "repair_command_status": review_repair_status,
+    }
     if roster_needs_refresh and latest_image and latest_meta:
-        next_command = (
-            "dist\\MihoProbe.exe box-roster "
-            f"--image {shell_quote_path(latest_image)} "
-            f"--meta-snapshot {shell_quote_path(latest_meta)} "
-            "--no-open"
-        )
+        next_command = box_roster_command(latest_image, meta_snapshot=latest_meta)
         readiness = "needs_roster_refresh"
         next_label = "最新 box 图晚于 roster probe，先刷新 roster"
     elif latest_roster and latest_meta:
@@ -2000,6 +2032,8 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
             next_label = "可跑价值报告，但缺少复核 Markdown"
         elif review_gate.get("status") == "review_markdown_stale":
             next_label = "可跑价值报告，但复核 Markdown 已过期"
+        elif review_gate.get("status") == "review_markdown_unknown":
+            next_label = "可跑价值报告，但复核 Markdown 状态未知"
         else:
             next_label = "可用已生成 roster probe 跑价值报告"
     elif latest_image and latest_meta:
@@ -2011,7 +2045,7 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
         readiness = "ready_for_box_value_from_image"
         next_label = "可直接生成 box 价值报告"
     elif latest_image:
-        next_command = f"dist\\MihoProbe.exe box-roster --image {shell_quote_path(latest_image)} --no-open"
+        next_command = box_roster_command(latest_image)
         readiness = "needs_public_meta"
         next_label = "先准备公开 meta，或只生成 roster probe"
     elif latest_meta:
@@ -2096,6 +2130,8 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
     freshness = report.get("freshness", {}) if isinstance(report.get("freshness"), dict) else {}
     roster_quality = report.get("roster_quality", {}) if isinstance(report.get("roster_quality"), dict) else {}
     review_gate = report.get("review_gate", {}) if isinstance(report.get("review_gate"), dict) else {}
+    repair_command = str(review_gate.get("repair_command") or "")
+    repair_command_html = f"<code>{html_escape(repair_command)}</code>" if repair_command else ""
     tone = "ok" if str(report.get("readiness")).startswith("ready") else "warn"
     html = f"""<!doctype html>
 <html lang="zh-CN">
@@ -2156,8 +2192,10 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
         <span>roster_needs_review={html_escape(str(roster_quality.get("needs_review_count", 0)))}</span>
         <span>review_gate={html_escape(str(review_gate.get("status") or "unknown"))}</span>
         <span>review_markdown={html_escape(str(review_gate.get("review_markdown_status") or "unknown"))}</span>
+        <span>repair_command={html_escape(str(review_gate.get("repair_command_status") or "unknown"))}</span>
       </div>
       <p>{html_escape(str(review_gate.get("message") or ""))}</p>
+      {repair_command_html}
     </section>
     <section class="grid">
       <article class="card"><h2>图片候选</h2>{render_file_list(report.get("images", []), "没有找到本地图片候选。")}</article>
@@ -2193,6 +2231,8 @@ def run_box_status(args: argparse.Namespace) -> int:
     print(f"box_status_review_gate: {review_gate.get('status', 'unknown')}", flush=True)
     print(f"box_status_roster_review_markdown: {review_gate.get('review_markdown') or 'missing'}", flush=True)
     print(f"box_status_roster_review_markdown_status: {review_gate.get('review_markdown_status', 'unknown')}", flush=True)
+    print(f"box_status_review_repair_command_status: {review_gate.get('repair_command_status', 'unknown')}", flush=True)
+    print(f"box_status_review_repair_command: {review_gate.get('repair_command') or 'none'}", flush=True)
     print(f"box_status_next: {report['next_command']}", flush=True)
     print(f"box_status_json: {output_json}", flush=True)
     print(f"box_status_html: {output_html}", flush=True)
