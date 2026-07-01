@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -91,9 +92,14 @@ class ZzzBoxRosterExtractTests(unittest.TestCase):
                 )
 
             saved = json.loads(output_json.read_text(encoding="utf-8"))
+            expected_hash = hashlib.sha256(image_path.read_bytes()).hexdigest()
+            self.assertEqual(saved["schema_version"], "p0.2-zzz-box-roster-image")
             self.assertEqual(saved["summary"]["owned_count"], 1)
             self.assertEqual(saved["summary"]["needs_review_count"], 0)
             self.assertEqual(saved["agents"][0]["agent_slug"], "qingyi")
+            self.assertEqual(saved["source"]["image_sha256"], expected_hash)
+            self.assertEqual(saved["source"]["image_file_size"], image_path.stat().st_size)
+            self.assertEqual(saved["source"]["image_mtime_epoch"], image_path.stat().st_mtime)
             self.assertEqual(saved["recognition"]["count_claim"], 1)
             self.assertEqual(saved["privacy"]["header_uid_persisted"], False)
             self.assertEqual(saved["privacy"]["raw_ocr_blocks_persisted"], False)

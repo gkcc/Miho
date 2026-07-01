@@ -9,6 +9,7 @@ UID/nickname OCR is not persisted.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import importlib.util
 import json
@@ -22,7 +23,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TOOLS_DIR = PROJECT_ROOT / "tools" / "probes"
-SCHEMA_VERSION = "p0.1-zzz-box-roster-image"
+SCHEMA_VERSION = "p0.2-zzz-box-roster-image"
 RAPID_OCR_INSTANCE: Any | None = None
 RAPID_OCR_NUMPY: Any | None = None
 
@@ -141,6 +142,14 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 def write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def load_image_dependency() -> Any:
@@ -487,6 +496,7 @@ def extract_roster_from_image(
 ) -> dict[str, Any]:
     if not image_path.exists():
         raise BoxRosterExtractError(f"Image does not exist: {image_path}")
+    image_stat = image_path.stat()
     Image = load_image_dependency()
     with Image.open(image_path) as loaded:
         image = loaded.convert("RGB")
@@ -520,6 +530,10 @@ def extract_roster_from_image(
         "generated_at": now_iso(),
         "source": {
             "image_basename": image_path.name,
+            "image_sha256": file_sha256(image_path),
+            "image_file_size": image_stat.st_size,
+            "image_mtime_epoch": image_stat.st_mtime,
+            "image_mtime": datetime.fromtimestamp(image_stat.st_mtime, timezone.utc).astimezone().isoformat(timespec="seconds"),
             "image_size": {"width": width, "height": height},
             "meta_snapshot": str(meta_snapshot) if meta_snapshot else None,
         },

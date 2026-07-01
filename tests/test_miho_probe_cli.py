@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
 import importlib.util
 import json
@@ -641,12 +642,105 @@ class MihoProbeCliTests(unittest.TestCase):
             )
 
             self.assertEqual(report["readiness"], "needs_roster_refresh")
-            self.assertEqual(report["freshness"]["status"], "roster_stale")
+            self.assertEqual(report["freshness"]["status"], "roster_stale_by_mtime")
             self.assertTrue(report["freshness"]["latest_image_newer_than_roster"])
             self.assertIn("box-roster", report["next_command"])
             self.assertIn("--image", report["next_command"])
             self.assertIn("--meta-snapshot", report["next_command"])
             self.assertIn("--no-open", report["next_command"])
+            self.assertNotIn("box-value", report["next_command"])
+
+    def test_box_status_uses_source_hash_match_before_mtime_staleness(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            for path in (images, meta, box, value):
+                path.mkdir()
+            image_path = images / "zzz_box.png"
+            roster_path = box / "zzz_box_roster_from_box_image.json"
+            image_bytes = b"same box image"
+            image_path.write_bytes(image_bytes)
+            roster_path.write_text(
+                json.dumps(
+                    {
+                        "source": {
+                            "image_basename": image_path.name,
+                            "image_sha256": hashlib.sha256(image_bytes).hexdigest(),
+                        },
+                        "agents": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+            os.utime(roster_path, (1_700_000_000, 1_700_000_000))
+            os.utime(image_path, (1_700_000_120, 1_700_000_120))
+
+            report = cli_tool.build_box_status(
+                argparse.Namespace(
+                    image_dir=[str(images)],
+                    meta_dir=str(meta),
+                    box_dir=str(box),
+                    value_dir=str(value),
+                    max_items=8,
+                )
+            )
+
+            self.assertEqual(report["readiness"], "ready_for_box_value_from_roster")
+            self.assertEqual(report["freshness"]["status"], "source_hash_match")
+            self.assertTrue(report["freshness"]["latest_image_newer_than_roster"])
+            self.assertTrue(report["freshness"]["source_hash_matches_latest_image"])
+            self.assertIn("--roster-json", report["next_command"])
+            self.assertNotIn("--box-image", report["next_command"])
+
+    def test_box_status_requires_roster_refresh_when_source_hash_mismatches_latest_image(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            for path in (images, meta, box, value):
+                path.mkdir()
+            image_path = images / "zzz_box.png"
+            roster_path = box / "zzz_box_roster_from_box_image.json"
+            image_path.write_bytes(b"new box image")
+            roster_path.write_text(
+                json.dumps(
+                    {
+                        "source": {
+                            "image_basename": image_path.name,
+                            "image_sha256": hashlib.sha256(b"old box image").hexdigest(),
+                        },
+                        "agents": [],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+            os.utime(image_path, (1_700_000_000, 1_700_000_000))
+            os.utime(roster_path, (1_700_000_120, 1_700_000_120))
+
+            report = cli_tool.build_box_status(
+                argparse.Namespace(
+                    image_dir=[str(images)],
+                    meta_dir=str(meta),
+                    box_dir=str(box),
+                    value_dir=str(value),
+                    max_items=8,
+                )
+            )
+
+            self.assertEqual(report["readiness"], "needs_roster_refresh")
+            self.assertEqual(report["freshness"]["status"], "source_hash_mismatch")
+            self.assertFalse(report["freshness"]["latest_image_newer_than_roster"])
+            self.assertFalse(report["freshness"]["source_hash_matches_latest_image"])
+            self.assertIn("box-roster", report["next_command"])
             self.assertNotIn("box-value", report["next_command"])
 
     def test_box_status_default_does_not_treat_figs_as_box_overview_source(self) -> None:

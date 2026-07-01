@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from datetime import datetime
 from html import escape as html_escape
 import importlib
@@ -1767,6 +1768,25 @@ def shell_quote_path(path: str | Path) -> str:
     return f'"{text}"' if any(char.isspace() for char in text) else text
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_roster_source(path: str | Path | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - stale local probe JSON should degrade to mtime freshness.
+        return {}
+    source = payload.get("source") if isinstance(payload, dict) else {}
+    return source if isinstance(source, dict) else {}
+
+
 def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     image_dirs = [resolve_cli_path(item) for item in (args.image_dir or [])]
     if not image_dirs:
@@ -1785,12 +1805,36 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     latest_image = latest_image_record["path"] if latest_image_record else None
     latest_meta = latest_meta_record["path"] if latest_meta_record else None
     latest_roster = latest_roster_record["path"] if latest_roster_record else None
-    roster_is_older_than_image = bool(
+    roster_source = load_roster_source(latest_roster)
+    latest_image_sha256: str | None = None
+    latest_image_hash_error: str | None = None
+    if latest_image:
+        try:
+            latest_image_sha256 = file_sha256(Path(latest_image))
+        except OSError as exc:
+            latest_image_hash_error = str(exc)
+    roster_source_sha256 = roster_source.get("image_sha256") if isinstance(roster_source.get("image_sha256"), str) else None
+    source_hash_matches_latest_image = (
+        latest_image_sha256 == roster_source_sha256 if latest_image_sha256 and roster_source_sha256 else None
+    )
+    roster_is_older_than_image_by_mtime = bool(
         latest_image_record
         and latest_roster_record
         and float(latest_image_record.get("mtime_epoch") or 0) > float(latest_roster_record.get("mtime_epoch") or 0)
     )
-    if roster_is_older_than_image and latest_image and latest_meta:
+    roster_needs_refresh = bool(
+        source_hash_matches_latest_image is False
+        or (source_hash_matches_latest_image is None and roster_is_older_than_image_by_mtime)
+    )
+    if source_hash_matches_latest_image is True:
+        freshness_status = "source_hash_match"
+    elif source_hash_matches_latest_image is False:
+        freshness_status = "source_hash_mismatch"
+    elif roster_is_older_than_image_by_mtime:
+        freshness_status = "roster_stale_by_mtime"
+    else:
+        freshness_status = "current_or_unknown"
+    if roster_needs_refresh and latest_image and latest_meta:
         next_command = (
             "dist\\MihoProbe.exe box-roster "
             f"--image {shell_quote_path(latest_image)} "
@@ -1852,8 +1896,11 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
             "value_report": value_reports[0]["path"] if value_reports else None,
         },
         "freshness": {
-            "status": "roster_stale" if roster_is_older_than_image else "current_or_unknown",
-            "latest_image_newer_than_roster": roster_is_older_than_image,
+            "status": freshness_status,
+            "latest_image_newer_than_roster": roster_is_older_than_image_by_mtime,
+            "latest_image_hash_error": latest_image_hash_error,
+            "source_hash_checked": bool(latest_image_sha256 and roster_source_sha256),
+            "source_hash_matches_latest_image": source_hash_matches_latest_image,
             "latest_image_mtime": latest_image_record.get("mtime") if latest_image_record else None,
             "latest_roster_mtime": latest_roster_record.get("mtime") if latest_roster_record else None,
         },
