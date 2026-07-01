@@ -795,6 +795,17 @@ def human_status(value: Any) -> str:
         "changed": "已变化",
         "unchanged": "未变化",
         "diffed": "已生成差异",
+        "covered": "已覆盖",
+        "unmatched": "未覆盖",
+        "local_draft": "本地草案",
+        "public_web_snapshot": "公开网页快照",
+        "official_snapshot": "官方快照",
+        "official_current": "官方当前数据",
+        "manual": "手动配置",
+        "mock": "样例数据",
+        "high": "高",
+        "medium": "中",
+        "low": "低",
         "ok": "正常",
         "unknown": "未知",
         "n/a": "无",
@@ -817,6 +828,10 @@ def artifact_label(value: Any) -> str:
         "run_manifest": "运行清单",
     }
     return labels.get(text, humanize_text(text.replace("_", " ")))
+
+
+def source_type_label(value: Any) -> str:
+    return human_status(value)
 
 
 def launcher_state_label(value: Any) -> str:
@@ -1740,11 +1755,11 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     if source_status:
         source_status_block = f"""
         <div class="input-grid">
-          <div><span>source status</span><strong>{e(source_status.get("status", "N/A"))}</strong></div>
-          <div><span>source freshness</span><strong>{e(source_status.get("freshness_level", "N/A"))}</strong></div>
-          <div><span>current ready</span><strong>{e(source_status.get("current_endgame_ready", "N/A"))}</strong></div>
-          <div><span>plan confidence</span><strong>{e(source_status.get("planning_confidence", "N/A"))}</strong></div>
-          <div><span>catalog entries</span><strong>{e(catalog_summary.get("entry_count", "N/A"))}</strong></div>
+          <div><span>目标来源状态</span><strong>{e(human_status(source_status.get("status", "N/A")))}</strong></div>
+          <div><span>来源时效</span><strong>{e(human_status(source_status.get("freshness_level", "N/A")))}</strong></div>
+          <div><span>当前目标可用</span><strong>{e(bool_text(source_status.get("current_endgame_ready")))}</strong></div>
+          <div><span>规划置信度</span><strong>{e(human_status(source_status.get("planning_confidence", "N/A")))}</strong></div>
+          <div><span>目录角色数</span><strong>{e(catalog_summary.get("entry_count", "N/A"))}</strong></div>
         </div>
         """
     coverage_block = ""
@@ -1763,7 +1778,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
             rows.append(
                 "<article class=\"resource-item\">"
                 f"<strong>{e(item.get('target'))}</strong>"
-                f"<span>{e(item.get('coverage_status'))}: {e(detail_text)}</span>"
+                f"<span>{e(human_status(item.get('coverage_status')))}：{e(detail_text)}</span>"
                 f"<em>{e(item.get('match_count', 0))}</em>"
                 "</article>"
             )
@@ -1808,16 +1823,16 @@ def render_training_plan(summary: dict[str, Any]) -> str:
         resource_block = f"""
         <div class="resource-plan">
           <div class="input-grid">
-            <div><span>daily stamina</span><strong>{e(budget.get("daily_stamina", "N/A"))}</strong></div>
-            <div><span>horizon days</span><strong>{e(budget.get("horizon_days", "N/A"))}</strong></div>
-            <div><span>remaining</span><strong>{e(resource.get("remaining_stamina", "N/A"))}</strong></div>
+            <div><span>每日体力</span><strong>{e(budget.get("daily_stamina", "N/A"))}</strong></div>
+            <div><span>规划天数</span><strong>{e(budget.get("horizon_days", "N/A"))}</strong></div>
+            <div><span>剩余体力</span><strong>{e(resource.get("remaining_stamina", "N/A"))}</strong></div>
           </div>
           <h3>今日投入建议</h3>
           <div class="resource-list">{''.join(today_rows)}</div>
         </div>
         """
     if error:
-        body = f'<div class="errors"><strong>Training plan failed</strong><ul><li>{e(error)}</li></ul></div>'
+        body = f'<div class="errors"><strong>培养规划生成失败</strong><ul><li>{e(error)}</li></ul></div>'
     elif not items:
         body = '<div class="empty">没有生成培养优先级条目。</div>'
     else:
@@ -2825,20 +2840,20 @@ def render_target_refresh(summary: dict[str, Any]) -> str:
     error = refresh.get("error")
     error_block = ""
     if error:
-        error_block = f'<div class="errors"><strong>Target refresh failed</strong><ul><li>{e(error)}</li></ul></div>'
+        error_block = f'<div class="errors"><strong>终局目标刷新失败</strong><ul><li>{e(error)}</li></ul></div>'
     freshness = refresh.get("freshness") if isinstance(refresh.get("freshness"), dict) else {}
     return f"""
     <section class="panel">
       <h2>终局目标刷新</h2>
       <div class="input-grid">
-        <div><span>manifest</span><strong>{e(rel_label(refresh.get("manifest")) or "N/A")}</strong></div>
-        <div><span>source type</span><strong>{e(refresh.get("source_type") or "N/A")}</strong></div>
-        <div><span>game</span><strong>{e(refresh.get("game") or "N/A")}</strong></div>
-        <div><span>sources</span><strong>{e(refresh.get("source_count", 0))}</strong></div>
-        <div><span>targets</span><strong>{e(refresh.get("target_count", 0))}</strong></div>
-        <div><span>freshness</span><strong>{e(freshness.get("level", "N/A"))}</strong></div>
-        <div><span>stale sources</span><strong>{e(freshness.get("stale_source_count", "N/A"))}</strong></div>
-        <div><span>status</span><strong>{e("failed" if error else "ok")}</strong></div>
+        <div><span>目标来源清单</span><strong>{e(rel_label(refresh.get("manifest")) or "N/A")}</strong></div>
+        <div><span>来源类型</span><strong>{e(source_type_label(refresh.get("source_type") or "N/A"))}</strong></div>
+        <div><span>游戏</span><strong>{e(refresh.get("game") or "N/A")}</strong></div>
+        <div><span>来源数</span><strong>{e(refresh.get("source_count", 0))}</strong></div>
+        <div><span>目标数</span><strong>{e(refresh.get("target_count", 0))}</strong></div>
+        <div><span>来源时效</span><strong>{e(human_status(freshness.get("level", "N/A")))}</strong></div>
+        <div><span>过期来源</span><strong>{e(freshness.get("stale_source_count", "N/A"))}</strong></div>
+        <div><span>刷新状态</span><strong>{e(human_status("failed" if error else "ok"))}</strong></div>
       </div>
       <div class="links">{link("endgame_targets.json", refresh.get("output_json"))}</div>
       {warning_block}

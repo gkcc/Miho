@@ -494,6 +494,101 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("<span>review</span>", html)
         self.assertNotIn(">diffed<", html)
 
+    def test_training_plan_panel_uses_reader_friendly_source_and_resource_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["training_plan"] = {
+            "targets_json": "data/probes/demo/targets.json",
+            "output_json": "data/probes/demo/training_priority_report.json",
+            "output_md": "data/probes/demo/training_priority_report.md",
+            "target_source_status": {
+                "status": "local_draft",
+                "freshness_level": "unknown",
+                "current_endgame_ready": False,
+                "planning_confidence": "low",
+            },
+            "character_catalog_summary": {"entry_count": 12},
+            "target_coverage": [
+                {
+                    "target": "危局强袭战 稳定通关",
+                    "coverage_status": "covered",
+                    "match_count": 1,
+                    "matched_characters": [{"character": "星见雅"}],
+                }
+            ],
+            "resource_plan": {
+                "budget": {"daily_stamina": 240, "horizon_days": 7},
+                "today": [],
+                "remaining_stamina": 1560,
+            },
+            "top_plan_items": [],
+            "error": "mock failure",
+        }
+
+        html = dashboard_tool.render_training_plan(summary)
+
+        self.assertIn("目标来源状态", html)
+        self.assertIn("本地草案", html)
+        self.assertIn("来源时效", html)
+        self.assertIn("当前目标可用", html)
+        self.assertIn(">否<", html)
+        self.assertIn("规划置信度", html)
+        self.assertIn(">低<", html)
+        self.assertIn("目录角色数", html)
+        self.assertIn("已覆盖：星见雅", html)
+        self.assertIn("每日体力", html)
+        self.assertIn("规划天数", html)
+        self.assertIn("剩余体力", html)
+        self.assertIn("培养规划生成失败", html)
+        self.assertNotIn("source status", html)
+        self.assertNotIn("source freshness", html)
+        self.assertNotIn("current ready", html)
+        self.assertNotIn("plan confidence", html)
+        self.assertNotIn("catalog entries", html)
+        self.assertNotIn("daily stamina", html)
+        self.assertNotIn("horizon days", html)
+        self.assertNotIn("remaining</span>", html)
+        self.assertNotIn("Training plan failed", html)
+        self.assertNotIn("local_draft", html)
+        self.assertNotIn(">covered", html)
+
+    def test_target_refresh_panel_uses_reader_friendly_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["target_refresh"] = {
+            "manifest": "data/probes/demo/target_sources.json",
+            "output_json": "data/probes/demo/targets/endgame_targets.json",
+            "source_type": "public_web_snapshot",
+            "game": "zzz",
+            "source_count": 2,
+            "target_count": 4,
+            "freshness": {"level": "fresh", "stale_source_count": 1},
+            "warnings": ["目标来源不是 official_current / official_snapshot"],
+            "error": "mock failure",
+        }
+
+        html = dashboard_tool.render_target_refresh(summary)
+
+        self.assertIn("目标来源清单", html)
+        self.assertIn("来源类型", html)
+        self.assertIn("公开网页快照", html)
+        self.assertIn("游戏", html)
+        self.assertIn("来源数", html)
+        self.assertIn("目标数", html)
+        self.assertIn("来源时效", html)
+        self.assertIn("新鲜", html)
+        self.assertIn("过期来源", html)
+        self.assertIn("刷新状态", html)
+        self.assertIn("失败", html)
+        self.assertIn("终局目标刷新失败", html)
+        self.assertNotIn("<span>manifest</span>", html)
+        self.assertNotIn("source type", html)
+        self.assertNotIn("<span>sources</span>", html)
+        self.assertNotIn("<span>targets</span>", html)
+        self.assertNotIn("<span>freshness</span>", html)
+        self.assertNotIn("stale sources", html)
+        self.assertNotIn("<span>status</span>", html)
+        self.assertNotIn("Target refresh failed", html)
+        self.assertNotIn("public_web_snapshot", html)
+
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
             dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),
@@ -2371,10 +2466,10 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("owned_snapshot-&gt;owned_snapshot", html)
             self.assertIn("review_pending_snapshot", html)
             self.assertIn("培养优先级候选", html)
-            self.assertIn("source status", html)
-            self.assertIn("local_draft", html)
+            self.assertIn("目标来源状态", html)
+            self.assertIn("本地草案", html)
             self.assertIn("目标覆盖", html)
-            self.assertIn("covered", html)
+            self.assertIn("已覆盖", html)
             self.assertIn("abcdef123456", html)
             self.assertIn("候选：珂蕾妲", html)
             self.assertIn("长期补洞候选", html)
@@ -2382,7 +2477,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("今日投入建议", html)
             self.assertIn("终局目标刷新", html)
             self.assertIn("endgame_targets.json", html)
-            self.assertIn("fresh", html)
+            self.assertIn("新鲜", html)
             self.assertIn("快照历史", html)
             self.assertIn("变化报告", html)
             self.assertIn("先人工确认解析结果", html)
@@ -2992,8 +3087,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertGreater(summary["training_plan"]["plan_item_count"], 0)
             self.assertIn("Target Refresh", {item["name"] for item in summary["pipeline_steps"]})
             self.assertIn("终局目标刷新", dashboard_html)
-            self.assertIn("source status", dashboard_html)
-            self.assertIn("current", dashboard_html)
+            self.assertIn("目标来源状态", dashboard_html)
+            self.assertIn("当前", dashboard_html)
             self.assertIn("endgame_targets.json", dashboard_html)
 
     def test_run_demo_pipeline_rejects_static_targets_and_target_source_manifest_together(self) -> None:
