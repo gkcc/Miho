@@ -117,7 +117,8 @@ class TierWatchlistTests(unittest.TestCase):
             self.assertIn("不直接生成抽取建议", yaoqin["reason"])
 
             markdown = Path(result["output_md"]).read_text(encoding="utf-8")
-            self.assertIn("Tier / 保值观察", markdown)
+            self.assertIn("# 保值观察", markdown)
+            self.assertNotIn("Tier / 保值观察", markdown)
             self.assertIn("accepted_roster_count: 1", markdown)
             self.assertIn("verified_entry_count: 3", markdown)
             self.assertIn("耀嘉音", markdown)

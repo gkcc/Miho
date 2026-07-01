@@ -282,6 +282,9 @@ class EndgamePlanTests(unittest.TestCase):
             markdown = Path(result["output_md"]).read_text(encoding="utf-8")
             self.assertIn("本期高难方案", markdown)
             self.assertIn("不是抽卡建议", markdown)
+            self.assertIn("本地保值观察", markdown)
+            self.assertIn("角色库变化", markdown)
+            self.assertNotIn("tier / 保值观察", markdown)
             self.assertIn("plan_trust_level", markdown)
 
     def test_build_endgame_plan_can_degrade_from_team_targets_only(self) -> None:

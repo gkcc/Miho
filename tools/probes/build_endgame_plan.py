@@ -557,7 +557,7 @@ def render_markdown(plan: dict[str, Any]) -> str:
     lines = [
         "# 本期高难方案",
         "",
-        "本方案只聚合 accepted roster、本地快照、本地目标配置、本地 tier / 保值观察和 roster delta；不是抽卡建议，也不保证自动通关。",
+        "本方案只聚合已确认角色库、本地快照、本地目标配置、本地保值观察和角色库变化；不是抽卡建议，也不保证自动通关。",
         "",
         "## Summary",
         "",
@@ -683,15 +683,15 @@ def build_endgame_plan(
         "artifact_warning_count": len(artifact_trust_warnings(artifact_status)),
     }
     warnings = [
-        "本期高难方案只聚合本地 accepted roster / team cards / action cards / tier watchlist / roster delta；不是抽卡建议。",
-        "pending snapshot、catalog candidate 和 rejected snapshot 不能生成 ready_now。",
+        "本期高难方案只聚合本地已确认角色库、队伍卡、行动卡、保值观察和角色库变化；不是抽卡建议。",
+        "待确认快照、目录候选和已拒绝快照不能生成可直接尝试项。",
     ]
     if targets_data is None:
         warnings.append("缺少 targets JSON；已从 team_cards 的 target 字段降级生成方案。")
     if action_cards_data is None:
         warnings.append("缺少 action_cards；next_actions 可能为空。")
     if tier_watchlist_data is None:
-        warnings.append("缺少 tier_watchlist；tier / 保值观察为空。")
+        warnings.append("缺少保值观察快照；保值观察为空。")
     if roster_delta_data is None:
         warnings.append("缺少 roster_delta；delta_change_type 将为 missing。")
     if run_manifest_data is None:

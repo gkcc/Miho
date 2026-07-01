@@ -436,9 +436,9 @@ def build_tier_watchlist(*, tier_snapshot: Path, output_dir: Path, roster_index:
         "summary": summary_for(entries, sources),
         "entries": entries,
         "warnings": [
-            "tier watchlist 只读取本地 snapshot；它不是联网爬取，也不是最终抽取建议。",
-            "owned_status 只有 accepted_roster 才代表已确认拥有练度。",
-            "stale/unverified/low_trust tier entry 只能作为弱参考，不得提升 team rank。",
+            "保值观察只读取本地快照；它不是联网爬取，也不是最终抽取建议。",
+            "只有已确认角色库才代表已确认拥有练度。",
+            "过期、未验证或低信任条目只能作为弱参考，不得提升队伍排序。",
         ],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -461,7 +461,7 @@ def percent_label(value: Any) -> str:
 def render_markdown(result: dict[str, Any]) -> str:
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
     lines = [
-        "# Tier / 保值观察",
+        "# 保值观察",
         "",
         "该文件只做本地观察，不直接生成抽取建议。",
         "",
