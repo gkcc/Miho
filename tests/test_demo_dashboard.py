@@ -407,6 +407,93 @@ class DemoDashboardTests(unittest.TestCase):
                 self.assertNotIn(old_title, html)
                 self.assertNotIn("Warning</strong>", html)
 
+    def test_run_manifest_panel_uses_reader_friendly_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["run_manifest"] = {
+            "run_id": "demo_test_run",
+            "created_at": "2026-06-29T00:00:00+08:00",
+            "output_json": "data/probes/demo/run_manifest.json",
+            "inputs": {
+                "roster_index": {"path": "data/probes/roster/index.json", "sha256": "a" * 64, "exists": True},
+                "team_cards": {"path": "data/probes/demo/team_cards.json", "sha256": "", "exists": False},
+            },
+            "artifact_status": {
+                "consistent": False,
+                "missing": ["team_cards"],
+                "stale_or_mismatched": ["tier_watchlist"],
+                "warnings": ["目标来源待确认。"],
+            },
+            "error": "mock failure",
+        }
+
+        html = dashboard_tool.render_run_manifest(summary)
+
+        self.assertIn("运行编号", html)
+        self.assertIn("生成时间", html)
+        self.assertIn("是否同批", html)
+        self.assertIn(">否<", html)
+        self.assertIn("缺失产物", html)
+        self.assertIn("过期/不匹配", html)
+        self.assertIn("警告数", html)
+        self.assertIn("输入产物校验", html)
+        self.assertIn("角色库索引：", html)
+        self.assertIn("队伍卡：", html)
+        self.assertIn("运行一致性生成失败", html)
+        self.assertNotIn("<span>run_id</span>", html)
+        self.assertNotIn("<span>created_at</span>", html)
+        self.assertNotIn("<span>consistent</span>", html)
+        self.assertNotIn("<span>missing</span>", html)
+        self.assertNotIn("<span>stale/mismatched</span>", html)
+        self.assertNotIn("<span>warnings</span>", html)
+        self.assertNotIn("Run manifest failed", html)
+
+    def test_snapshot_history_panel_uses_reader_friendly_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["snapshot_history"] = {
+            "history_dir": "data/probes/demo/snapshot_history",
+            "index_json": "data/probes/demo/snapshot_history/index.json",
+            "snapshot_count": 2,
+            "diff_count": 1,
+            "changed_character_count": 1,
+            "no_previous_count": 1,
+            "diff_failed_count": 0,
+            "items": [
+                {
+                    "character": "星见雅",
+                    "case_name": "case_a",
+                    "current_snapshot": "data/probes/demo/snapshot_history/current.json",
+                    "previous_snapshot": "data/probes/demo/snapshot_history/previous.json",
+                    "diff_md": "data/probes/demo/snapshot_history/diff.md",
+                    "change_count": 2,
+                    "requires_review_change_count": 1,
+                    "status": "diffed",
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_snapshot_history(summary)
+
+        self.assertIn("快照目录", html)
+        self.assertIn("快照数", html)
+        self.assertIn("差异报告", html)
+        self.assertIn("有变化角色", html)
+        self.assertIn("首次快照", html)
+        self.assertIn("差异失败", html)
+        self.assertIn("已生成差异", html)
+        self.assertIn("变化项", html)
+        self.assertIn("需复核", html)
+        self.assertIn("当前快照", html)
+        self.assertIn("上次快照", html)
+        self.assertNotIn("<span>history_dir</span>", html)
+        self.assertNotIn("<span>snapshots</span>", html)
+        self.assertNotIn("<span>diffs</span>", html)
+        self.assertNotIn("<span>changed characters</span>", html)
+        self.assertNotIn("<span>first snapshots</span>", html)
+        self.assertNotIn("<span>diff failed</span>", html)
+        self.assertNotIn("<span>changes</span>", html)
+        self.assertNotIn("<span>review</span>", html)
+        self.assertNotIn(">diffed<", html)
+
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
             dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),
@@ -2265,7 +2352,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("Tier 命中", html)
             self.assertIn("运行一致性", html)
             self.assertIn("run_manifest.json", html)
-            self.assertIn("输入产物 hash", html)
+            self.assertIn("输入产物校验", html)
             self.assertIn("demo_test_run", html)
             self.assertIn("方案 Trust", html)
             self.assertIn("本期高难方案", html)

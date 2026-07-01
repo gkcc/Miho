@@ -794,11 +794,29 @@ def human_status(value: Any) -> str:
         "new": "新增",
         "changed": "已变化",
         "unchanged": "未变化",
+        "diffed": "已生成差异",
         "ok": "正常",
         "unknown": "未知",
         "n/a": "无",
     }
     return labels.get(text, str(value or "N/A"))
+
+
+def artifact_label(value: Any) -> str:
+    text = str(value or "")
+    labels = {
+        "roster_index": "角色库索引",
+        "targets": "终局目标",
+        "team_cards": "队伍卡",
+        "action_cards": "行动卡",
+        "tier_watchlist": "保值观察",
+        "roster_delta": "角色库变化",
+        "final_brief": "今日建议",
+        "review_inbox": "复核收件箱",
+        "review_apply_receipt": "复核应用回执",
+        "run_manifest": "运行清单",
+    }
+    return labels.get(text, humanize_text(text.replace("_", " ")))
 
 
 def launcher_state_label(value: Any) -> str:
@@ -2567,12 +2585,12 @@ def render_run_manifest(summary: dict[str, Any]) -> str:
     input_rows = []
     for name, item in inputs.items():
         if not isinstance(item, dict):
-            input_rows.append(f"<li>{e(name)}: missing</li>")
+            input_rows.append(f"<li>{e(artifact_label(name))}：缺失</li>")
             continue
         state = "ok" if item.get("exists") else "missing"
         digest = str(item.get("sha256") or "")
         input_rows.append(
-            f"<li>{e(name)}: {e(rel_label(item.get('path')) or 'N/A')} · {e(digest[:12] or state)}</li>"
+            f"<li>{e(artifact_label(name))}：{e(rel_label(item.get('path')) or 'N/A')} · {e(digest[:12] or human_status(state))}</li>"
         )
     input_block = "<ul>" + "".join(input_rows) + "</ul>" if input_rows else "<p class=\"muted-line\">没有记录输入产物。</p>"
     stale = status.get("stale_or_mismatched") if isinstance(status.get("stale_or_mismatched"), list) else []
@@ -2580,22 +2598,22 @@ def render_run_manifest(summary: dict[str, Any]) -> str:
     error = manifest.get("error")
     error_block = ""
     if error:
-        error_block = f'<div class="errors"><strong>Run manifest failed</strong><ul><li>{e(error)}</li></ul></div>'
+        error_block = f'<div class="errors"><strong>运行一致性生成失败</strong><ul><li>{e(error)}</li></ul></div>'
     return f"""
     <section class="panel">
       <h2>运行一致性</h2>
       <p class="muted-line">用于确认角色库、目标、行动卡、队伍卡、保值观察和角色库变化是否为同一批生成。当前包含历史解析结果时，平均通过率不代表固定清单准确率验收。</p>
       <div class="links">{link("run_manifest.json", manifest.get("output_json"))}</div>
       <div class="input-grid">
-        <div><span>run_id</span><strong>{e(manifest.get("run_id") or "N/A")}</strong></div>
-        <div><span>created_at</span><strong>{e(manifest.get("created_at") or "N/A")}</strong></div>
-        <div><span>consistent</span><strong>{e(status.get("consistent"))}</strong></div>
-        <div><span>missing</span><strong>{e(len(missing))}</strong></div>
-        <div><span>stale/mismatched</span><strong>{e(len(stale))}</strong></div>
-        <div><span>warnings</span><strong>{e(len(warnings))}</strong></div>
+        <div><span>运行编号</span><strong>{e(manifest.get("run_id") or "N/A")}</strong></div>
+        <div><span>生成时间</span><strong>{e(manifest.get("created_at") or "N/A")}</strong></div>
+        <div><span>是否同批</span><strong>{e(bool_text(status.get("consistent")))}</strong></div>
+        <div><span>缺失产物</span><strong>{e(len(missing))}</strong></div>
+        <div><span>过期/不匹配</span><strong>{e(len(stale))}</strong></div>
+        <div><span>警告数</span><strong>{e(len(warnings))}</strong></div>
       </div>
       <div class="resource-plan">
-        <h3>输入产物 hash</h3>
+        <h3>输入产物校验</h3>
         {input_block}
       </div>
       {warning_block}
@@ -2770,9 +2788,9 @@ def render_snapshot_history(summary: dict[str, Any]) -> str:
         status = item.get("status") or "unknown"
         rows.append(
             '<article class="history-item">'
-            f'<div><strong>{e(item.get("character") or item.get("case_name"))}</strong><span>{e(status)}</span></div>'
-            f'<div><span>changes</span><strong>{e(item.get("change_count", 0))}</strong></div>'
-            f'<div><span>review</span><strong>{e(item.get("requires_review_change_count", 0))}</strong></div>'
+            f'<div><strong>{e(item.get("character") or item.get("case_name"))}</strong><span>{e(human_status(status))}</span></div>'
+            f'<div><span>变化项</span><strong>{e(item.get("change_count", 0))}</strong></div>'
+            f'<div><span>需复核</span><strong>{e(item.get("requires_review_change_count", 0))}</strong></div>'
             '<div class="links">'
             f'{link("current_snapshot", item.get("current_snapshot"))}'
             f'{link("previous_snapshot", item.get("previous_snapshot"))}'
@@ -2784,12 +2802,12 @@ def render_snapshot_history(summary: dict[str, Any]) -> str:
     <section class="panel">
       <h2>快照历史</h2>
       <div class="input-grid">
-        <div><span>history_dir</span><strong>{e(rel_label(history.get("history_dir")) or "N/A")}</strong></div>
-        <div><span>snapshots</span><strong>{e(history.get("snapshot_count", 0))}</strong></div>
-        <div><span>diffs</span><strong>{e(history.get("diff_count", 0))}</strong></div>
-        <div><span>changed characters</span><strong>{e(history.get("changed_character_count", 0))}</strong></div>
-        <div><span>first snapshots</span><strong>{e(history.get("no_previous_count", 0))}</strong></div>
-        <div><span>diff failed</span><strong>{e(history.get("diff_failed_count", 0))}</strong></div>
+        <div><span>快照目录</span><strong>{e(rel_label(history.get("history_dir")) or "N/A")}</strong></div>
+        <div><span>快照数</span><strong>{e(history.get("snapshot_count", 0))}</strong></div>
+        <div><span>差异报告</span><strong>{e(history.get("diff_count", 0))}</strong></div>
+        <div><span>有变化角色</span><strong>{e(history.get("changed_character_count", 0))}</strong></div>
+        <div><span>首次快照</span><strong>{e(history.get("no_previous_count", 0))}</strong></div>
+        <div><span>差异失败</span><strong>{e(history.get("diff_failed_count", 0))}</strong></div>
       </div>
       <div class="links">{link("history_index", history.get("index_json"))}</div>
       <div class="history-list">{''.join(rows)}</div>
