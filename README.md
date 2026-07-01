@@ -51,6 +51,7 @@ scripts\install_miho_demo_shortcut.bat
 | 生成 APP 坐标网格 | `dist\MihoProbe.exe app-export-calibrate` | 捕获米游社窗口网格截图，显示每一步需要填的 x/y。 |
 | 校准 APP 导出点击 | `dist\MihoProbe.exe app-export-run --no-open` | 读取校准清单，默认输出预检路线图；缺坐标会明确提示，不会点击。 |
 | 更新高难配队 | `MihoProbe Plan Update` 或 `dist\MihoProbe.exe plan-update` | 重算高难、Tier / 保值观察、行动卡和队伍卡；默认不联网。 |
+| 检查 box 输入 | `MihoProbe Box Status` 或 `dist\MihoProbe.exe box-status` | 只读检查 box 图、公开 meta、roster probe 和价值报告，给出下一步命令。 |
 | 识别 box 总览 | `dist\MihoProbe.exe box-roster --image ... --no-open` | 从官方 box 总览图生成脱敏 roster probe；人工确认前不算 accepted roster。 |
 | 生成 box 价值报告 | `dist\MihoProbe.exe box-value --box-image ... --meta-snapshot ...` | 用本地 box 图或 roster JSON 加公开 Prydwen meta 生成价值报告。 |
 | 排查 A/S 评级 | `MihoProbe Rank Check` 或 `dist\MihoProbe.exe rank-check` | 不跑图片识别，只看头像左上角和音擎评级区域的艺术字。 |
@@ -97,7 +98,7 @@ dist\MihoProbe.exe check --no-open
 dist\MihoProbe.exe rank-check --no-open
 ```
 
-如果想从米游社官方 box 总览图看账号内代理人价值，先用公开 meta 快照和本地图跑：`dist\MihoProbe.exe box-value --box-image data\probes\exported_images\zzz_box.png --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json`。
+如果想从米游社官方 box 总览图看账号内代理人价值，先跑 `dist\MihoProbe.exe box-status` 看本地缺什么。输入齐了以后再跑：`dist\MihoProbe.exe box-value --box-image data\probes\exported_images\zzz_box.png --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json`。
 
 这条链路只读本地图片和公开 Prydwen 数据；不会登录、不会读 cookie/token、不会写正式数据库。图片识别出的 roster 仍是 probe 草案，人工确认前不能进入 accepted roster。
 

@@ -127,6 +127,12 @@ if ((Test-Path -Path $CliBat -PathType Leaf) -and (-not $FreshOnly)) {
             -Description "Refresh local endgame, Tier/value watchlist, action cards, and team cards without OCR."
 
         New-MihoShortcut `
+            -Name "MihoProbe Box Status" `
+            -TargetPath $ProbeExe `
+            -Arguments "box-status --open" `
+            -Description "Check local ZZZ box image, meta snapshot, roster probe, and value report readiness without OCR."
+
+        New-MihoShortcut `
             -Name "MihoProbe Rank Check" `
             -TargetPath $ProbeExe `
             -Arguments "rank-check --open" `

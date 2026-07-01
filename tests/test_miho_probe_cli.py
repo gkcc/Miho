@@ -101,6 +101,8 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertIn("脱敏 roster probe", help_text)
         self.assertIn("MihoProbe.exe box-value", help_text)
         self.assertIn("公开 Prydwen meta", help_text)
+        self.assertIn("MihoProbe.exe box-status", help_text)
+        self.assertIn("只读检查本地 box 图片", help_text)
         self.assertIn("MihoProbe.exe rank-check", help_text)
         self.assertIn("只检查头像/音擎 A/S 艺术字固定区域", help_text)
         self.assertIn("识别 figs\\ 下新增或变更的官方分享图", help_text)
@@ -522,6 +524,61 @@ class MihoProbeCliTests(unittest.TestCase):
         self.assertEqual(args.box_image, "data/probes/exported_images/zzz_box.png")
         self.assertIsNone(args.roster_json)
         self.assertTrue(str(args.output_dir).endswith("data\\probes\\value\\box_value_pipeline") or str(args.output_dir).endswith("data/probes/value/box_value_pipeline"))
+
+    def test_parser_has_box_status_entry(self) -> None:
+        parser = cli_tool.build_arg_parser()
+        args = parser.parse_args(["box-status", "--no-open"])
+
+        self.assertEqual(args.handler, cli_tool.run_box_status)
+        self.assertEqual(args.command, "box-status")
+        self.assertFalse(args.open)
+        self.assertTrue(str(args.meta_dir).endswith("data\\probes\\meta") or str(args.meta_dir).endswith("data/probes/meta"))
+
+    def test_run_box_status_writes_readiness_page_without_ocr_or_network(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            output_dir = root / "status"
+            images.mkdir()
+            meta.mkdir()
+            box.mkdir()
+            value.mkdir()
+            (images / "zzz_box.png").write_bytes(b"fake")
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = cli_tool.run_box_status(
+                    argparse.Namespace(
+                        image_dir=[str(images)],
+                        meta_dir=str(meta),
+                        box_dir=str(box),
+                        value_dir=str(value),
+                        output_dir=str(output_dir),
+                        max_items=8,
+                        open=False,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            status_json = output_dir / "box_value_status.json"
+            status_html = output_dir / "box_value_status.html"
+            self.assertTrue(status_json.exists())
+            self.assertTrue(status_html.exists())
+            report = json.loads(status_json.read_text(encoding="utf-8"))
+            self.assertEqual(report["readiness"], "ready_for_box_value_from_image")
+            self.assertTrue(report["safety"]["no_ocr"])
+            self.assertTrue(report["safety"]["no_network"])
+            self.assertIn("box-value", report["next_command"])
+            html = status_html.read_text(encoding="utf-8")
+            self.assertIn("Box 价值输入检查", html)
+            self.assertIn("no_ocr=True", html)
+            self.assertIn("zzz_box.png", html)
+            text = output.getvalue()
+            self.assertIn("box_status_scope: local_files_only_no_ocr_no_network", text)
+            self.assertIn("box_status_readiness: ready_for_box_value_from_image", text)
 
     def test_run_box_roster_uses_redacted_probe_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

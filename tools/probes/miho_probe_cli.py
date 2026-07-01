@@ -91,6 +91,9 @@ DEFAULT_PLANNER_DIR = PROJECT_ROOT / "data" / "probes" / "planner"
 DEFAULT_TARGETS_DIR = PROJECT_ROOT / "data" / "probes" / "targets"
 DEFAULT_BOX_DIR = PROJECT_ROOT / "data" / "probes" / "box"
 DEFAULT_BOX_VALUE_DIR = PROJECT_ROOT / "data" / "probes" / "value" / "box_value_pipeline"
+DEFAULT_EXPORTED_IMAGES_DIR = PROJECT_ROOT / "data" / "probes" / "exported_images"
+DEFAULT_META_DIR = PROJECT_ROOT / "data" / "probes" / "meta"
+DEFAULT_BOX_STATUS_DIR = DEFAULT_DEMO_OUTPUT_DIR / "box_value_status"
 DEFAULT_REPLAY_MANIFEST = PROJECT_ROOT / "data" / "probes" / "replay_manifest.json"
 DEFAULT_RANK_CHECK_DIR = DEFAULT_DEMO_OUTPUT_DIR / "rank_check"
 DEFAULT_MAX_SOURCE_AGE_HOURS = 168
@@ -170,6 +173,9 @@ def render_user_help() -> str:
   MihoProbe.exe box-value --box-image data\\probes\\exported_images\\zzz_box.png --meta-snapshot data\\probes\\meta\\zzz_prydwen_meta_all_phases.json
     用本地 box 图或 roster JSON 加公开 Prydwen meta 生成账号内价值报告。
 
+  MihoProbe.exe box-status
+    只读检查本地 box 图片、公开 meta、roster probe 和价值报告输出，并生成下一步命令页。
+
   MihoProbe.exe rank-check
     只检查头像/音擎 A/S 艺术字固定区域。不跑图片识别，用来排查评级识别。
 
@@ -188,6 +194,7 @@ def render_user_help() -> str:
   MihoProbe.exe plan-update --help
   MihoProbe.exe box-roster --help
   MihoProbe.exe box-value --help
+  MihoProbe.exe box-status --help
   MihoProbe.exe rank-check --help
   MihoProbe.exe fresh --help
   MihoProbe.exe replay --help
@@ -1719,6 +1726,236 @@ def run_box_value(args: argparse.Namespace) -> int:
     return int(box_value_tool.main(argv))
 
 
+def recent_local_files(
+    directories: list[Path],
+    *,
+    suffixes: set[str],
+    name_contains: tuple[str, ...] = (),
+    recursive: bool = False,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for directory in directories:
+        if not directory.exists() or not directory.is_dir():
+            continue
+        iterator = directory.rglob("*") if recursive else directory.iterdir()
+        for path in iterator:
+            if not path.is_file() or path.suffix.lower() not in suffixes:
+                continue
+            lower_name = path.name.lower()
+            if name_contains and not any(marker in lower_name for marker in name_contains):
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            records.append(
+                {
+                    "path": str(path),
+                    "name": path.name,
+                    "size": stat.st_size,
+                    "mtime": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="seconds"),
+                    "mtime_epoch": stat.st_mtime,
+                }
+            )
+    records.sort(key=lambda item: float(item.get("mtime_epoch") or 0), reverse=True)
+    return records[:limit]
+
+
+def shell_quote_path(path: str | Path) -> str:
+    text = str(path)
+    return f'"{text}"' if any(char.isspace() for char in text) else text
+
+
+def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
+    image_dirs = [resolve_cli_path(item) for item in (args.image_dir or [])]
+    if not image_dirs:
+        image_dirs = [DEFAULT_EXPORTED_IMAGES_DIR, DEFAULT_FIGS_DIR]
+    meta_dir = resolve_cli_path(args.meta_dir)
+    box_dir = resolve_cli_path(args.box_dir)
+    value_dir = resolve_cli_path(args.value_dir)
+    images = recent_local_files(image_dirs, suffixes=IMAGE_EXTENSIONS, limit=args.max_items)
+    metas = recent_local_files([meta_dir], suffixes={".json"}, name_contains=("prydwen", "meta"), limit=args.max_items)
+    rosters = recent_local_files([box_dir, value_dir], suffixes={".json"}, name_contains=("roster",), recursive=True, limit=args.max_items)
+    value_reports = recent_local_files([value_dir], suffixes={".json", ".md"}, name_contains=("agent_value_cards",), recursive=True, limit=args.max_items)
+
+    latest_image = images[0]["path"] if images else None
+    latest_meta = metas[0]["path"] if metas else None
+    latest_roster = rosters[0]["path"] if rosters else None
+    if latest_image and latest_meta:
+        next_command = (
+            "dist\\MihoProbe.exe box-value "
+            f"--box-image {shell_quote_path(latest_image)} "
+            f"--meta-snapshot {shell_quote_path(latest_meta)}"
+        )
+        readiness = "ready_for_box_value_from_image"
+        next_label = "可直接生成 box 价值报告"
+    elif latest_roster and latest_meta:
+        next_command = (
+            "dist\\MihoProbe.exe box-value "
+            f"--roster-json {shell_quote_path(latest_roster)} "
+            f"--meta-snapshot {shell_quote_path(latest_meta)}"
+        )
+        readiness = "ready_for_box_value_from_roster"
+        next_label = "可用已生成 roster probe 跑价值报告"
+    elif latest_image:
+        next_command = f"dist\\MihoProbe.exe box-roster --image {shell_quote_path(latest_image)} --no-open"
+        readiness = "needs_public_meta"
+        next_label = "先准备公开 meta，或只生成 roster probe"
+    elif latest_meta:
+        next_command = "把米游社官方 box 总览图保存到 data\\probes\\exported_images\\ 后运行 dist\\MihoProbe.exe box-status"
+        readiness = "needs_box_image"
+        next_label = "缺少 box 总览图"
+    else:
+        next_command = "先准备公开 meta，并把米游社官方 box 总览图保存到 data\\probes\\exported_images\\"
+        readiness = "missing_inputs"
+        next_label = "缺少 box 图和公开 meta"
+    return {
+        "schema_version": "p0.2-zzz-box-value-status",
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "readiness": readiness,
+        "next_label": next_label,
+        "next_command": next_command,
+        "inputs": {
+            "image_dirs": [str(path) for path in image_dirs],
+            "meta_dir": str(meta_dir),
+            "box_dir": str(box_dir),
+            "value_dir": str(value_dir),
+        },
+        "counts": {
+            "image_candidate_count": len(images),
+            "meta_snapshot_count": len(metas),
+            "roster_probe_count": len(rosters),
+            "value_report_count": len(value_reports),
+        },
+        "latest": {
+            "image": latest_image,
+            "meta_snapshot": latest_meta,
+            "roster_probe": latest_roster,
+            "value_report": value_reports[0]["path"] if value_reports else None,
+        },
+        "images": images,
+        "meta_snapshots": metas,
+        "roster_probes": rosters,
+        "value_reports": value_reports,
+        "safety": {
+            "no_ocr": True,
+            "no_network": True,
+            "no_account_read": True,
+            "no_database_write": True,
+            "manual_confirmation_required_before_accepted_roster": True,
+        },
+    }
+
+
+def render_file_list(items: list[dict[str, Any]], empty: str) -> str:
+    if not items:
+        return f'<div class="empty">{html_escape(empty)}</div>'
+    rows = []
+    for item in items:
+        rows.append(
+            "<li>"
+            f"<strong>{html_escape(str(item.get('name') or ''))}</strong>"
+            f"<span>{html_escape(str(item.get('mtime') or ''))}</span>"
+            f"<code>{html_escape(str(item.get('path') or ''))}</code>"
+            "</li>"
+        )
+    return "<ul>" + "".join(rows) + "</ul>"
+
+
+def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
+    counts = report.get("counts", {}) if isinstance(report.get("counts"), dict) else {}
+    safety = report.get("safety", {}) if isinstance(report.get("safety"), dict) else {}
+    tone = "ok" if str(report.get("readiness")).startswith("ready") else "warn"
+    html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MihoProbe Box 价值输入检查</title>
+  <style>
+    body {{ margin: 0; background: #f6f8fb; color: #172033; font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; line-height: 1.55; }}
+    main {{ max-width: 1120px; margin: 0 auto; padding: 28px 22px 44px; }}
+    h1 {{ margin: 0 0 8px; font-size: 32px; letter-spacing: 0; }}
+    h2 {{ margin: 0 0 12px; font-size: 18px; }}
+    p {{ margin: 0; color: #667085; }}
+    code {{ display: block; padding: 10px; border-radius: 8px; background: #0f172a; color: #e2e8f0; white-space: pre-wrap; overflow-wrap: anywhere; }}
+    .hero, .card {{ border: 1px solid #dbe3ef; border-radius: 8px; background: #fff; box-shadow: 0 14px 34px rgba(15, 23, 42, .07); }}
+    .hero {{ display: grid; gap: 16px; padding: 22px; margin-bottom: 16px; }}
+    .badge {{ width: fit-content; padding: 7px 11px; border-radius: 999px; font-weight: 900; }}
+    .badge.ok {{ background: #e8f7ee; color: #147a42; }}
+    .badge.warn {{ background: #fff4d5; color: #996500; }}
+    .metrics {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }}
+    .metric {{ padding: 14px; border: 1px solid #dbe3ef; border-radius: 8px; background: #fafcff; }}
+    .metric span {{ display: block; color: #667085; font-size: 12px; }}
+    .metric strong {{ display: block; margin-top: 4px; font-size: 26px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }}
+    .card {{ padding: 16px; }}
+    ul {{ display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }}
+    li {{ display: grid; gap: 4px; padding: 10px; border: 1px solid #e6edf6; border-radius: 8px; }}
+    li span {{ color: #667085; font-size: 12px; }}
+    li code {{ padding: 0; background: transparent; color: #334155; }}
+    .empty {{ color: #667085; padding: 10px; border: 1px dashed #cbd5e1; border-radius: 8px; }}
+    .safe {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .safe span {{ padding: 6px 9px; border-radius: 999px; background: #eef6ff; color: #1d4ed8; font-size: 12px; font-weight: 800; }}
+    @media (max-width: 860px) {{ .metrics, .grid {{ grid-template-columns: 1fr; }} h1 {{ font-size: 26px; }} }}
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="badge {tone}">{html_escape(str(report.get("next_label") or ""))}</div>
+      <div>
+        <h1>Box 价值输入检查</h1>
+        <p>只读检查本地文件，不跑 OCR、不联网、不读取账号。它用来判断下一步该跑 roster probe、meta 刷新，还是直接生成价值报告。</p>
+      </div>
+      <code>{html_escape(str(report.get("next_command") or ""))}</code>
+      <div class="metrics">
+        <div class="metric"><span>图片候选</span><strong>{html_escape(str(counts.get("image_candidate_count", 0)))}</strong></div>
+        <div class="metric"><span>公开 meta</span><strong>{html_escape(str(counts.get("meta_snapshot_count", 0)))}</strong></div>
+        <div class="metric"><span>roster probe</span><strong>{html_escape(str(counts.get("roster_probe_count", 0)))}</strong></div>
+        <div class="metric"><span>价值报告</span><strong>{html_escape(str(counts.get("value_report_count", 0)))}</strong></div>
+      </div>
+      <div class="safe">
+        <span>no_ocr={html_escape(str(safety.get("no_ocr")))}</span>
+        <span>no_network={html_escape(str(safety.get("no_network")))}</span>
+        <span>no_account_read={html_escape(str(safety.get("no_account_read")))}</span>
+        <span>manual_review_before_accepted_roster={html_escape(str(safety.get("manual_confirmation_required_before_accepted_roster")))}</span>
+      </div>
+    </section>
+    <section class="grid">
+      <article class="card"><h2>图片候选</h2>{render_file_list(report.get("images", []), "没有找到本地图片候选。")}</article>
+      <article class="card"><h2>公开 Meta 快照</h2>{render_file_list(report.get("meta_snapshots", []), "没有找到 Prydwen meta JSON。")}</article>
+      <article class="card"><h2>Roster Probe</h2>{render_file_list(report.get("roster_probes", []), "还没有生成 roster probe。")}</article>
+      <article class="card"><h2>价值报告</h2>{render_file_list(report.get("value_reports", []), "还没有生成 agent_value_cards。")}</article>
+    </section>
+  </main>
+</body>
+</html>
+"""
+    output_html.parent.mkdir(parents=True, exist_ok=True)
+    output_html.write_text(html, encoding="utf-8")
+
+
+def run_box_status(args: argparse.Namespace) -> int:
+    output_dir = resolve_cli_path(args.output_dir)
+    output_json = output_dir / "box_value_status.json"
+    output_html = output_dir / "box_value_status.html"
+    report = build_box_status(args)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    render_box_status_html(report, output_html)
+    print("box_status_scope: local_files_only_no_ocr_no_network", flush=True)
+    print(f"box_status_readiness: {report['readiness']}", flush=True)
+    print(f"box_status_next: {report['next_command']}", flush=True)
+    print(f"box_status_json: {output_json}", flush=True)
+    print(f"box_status_html: {output_html}", flush=True)
+    if args.open:
+        webbrowser.open(output_html.resolve().as_uri())
+        print(f"box_status_opened: {output_html}", flush=True)
+    return 0
+
+
 def run_gpt_review(args: argparse.Namespace) -> int:
     prompt = gpt_prompt_tool.render_prompt(
         mode=args.mode,
@@ -1849,6 +2086,17 @@ def add_box_value_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--request-delay", type=float, default=0.15)
     parser.add_argument("--box-ocr-scale", type=int, default=2, help="Resize factor before box-image OCR. Default: 2.")
     parser.add_argument("--min-mindscape-confidence", type=float, default=0.85)
+
+
+def add_box_status_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--image-dir", action="append", default=[], help="Directory containing local box image candidates. Can be repeated.")
+    parser.add_argument("--meta-dir", default=str(DEFAULT_META_DIR), help="Directory containing public Prydwen meta snapshots.")
+    parser.add_argument("--box-dir", default=str(DEFAULT_BOX_DIR), help="Directory containing roster probe JSON files.")
+    parser.add_argument("--value-dir", default=str(DEFAULT_BOX_VALUE_DIR), help="Directory containing box value report outputs.")
+    parser.add_argument("--output-dir", default=str(DEFAULT_BOX_STATUS_DIR), help="Output directory for status JSON/HTML.")
+    parser.add_argument("--max-items", type=int, default=8, help="Maximum recent files shown per section. Default: 8.")
+    parser.add_argument("--open", action="store_true", default=True, help="Open generated HTML. Default: true.")
+    parser.add_argument("--no-open", action="store_false", dest="open", help="Do not open the HTML report.")
 
 
 def add_app_export_args(parser: argparse.ArgumentParser) -> None:
@@ -1986,6 +2234,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     box_value = subparsers.add_parser("box-value", help="Build ZZZ box value report from a roster JSON or local box overview image.")
     add_box_value_args(box_value)
     box_value.set_defaults(handler=run_box_value)
+
+    box_status = subparsers.add_parser("box-status", help="Check local inputs for the ZZZ box value workflow without OCR or network.")
+    add_box_status_args(box_status)
+    box_status.set_defaults(handler=run_box_status)
 
     rank_check = subparsers.add_parser("rank-check", help="Check fixed A/S visual rank regions without OCR.")
     add_rank_check_args(rank_check)

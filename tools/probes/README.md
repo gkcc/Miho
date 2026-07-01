@@ -66,11 +66,12 @@ python tools/probes/run_zzz_box_value_pipeline.py `
 EXE / 命令壳入口：
 
 ```powershell
+dist\MihoProbe.exe box-status --open
 dist\MihoProbe.exe box-roster --image data\probes\exported_images\zzz_box_overview.png --no-open
 dist\MihoProbe.exe box-value --box-image data\probes\exported_images\zzz_box_overview.png --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json
 ```
 
-`--box-image` 只读取用户显式提供的本地图片，输出脱敏 `roster_from_box_image.json` 和复核 Markdown；不保存 UID / 昵称 / header 原始 OCR，不读取 cookie/token，不写正式数据库。若 `needs_review_count > 0`，价值报告仍可生成，但该 roster 只能当作 probe 草案，人工确认前不得进入 accepted roster。
+`box-status` 只读检查本地文件，不跑 OCR、不联网；`--box-image` 只读取用户显式提供的本地图片，输出脱敏 `roster_from_box_image.json` 和复核 Markdown；不保存 UID / 昵称 / header 原始 OCR，不读取 cookie/token，不写正式数据库。若 `needs_review_count > 0`，价值报告仍可生成，但该 roster 只能当作 probe 草案，人工确认前不得进入 accepted roster。
 
 如果 `--meta-snapshot` 不存在或加了 `--refresh-meta`，pipeline 会先读取公开 Prydwen 数据。所有输出仍在 `data/probes/` 下，不得提交真实图片、真实 roster probe 或公开数据快照。
 
@@ -801,7 +802,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build_miho_probe_exe.ps1
 scripts/install_miho_demo_shortcut.bat
 ```
 
-该脚本使用 `packaging/MihoProbe.spec` 和 PyInstaller 构建 `dist/MihoProbe.exe`。无参数运行或执行 `dist\MihoProbe.exe dashboard --open` 会打开缓存 Dashboard，不重新 OCR；`dist\MihoProbe.exe replay` 会跑 P0.9 parsed-vs-expected replay 验收，也不重新 OCR；Fresh OCR 仍走 `Miho Demo Fresh OCR`。`build/`、`dist/` 和根目录临时 `MihoProbe.spec` 是本地构建产物，已在 `.gitignore` 中排除，不提交；受控 spec 放在 `packaging/MihoProbe.spec`。构建后重新运行 shortcut installer，会在桌面补 `MihoProbe`、`MihoProbe Accuracy Check` 和 `MihoProbe CLI` 入口。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
+该脚本使用 `packaging/MihoProbe.spec` 和 PyInstaller 构建 `dist/MihoProbe.exe`。无参数运行或执行 `dist\MihoProbe.exe dashboard --open` 会打开缓存 Dashboard，不重新 OCR；`dist\MihoProbe.exe replay` 会跑 P0.9 parsed-vs-expected replay 验收，也不重新 OCR；Fresh OCR 仍走 `Miho Demo Fresh OCR`。`build/`、`dist/` 和根目录临时 `MihoProbe.spec` 是本地构建产物，已在 `.gitignore` 中排除，不提交；受控 spec 放在 `packaging/MihoProbe.spec`。构建后重新运行 shortcut installer，会在桌面补 `MihoProbe`、`MihoProbe Update`、`MihoProbe Plan Update`、`MihoProbe Box Status`、`MihoProbe Accuracy Check` 和 `MihoProbe CLI` 等入口。P1.1 不要求把 PaddleOCR 完整打包进 EXE，真正 release 包是后续 P1.2+。
 
 ### P1.2 本地培养优先级 planner probe
 
