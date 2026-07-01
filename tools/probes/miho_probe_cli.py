@@ -2140,6 +2140,52 @@ def render_file_list(items: list[dict[str, Any]], empty: str) -> str:
     return "<ul>" + "".join(rows) + "</ul>"
 
 
+def render_box_status_repair_detail(review_gate: dict[str, Any]) -> str:
+    status = str(review_gate.get("repair_command_status") or "unknown")
+    execution = str(review_gate.get("repair_command_execution") or "unknown")
+    writes_probe_files = bool(review_gate.get("repair_command_writes_probe_files"))
+    targets = review_gate.get("repair_command_write_targets")
+    write_targets = [str(item) for item in targets] if isinstance(targets, list) else []
+    if status == "available":
+        tone = "ok"
+        title = "修复命令可用"
+        detail = "需要手动执行；它只会重生成本地 probe JSON/Markdown，不写正式数据库。"
+    elif status == "blocked_by_roster_refresh":
+        tone = "warn"
+        title = "修复命令暂不可用"
+        detail = "最新 box 图与 roster 不一致，先执行上方下一步命令刷新 roster；刷新后再复查 Markdown。"
+    elif status == "missing_box_image":
+        tone = "warn"
+        title = "修复命令暂不可用"
+        detail = "缺少本地米游社官方 box 总览图，先把图片放到导出图目录后再检查。"
+    elif status == "not_needed":
+        tone = "neutral"
+        title = "修复命令无需执行"
+        detail = "当前复核 Markdown 状态不需要额外 repair；仍需人工确认后才可进入 accepted roster。"
+    else:
+        tone = "warn"
+        title = "修复命令状态未知"
+        detail = "不要把当前 roster 当作 accepted roster；先按上方下一步命令或人工复核处理。"
+    target_html = ""
+    if write_targets:
+        target_html = (
+            '<div class="repair-targets"><span>写入目标</span>'
+            + "".join(f"<code>{html_escape(item)}</code>" for item in write_targets)
+            + "</div>"
+        )
+    return (
+        f'<div class="repair-note {tone}">'
+        f"<strong>{html_escape(title)}</strong>"
+        f"<p>{html_escape(detail)}</p>"
+        f'<div class="repair-meta">'
+        f"<span>execution={html_escape(execution)}</span>"
+        f"<span>writes_probe_files={html_escape(str(writes_probe_files))}</span>"
+        f"</div>"
+        f"{target_html}"
+        f"</div>"
+    )
+
+
 def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
     counts = report.get("counts", {}) if isinstance(report.get("counts"), dict) else {}
     safety = report.get("safety", {}) if isinstance(report.get("safety"), dict) else {}
@@ -2148,6 +2194,7 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
     review_gate = report.get("review_gate", {}) if isinstance(report.get("review_gate"), dict) else {}
     repair_command = str(review_gate.get("repair_command") or "")
     repair_command_html = f"<code>{html_escape(repair_command)}</code>" if repair_command else ""
+    repair_detail_html = render_box_status_repair_detail(review_gate)
     tone = "ok" if str(report.get("readiness")).startswith("ready") else "warn"
     html = f"""<!doctype html>
 <html lang="zh-CN">
@@ -2180,6 +2227,15 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
     .empty {{ color: #667085; padding: 10px; border: 1px dashed #cbd5e1; border-radius: 8px; }}
     .safe {{ display: flex; flex-wrap: wrap; gap: 8px; }}
     .safe span {{ padding: 6px 9px; border-radius: 999px; background: #eef6ff; color: #1d4ed8; font-size: 12px; font-weight: 800; }}
+    .repair-note {{ display: grid; gap: 8px; padding: 12px; border: 1px solid #dbe3ef; border-radius: 8px; background: #fafcff; }}
+    .repair-note.ok {{ border-color: #b7e2c6; background: #f1fbf5; }}
+    .repair-note.warn {{ border-color: #f2d48a; background: #fff9e8; }}
+    .repair-note strong {{ font-size: 14px; }}
+    .repair-note p {{ color: #475569; }}
+    .repair-meta {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .repair-meta span, .repair-targets span {{ color: #667085; font-size: 12px; font-weight: 800; }}
+    .repair-targets {{ display: grid; gap: 6px; }}
+    .repair-targets code {{ background: #132034; color: #e2e8f0; }}
     @media (max-width: 860px) {{ .metrics, .grid {{ grid-template-columns: 1fr; }} h1 {{ font-size: 26px; }} }}
   </style>
 </head>
@@ -2210,8 +2266,10 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
         <span>review_markdown={html_escape(str(review_gate.get("review_markdown_status") or "unknown"))}</span>
         <span>repair_command={html_escape(str(review_gate.get("repair_command_status") or "unknown"))}</span>
         <span>repair_execution={html_escape(str(review_gate.get("repair_command_execution") or "unknown"))}</span>
+        <span>repair_writes_probe_files={html_escape(str(review_gate.get("repair_command_writes_probe_files", False)))}</span>
       </div>
       <p>{html_escape(str(review_gate.get("message") or ""))}</p>
+      {repair_detail_html}
       {repair_command_html}
     </section>
     <section class="grid">

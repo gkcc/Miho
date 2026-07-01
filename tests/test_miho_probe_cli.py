@@ -661,6 +661,11 @@ class MihoProbeCliTests(unittest.TestCase):
             html = status_html.read_text(encoding="utf-8")
             self.assertIn("repair_command=available", html)
             self.assertIn("repair_execution=manual_only", html)
+            self.assertIn("repair_writes_probe_files=True", html)
+            self.assertIn("修复命令可用", html)
+            self.assertIn("需要手动执行", html)
+            self.assertIn("只会重生成本地 probe JSON/Markdown", html)
+            self.assertIn("写入目标", html)
             self.assertIn("box-roster", html)
             self.assertIn(str(box / "zzz_box_roster_from_box_image.md"), html)
 
@@ -1044,6 +1049,15 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIsNone(report["review_gate"]["repair_command"])
             self.assertIn("box-roster", report["next_command"])
             self.assertNotIn("box-value", report["next_command"])
+            status_html = root / "box_value_status.html"
+            cli_tool.render_box_status_html(report, status_html)
+            html = status_html.read_text(encoding="utf-8")
+            self.assertIn("repair_command=blocked_by_roster_refresh", html)
+            self.assertIn("repair_execution=use_box_status_next", html)
+            self.assertIn("repair_writes_probe_files=False", html)
+            self.assertIn("修复命令暂不可用", html)
+            self.assertIn("先执行上方下一步命令刷新 roster", html)
+            self.assertNotIn("写入目标", html)
 
     def test_box_status_default_does_not_treat_figs_as_box_overview_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

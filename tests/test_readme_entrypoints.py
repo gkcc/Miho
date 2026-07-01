@@ -194,6 +194,10 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("box_status_roster_review_markdown_status", readme)
         self.assertIn("box_status_review_repair_command", readme)
         self.assertIn("box_status_review_repair_writes_probe_files", readme)
+        self.assertIn("box_status_review_repair_command_status=blocked_by_roster_refresh", readme)
+        self.assertIn("review_gate=review_markdown_missing/stale/unknown", readme)
+        self.assertIn("roster_stale_by_mtime", readme)
+        self.assertIn("先刷新 roster", readme)
         self.assertIn("accepted roster", readme)
         self.assertIn("源图 hash", readme)
         self.assertIn("dist\\MihoProbe.exe rank-check", readme)
@@ -203,6 +207,23 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("dist\\MihoProbe.exe ask-gpt", readme)
         self.assertNotIn("dist\\MihoProbe.exe gpt-review", readme)
         self.assertIn("--mode progress", readme)
+
+    def test_box_status_docs_keep_refresh_before_repair_decision_table(self) -> None:
+        docs = [
+            (PROJECT_ROOT / "README.md").read_text(encoding="utf-8"),
+            (PROJECT_ROOT / "tools" / "probes" / "README.md").read_text(encoding="utf-8"),
+            (PROJECT_ROOT / "docs" / "spikes" / "0002-prydwen-zzz-agent-value-feasibility.md").read_text(
+                encoding="utf-8"
+            ),
+        ]
+
+        for doc in docs:
+            self.assertIn("source_hash_mismatch", doc)
+            self.assertIn("roster_stale_by_mtime", doc)
+            self.assertIn("box_status_next", doc)
+            self.assertIn("box_status_review_repair_command", doc)
+            self.assertIn("blocked_by_roster_refresh", doc)
+            self.assertIn("accepted roster", doc)
 
     def test_cli_examples_expose_gpt_review_entry(self) -> None:
         opener = (PROJECT_ROOT / "scripts" / "open_miho_probe_cli.bat").read_text(encoding="utf-8")
