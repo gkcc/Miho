@@ -1722,6 +1722,12 @@ def build_review_apply_summary(roster_dir: Path) -> dict[str, Any]:
     return base
 
 
+def sync_review_inbox_apply_status(review_inbox: dict[str, Any], review_apply: dict[str, Any]) -> None:
+    apply_status = review_apply.get("apply_status") if isinstance(review_apply, dict) else None
+    if apply_status:
+        review_inbox["safe_apply_status"] = str(apply_status)
+
+
 def string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -2275,9 +2281,10 @@ def run_pipeline(
     review_inbox = build_review_inbox(cases, active_roster_dir)
     review_inbox_path = output_dir / "review_inbox.json"
     review_inbox["output_json"] = str(review_inbox_path)
+    summary["review_apply"] = build_review_apply_summary(active_roster_dir)
+    sync_review_inbox_apply_status(review_inbox, summary["review_apply"])
     write_json(review_inbox_path, review_inbox)
     summary["review_inbox"] = review_inbox
-    summary["review_apply"] = build_review_apply_summary(active_roster_dir)
     summary["pipeline_steps"] = pipeline_steps(summary)
     roster_index_for_replay = Path(str(review_inbox["roster_index_json"])) if review_inbox.get("roster_index_json") else active_roster_index
     tier_info = build_demo_tier_watchlist(

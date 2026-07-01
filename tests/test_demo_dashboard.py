@@ -193,6 +193,13 @@ def write_launcher_report(output_dir: Path, report: dict) -> Path:
 
 
 class DemoDashboardTests(unittest.TestCase):
+    def test_review_inbox_apply_status_syncs_apply_warnings(self) -> None:
+        inbox = {"safe_apply_status": "applied"}
+
+        pipeline_tool.sync_review_inbox_apply_status(inbox, {"apply_status": "applied_with_warnings"})
+
+        self.assertEqual(inbox["safe_apply_status"], "applied_with_warnings")
+
     def test_safe_apply_status_preserves_apply_warnings(self) -> None:
         summary = dashboard_minimal_summary()
         summary["review_apply"] = {
