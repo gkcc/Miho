@@ -201,6 +201,7 @@ def build_evidence_check(
     current_preview_hash = hashes.get("review_preview")
     current_run_hash = hashes.get("run_manifest")
 
+    receipt_has_unindexed_accept = accepted_missing_roster_index(review_apply_receipt)
     preview_ready = isinstance(review_preview, dict) and str(review_preview.get("preview_status") or "") in {"ready", "ready_with_override"}
     preview_has_apply_work = preview_accept_count(review_preview) > 0 or preview_would_update_count(review_preview) > 0
     if preview_ready and preview_has_apply_work:
@@ -237,10 +238,10 @@ def build_evidence_check(
                 matched_preview_apply = False
                 strict_status = "blocked"
                 blockers.append("apply_receipt_decision_manifest_sha256_mismatch")
-            if accepted_missing_roster_index(review_apply_receipt):
-                matched_preview_apply = False
-                strict_status = "blocked"
-                blockers.append("apply_receipt_accepted_not_in_roster_index")
+    if receipt_has_unindexed_accept:
+        matched_preview_apply = False
+        strict_status = "blocked"
+        blockers.append("apply_receipt_accepted_not_in_roster_index")
 
     if isinstance(review_preview, dict) and isinstance(run_manifest, dict):
         expected_run_hash = preview_input.get("run_manifest_sha256")

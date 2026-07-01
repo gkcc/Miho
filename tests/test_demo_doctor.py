@@ -317,6 +317,26 @@ class DemoDoctorTests(unittest.TestCase):
         self.assertIn("apply_receipt_accepted_not_in_roster_index", result["evidence_check"]["blockers"])
         self.assertIn("ready_try_now_not_actionable_under_current_doctor_status", result["blocking_reasons"])
 
+    def test_unindexed_apply_receipt_blocks_even_without_current_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                refresh_status=refresh("fresh"),
+                action_checklist=checklist(),
+                review_apply_receipt={
+                    "schema_version": "p2.5-lite-review-apply-receipt",
+                    "summary": {"did_write_accepted_count": 1, "did_enter_roster_count": 0},
+                },
+                run_manifest={"schema_version": "run"},
+            )
+        self.assertEqual(result["doctor_status"], "blocked")
+        self.assertEqual(result["primary_next_action"], "repair_evidence_mismatch")
+        self.assertFalse(result["try_now_allowed"])
+        self.assertFalse(result["evidence_check"]["matched_preview_apply"])
+        self.assertIn("apply_receipt_accepted_not_in_roster_index", result["evidence_check"]["blockers"])
+        self.assertIn("ready_try_now_not_actionable_under_current_doctor_status", result["blocking_reasons"])
+
     def test_pending_review_requires_manual_review(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
