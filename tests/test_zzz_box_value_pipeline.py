@@ -116,6 +116,35 @@ class ZzzBoxValuePipelineTests(unittest.TestCase):
 
             self.assertEqual(code, 2)
 
+    def test_roster_json_and_box_image_are_mutually_exclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            meta = root / "meta.json"
+            roster = root / "roster.json"
+            image = root / "box.png"
+            meta.write_text("{}", encoding="utf-8")
+            roster.write_text('{"agents": []}', encoding="utf-8")
+            image.write_bytes(b"fake image placeholder")
+
+            with (
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                pipeline.main(
+                    [
+                        "--roster-json",
+                        str(roster),
+                        "--box-image",
+                        str(image),
+                        "--meta-snapshot",
+                        str(meta),
+                        "--output-dir",
+                        str(root / "value"),
+                    ]
+                )
+
+            self.assertEqual(raised.exception.code, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

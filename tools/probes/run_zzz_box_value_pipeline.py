@@ -94,8 +94,9 @@ def build_roster_if_needed(args: argparse.Namespace, output_dir: Path, meta_snap
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--roster-json", help="Redacted local roster JSON.")
-    parser.add_argument("--box-image", help="Official MiYouShe ZZZ box image. Used to create roster JSON when --roster-json is omitted.")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--roster-json", help="Redacted local roster JSON.")
+    source.add_argument("--box-image", help="Official MiYouShe ZZZ box image. Used to create roster JSON when --roster-json is omitted.")
     parser.add_argument("--roster-output", help="Where to write roster JSON extracted from --box-image.")
     parser.add_argument("--meta-snapshot", help="Existing public meta snapshot. If omitted, it is created under output-dir.")
     parser.add_argument("--output-dir", default="data/probes/value/box_value_pipeline")
