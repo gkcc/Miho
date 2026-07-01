@@ -572,16 +572,22 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["readiness"], "ready_for_box_value_from_image")
             self.assertTrue(report["safety"]["no_ocr"])
             self.assertTrue(report["safety"]["no_network"])
+            self.assertEqual(report["roster_quality"]["status"], "unknown")
+            self.assertEqual(report["roster_quality"]["needs_review_count"], 0)
             self.assertIn("box-value", report["next_command"])
             html = status_html.read_text(encoding="utf-8")
             self.assertIn("Box 价值输入检查", html)
             self.assertIn("no_ocr=True", html)
+            self.assertIn("roster_quality=unknown", html)
+            self.assertIn("roster_needs_review=0", html)
             self.assertIn("zzz_box.png", html)
             text = output.getvalue()
             self.assertIn("box_status_scope: local_files_only_no_ocr_no_network", text)
             self.assertIn("box_status_readiness: ready_for_box_value_from_image", text)
             self.assertIn("box_status_freshness: current_or_unknown", text)
             self.assertIn("box_status_source_hash_checked: False", text)
+            self.assertIn("box_status_roster_quality: unknown", text)
+            self.assertIn("box_status_roster_needs_review_count: 0", text)
 
     def test_box_status_prefers_existing_roster_over_rerunning_image_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -614,6 +620,89 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertNotIn("--box-image", report["next_command"])
             self.assertTrue(report["safety"]["no_ocr"])
             self.assertFalse(report["freshness"]["latest_image_newer_than_roster"])
+            self.assertEqual(report["roster_quality"]["status"], "ok")
+            self.assertEqual(report["roster_quality"]["needs_review_count"], 0)
+
+    def test_run_box_status_exposes_roster_quality_review_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            output_dir = root / "status"
+            for path in (images, meta, box, value):
+                path.mkdir()
+            (images / "zzz_box.png").write_bytes(b"fake")
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+            (box / "zzz_box_roster_from_box_image.json").write_text(
+                json.dumps(
+                    {
+                        "summary": {"needs_review_count": 1},
+                        "agents": [{"name": "青衣", "review_status": "ok"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = cli_tool.run_box_status(
+                    argparse.Namespace(
+                        image_dir=[str(images)],
+                        meta_dir=str(meta),
+                        box_dir=str(box),
+                        value_dir=str(value),
+                        output_dir=str(output_dir),
+                        max_items=8,
+                        open=False,
+                    )
+                )
+
+            self.assertEqual(result, 0)
+            report = json.loads((output_dir / "box_value_status.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["readiness"], "ready_for_box_value_from_roster")
+            self.assertEqual(report["roster_quality"]["status"], "needs_review")
+            self.assertEqual(report["roster_quality"]["needs_review_count"], 1)
+            html = (output_dir / "box_value_status.html").read_text(encoding="utf-8")
+            self.assertIn("roster_quality=needs_review", html)
+            self.assertIn("roster_needs_review=1", html)
+            text = output.getvalue()
+            self.assertIn("box_status_roster_quality: needs_review", text)
+            self.assertIn("box_status_roster_needs_review_count: 1", text)
+
+    def test_box_status_counts_agent_review_status_when_summary_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            for path in (images, meta, box, value):
+                path.mkdir()
+            (images / "zzz_box.png").write_bytes(b"fake")
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+            (box / "zzz_box_roster_from_box_image.json").write_text(
+                json.dumps(
+                    {"agents": [{"name": "青衣", "review_status": "needs_review"}]},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            report = cli_tool.build_box_status(
+                argparse.Namespace(
+                    image_dir=[str(images)],
+                    meta_dir=str(meta),
+                    box_dir=str(box),
+                    value_dir=str(value),
+                    max_items=8,
+                )
+            )
+
+            self.assertEqual(report["roster_quality"]["status"], "needs_review")
+            self.assertEqual(report["roster_quality"]["needs_review_count"], 1)
 
     def test_box_status_requires_roster_refresh_when_box_image_is_newer(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1776,15 +1776,58 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def load_roster_source(path: str | Path | None) -> dict[str, Any]:
+def load_roster_payload(path: str | Path | None) -> dict[str, Any]:
     if not path:
         return {}
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001 - stale local probe JSON should degrade to mtime freshness.
         return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def load_roster_source(path: str | Path | None) -> dict[str, Any]:
+    payload = load_roster_payload(path)
     source = payload.get("source") if isinstance(payload, dict) else {}
     return source if isinstance(source, dict) else {}
+
+
+def probe_int(value: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(float(str(value).strip())))
+    except (TypeError, ValueError):
+        return default
+
+
+def load_roster_quality(path: str | Path | None) -> dict[str, Any]:
+    if not path:
+        return {
+            "status": "unknown",
+            "needs_review_count": 0,
+            "manual_confirmation_required_before_accepted_roster": True,
+        }
+    payload = load_roster_payload(path)
+    if not payload:
+        return {
+            "status": "unknown",
+            "needs_review_count": 0,
+            "manual_confirmation_required_before_accepted_roster": True,
+        }
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    agents = payload.get("agents") if isinstance(payload.get("agents"), list) else []
+    counted_review = sum(
+        1
+        for item in agents
+        if isinstance(item, dict) and str(item.get("review_status") or "ok") != "ok"
+    )
+    needs_review_count = probe_int(summary.get("needs_review_count"), counted_review)
+    if needs_review_count == 0 and counted_review:
+        needs_review_count = counted_review
+    return {
+        "status": "needs_review" if needs_review_count else "ok",
+        "needs_review_count": needs_review_count,
+        "manual_confirmation_required_before_accepted_roster": True,
+    }
 
 
 def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
@@ -1806,6 +1849,7 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     latest_meta = latest_meta_record["path"] if latest_meta_record else None
     latest_roster = latest_roster_record["path"] if latest_roster_record else None
     roster_source = load_roster_source(latest_roster)
+    roster_quality = load_roster_quality(latest_roster)
     latest_image_sha256: str | None = None
     latest_image_hash_error: str | None = None
     if latest_image:
@@ -1904,6 +1948,7 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
             "latest_image_mtime": latest_image_record.get("mtime") if latest_image_record else None,
             "latest_roster_mtime": latest_roster_record.get("mtime") if latest_roster_record else None,
         },
+        "roster_quality": roster_quality,
         "images": images,
         "meta_snapshots": metas,
         "roster_probes": rosters,
@@ -1937,6 +1982,7 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
     counts = report.get("counts", {}) if isinstance(report.get("counts"), dict) else {}
     safety = report.get("safety", {}) if isinstance(report.get("safety"), dict) else {}
     freshness = report.get("freshness", {}) if isinstance(report.get("freshness"), dict) else {}
+    roster_quality = report.get("roster_quality", {}) if isinstance(report.get("roster_quality"), dict) else {}
     tone = "ok" if str(report.get("readiness")).startswith("ready") else "warn"
     html = f"""<!doctype html>
 <html lang="zh-CN">
@@ -1993,6 +2039,8 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
         <span>no_account_read={html_escape(str(safety.get("no_account_read")))}</span>
         <span>manual_review_before_accepted_roster={html_escape(str(safety.get("manual_confirmation_required_before_accepted_roster")))}</span>
         <span>freshness={html_escape(str(freshness.get("status") or "unknown"))}</span>
+        <span>roster_quality={html_escape(str(roster_quality.get("status") or "unknown"))}</span>
+        <span>roster_needs_review={html_escape(str(roster_quality.get("needs_review_count", 0)))}</span>
       </div>
     </section>
     <section class="grid">
@@ -2018,10 +2066,13 @@ def run_box_status(args: argparse.Namespace) -> int:
     output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     render_box_status_html(report, output_html)
     freshness = report.get("freshness", {}) if isinstance(report.get("freshness"), dict) else {}
+    roster_quality = report.get("roster_quality", {}) if isinstance(report.get("roster_quality"), dict) else {}
     print("box_status_scope: local_files_only_no_ocr_no_network", flush=True)
     print(f"box_status_readiness: {report['readiness']}", flush=True)
     print(f"box_status_freshness: {freshness.get('status', 'unknown')}", flush=True)
     print(f"box_status_source_hash_checked: {freshness.get('source_hash_checked', False)}", flush=True)
+    print(f"box_status_roster_quality: {roster_quality.get('status', 'unknown')}", flush=True)
+    print(f"box_status_roster_needs_review_count: {roster_quality.get('needs_review_count', 0)}", flush=True)
     print(f"box_status_next: {report['next_command']}", flush=True)
     print(f"box_status_json: {output_json}", flush=True)
     print(f"box_status_html: {output_html}", flush=True)
