@@ -190,6 +190,7 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("box_status_freshness", readme)
         self.assertIn("box_status_roster_quality", readme)
         self.assertIn("box_status_review_gate", readme)
+        self.assertIn("box_status_blocks_accepted_roster", readme)
         self.assertIn("box_status_roster_review_markdown", readme)
         self.assertIn("box_status_roster_review_markdown_status", readme)
         self.assertIn("box_status_review_repair_command", readme)
@@ -223,6 +224,7 @@ class ReadmeEntrypointTests(unittest.TestCase):
             self.assertIn("box_status_next", doc)
             self.assertIn("box_status_review_repair_command", doc)
             self.assertIn("blocked_by_roster_refresh", doc)
+            self.assertIn("box_status_blocks_accepted_roster", doc)
             self.assertIn("accepted roster", doc)
 
     def test_cli_examples_expose_gpt_review_entry(self) -> None:

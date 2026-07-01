@@ -2263,6 +2263,7 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
         <span>roster_quality={html_escape(str(roster_quality.get("status") or "unknown"))}</span>
         <span>roster_needs_review={html_escape(str(roster_quality.get("needs_review_count", 0)))}</span>
         <span>review_gate={html_escape(str(review_gate.get("status") or "unknown"))}</span>
+        <span>blocks_accepted_roster={html_escape(str(review_gate.get("blocks_accepted_roster", True)))}</span>
         <span>review_markdown={html_escape(str(review_gate.get("review_markdown_status") or "unknown"))}</span>
         <span>repair_command={html_escape(str(review_gate.get("repair_command_status") or "unknown"))}</span>
         <span>repair_execution={html_escape(str(review_gate.get("repair_command_execution") or "unknown"))}</span>
@@ -2304,6 +2305,7 @@ def run_box_status(args: argparse.Namespace) -> int:
     print(f"box_status_roster_quality: {roster_quality.get('status', 'unknown')}", flush=True)
     print(f"box_status_roster_needs_review_count: {roster_quality.get('needs_review_count', 0)}", flush=True)
     print(f"box_status_review_gate: {review_gate.get('status', 'unknown')}", flush=True)
+    print(f"box_status_blocks_accepted_roster: {review_gate.get('blocks_accepted_roster', True)}", flush=True)
     print(f"box_status_roster_review_markdown: {review_gate.get('review_markdown') or 'missing'}", flush=True)
     print(f"box_status_roster_review_markdown_status: {review_gate.get('review_markdown_status', 'unknown')}", flush=True)
     print(f"box_status_review_repair_command_status: {review_gate.get('repair_command_status', 'unknown')}", flush=True)

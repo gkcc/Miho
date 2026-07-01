@@ -585,6 +585,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("roster_quality=unknown", html)
             self.assertIn("roster_needs_review=0", html)
             self.assertIn("review_gate=no_roster_probe", html)
+            self.assertIn("blocks_accepted_roster=True", html)
             self.assertIn("review_markdown=not_applicable", html)
             self.assertIn("zzz_box.png", html)
             text = output.getvalue()
@@ -595,6 +596,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_roster_quality: unknown", text)
             self.assertIn("box_status_roster_needs_review_count: 0", text)
             self.assertIn("box_status_review_gate: no_roster_probe", text)
+            self.assertIn("box_status_blocks_accepted_roster: True", text)
             self.assertIn("box_status_roster_review_markdown: missing", text)
             self.assertIn("box_status_roster_review_markdown_status: not_applicable", text)
 
@@ -662,6 +664,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("repair_command=available", html)
             self.assertIn("repair_execution=manual_only", html)
             self.assertIn("repair_writes_probe_files=True", html)
+            self.assertIn("blocks_accepted_roster=True", html)
             self.assertIn("修复命令可用", html)
             self.assertIn("需要手动执行", html)
             self.assertIn("只会重生成本地 probe JSON/Markdown", html)
@@ -707,6 +710,10 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertEqual(report["review_gate"]["repair_command_write_targets"], [])
             self.assertIsNone(report["review_gate"]["repair_command"])
             self.assertFalse(report["review_gate"]["blocks_accepted_roster"])
+            status_html = root / "box_value_status.html"
+            cli_tool.render_box_status_html(report, status_html)
+            html = status_html.read_text(encoding="utf-8")
+            self.assertIn("blocks_accepted_roster=False", html)
 
     def test_run_box_status_exposes_roster_quality_review_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -768,6 +775,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("roster_quality=needs_review", html)
             self.assertIn("roster_needs_review=1", html)
             self.assertIn("review_gate=needs_manual_review", html)
+            self.assertIn("blocks_accepted_roster=True", html)
             self.assertIn("review_markdown=current", html)
             self.assertIn("当前 roster 有 1 个待复核项", html)
             self.assertIn(str(roster_md), html)
@@ -775,6 +783,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_roster_quality: needs_review", text)
             self.assertIn("box_status_roster_needs_review_count: 1", text)
             self.assertIn("box_status_review_gate: needs_manual_review", text)
+            self.assertIn("box_status_blocks_accepted_roster: True", text)
             self.assertIn(f"box_status_roster_review_markdown: {roster_md}", text)
             self.assertIn("box_status_roster_review_markdown_status: current", text)
             self.assertIn("box_status_review_repair_command_status: not_needed", text)
@@ -1055,6 +1064,7 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("repair_command=blocked_by_roster_refresh", html)
             self.assertIn("repair_execution=use_box_status_next", html)
             self.assertIn("repair_writes_probe_files=False", html)
+            self.assertIn("blocks_accepted_roster=True", html)
             self.assertIn("修复命令暂不可用", html)
             self.assertIn("先执行上方下一步命令刷新 roster", html)
             self.assertNotIn("写入目标", html)

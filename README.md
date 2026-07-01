@@ -98,7 +98,7 @@ dist\MihoProbe.exe check --no-open
 dist\MihoProbe.exe rank-check --no-open
 ```
 
-如果想从米游社官方 box 总览图看账号内代理人价值，先把 box 总览图放到 `data\probes\exported_images\`，再跑 `dist\MihoProbe.exe box-status` 看本地缺什么。`box-status` 会输出 `box_status_freshness`：新 roster 会用源图 hash 对齐最新 box 图，旧 roster 才会退回 mtime 判断；还会输出 `box_status_roster_quality`、`box_status_roster_needs_review_count`、`box_status_review_gate`、`box_status_roster_review_markdown` 和 `box_status_roster_review_markdown_status`，用于区分“可跑 probe 价值报告”“能否进入 accepted roster”以及“该看哪份 Markdown 复核”。如果复核 Markdown 缺失、旧于 roster JSON 或状态无法确认，即使 roster 质量检查为 ok，也不能进入 accepted roster；此时看 `box_status_review_repair_command` 重新生成配套复核材料。该修复命令需要手动执行，`box_status_review_repair_writes_probe_files=True` 时只覆盖本地 probe JSON/Markdown；如果 roster 本身需要刷新，则优先执行 `box_status_next`。输入齐了以后再跑：`dist\MihoProbe.exe box-value --box-image data\probes\exported_images\zzz_box.png --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json`。
+如果想从米游社官方 box 总览图看账号内代理人价值，先把 box 总览图放到 `data\probes\exported_images\`，再跑 `dist\MihoProbe.exe box-status` 看本地缺什么。`box-status` 会输出 `box_status_freshness`：新 roster 会用源图 hash 对齐最新 box 图，旧 roster 才会退回 mtime 判断；还会输出 `box_status_roster_quality`、`box_status_roster_needs_review_count`、`box_status_review_gate`、`box_status_blocks_accepted_roster`、`box_status_roster_review_markdown` 和 `box_status_roster_review_markdown_status`，用于区分“可跑 probe 价值报告”“能否进入 accepted roster”以及“该看哪份 Markdown 复核”。如果复核 Markdown 缺失、旧于 roster JSON 或状态无法确认，即使 roster 质量检查为 ok，也不能进入 accepted roster；此时看 `box_status_review_repair_command` 重新生成配套复核材料。该修复命令需要手动执行，`box_status_review_repair_writes_probe_files=True` 时只覆盖本地 probe JSON/Markdown；如果 roster 本身需要刷新，则优先执行 `box_status_next`。输入齐了以后再跑：`dist\MihoProbe.exe box-value --box-image data\probes\exported_images\zzz_box.png --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json`。
 
 `box-status` 决策只看这一张表：
 
@@ -107,6 +107,7 @@ dist\MihoProbe.exe rank-check --no-open
 | `box_status_freshness=source_hash_mismatch` 或 `roster_stale_by_mtime` | 执行 `box_status_next`，先刷新 roster。 |
 | `review_gate=review_markdown_missing/stale/unknown` 且 `box_status_review_repair_command_status=available` | 手动执行 `box_status_review_repair_command`，只修复当前 roster 的 JSON/Markdown 复核材料。 |
 | `box_status_review_repair_command_status=blocked_by_roster_refresh` | 不执行 repair command；先执行 `box_status_next`。 |
+| `box_status_blocks_accepted_roster=True` | 可以继续做 probe 报告，但不能汇入 accepted roster。 |
 | `review_gate=quality_ok_manual_confirmation_required` 且复核 Markdown 为 `current` | 可以生成 probe 价值报告；人工确认前仍不能进入 accepted roster。 |
 
 这条链路只读本地图片和公开 Prydwen 数据；不会登录、不会读 cookie/token、不会写正式数据库。图片识别出的 roster 仍是 probe 草案，人工确认前不能进入 accepted roster。
