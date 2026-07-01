@@ -752,6 +752,7 @@ def human_status(value: Any) -> str:
         "needs_apply": "需应用复核",
         "not_applied": "未应用",
         "applied": "已应用",
+        "applied_with_warnings": "已应用，有警告",
         "ready_with_override": "可人工确认应用",
         "blocked": "已阻断",
         "warning": "有警告",
@@ -2339,6 +2340,8 @@ def render_review_preview_gate(preview: dict[str, Any]) -> str:
 
 def safe_apply_status(summary: dict[str, Any]) -> str:
     apply_info = summary.get("review_apply") if isinstance(summary.get("review_apply"), dict) else {}
+    if apply_info.get("apply_status"):
+        return str(apply_info.get("apply_status"))
     if apply_info and not apply_info.get("error") and apply_info.get("output_json"):
         return "applied"
     inbox_info = summary.get("review_inbox") if isinstance(summary.get("review_inbox"), dict) else {}

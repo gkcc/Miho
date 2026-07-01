@@ -193,6 +193,17 @@ def write_launcher_report(output_dir: Path, report: dict) -> Path:
 
 
 class DemoDashboardTests(unittest.TestCase):
+    def test_safe_apply_status_preserves_apply_warnings(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["review_apply"] = {
+            "apply_status": "applied_with_warnings",
+            "output_json": "data/probes/roster/review_apply_receipt.json",
+        }
+        summary["review_inbox"] = {"safe_apply_status": "applied"}
+
+        self.assertEqual(dashboard_tool.safe_apply_status(summary), "applied_with_warnings")
+        self.assertEqual(dashboard_tool.human_status("applied_with_warnings"), "已应用，有警告")
+
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
             dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),
