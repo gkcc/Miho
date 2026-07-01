@@ -1017,6 +1017,8 @@ def pipeline_steps(summary: dict[str, Any]) -> list[dict[str, str]]:
             "name": "Review Apply Receipt",
             "status": "failed"
             if isinstance(apply_info, dict) and apply_info.get("error")
+            else "warning"
+            if isinstance(apply_info, dict) and apply_info.get("apply_status") == "applied_with_warnings"
             else "done"
             if isinstance(apply_info, dict) and apply_info.get("apply_status") in {"applied", "applied_with_warnings"}
             else "skipped",

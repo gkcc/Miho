@@ -200,6 +200,14 @@ class DemoDashboardTests(unittest.TestCase):
 
         self.assertEqual(inbox["safe_apply_status"], "applied_with_warnings")
 
+    def test_pipeline_steps_marks_warned_apply_receipt(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["review_apply"] = {"apply_status": "applied_with_warnings"}
+
+        steps = {item["name"]: item["status"] for item in pipeline_tool.pipeline_steps(summary)}
+
+        self.assertEqual(steps["Review Apply Receipt"], "warning")
+
     def test_safe_apply_status_preserves_apply_warnings(self) -> None:
         summary = dashboard_minimal_summary()
         summary["review_apply"] = {
