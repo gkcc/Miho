@@ -760,6 +760,10 @@ def human_status(value: Any) -> str:
         "fail": "失败",
         "has_parse_failure": "有解析失败",
         "stale_after_apply": "应用后已过期",
+        "stale": "已过期",
+        "fresh": "新鲜",
+        "missing": "缺失",
+        "not_checked": "未检查",
         "unknown": "未知",
         "n/a": "无",
     }
@@ -1154,9 +1158,58 @@ def action_label(value: Any) -> str:
         "review_dashboard": "查看页面明细",
         "rebuild_run_manifest": "刷新本轮数据清单",
         "resolve_blockers": "处理阻断项",
+        "repair_demo_command": "修复演示重跑命令",
+        "repair_evidence_mismatch": "修复证据不一致",
     }
     text = str(value or "unknown")
     return labels.get(text, text)
+
+
+def doctor_next_step_message(doctor: dict[str, Any]) -> str:
+    status = str(doctor.get("doctor_status") or "unknown").lower()
+    action = str(doctor.get("primary_next_action") or "").lower()
+    if doctor.get("error"):
+        return "先看诊断失败信息；当前页面不会把失败诊断当成可执行建议。"
+    if action == "repair_evidence_mismatch":
+        return "先修复证据不一致：确认复核预览、应用回执、运行清单和重跑命令来自同一批。"
+    if action == "repair_demo_command":
+        return "先重新生成安全重跑命令；当前命令不可信时，不要按页面继续执行。"
+    if action == "rebuild_run_manifest":
+        return "先刷新本轮运行清单，确保识别结果、复核预览和建议是同批产物。"
+    if action == "resolve_blockers" or status == "blocked":
+        return "先处理阻断项；阻断解除前不要尝试队伍，也不要应用复核决定。"
+    if action == "safe_apply_review_decisions" or status == "needs_apply":
+        return "复核预览已就绪；人工核对接收/拒绝列表后，再复制安全应用命令。"
+    if action == "review_snapshots" or status == "needs_review":
+        return "先打开复核页检查待确认快照，补充人工说明或改成拒绝后再重新预览。"
+    if action == "rerun_demo_pipeline" or status == "needs_rerun":
+        return "先重跑本地演示，让页面吸收最新复核结果、角色库和运行清单。"
+    if action == "try_now" or status == "ready_to_try":
+        return "可以按执行清单试一次；它只代表本地已确认角色库，不是抽卡建议。"
+    if action == "review_dashboard":
+        return "先检查页面里的警告、缺失产物和待复核项，再决定刷新或复核。"
+    return "先查看诊断结论和阻断项；当前状态不足以给出可执行下一步。"
+
+
+def review_preview_next_step_message(preview: dict[str, Any], safe_apply: str) -> str:
+    preview_status = str(preview.get("preview_status") or "").lower()
+    preview_summary = preview.get("summary") if isinstance(preview.get("summary"), dict) else {}
+    accept_count = int_value(preview_summary.get("accept_count"))
+    would_update_count = int_value(preview_summary.get("would_update_roster_count"))
+    blocked_accept_count = int_value(preview_summary.get("blocked_accept_count"))
+    if safe_apply == "applied":
+        return "复核决定已经应用；下一步重跑本地演示，让已确认角色库进入配队和规划视图。"
+    if preview_status == "blocked" or safe_apply == "blocked" or blocked_accept_count:
+        return "先处理复核预览阻断：来源不匹配、质量阻断或缺少人工说明时，不能写入角色库。"
+    if preview_status == "needs_review":
+        return "先补人工说明或把有疑问的接收项改成拒绝，再重新生成复核预览。"
+    if preview_status == "ready_with_override":
+        return "已有人工说明的接收项；确认说明合理后，再复制安全应用命令。"
+    if preview_status == "ready":
+        if accept_count or would_update_count:
+            return "预览可应用；确认接收/拒绝列表无误后，再复制安全应用命令。"
+        return "复核预览已就绪，但没有会写入角色库的接收项；继续看执行清单即可。"
+    return "先生成或刷新复核预览；没有 ready 预览时，不要应用复核决定。"
 
 
 def source_mode_label(value: Any) -> str:
@@ -1191,6 +1244,7 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
     evidence_blockers = evidence.get("blockers") if isinstance(evidence.get("blockers"), list) else []
     evidence_warnings = evidence.get("warnings") if isinstance(evidence.get("warnings"), list) else []
     status = str(doctor.get("doctor_status") or "unknown")
+    next_step_message = doctor_next_step_message(doctor)
     if doctor.get("error"):
         body = f'<div class="errors"><strong>诊断失败</strong><ul><li>{he(doctor.get("error"))}</li></ul></div>'
     else:
@@ -1227,6 +1281,7 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
     <section class="panel demo-doctor">
       <h2>当前状态诊断</h2>
       <p class="muted-line">先给一个总判断：现在该重跑、复核、人工应用，还是可以按清单试一次。仅观察项不会升级成可尝试项。</p>
+      <p class="detail-hint"><strong>当前下一步说明</strong><span>{he(next_step_message)}</span></p>
       <div class="links">
         {link("demo_doctor.md", doctor.get("output_md"))}
         {link("demo_doctor.json", doctor.get("output_json"))}
@@ -1948,6 +2003,7 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
     reasons = refresh.get("stale_reasons") if isinstance(refresh.get("stale_reasons"), list) else []
     affected = refresh.get("affected_artifacts") if isinstance(refresh.get("affected_artifacts"), list) else []
     warnings = refresh.get("warnings") if isinstance(refresh.get("warnings"), list) else []
+    downstream = refresh.get("downstream_artifacts") if isinstance(refresh.get("downstream_artifacts"), dict) else {}
     next_action = str(action_state.get("primary_next_action") or "unknown")
     next_action_label = action_label(next_action) if next_action else "N/A"
     try_now_allowed = action_state.get("try_now_allowed")
@@ -1961,11 +2017,23 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
     else:
         reason_items = "".join(f"<li>{he(item)}</li>" for item in reasons) or "<li>无</li>"
         affected_text = "、".join(str(item) for item in affected) if affected else "无"
+        downstream_items = ""
+        for name, item in downstream.items():
+            if not isinstance(item, dict):
+                continue
+            stale_text = "；".join(str(reason) for reason in item.get("stale_reasons", []) if reason)
+            warning_text = "；".join(str(warning) for warning in item.get("warnings", []) if warning)
+            detail = stale_text or warning_text or item.get("created_at") or "无额外说明"
+            downstream_items += f"<li>{e(name)}：{e(human_status(item.get('status')))} · {he(detail)}</li>"
+        if not downstream_items:
+            downstream_items = "<li>未检查</li>"
         body = f"""
         <div class="resource-plan">
           <h3>刷新判断</h3>
           <ul>{reason_items}</ul>
           <p class="muted-line">受影响产物：{e(affected_text)}</p>
+          <p class="muted-line">下游产物：</p>
+          <ul>{downstream_items}</ul>
           <p class="muted-line">{e(refresh.get("refresh_command") or "")}</p>
         </div>
         """
@@ -1993,6 +2061,7 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
       <div class="input-grid">
         <div><span>刷新判断</span><strong>{e(human_status(refresh.get("refresh_status") or "unknown"))}</strong></div>
         <div><span>需要刷新</span><strong>{e(bool_text(refresh_summary.get("needs_demo_refresh")) if refresh_summary.get("needs_demo_refresh") is not None else "N/A")}</strong></div>
+        <div><span>下游产物</span><strong>{e(human_status(refresh_summary.get("downstream_artifact_status", "N/A")))}</strong></div>
         <div><span>当前下一步</span><strong>{e(next_action_label)}</strong></div>
         <div><span>允许去游戏里试</span><strong>{e(try_now_text)}</strong></div>
         <div><span>需要重跑</span><strong>{e(rerun_text)}</strong></div>
@@ -2119,6 +2188,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
     preview = summary.get("review_decision_preview") if isinstance(summary.get("review_decision_preview"), dict) else {}
     preview_summary = preview.get("summary") if isinstance(preview.get("summary"), dict) else {}
     safe_apply = safe_apply_status(summary)
+    next_step_message = review_preview_next_step_message(preview, safe_apply)
     safe_command = checklist.get("safe_apply_command") or preview.get("next_command") or ""
     items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
     warnings = checklist.get("warnings") if isinstance(checklist.get("warnings"), list) else []
@@ -2214,6 +2284,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
         <div><span>人工说明接收</span><strong>{e(preview_summary.get("override_accept_count", "N/A"))}</strong></div>
         <div><span>将写入角色库</span><strong>{e(preview_summary.get("would_update_roster_count", "N/A"))}</strong></div>
       </div>
+      <p class="detail-hint"><strong>下一步行动</strong><span>{he(next_step_message)}</span></p>
       <p class="muted-line">复核决策必须先预览，再人工应用；预览不会写 accepted/rejected。</p>
       {warning_block}
       {preview_gate_block}

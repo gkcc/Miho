@@ -82,6 +82,19 @@ def parse_iso(value: Any) -> datetime | None:
     return parsed
 
 
+def compare_datetimes(left: datetime | None, right: datetime | None) -> int | None:
+    if left is None or right is None:
+        return None
+    try:
+        if left < right:
+            return -1
+        if left > right:
+            return 1
+    except TypeError:
+        return None
+    return 0
+
+
 def receipt_summary(receipt: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(receipt, dict):
         return {}
@@ -115,6 +128,109 @@ def run_roster_hash(run_manifest: dict[str, Any] | None) -> str | None:
 
 def affected_artifacts() -> list[str]:
     return ["final_brief", "action_checklist", "endgame_plan", "team_cards", "roster_delta"]
+
+
+def artifact_created_at(data: dict[str, Any] | None) -> datetime | None:
+    if not isinstance(data, dict):
+        return None
+    return parse_iso(data.get("created_at"))
+
+
+def audit_downstream_artifact(
+    *,
+    name: str,
+    path: Path | None,
+    data: dict[str, Any] | None,
+    receipt_time: datetime | None,
+    roster_changed: bool,
+    dependency_name: str | None = None,
+    dependency_time: datetime | None = None,
+) -> dict[str, Any]:
+    if path is None:
+        return {
+            "status": "not_checked",
+            "path": None,
+            "exists": False,
+            "sha256": None,
+            "created_at": None,
+            "stale_reasons": [],
+            "warnings": [],
+        }
+    entry = {
+        "status": "fresh",
+        "path": str(path),
+        "exists": path.exists(),
+        "sha256": sha256_file(path),
+        "created_at": data.get("created_at") if isinstance(data, dict) else None,
+        "stale_reasons": [],
+        "warnings": [],
+    }
+    stale_reasons = entry["stale_reasons"]
+    warnings = entry["warnings"]
+    if not path.exists():
+        entry["status"] = "missing"
+        stale_reasons.append(f"{name} is missing")
+        return entry
+    created_at = artifact_created_at(data)
+    if not isinstance(data, dict):
+        entry["status"] = "unknown"
+        warnings.append(f"{name} is not a JSON object; freshness cannot be verified")
+        return entry
+    if data.get("created_at") and created_at is None:
+        entry["status"] = "unknown"
+        warnings.append(f"{name}.created_at is not parseable")
+    elif not data.get("created_at"):
+        entry["status"] = "unknown"
+        warnings.append(f"{name}.created_at is missing")
+    if roster_changed:
+        compare_to_receipt = compare_datetimes(created_at, receipt_time)
+        if receipt_time is None:
+            entry["status"] = "unknown"
+            warnings.append(f"{name} cannot be compared because review_apply_receipt.created_at is missing or invalid")
+        elif compare_to_receipt is None:
+            entry["status"] = "unknown"
+            warnings.append(f"{name}.created_at cannot be compared with review_apply_receipt.created_at")
+        elif compare_to_receipt < 0:
+            entry["status"] = "stale"
+            stale_reasons.append(f"{name}.created_at is older than review_apply_receipt.created_at")
+    if dependency_name and dependency_time is not None:
+        compare_to_dependency = compare_datetimes(created_at, dependency_time)
+        if compare_to_dependency is None:
+            if entry["status"] == "fresh":
+                entry["status"] = "unknown"
+            warnings.append(f"{name}.created_at cannot be compared with {dependency_name}.created_at")
+        elif compare_to_dependency < 0:
+            entry["status"] = "stale"
+            stale_reasons.append(f"{name}.created_at is older than {dependency_name}.created_at")
+    return entry
+
+
+def downstream_artifact_status(audit: dict[str, dict[str, Any]]) -> str:
+    checked = [item for item in audit.values() if item.get("status") != "not_checked"]
+    if not checked:
+        return "not_checked"
+    statuses = {str(item.get("status")) for item in checked}
+    if "stale" in statuses:
+        return "stale"
+    if "missing" in statuses:
+        return "missing"
+    if "unknown" in statuses:
+        return "unknown"
+    return "fresh"
+
+
+def downstream_stale_reasons(audit: dict[str, dict[str, Any]]) -> list[str]:
+    reasons: list[Any] = []
+    for item in audit.values():
+        reasons.extend(as_list(item.get("stale_reasons")))
+    return unique_strings(reasons)
+
+
+def downstream_warnings(audit: dict[str, dict[str, Any]]) -> list[str]:
+    warnings: list[Any] = []
+    for item in audit.values():
+        warnings.extend(as_list(item.get("warnings")))
+    return unique_strings(warnings)
 
 
 def command_details(demo_command: dict[str, Any] | None) -> dict[str, Any]:
@@ -175,15 +291,40 @@ def build_refresh_status(
     receipt_data = load_optional_json(review_apply_receipt)
     run_data = load_optional_json(run_manifest)
     demo_command_data = load_optional_json(demo_command)
+    final_brief_data = load_optional_json(final_brief)
+    action_checklist_data = load_optional_json(action_checklist)
     command_info = command_details(demo_command_data)
     warnings.extend(as_list(command_info.get("warnings")))
     receipt_exists = isinstance(receipt_data, dict)
     run_exists = isinstance(run_data, dict)
     summary = receipt_summary(receipt_data)
+    roster_changed = receipt_changes_roster(summary)
     current_roster_hash = sha256_file(roster_index)
     manifest_roster_hash = run_roster_hash(run_data)
     receipt_time = parse_iso(receipt_data.get("created_at")) if isinstance(receipt_data, dict) else None
     run_time = parse_iso(run_data.get("created_at")) if isinstance(run_data, dict) else None
+    final_brief_created_at = artifact_created_at(final_brief_data)
+    downstream_audit = {
+        "final_brief": audit_downstream_artifact(
+            name="final_brief",
+            path=final_brief,
+            data=final_brief_data,
+            receipt_time=receipt_time,
+            roster_changed=roster_changed,
+        ),
+        "action_checklist": audit_downstream_artifact(
+            name="action_checklist",
+            path=action_checklist,
+            data=action_checklist_data,
+            receipt_time=receipt_time,
+            roster_changed=roster_changed,
+            dependency_name="final_brief",
+            dependency_time=final_brief_created_at,
+        ),
+    }
+    downstream_status = downstream_artifact_status(downstream_audit)
+    downstream_reasons = downstream_stale_reasons(downstream_audit)
+    downstream_warning_items = downstream_warnings(downstream_audit)
 
     if not receipt_exists:
         status = "not_applied"
@@ -194,14 +335,20 @@ def build_refresh_status(
         if run_time is None:
             status = "unknown"
             warnings.append("run_manifest 缺少可解析 created_at，无法确认 demo 是否吸收了 apply。")
-        if receipt_changes_roster(summary) and receipt_time and run_time and receipt_time > run_time:
+        if roster_changed and compare_datetimes(receipt_time, run_time) == 1:
             status = "stale_after_apply"
             stale_reasons.append("review_apply_receipt.created_at is newer than run_manifest.created_at")
         if manifest_roster_hash and current_roster_hash and manifest_roster_hash != current_roster_hash:
             status = "stale_after_apply"
             stale_reasons.append("roster_index sha256 differs from run_manifest inputs.roster_index.sha256")
-        if not receipt_changes_roster(summary) and int_value(summary.get("did_write_rejected_count")) > 0:
+        if not roster_changed and int_value(summary.get("did_write_rejected_count")) > 0:
             warnings.append("receipt 只记录 rejected/pending 副作用，未改变 accepted roster；本轮不强制阻断 try_now。")
+    if downstream_status in {"stale", "missing"}:
+        status = "stale_after_apply" if receipt_exists and roster_changed else "unknown"
+        stale_reasons.extend(downstream_reasons)
+    elif downstream_status == "unknown" and status != "stale_after_apply":
+        status = "unknown"
+    warnings.extend(downstream_warning_items)
 
     needs_refresh = status in {"stale_after_apply", "unknown"}
     current_action_state = action_state(status)
@@ -221,9 +368,11 @@ def build_refresh_status(
             "run_manifest_roster_sha256": manifest_roster_hash,
             "demo_command_exists": isinstance(demo_command_data, dict),
             "demo_command_safe_to_rerun": command_info.get("safe_to_rerun"),
+            "downstream_artifact_status": downstream_status,
         },
         "stale_reasons": unique_strings(stale_reasons),
         "affected_artifacts": affected_artifacts() if needs_refresh else [],
+        "downstream_artifacts": downstream_audit,
         "refresh_command": command_info["command"],
         "refresh_argv": command_info.get("argv", []),
         "command_state": {
@@ -260,6 +409,7 @@ def render_markdown(result: dict[str, Any]) -> str:
         "",
         f"- refresh_status: {result.get('refresh_status')}",
         f"- needs_demo_refresh: {result.get('summary', {}).get('needs_demo_refresh')}",
+        f"- downstream_artifact_status: {result.get('summary', {}).get('downstream_artifact_status')}",
         f"- try_now_allowed: {result.get('action_state', {}).get('try_now_allowed')}",
         f"- primary_next_action: {result.get('action_state', {}).get('primary_next_action')}",
         "",
@@ -283,6 +433,16 @@ def render_markdown(result: dict[str, Any]) -> str:
         lines.extend(["", "## Missing Replay Inputs", ""])
         for item in missing_inputs:
             lines.append(f"- {item}")
+    downstream = result.get("downstream_artifacts") if isinstance(result.get("downstream_artifacts"), dict) else {}
+    if downstream:
+        lines.extend(["", "## Downstream Artifacts", ""])
+        for name, item in downstream.items():
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- {name}: {item.get('status')} "
+                f"(created_at={item.get('created_at') or 'N/A'}, path={item.get('path') or 'N/A'})"
+            )
     lines.extend(["", "## Refresh Command", "", f"- `{result.get('refresh_command')}`"])
     return "\n".join(lines) + "\n"
 

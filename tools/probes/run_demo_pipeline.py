@@ -2455,6 +2455,33 @@ def run_pipeline(
         if action_checklist_info.get("error"):
             summary.setdefault("warnings", []).append(f"Action checklist failed: {action_checklist_info['error']}")
         summary["pipeline_steps"] = pipeline_steps(summary)
+    action_checklist_path = (
+        Path(str(action_checklist_info["output_json"]))
+        if isinstance(action_checklist_info, dict) and action_checklist_info.get("output_json")
+        else None
+    )
+    refresh_status_info = build_demo_refresh_status(
+        output_dir=output_dir,
+        review_apply_receipt=review_apply_receipt_path,
+        run_manifest_path=run_manifest_path,
+        roster_index_path=roster_index_for_replay if roster_index_for_replay.exists() else None,
+        demo_command_path=Path(str(demo_command_info["output_json"]))
+        if isinstance(demo_command_info, dict) and demo_command_info.get("output_json")
+        else None,
+        final_brief_path=final_brief_path,
+        action_checklist_path=action_checklist_path,
+    )
+    summary["refresh_status"] = refresh_status_info
+    if refresh_status_info.get("warnings"):
+        summary.setdefault("warnings", []).extend(refresh_status_info["warnings"])
+    if refresh_status_info.get("error"):
+        summary.setdefault("warnings", []).append(f"Refresh status failed: {refresh_status_info['error']}")
+    summary["pipeline_steps"] = pipeline_steps(summary)
+    refresh_status_path = (
+        Path(str(refresh_status_info["output_json"]))
+        if isinstance(refresh_status_info, dict) and refresh_status_info.get("output_json")
+        else refresh_status_path
+    )
     review_preview_info = (
         build_demo_review_decision_preview(
             output_dir=output_dir,
@@ -2474,11 +2501,6 @@ def run_pipeline(
     review_preview_path = (
         Path(str(review_preview_info["output_json"]))
         if isinstance(review_preview_info, dict) and review_preview_info.get("output_json")
-        else None
-    )
-    action_checklist_path = (
-        Path(str(action_checklist_info["output_json"]))
-        if isinstance(action_checklist_info, dict) and action_checklist_info.get("output_json")
         else None
     )
     demo_doctor_info = build_demo_doctor_summary(

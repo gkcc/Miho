@@ -519,6 +519,7 @@ class DemoDashboardTests(unittest.TestCase):
         html = dashboard_tool.render_html(summary)
 
         self.assertIn("复核预览已阻断", html)
+        self.assertIn("先处理复核预览阻断", html)
         self.assertIn("复核模板来源不匹配", html)
         self.assertIn("复核模板缺少收件箱校验", html)
         self.assertNotIn("template_source_mismatch", html)
@@ -548,12 +549,36 @@ class DemoDashboardTests(unittest.TestCase):
 
         self.assertIn("复核预览带人工说明", html)
         self.assertIn("可人工确认应用", html)
+        self.assertIn("已有人工说明的接收项", html)
         self.assertIn("应用命令：可人工确认应用", html)
         self.assertIn("该快照有质量提示，已填写人工说明", html)
         self.assertNotIn("ready_with_override", html)
         self.assertNotIn("note/override_reason", html)
         self.assertNotIn("dry-run 预览", html)
         self.assertNotIn("应用命令：not_applied", html)
+
+    def test_demo_doctor_explains_repair_next_step_without_internal_action_id(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["demo_doctor"] = {
+            "doctor_status": "blocked",
+            "headline": "证据不一致，暂不能继续",
+            "primary_next_action": "repair_evidence_mismatch",
+            "try_now_allowed": False,
+            "rerun_required": False,
+            "review_required": False,
+            "safe_apply_required": False,
+            "summary": {"run_manifest_exists": True},
+            "evidence_check": {"status": "blocked", "strict_status": "blocked"},
+            "action_contract": {"primary_next_action": "repair_evidence_mismatch"},
+            "commands": {},
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("当前下一步说明", html)
+        self.assertIn("修复证据不一致", html)
+        self.assertIn("先修复证据不一致：确认复核预览、应用回执、运行清单和重跑命令来自同一批。", html)
+        self.assertNotIn("repair_evidence_mismatch", html)
 
     def test_dashboard_shows_final_brief_before_details(self) -> None:
         summary = {
@@ -672,9 +697,29 @@ class DemoDashboardTests(unittest.TestCase):
                     "did_enter_roster_count": 1,
                     "did_write_accepted_count": 1,
                     "did_write_rejected_count": 0,
+                    "downstream_artifact_status": "stale",
                 },
-                "stale_reasons": ["review_apply_receipt.created_at is newer than run_manifest.created_at"],
+                "stale_reasons": [
+                    "review_apply_receipt.created_at is newer than run_manifest.created_at",
+                    "final_brief.created_at is older than review_apply_receipt.created_at",
+                ],
                 "affected_artifacts": ["final_brief", "action_checklist"],
+                "downstream_artifacts": {
+                    "final_brief": {
+                        "status": "stale",
+                        "created_at": "2026-06-29T10:30:00+08:00",
+                        "path": "data/probes/demo/final_brief/final_brief.json",
+                        "stale_reasons": ["final_brief.created_at is older than review_apply_receipt.created_at"],
+                        "warnings": [],
+                    },
+                    "action_checklist": {
+                        "status": "fresh",
+                        "created_at": "2026-06-29T11:30:00+08:00",
+                        "path": "data/probes/demo/action_checklist/action_checklist.json",
+                        "stale_reasons": [],
+                        "warnings": [],
+                    },
+                },
                 "refresh_command": "python tools/probes/run_demo_pipeline.py --parsed-dir data/probes/parsed --latest-only --clean-demo",
                 "command_state": {
                     "safe_to_rerun": True,
@@ -830,6 +875,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("今日作战简报", html)
         self.assertIn("刷新状态", html)
         self.assertIn("当前简报可能过期", html)
+        self.assertIn("下游产物", html)
+        self.assertIn("final_brief.created_at is older than review_apply_receipt.created_at", html)
         self.assertIn("应用后已过期", html)
         self.assertIn("人工应用时间晚于运行清单", html)
         self.assertIn("当前下一步", html)
