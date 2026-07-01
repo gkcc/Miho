@@ -71,7 +71,7 @@ dist\MihoProbe.exe box-roster --image data\probes\exported_images\zzz_box_overvi
 dist\MihoProbe.exe box-value --box-image data\probes\exported_images\zzz_box_overview.png --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json
 ```
 
-`box-status` 只读检查本地文件，不跑 OCR、不联网；`--box-image` 只读取用户显式提供的本地图片，输出脱敏 `roster_from_box_image.json` 和复核 Markdown；不保存 UID / 昵称 / header 原始 OCR，不读取 cookie/token，不写正式数据库。若 `needs_review_count > 0`，价值报告仍可生成，但该 roster 只能当作 probe 草案，人工确认前不得进入 accepted roster。
+`box-status` 只读检查本地文件，不跑 OCR、不联网；默认只扫描 `data/probes/exported_images/`，避免把 `figs/` 中的角色详情分享图误当作 box 总览图。需要扫描其他目录时显式传 `--image-dir`。`--box-image` 只读取用户显式提供的本地图片，输出脱敏 `roster_from_box_image.json` 和复核 Markdown；不保存 UID / 昵称 / header 原始 OCR，不读取 cookie/token，不写正式数据库。若 `needs_review_count > 0`，价值报告仍可生成，但该 roster 只能当作 probe 草案，人工确认前不得进入 accepted roster。
 
 如果 `--meta-snapshot` 不存在或加了 `--refresh-meta`，pipeline 会先读取公开 Prydwen 数据。所有输出仍在 `data/probes/` 下，不得提交真实图片、真实 roster probe 或公开数据快照。
 

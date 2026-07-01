@@ -1770,7 +1770,7 @@ def shell_quote_path(path: str | Path) -> str:
 def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     image_dirs = [resolve_cli_path(item) for item in (args.image_dir or [])]
     if not image_dirs:
-        image_dirs = [DEFAULT_EXPORTED_IMAGES_DIR, DEFAULT_FIGS_DIR]
+        image_dirs = [DEFAULT_EXPORTED_IMAGES_DIR]
     meta_dir = resolve_cli_path(args.meta_dir)
     box_dir = resolve_cli_path(args.box_dir)
     value_dir = resolve_cli_path(args.value_dir)
@@ -2089,7 +2089,12 @@ def add_box_value_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_box_status_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--image-dir", action="append", default=[], help="Directory containing local box image candidates. Can be repeated.")
+    parser.add_argument(
+        "--image-dir",
+        action="append",
+        default=[],
+        help="Directory containing local box overview image candidates. Can be repeated. Default: data/probes/exported_images.",
+    )
     parser.add_argument("--meta-dir", default=str(DEFAULT_META_DIR), help="Directory containing public Prydwen meta snapshots.")
     parser.add_argument("--box-dir", default=str(DEFAULT_BOX_DIR), help="Directory containing roster probe JSON files.")
     parser.add_argument("--value-dir", default=str(DEFAULT_BOX_VALUE_DIR), help="Directory containing box value report outputs.")

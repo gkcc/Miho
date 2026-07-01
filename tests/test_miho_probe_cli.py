@@ -580,6 +580,38 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_scope: local_files_only_no_ocr_no_network", text)
             self.assertIn("box_status_readiness: ready_for_box_value_from_image", text)
 
+    def test_box_status_default_does_not_treat_figs_as_box_overview_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            exported = root / "exported_images"
+            figs = root / "figs"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            for path in (exported, figs, meta, box, value):
+                path.mkdir()
+            (figs / "character_share.jpg").write_bytes(b"fake character share image")
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+
+            with (
+                mock.patch.object(cli_tool, "DEFAULT_EXPORTED_IMAGES_DIR", exported),
+                mock.patch.object(cli_tool, "DEFAULT_FIGS_DIR", figs),
+            ):
+                report = cli_tool.build_box_status(
+                    argparse.Namespace(
+                        image_dir=[],
+                        meta_dir=str(meta),
+                        box_dir=str(box),
+                        value_dir=str(value),
+                        max_items=8,
+                    )
+                )
+
+            self.assertEqual(report["readiness"], "needs_box_image")
+            self.assertEqual(report["counts"]["image_candidate_count"], 0)
+            self.assertEqual(report["inputs"]["image_dirs"], [str(exported)])
+            self.assertNotIn("character_share.jpg", json.dumps(report, ensure_ascii=False))
+
     def test_run_box_roster_uses_redacted_probe_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
