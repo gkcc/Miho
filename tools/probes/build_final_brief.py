@@ -289,9 +289,83 @@ def status_from_cards(cards: list[dict[str, Any]], trusted_ready_count: int, dat
     return "blocked"
 
 
+SUMMARY_LABELS = [
+    ("accepted_character_count", "已确认角色"),
+    ("pending_review_count", "待复核快照"),
+    ("ready_now_target_count", "可直接尝试目标"),
+    ("needs_review_target_count", "需先复核目标"),
+    ("needs_recording_target_count", "需补录目标"),
+    ("watch_only_target_count", "仅观察目标"),
+    ("trusted_plan_count", "可信方案"),
+    ("warning_plan_count", "需留意方案"),
+    ("roster_delta_change_count", "角色库变化"),
+    ("tier_watch_entry_count", "保值观察条目"),
+    ("refresh_status", "刷新状态"),
+    ("needs_demo_refresh", "需要重跑演示"),
+    ("hidden_card_count", "折叠行动"),
+]
+
+
+CARD_TYPE_LABELS = {
+    "data_warning": "先处理数据一致性",
+    "try_now": "按清单试一次",
+    "review_snapshot": "复核解析快照",
+    "record_character": "补录角色分享图",
+    "watch_only": "仅观察",
+}
+
+
+STATUS_LABELS = {
+    "ready": "可继续",
+    "ready_with_pending": "可继续，但仍有待复核",
+    "needs_review": "需先复核",
+    "blocked": "已阻断",
+    "fresh": "新鲜",
+    "not_applied": "未应用",
+    "stale_after_apply": "应用后已过期",
+    "unknown": "未知",
+}
+
+
+TEXT_REPLACEMENTS = (
+    ("Safe apply", "安全应用"),
+    ("accepted roster", "已确认角色库"),
+    ("pending snapshot", "待确认快照"),
+    ("catalog candidate", "目录候选"),
+    ("try_now", "可尝试项"),
+    ("watch_only", "仅观察"),
+    ("ready_now", "可直接尝试"),
+    ("trusted", "可信"),
+    ("refresh_status", "刷新状态"),
+    ("run_manifest", "运行清单"),
+    ("demo pipeline", "本地演示流程"),
+    ("apply", "应用"),
+)
+
+
+def label_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    return str(STATUS_LABELS.get(value, value))
+
+
+def label_card_type(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return CARD_TYPE_LABELS.get(text, text or "行动")
+
+
+def human_text(value: Any) -> str:
+    text = str(value or "")
+    for old, new in TEXT_REPLACEMENTS:
+        text = text.replace(old, new)
+    return text
+
+
 def render_markdown(brief: dict[str, Any]) -> str:
     lines = [
         "# 今日作战简报",
+        "",
+        f"当前状态：{label_value(brief.get('brief_status'))}",
         "",
         "## 今天先做什么",
         "",
@@ -302,19 +376,20 @@ def render_markdown(brief: dict[str, Any]) -> str:
     for item in cards:
         if not isinstance(item, dict):
             continue
-        lines.append(f"- [{item.get('card_type')}] {item.get('title')}: {item.get('reason')}")
-    lines.extend(["", "## Summary", ""])
+        lines.append(f"- {label_card_type(item.get('card_type'))}：{human_text(item.get('title'))}。{human_text(item.get('reason'))}")
+    lines.extend(["", "## 概览", ""])
     summary = brief.get("summary") if isinstance(brief.get("summary"), dict) else {}
-    for key, value in summary.items():
-        lines.append(f"- {key}: {value}")
+    for key, label in SUMMARY_LABELS:
+        if key in summary:
+            lines.append(f"- {label}: {label_value(summary.get(key))}")
     red_flags = as_list(brief.get("red_flags"))
     if red_flags:
-        lines.extend(["", "## Red Flags", ""])
+        lines.extend(["", "## 需要注意", ""])
         for item in red_flags:
-            lines.append(f"- {item}")
+            lines.append(f"- {human_text(item)}")
     commands = as_list(brief.get("next_commands"))
     if commands:
-        lines.extend(["", "## Next Commands", ""])
+        lines.extend(["", "## 下一步命令", ""])
         for item in commands:
             lines.append(f"- `{item}`")
     return "\n".join(lines) + "\n"
