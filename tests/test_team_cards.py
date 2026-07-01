@@ -185,8 +185,17 @@ class TeamCardTests(unittest.TestCase):
 
             markdown = Path(result["output_md"]).read_text(encoding="utf-8")
             self.assertIn("高难配队候选卡", markdown)
-            self.assertIn("catalog candidate 不代表已拥有", markdown)
-            self.assertIn("pending snapshot 尚未进入 accepted roster", markdown)
+            self.assertIn("## 概览", markdown)
+            self.assertIn("## 队伍卡", markdown)
+            self.assertIn("队伍状态: 需先复核", markdown)
+            self.assertIn("来源 待确认快照", markdown)
+            self.assertIn("目录候选不代表已拥有", markdown)
+            self.assertIn("待确认快照 尚未进入 已确认角色库", markdown)
+            self.assertNotIn("## Summary", markdown)
+            self.assertNotIn("## Team Cards", markdown)
+            self.assertNotIn("team_status:", markdown)
+            self.assertNotIn("source_class", markdown)
+            self.assertNotIn("accepted roster", markdown)
 
     def test_roster_index_controls_which_snapshots_count_as_owned(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

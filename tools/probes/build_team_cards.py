@@ -471,46 +471,119 @@ def summary_for(cards: list[dict[str, Any]], planner_report: dict[str, Any]) -> 
     }
 
 
+SUMMARY_LABELS = [
+    ("target_count", "目标数"),
+    ("team_card_count", "队伍卡"),
+    ("playable_now_count", "当前可用"),
+    ("needs_recording_count", "需补录"),
+    ("catalog_candidate_count", "目录候选"),
+    ("pending_snapshot_count", "待确认快照"),
+    ("accepted_high_value_member_count", "已确认高保值成员"),
+    ("high_value_playable_team_count", "高保值可用队伍"),
+    ("stale_meta_count", "过期保值观察"),
+    ("unverified_meta_count", "未验证保值观察"),
+]
+
+
+STATUS_LABELS = {
+    "playable_now": "当前可用",
+    "needs_review": "需先复核",
+    "needs_recording": "需补录",
+    "needs_candidate_confirmation": "需确认候选",
+    "watch_only": "仅观察",
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+    "owned_snapshot": "已确认快照",
+    "pending_snapshot": "待确认快照",
+    "catalog_candidate": "目录候选",
+    "catalog_owned_missing_snapshot": "目录已拥有但缺快照",
+    "accepted_roster": "已确认角色库",
+    "verified": "已验证",
+    "stale": "已过期",
+    "unverified": "未验证",
+    "invalid_source": "来源无效",
+    "low_trust": "低信任",
+    "owned_high_value": "已有高保值",
+    "protect_investment": "保护当前投入",
+    "non_owned_watch_only": "未拥有，仅观察",
+    "watch_candidate": "观察候选",
+}
+
+
+TEXT_REPLACEMENTS = (
+    ("accepted roster", "已确认角色库"),
+    ("pending snapshot", "待确认快照"),
+    ("catalog candidate", "目录候选"),
+    ("catalog", "目录"),
+    ("normalized snapshot", "标准化快照"),
+    ("stale/unverified", "过期或未验证"),
+    ("Tier/保值观察", "保值观察"),
+    ("tier 信号", "保值信号"),
+    ("tier", "保值观察"),
+    ("team rank", "队伍排序"),
+)
+
+
+def label_status(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return STATUS_LABELS.get(text, text or "未知")
+
+
+def human_text(value: Any) -> str:
+    text = str(value or "")
+    for old, new in TEXT_REPLACEMENTS:
+        text = text.replace(old, new)
+    return text
+
+
 def render_markdown(team_report: dict[str, Any]) -> str:
     lines = [
         "# 高难配队候选卡",
         "",
-        "队伍候选基于 accepted roster、本地快照和本地 catalog；catalog candidate 不代表已拥有。",
+        "队伍候选基于已确认角色库、本地快照和本地目录；目录候选不代表已拥有。",
         "",
-        "## Summary",
+        "## 概览",
         "",
     ]
-    for key, value in team_report.get("summary", {}).items():
-        lines.append(f"- {key}: {value}")
-    lines.extend(["", "## Team Cards", ""])
+    summary = team_report.get("summary") if isinstance(team_report.get("summary"), dict) else {}
+    for key, label in SUMMARY_LABELS:
+        if key in summary:
+            lines.append(f"- {label}: {summary.get(key)}")
+    lines.extend(["", "## 队伍卡", ""])
     for card in team_report.get("cards", []):
         evidence = card.get("evidence") if isinstance(card.get("evidence"), dict) else {}
         team_value = card.get("team_value") if isinstance(card.get("team_value"), dict) else {}
         lines.extend(
             [
                 f"### #{card.get('rank')} {card.get('team_title')}",
-                f"- target: {card.get('target')}",
-                f"- team_status: {card.get('team_status')}",
-                f"- target_priority: {card.get('target_priority')}",
-                f"- coverage_reason: {card.get('coverage_reason')}",
-                f"- target_source: {evidence.get('target_source') or 'N/A'}",
-                f"- target_hash: {evidence.get('target_hash') or 'N/A'}",
-                f"- team_value: high={team_value.get('accepted_high_value_members', 0)} stale={team_value.get('stale_meta_count', 0)} unverified={team_value.get('unverified_meta_count', 0)}",
-                "- members:",
+                f"- 目标: {card.get('target')}",
+                f"- 队伍状态: {label_status(card.get('team_status'))}",
+                f"- 目标优先级: {label_status(card.get('target_priority'))}",
+                f"- 覆盖说明: {human_text(card.get('coverage_reason'))}",
+                f"- 目标来源: {evidence.get('target_source') or 'N/A'}",
+                f"- 目标校验: {evidence.get('target_hash') or 'N/A'}",
+                f"- 队伍保值: 已确认高保值 {team_value.get('accepted_high_value_members', 0)}；过期 {team_value.get('stale_meta_count', 0)}；未验证 {team_value.get('unverified_meta_count', 0)}",
+                "- 成员:",
             ]
         )
         for member in card.get("members", []):
             if isinstance(member, dict):
+                tier_signal = member.get("tier_signal") if isinstance(member.get("tier_signal"), dict) else {}
+                tier_bits = []
+                if tier_signal:
+                    tier_bits.append(f"评级 {tier_signal.get('tier') or 'N/A'}")
+                    tier_bits.append(label_status(tier_signal.get("entry_status") or "verified"))
                 lines.append(
                     f"  - {member.get('slot')}: {member.get('character')} "
-                    f"({member.get('source_class')}, {member.get('confidence')}, "
-                    f"tier={(member.get('tier_signal') or {}).get('tier') if isinstance(member.get('tier_signal'), dict) else 'N/A'})"
+                    f"（来源 {label_status(member.get('source_class'))}；可信度 {label_status(member.get('confidence'))}；"
+                    f"保值观察 {' / '.join(tier_bits) if tier_bits else 'N/A'}）"
                 )
         warnings = card.get("warnings") if isinstance(card.get("warnings"), list) else []
         if warnings:
-            lines.append("- warnings:")
+            lines.append("- 提醒:")
             for warning in warnings:
-                lines.append(f"  - {warning}")
+                lines.append(f"  - {human_text(warning)}")
         lines.append("")
     return "\n".join(lines)
 
