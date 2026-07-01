@@ -702,8 +702,8 @@ class DoctorLauncherTests(unittest.TestCase):
             self.assertTrue(refreshed_summary["launcher_report"]["dashboard_refresh"]["summary_updated"])
             self.assertTrue(refreshed_summary["launcher_report"]["dashboard_refresh"]["dashboard_rendered"])
             self.assertIn("启动器执行记录", dashboard_html)
-            self.assertIn("dashboard_rendered", dashboard_html)
-            self.assertIn("refreshed", dashboard_html)
+            self.assertIn("页面已渲染", dashboard_html)
+            self.assertIn("已刷新", dashboard_html)
 
     def test_refresh_dashboard_uses_explicit_summary_and_html_with_custom_launcher_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

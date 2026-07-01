@@ -227,6 +227,10 @@ def humanize_link_label(label: str) -> str:
         "review_log.json": "复核日志",
         "roster_delta.md": "练度变化说明",
         "roster_delta.json": "练度变化数据",
+        "launcher_report.md": "启动器执行说明",
+        "launcher_report.json": "启动器执行数据",
+        "history_json": "历史执行数据",
+        "history_md": "历史执行说明",
         "rank_check.html": "评级快检页",
         "rank_check.json": "评级快检数据",
         "miyoushe_export_workflow.html": "APP 导出流程页",
@@ -770,6 +774,11 @@ def human_status(value: Any) -> str:
         "accepted": "已接收",
         "rejected": "已拒绝",
         "validated": "已校验",
+        "executed": "已执行",
+        "executed_with_followup_warning": "已执行，后续诊断有警告",
+        "printed": "仅打印命令",
+        "refreshed": "已刷新",
+        "current": "当前",
         "ready_with_override": "可人工确认应用",
         "blocked": "已阻断",
         "warning": "有警告",
@@ -786,6 +795,21 @@ def human_status(value: Any) -> str:
         "n/a": "无",
     }
     return labels.get(text, str(value or "N/A"))
+
+
+def launcher_state_label(value: Any) -> str:
+    text = str(value or "").lower()
+    labels = {
+        "current": "匹配当前页面",
+        "stale": "历史记录",
+        "unknown": "无法确认",
+        "follow_up_current": "后续诊断匹配当前页面",
+        "initial_current": "启动前诊断匹配当前页面",
+        "follow_up": "后续诊断",
+        "initial_doctor": "启动前诊断",
+        "missing": "缺失",
+    }
+    return labels.get(text, human_status(value))
 
 
 def brief_card_type_label(value: Any) -> str:
@@ -1418,18 +1442,18 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
     freshness_note = ""
     if freshness == "stale":
         freshness_note = (
-            '<div class="errors"><strong>历史 launcher report，仅供审计</strong>'
-            "<ul><li>该 launcher report 不对应当前 demo_doctor；请重新运行 doctor_launcher 或打开 history report 审计，不要按其中 follow-up 下一步执行。</li></ul></div>"
+            '<div class="errors"><strong>历史启动器记录，仅供审计</strong>'
+            "<ul><li>该启动器记录不对应当前状态诊断；请重新运行安全启动器，或打开历史记录审计，不要按其中后续诊断执行。</li></ul></div>"
         )
     elif freshness == "unknown":
         freshness_note = (
-            '<div class="warnings"><strong>launcher report freshness 未知</strong>'
-            "<ul><li>当前无法证明该 launcher report 对应本次 Dashboard；只按历史记录审计，不把 follow-up 当成当前操作建议。</li></ul></div>"
+            '<div class="warnings"><strong>启动器记录归属未知</strong>'
+            "<ul><li>当前无法证明该启动器记录对应本次页面；只按历史记录审计，不把后续诊断当成当前操作建议。</li></ul></div>"
         )
     elif report.get("report_is_initial_doctor_state"):
         freshness_note = (
-            '<div class="warnings"><strong>launcher report 匹配启动前 doctor</strong>'
-            "<ul><li>该 report 与当前 demo_doctor 匹配，但匹配的是 initial doctor 状态；follow-up 仅供审计，不能当成当前操作建议。</li></ul></div>"
+            '<div class="warnings"><strong>启动器记录匹配启动前诊断</strong>'
+            "<ul><li>该记录与当前状态诊断匹配，但匹配的是启动前状态；后续诊断仅供审计，不能当成当前操作建议。</li></ul></div>"
         )
     status_note = ""
     if freshness_current and status == "blocked":
@@ -1439,8 +1463,8 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
         )
     elif freshness_current and status == "executed_with_followup_warning":
         status_note = (
-            '<div class="warnings"><strong>重跑完成但 follow-up 需要复核</strong>'
-            "<ul><li>先检查 warnings、blockers 和 follow-up 状态，不要把它当成可直接操作的命令。</li></ul></div>"
+            '<div class="warnings"><strong>重跑完成但后续诊断需要复核</strong>'
+            "<ul><li>先检查警告、阻断项和后续诊断状态，不要把它当成可直接操作的命令。</li></ul></div>"
         )
     elif freshness_current and status == "executed":
         status_note = (
@@ -1463,7 +1487,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
         )
     elif follow_action and follow_action != "N/A":
         follow_note = (
-            '<div class="warnings"><strong>follow-up 下一步</strong>'
+            '<div class="warnings"><strong>后续诊断下一步</strong>'
             f"<ul><li>{e(action_label(follow_action))}</li></ul></div>"
         )
     if report.get("error"):
@@ -1471,7 +1495,7 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel launcher-report">
       <h2>启动器执行记录</h2>
-      <p class="muted-line">只读展示 latest launcher report：它说明启动器刚才做了什么、有没有阻断、follow-up doctor 是否可信。这里没有执行入口。</p>
+      <p class="muted-line">只读展示最近一次启动器记录：它说明启动器刚才做了什么、有没有阻断、后续诊断是否可信。这里没有执行入口。</p>
       <div class="links">
         {link("launcher_report.md", report.get("output_md"))}
         {link("launcher_report.json", report.get("output_json") or report.get("report_path"))}
@@ -1479,38 +1503,38 @@ def render_launcher_report(summary: dict[str, Any]) -> str:
         {link("history_md", report.get("output_history_md"))}
       </div>
       <div class="input-grid">
-        <div><span>launcher_status</span><strong>{e(status)}</strong></div>
-        <div><span>launcher report freshness</span><strong>{e(freshness)}</strong></div>
-        <div><span>matches_current_doctor</span><strong>{e(bool_text(report.get("matches_current_doctor")))}</strong></div>
-        <div><span>follow_up_matches_current_doctor</span><strong>{e(bool_text(report.get("follow_up_matches_current_doctor")))}</strong></div>
-        <div><span>operation_state</span><strong>{e(operation_state)}</strong></div>
-        <div><span>freshness_match_source</span><strong>{e(report.get("freshness_match_source") or "N/A")}</strong></div>
-        <div><span>executed</span><strong>{e(bool_text(report.get("executed")))}</strong></div>
-        <div><span>returncode</span><strong>{e(report.get("returncode") if report.get("returncode") is not None else "N/A")}</strong></div>
-        <div><span>command_script_resolved</span><strong>{e(report.get("command_script_resolved") or "N/A")}</strong></div>
-        <div><span>rerun_started_at</span><strong>{e(report.get("rerun_started_at") or "N/A")}</strong></div>
-        <div><span>rerun_finished_at</span><strong>{e(report.get("rerun_finished_at") or "N/A")}</strong></div>
-        <div><span>dashboard_refresh</span><strong>{e(dashboard_refresh.get("status") or "N/A")}</strong></div>
-        <div><span>summary_updated</span><strong>{e(bool_text(dashboard_refresh.get("summary_updated")))}</strong></div>
-        <div><span>dashboard_rendered</span><strong>{e(bool_text(dashboard_refresh.get("dashboard_rendered")))}</strong></div>
-        <div><span>current_demo_doctor_sha256</span><strong>{e(report.get("current_demo_doctor_sha256") or "N/A")}</strong></div>
-        <div><span>report.initial_doctor_sha256</span><strong>{e(report.get("report_initial_doctor_sha256") or "N/A")}</strong></div>
-        <div><span>report.follow_up.sha256</span><strong>{e(report.get("report_follow_up_sha256") or "N/A")}</strong></div>
-        <div><span>follow_up.loaded</span><strong>{e(bool_text(follow_up.get("loaded")))}</strong></div>
-        <div><span>follow_up.doctor_status</span><strong>{e(follow_up.get("doctor_status") or "N/A")}</strong></div>
-        <div><span>follow_up.primary_next_action</span><strong>{e(action_label(follow_action))}</strong></div>
-        <div><span>follow_up.try_now_allowed</span><strong>{e(bool_text(follow_up.get("try_now_allowed")))}</strong></div>
-        <div><span>follow-up 严格状态</span><strong>{e(human_status(follow_up.get("strict_status") or "N/A"))}</strong></div>
-        <div><span>follow_up.updated_after_rerun</span><strong>{e(bool_text(follow_up.get("updated_after_rerun")))}</strong></div>
+        <div><span>启动器状态</span><strong>{e(human_status(status))}</strong></div>
+        <div><span>记录归属</span><strong>{e(launcher_state_label(freshness))}</strong></div>
+        <div><span>匹配当前诊断</span><strong>{e(bool_text(report.get("matches_current_doctor")))}</strong></div>
+        <div><span>后续诊断匹配当前页面</span><strong>{e(bool_text(report.get("follow_up_matches_current_doctor")))}</strong></div>
+        <div><span>操作记录来源</span><strong>{e(launcher_state_label(operation_state))}</strong></div>
+        <div><span>匹配依据</span><strong>{e(launcher_state_label(report.get("freshness_match_source") or "N/A"))}</strong></div>
+        <div><span>是否已执行</span><strong>{e(bool_text(report.get("executed")))}</strong></div>
+        <div><span>返回码</span><strong>{e(report.get("returncode") if report.get("returncode") is not None else "N/A")}</strong></div>
+        <div><span>执行脚本路径</span><strong>{e(report.get("command_script_resolved") or "N/A")}</strong></div>
+        <div><span>重跑开始时间</span><strong>{e(report.get("rerun_started_at") or "N/A")}</strong></div>
+        <div><span>重跑结束时间</span><strong>{e(report.get("rerun_finished_at") or "N/A")}</strong></div>
+        <div><span>页面刷新状态</span><strong>{e(human_status(dashboard_refresh.get("status") or "N/A"))}</strong></div>
+        <div><span>摘要已更新</span><strong>{e(bool_text(dashboard_refresh.get("summary_updated")))}</strong></div>
+        <div><span>页面已渲染</span><strong>{e(bool_text(dashboard_refresh.get("dashboard_rendered")))}</strong></div>
+        <div><span>当前诊断校验</span><strong>{e(report.get("current_demo_doctor_sha256") or "N/A")}</strong></div>
+        <div><span>启动前诊断校验</span><strong>{e(report.get("report_initial_doctor_sha256") or "N/A")}</strong></div>
+        <div><span>后续诊断校验</span><strong>{e(report.get("report_follow_up_sha256") or "N/A")}</strong></div>
+        <div><span>后续诊断已读取</span><strong>{e(bool_text(follow_up.get("loaded")))}</strong></div>
+        <div><span>后续诊断状态</span><strong>{e(human_status(follow_up.get("doctor_status") or "N/A"))}</strong></div>
+        <div><span>后续下一步</span><strong>{e(action_label(follow_action))}</strong></div>
+        <div><span>后续允许尝试</span><strong>{e(bool_text(follow_up.get("try_now_allowed")))}</strong></div>
+        <div><span>后续严格状态</span><strong>{e(human_status(follow_up.get("strict_status") or "N/A"))}</strong></div>
+        <div><span>后续诊断已随重跑更新</span><strong>{e(bool_text(follow_up.get("updated_after_rerun")))}</strong></div>
       </div>
       {status_note}
       {follow_note}
-      {list_block("launcher blockers", blockers, "errors")}
-      {list_block("launcher warnings", warnings, "warnings")}
-      {list_block("freshness warnings", report.get("freshness_warnings") if isinstance(report.get("freshness_warnings"), list) else [], "warnings")}
-      {list_block("dashboard refresh warnings", dashboard_refresh.get("warnings") if isinstance(dashboard_refresh.get("warnings"), list) else [], "warnings")}
-      {list_block("follow-up warnings", follow_warnings, "warnings")}
-      {list_block("follow-up blockers", follow_blockers, "errors")}
+      {list_block("启动器阻断项", blockers, "errors")}
+      {list_block("启动器警告", warnings, "warnings")}
+      {list_block("记录归属警告", report.get("freshness_warnings") if isinstance(report.get("freshness_warnings"), list) else [], "warnings")}
+      {list_block("页面刷新警告", dashboard_refresh.get("warnings") if isinstance(dashboard_refresh.get("warnings"), list) else [], "warnings")}
+      {list_block("后续诊断警告", follow_warnings, "warnings")}
+      {list_block("后续诊断阻断项", follow_blockers, "errors")}
     </section>
     """
 
