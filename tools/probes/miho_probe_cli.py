@@ -1782,15 +1782,7 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     latest_image = images[0]["path"] if images else None
     latest_meta = metas[0]["path"] if metas else None
     latest_roster = rosters[0]["path"] if rosters else None
-    if latest_image and latest_meta:
-        next_command = (
-            "dist\\MihoProbe.exe box-value "
-            f"--box-image {shell_quote_path(latest_image)} "
-            f"--meta-snapshot {shell_quote_path(latest_meta)}"
-        )
-        readiness = "ready_for_box_value_from_image"
-        next_label = "可直接生成 box 价值报告"
-    elif latest_roster and latest_meta:
+    if latest_roster and latest_meta:
         next_command = (
             "dist\\MihoProbe.exe box-value "
             f"--roster-json {shell_quote_path(latest_roster)} "
@@ -1798,6 +1790,14 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
         )
         readiness = "ready_for_box_value_from_roster"
         next_label = "可用已生成 roster probe 跑价值报告"
+    elif latest_image and latest_meta:
+        next_command = (
+            "dist\\MihoProbe.exe box-value "
+            f"--box-image {shell_quote_path(latest_image)} "
+            f"--meta-snapshot {shell_quote_path(latest_meta)}"
+        )
+        readiness = "ready_for_box_value_from_image"
+        next_label = "可直接生成 box 价值报告"
     elif latest_image:
         next_command = f"dist\\MihoProbe.exe box-roster --image {shell_quote_path(latest_image)} --no-open"
         readiness = "needs_public_meta"

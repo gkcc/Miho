@@ -580,6 +580,37 @@ class MihoProbeCliTests(unittest.TestCase):
             self.assertIn("box_status_scope: local_files_only_no_ocr_no_network", text)
             self.assertIn("box_status_readiness: ready_for_box_value_from_image", text)
 
+    def test_box_status_prefers_existing_roster_over_rerunning_image_ocr(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            images = root / "exported_images"
+            meta = root / "meta"
+            box = root / "box"
+            value = root / "value"
+            for path in (images, meta, box, value):
+                path.mkdir()
+            (images / "zzz_box.png").write_bytes(b"fake")
+            (meta / "zzz_prydwen_meta_all_phases.json").write_text("{}", encoding="utf-8")
+            (box / "zzz_box_roster_from_box_image.json").write_text(
+                json.dumps({"characters": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            report = cli_tool.build_box_status(
+                argparse.Namespace(
+                    image_dir=[str(images)],
+                    meta_dir=str(meta),
+                    box_dir=str(box),
+                    value_dir=str(value),
+                    max_items=8,
+                )
+            )
+
+            self.assertEqual(report["readiness"], "ready_for_box_value_from_roster")
+            self.assertIn("--roster-json", report["next_command"])
+            self.assertNotIn("--box-image", report["next_command"])
+            self.assertTrue(report["safety"]["no_ocr"])
+
     def test_box_status_default_does_not_treat_figs_as_box_overview_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
