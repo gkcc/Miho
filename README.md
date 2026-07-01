@@ -98,7 +98,7 @@ dist\MihoProbe.exe check --no-open
 dist\MihoProbe.exe rank-check --no-open
 ```
 
-如果想从米游社官方 box 总览图看账号内代理人价值，先把 box 总览图放到 `data\probes\exported_images\`，再跑 `dist\MihoProbe.exe box-status` 看本地缺什么。输入齐了以后再跑：`dist\MihoProbe.exe box-value --box-image data\probes\exported_images\zzz_box.png --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json`。
+如果想从米游社官方 box 总览图看账号内代理人价值，先把 box 总览图放到 `data\probes\exported_images\`，再跑 `dist\MihoProbe.exe box-status` 看本地缺什么。`box-status` 会输出 `box_status_freshness`：新 roster 会用源图 hash 对齐最新 box 图，旧 roster 才会退回 mtime 判断。输入齐了以后再跑：`dist\MihoProbe.exe box-value --box-image data\probes\exported_images\zzz_box.png --meta-snapshot data\probes\meta\zzz_prydwen_meta_all_phases.json`。
 
 这条链路只读本地图片和公开 Prydwen 数据；不会登录、不会读 cookie/token、不会写正式数据库。图片识别出的 roster 仍是 probe 草案，人工确认前不能进入 accepted roster。
 

@@ -580,6 +580,8 @@ class MihoProbeCliTests(unittest.TestCase):
             text = output.getvalue()
             self.assertIn("box_status_scope: local_files_only_no_ocr_no_network", text)
             self.assertIn("box_status_readiness: ready_for_box_value_from_image", text)
+            self.assertIn("box_status_freshness: current_or_unknown", text)
+            self.assertIn("box_status_source_hash_checked: False", text)
 
     def test_box_status_prefers_existing_roster_over_rerunning_image_ocr(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -2017,8 +2017,11 @@ def run_box_status(args: argparse.Namespace) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     render_box_status_html(report, output_html)
+    freshness = report.get("freshness", {}) if isinstance(report.get("freshness"), dict) else {}
     print("box_status_scope: local_files_only_no_ocr_no_network", flush=True)
     print(f"box_status_readiness: {report['readiness']}", flush=True)
+    print(f"box_status_freshness: {freshness.get('status', 'unknown')}", flush=True)
+    print(f"box_status_source_hash_checked: {freshness.get('source_hash_checked', False)}", flush=True)
     print(f"box_status_next: {report['next_command']}", flush=True)
     print(f"box_status_json: {output_json}", flush=True)
     print(f"box_status_html: {output_html}", flush=True)

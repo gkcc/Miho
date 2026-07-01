@@ -187,6 +187,8 @@ class ReadmeEntrypointTests(unittest.TestCase):
         self.assertIn("dist\\MihoProbe.exe box-status", readme)
         self.assertIn("dist\\MihoProbe.exe box-roster", readme)
         self.assertIn("dist\\MihoProbe.exe box-value", readme)
+        self.assertIn("box_status_freshness", readme)
+        self.assertIn("源图 hash", readme)
         self.assertIn("dist\\MihoProbe.exe rank-check", readme)
         self.assertIn("--rescan-all", readme)
         self.assertIn("dist\\MihoProbe.exe check", readme)
