@@ -4,7 +4,7 @@ Miho 是一个本地优先的米哈游练度更新与规划工具。最终想做
 
 1. 米游社 APP 已打开且已登录时，一键按既定流程保存官方分享图。
 2. 本地解析练度、保留复核证据，并用 Dashboard 展示。
-3. 更新高难、Tier、保值观察和已有 box，给出“优先练高价值角色，顺手拿奖励”的配队建议。
+3. 更新高难、保值观察和已有 box，给出“优先练高价值角色，顺手拿奖励”的配队建议。
 
 现在还在 probe / demo 阶段，不是完整 Tauri 桌面应用。它不会自动登录，不读取 cookie/token，不控制游戏客户端，也不会把图片识别结果直接写入正式数据库。
 
@@ -50,7 +50,7 @@ scripts\install_miho_demo_shortcut.bat
 | 查看 APP 导出路线 | `MihoProbe App Export Workflow` 或 `dist\MihoProbe.exe app-export` | 生成官方分享图路线、readiness gates 和校准命令，不自动点击。 |
 | 生成 APP 坐标网格 | `dist\MihoProbe.exe app-export-calibrate` | 捕获米游社窗口网格截图，显示每一步需要填的 x/y。 |
 | 校准 APP 导出点击 | `dist\MihoProbe.exe app-export-run --no-open` | 读取校准清单，默认输出预检路线图；缺坐标会明确提示，不会点击。 |
-| 更新高难配队 | `MihoProbe Plan Update` 或 `dist\MihoProbe.exe plan-update` | 重算高难、Tier / 保值观察、行动卡和队伍卡；默认不联网。 |
+| 更新高难配队 | `MihoProbe Plan Update` 或 `dist\MihoProbe.exe plan-update` | 重算高难、保值观察、行动卡和队伍卡；默认不联网。 |
 | 检查 box 输入 | `MihoProbe Box Status` 或 `dist\MihoProbe.exe box-status` | 只读检查 box 图、公开 meta、roster probe 和价值报告，给出下一步命令。 |
 | 识别 box 总览 | `dist\MihoProbe.exe box-roster --image ... --no-open` | 从官方 box 总览图生成脱敏 roster probe；人工确认前不算 accepted roster。 |
 | 生成 box 价值报告 | `dist\MihoProbe.exe box-value --box-image ... --meta-snapshot ...` | 用本地 box 图或 roster JSON 加公开 Prydwen meta 生成价值报告。 |
@@ -129,7 +129,7 @@ dist\MihoProbe.exe update --rescan-all --open
 - 生成米游社官方分享图工作流、校准命令和人工复核路线。
 - 对 `figs\` 中新增或变更的分享图做本地解析。
 - 用 replay manifest 做解析准确率回归。
-- 默认本地重算高难、Tier / 保值观察、行动卡和队伍卡；显式公开 source manifest 只允许访问公开页面。
+- 默认本地重算高难、保值观察、行动卡和队伍卡；显式公开 source manifest 只允许访问公开页面。
 
 不能做：
 

@@ -2648,7 +2648,7 @@ def render_roster_delta(summary: dict[str, Any]) -> str:
         <div><span>移除提示</span><strong>{e(delta_summary.get("removed_character_count", "N/A"))}</strong></div>
         <div><span>未变化角色</span><strong>{e(delta_summary.get("unchanged_character_count", "N/A"))}</strong></div>
         <div><span>队伍影响</span><strong>{e(delta_summary.get("team_impact_count", "N/A"))}</strong></div>
-        <div><span>Tier 命中</span><strong>{e(delta_summary.get("tier_impact_count", "N/A"))}</strong></div>
+        <div><span>保值命中</span><strong>{e(delta_summary.get("tier_impact_count", "N/A"))}</strong></div>
       </div>
       {warning_block}
       {body}
@@ -2841,7 +2841,7 @@ def render_tier_watchlist(summary: dict[str, Any]) -> str:
         body = '<div class="plan-list">' + "".join(rows) + "</div>"
     return f"""
     <section class="panel">
-      <h2>Tier / 保值观察</h2>
+      <h2>保值观察</h2>
       <p class="muted-line">本区只读取本地保值观察快照和已确认角色库；它不是联网爬取，也不是抽取建议。过期或未验证条目只能作为弱参考。</p>
       <div class="links">
         {link("tier_watchlist.md", watchlist.get("output_md"))}
