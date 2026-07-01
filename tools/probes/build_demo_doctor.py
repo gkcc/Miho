@@ -128,6 +128,16 @@ def preview_accept_count(review_preview: dict[str, Any] | None) -> int:
     return int_value(summary.get("accept_count"))
 
 
+def preview_blocked_accept_count(review_preview: dict[str, Any] | None) -> int:
+    summary = review_preview.get("summary") if isinstance(review_preview, dict) and isinstance(review_preview.get("summary"), dict) else {}
+    return int_value(summary.get("blocked_accept_count"))
+
+
+def preview_override_accept_count(review_preview: dict[str, Any] | None) -> int:
+    summary = review_preview.get("summary") if isinstance(review_preview, dict) and isinstance(review_preview.get("summary"), dict) else {}
+    return int_value(summary.get("override_accept_count"))
+
+
 def preview_would_update_count(review_preview: dict[str, Any] | None) -> int:
     summary = review_preview.get("summary") if isinstance(review_preview, dict) and isinstance(review_preview.get("summary"), dict) else {}
     return int_value(summary.get("would_update_roster_count"))
@@ -408,6 +418,8 @@ def diagnose(
             "pending_review_count": pending_review_count(review_inbox),
             "ready_try_now_count": ready_try_now_count(action_checklist),
             "preview_accept_count": preview_accept_count(review_preview),
+            "preview_blocked_accept_count": preview_blocked_accept_count(review_preview),
+            "preview_override_accept_count": preview_override_accept_count(review_preview),
             "preview_would_update_roster_count": preview_would_update_count(review_preview),
             "run_manifest_exists": isinstance(run_manifest, dict),
             "demo_command_safe_to_rerun": command_safe,

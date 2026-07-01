@@ -53,12 +53,24 @@ def checklist(*, item_type: str = "try_now", item_status: str = "ready", ready_t
     }
 
 
-def preview(*, status: str = "missing", accept_count: int = 0, would_update: int = 0) -> dict:
+def preview(
+    *,
+    status: str = "missing",
+    accept_count: int = 0,
+    blocked_accept_count: int = 0,
+    override_accept_count: int = 0,
+    would_update: int = 0,
+) -> dict:
     return {
         "schema_version": "p2.3-lite-review-decision-preview",
         "preview_status": status,
         "input": {"decision_manifest_sha256": "decision-hash"},
-        "summary": {"accept_count": accept_count, "would_update_roster_count": would_update},
+        "summary": {
+            "accept_count": accept_count,
+            "blocked_accept_count": blocked_accept_count,
+            "override_accept_count": override_accept_count,
+            "would_update_roster_count": would_update,
+        },
     }
 
 
@@ -125,9 +137,34 @@ class DemoDoctorTests(unittest.TestCase):
         self.assertEqual(result["evidence_check"]["status"], "warning")
         self.assertEqual(result["evidence_check"]["strict_status"], "needs_apply")
         self.assertIn("apply_receipt_missing_for_ready_preview", result["evidence_check"]["warnings"])
+        self.assertEqual(result["summary"]["preview_accept_count"], 1)
+        self.assertEqual(result["summary"]["preview_blocked_accept_count"], 0)
+        self.assertEqual(result["summary"]["preview_override_accept_count"], 0)
+        self.assertEqual(result["summary"]["preview_would_update_roster_count"], 1)
         self.assertFalse(result["action_contract"]["allowed_for_launcher"])
         self.assertTrue(result["action_contract"]["writes_roster"])
         self.assertTrue(result["action_contract"]["requires_manual_confirmation"])
+
+    def test_doctor_summary_carries_preview_blocked_and_override_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            result = self.build(
+                root,
+                refresh_status=refresh("fresh"),
+                action_checklist=checklist(item_type="review_snapshot"),
+                review_preview=preview(
+                    status="blocked",
+                    accept_count=3,
+                    blocked_accept_count=2,
+                    override_accept_count=1,
+                    would_update=1,
+                ),
+                run_manifest={"schema_version": "run"},
+            )
+        self.assertEqual(result["summary"]["preview_accept_count"], 3)
+        self.assertEqual(result["summary"]["preview_blocked_accept_count"], 2)
+        self.assertEqual(result["summary"]["preview_override_accept_count"], 1)
+        self.assertEqual(result["summary"]["preview_would_update_roster_count"], 1)
 
     def test_apply_receipt_missing_preview_hash_needs_apply(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

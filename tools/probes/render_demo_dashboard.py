@@ -82,6 +82,10 @@ def humanize_text(value: Any) -> str:
         ("normalized_json_sha256 mismatch", "标准化结果校验不一致"),
         ("normalized_json is not in current review_inbox.pending", "标准化结果不在当前待复核收件箱"),
         ("quality blockers 存在，accept 前需要填写 note 或 override_reason。", "该快照还有质量阻断项，接收前需要写明人工说明或覆盖原因。"),
+        (
+            "quality blockers 由 note/override_reason 解释，仅作为 dry-run 预览。",
+            "该快照有质量提示，已填写人工说明；这里只是预览，应用前仍需人工确认。",
+        ),
         ("demo rerun command is safe to print", "演示重跑命令可安全展示"),
         ("official account data", "官方账号数据"),
         ("tokens/cookies/login state", "登录态、令牌或 Cookie"),
@@ -748,6 +752,7 @@ def human_status(value: Any) -> str:
         "needs_apply": "需应用复核",
         "not_applied": "未应用",
         "applied": "已应用",
+        "ready_with_override": "可人工确认应用",
         "blocked": "已阻断",
         "warning": "有警告",
         "trusted": "可信",
@@ -1250,6 +1255,10 @@ def render_demo_doctor(summary: dict[str, Any]) -> str:
         <div><span>需人工确认</span><strong>{e(bool_text(action_contract.get("requires_manual_confirmation")))}</strong></div>
         <div><span>待复核快照</span><strong>{e(doctor_summary.get("pending_review_count", "N/A"))}</strong></div>
         <div><span>可尝试项</span><strong>{e(doctor_summary.get("ready_try_now_count", "N/A"))}</strong></div>
+        <div><span>预览接收</span><strong>{e(doctor_summary.get("preview_accept_count", "N/A"))}</strong></div>
+        <div><span>阻断接收</span><strong>{e(doctor_summary.get("preview_blocked_accept_count", "N/A"))}</strong></div>
+        <div><span>人工说明接收</span><strong>{e(doctor_summary.get("preview_override_accept_count", "N/A"))}</strong></div>
+        <div><span>将写入角色库</span><strong>{e(doctor_summary.get("preview_would_update_roster_count", "N/A"))}</strong></div>
         <div><span>运行清单</span><strong>{e(bool_text(doctor_summary.get("run_manifest_exists")))}</strong></div>
       </div>
       {status_copy}
@@ -2174,7 +2183,7 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
         "复核命令（确认后再复制）",
         [
             ("预览命令", checklist.get("preview_command")),
-            (f"应用命令：{safe_apply}", safe_command),
+            (f"应用命令：{human_status(safe_apply)}", safe_command),
         ],
     )
     return f"""

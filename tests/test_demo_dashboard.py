@@ -547,8 +547,12 @@ class DemoDashboardTests(unittest.TestCase):
         html = dashboard_tool.render_html(summary)
 
         self.assertIn("复核预览带人工说明", html)
-        self.assertIn("ready_with_override", html)
-        self.assertIn("应用命令：ready_with_override", html)
+        self.assertIn("可人工确认应用", html)
+        self.assertIn("应用命令：可人工确认应用", html)
+        self.assertIn("该快照有质量提示，已填写人工说明", html)
+        self.assertNotIn("ready_with_override", html)
+        self.assertNotIn("note/override_reason", html)
+        self.assertNotIn("dry-run 预览", html)
         self.assertNotIn("应用命令：not_applied", html)
 
     def test_dashboard_shows_final_brief_before_details(self) -> None:
@@ -586,7 +590,9 @@ class DemoDashboardTests(unittest.TestCase):
                     "apply_status": "applied",
                     "pending_review_count": 0,
                     "ready_try_now_count": 1,
-                    "preview_accept_count": 0,
+                    "preview_accept_count": 2,
+                    "preview_blocked_accept_count": 1,
+                    "preview_override_accept_count": 1,
                     "preview_would_update_roster_count": 1,
                     "run_manifest_exists": True,
                     "demo_command_safe_to_rerun": True,
@@ -783,6 +789,10 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("不建议直接尝试", html)
         self.assertIn("诊断证据", html)
         self.assertIn("严格状态", html)
+        self.assertIn("预览接收", html)
+        self.assertIn("阻断接收", html)
+        self.assertIn("人工说明接收", html)
+        self.assertIn("将写入角色库", html)
         self.assertIn("needs_apply", html)
         self.assertIn("动作边界说明", html)
         self.assertIn("启动器允许", html)

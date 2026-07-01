@@ -417,7 +417,7 @@ data/probes/demo/snapshot_history/index.json
 
 `index.html` 是单文件静态 Dashboard，可以直接双击打开。Dashboard 会展示：
 
-* 顶部“当前状态诊断”：先判断下一步是重跑 demo、人工复核、safe apply，还是可以按执行清单 try_now；同时显示 `诊断证据=trusted/warning/blocked`、`strict_status=trusted/needs_apply/blocked` 和 `action_contract`；
+* 顶部“当前状态诊断”：先判断下一步是重跑 demo、人工复核、safe apply，还是可以按执行清单 try_now；同时显示 `诊断证据=trusted/warning/blocked`、`strict_status=trusted/needs_apply/blocked`、preview 接收/阻断/人工说明计数和 `action_contract`；
 * 图片 / parsed case 数；
 * 当前输入模式：`OCR fresh image mode`、`parsed replay mode` 或 `manifest controlled mode`；
 * parsed-dir 模式下发现了多少历史 parsed JSON、实际使用了多少；
