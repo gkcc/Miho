@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 
@@ -188,6 +190,36 @@ class AgentValueCardsTests(unittest.TestCase):
         team = summary["current_endgame_teams"]["deadly_assault"]["recommended_team"]
         self.assertEqual(team["member_names"], ["朱鸢", "青衣", "妮可"])
         self.assertTrue(summary["policy_notes"])
+
+    def test_value_report_marks_roster_probe_needing_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            meta_path = root / "meta.json"
+            roster_path = root / "roster.json"
+            output_dir = root / "value"
+            meta_path.write_text(json.dumps(mock_meta(), ensure_ascii=False), encoding="utf-8")
+            roster_path.write_text(
+                json.dumps(
+                    {
+                        "summary": {"needs_review_count": 1},
+                        "agents": [
+                            {"name": "青衣", "level": 60, "mindscape": 1, "review_status": "needs_review"}
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = value_tool.build_agent_value_report(meta_path, roster_path, output_dir)
+
+            self.assertEqual(result["roster_quality"]["status"], "needs_review")
+            self.assertEqual(result["roster_quality"]["needs_review_count"], 1)
+            self.assertTrue(result["roster_quality"]["manual_confirmation_required_before_accepted_roster"])
+            self.assertIn("人工确认前不得进入 accepted roster", " ".join(result["warnings"]))
+            markdown = Path(result["output_markdown"]).read_text(encoding="utf-8")
+            self.assertIn("roster_quality: needs_review", markdown)
+            self.assertIn("roster_needs_review_count: 1", markdown)
 
 
 if __name__ == "__main__":

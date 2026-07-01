@@ -167,6 +167,24 @@ def map_roster_agents(roster: dict[str, Any], tier_entries: dict[str, dict[str, 
     return mapped, unmapped
 
 
+def roster_quality(roster: dict[str, Any]) -> dict[str, Any]:
+    summary = roster.get("summary") if isinstance(roster.get("summary"), dict) else {}
+    agents = roster.get("agents") if isinstance(roster.get("agents"), list) else []
+    counted_review = sum(
+        1
+        for item in agents
+        if isinstance(item, dict) and str(item.get("review_status") or "ok") != "ok"
+    )
+    needs_review_count = int(safe_float(summary.get("needs_review_count"), counted_review))
+    if needs_review_count == 0 and counted_review:
+        needs_review_count = counted_review
+    return {
+        "status": "needs_review" if needs_review_count else "ok",
+        "needs_review_count": needs_review_count,
+        "manual_confirmation_required_before_accepted_roster": True,
+    }
+
+
 def max_tier_rating(entry: dict[str, Any] | None) -> tuple[float, list[str], list[str]]:
     if not entry:
         return 0.0, [], []
@@ -667,6 +685,8 @@ def render_markdown(result: dict[str, Any]) -> str:
         f"generated_at: {result.get('generated_at')}",
         f"owned_count: {result.get('summary', {}).get('owned_count')}",
         f"unmapped_count: {result.get('summary', {}).get('unmapped_count')}",
+        f"roster_quality: {result.get('roster_quality', {}).get('status', 'unknown')}",
+        f"roster_needs_review_count: {result.get('roster_quality', {}).get('needs_review_count', 0)}",
         "",
         "## 一屏结论",
         "",
@@ -756,9 +776,17 @@ def render_markdown(result: dict[str, Any]) -> str:
 def build_agent_value_report(meta_snapshot: Path, roster_json: Path, output_dir: Path) -> dict[str, Any]:
     meta = load_json(meta_snapshot)
     roster = load_json(roster_json)
+    quality = roster_quality(roster)
     values, summary = build_agent_values(meta=meta, roster=roster)
     recommendations = build_team_recommendations(meta, values)
     executive_summary = build_executive_summary(values, recommendations)
+    warnings = [
+        "该报告不读取账号、cookie 或 token。",
+        "box 图不能证明音擎、驱动盘、技能等级或毕业度。",
+        "Prydwen appearance rate 是公开使用信号，不是持有率或抽取价值。",
+    ]
+    if quality["status"] == "needs_review":
+        warnings.append("roster probe 仍有待复核识别项；人工确认前不得进入 accepted roster，也不能当作最终已拥有 box。")
     result = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": now_iso(),
@@ -766,15 +794,12 @@ def build_agent_value_report(meta_snapshot: Path, roster_json: Path, output_dir:
             "meta_snapshot": str(meta_snapshot),
             "roster_json": str(roster_json),
         },
+        "roster_quality": quality,
         "summary": summary,
         "executive_summary": executive_summary,
         "agent_values": values,
         "team_recommendations": recommendations,
-        "warnings": [
-            "该报告不读取账号、cookie 或 token。",
-            "box 图不能证明音擎、驱动盘、技能等级或毕业度。",
-            "Prydwen appearance rate 是公开使用信号，不是持有率或抽取价值。",
-        ],
+        "warnings": warnings,
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     output_json = output_dir / "agent_value_cards.json"
