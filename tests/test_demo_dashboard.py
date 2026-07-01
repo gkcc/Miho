@@ -226,6 +226,51 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertEqual(dashboard_tool.human_status("applied_with_warnings"), "已应用，有警告")
         self.assertIn("已应用，有警告", dashboard_tool.render_review_inbox(summary))
 
+    def test_review_apply_panel_uses_reader_friendly_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["review_apply"] = {
+            "apply_status": "applied_with_warnings",
+            "output_json": "data/probes/roster/review_apply_receipt.json",
+            "output_md": "data/probes/roster/review_apply_receipt.md",
+            "summary": {
+                "accepted_count": 1,
+                "rejected_count": 0,
+                "pending_count": 0,
+                "did_enter_roster_count": 1,
+                "did_write_accepted_count": 1,
+                "did_write_rejected_count": 0,
+                "preview_validated_count": 1,
+                "preview_not_provided_count": 0,
+            },
+            "records": [
+                {
+                    "character": "星见雅",
+                    "decision": "accept",
+                    "status": "accepted",
+                    "did_enter_roster": True,
+                    "did_write_accepted": True,
+                    "did_write_rejected": False,
+                    "preview_validation_status": "validated",
+                    "accept_evidence": {"checks": ["人工决定为 accept"]},
+                }
+            ],
+            "warnings": ["accepted snapshot was written but did not enter roster_index."],
+        }
+
+        html = dashboard_tool.render_review_apply(summary)
+
+        self.assertIn("应用状态", html)
+        self.assertIn("已应用，有警告", html)
+        self.assertIn("复核应用警告", html)
+        self.assertIn("已接收快照已写入", html)
+        self.assertIn("接收 · 已接收 · 进入角色库 / 写入已接收快照 · 预览校验：已校验", html)
+        self.assertIn("证据：人工决定为接收", html)
+        self.assertNotIn("Apply Receipt Warning", html)
+        self.assertNotIn("apply status", html)
+        self.assertNotIn("preview=validated", html)
+        self.assertNotIn("进入 roster", html)
+        self.assertNotIn("accepted snapshot was written", html)
+
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
             dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),
@@ -944,8 +989,8 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("应用命令", html)
         self.assertIn("--require-preview-ready", html)
         self.assertIn("复核应用回执", html)
-        self.assertIn("进入 roster", html)
-        self.assertIn("证据：人工决定为 accept", html)
+        self.assertIn("进入角色库", html)
+        self.assertIn("证据：人工决定为接收", html)
         self.assertIn("已确认角色库索引已引用该快照", html)
         self.assertIn("review_apply_receipt.md", html)
         self.assertIn("可先尝试：危局强袭战", html)
@@ -2032,7 +2077,7 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("review_apply_receipt.json", html)
             self.assertIn("review_apply_receipt.md", html)
             self.assertIn("安全应用", html)
-            self.assertIn("applied", html)
+            self.assertIn("已应用", html)
             self.assertNotIn("safe apply</span>", html)
             self.assertIn("复核应用回执", html)
             self.assertIn("tier_snapshot", html)
@@ -2061,7 +2106,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("目录候选 不代表已拥有", html)
             self.assertIn("本次练度更新影响", html)
             self.assertIn("roster_delta.json", html)
-            self.assertIn("delta 只基于 accepted roster", html)
+            self.assertIn("练度变化数据", html)
+            self.assertIn("练度变化只基于已确认角色库", html)
             self.assertIn("更新角色", html)
             self.assertIn("Tier 命中", html)
             self.assertIn("运行一致性", html)

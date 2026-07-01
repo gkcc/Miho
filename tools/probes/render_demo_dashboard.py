@@ -120,6 +120,16 @@ def humanize_text(value: Any) -> str:
             "review_apply_receipt.created_at is newer than run_manifest.created_at",
             "人工应用时间晚于运行清单：当前页面可能还没吸收最新复核结果。",
         ),
+        (
+            "accepted snapshot was written but did not enter roster_index.",
+            "已接收快照已写入，但没有进入角色库索引。",
+        ),
+        (
+            "roster_delta 只基于 accepted roster 的当前 roster_index；pending snapshot、rejected snapshot 和 catalog candidate 不参与已拥有 box 变化。",
+            "练度变化只基于已确认角色库当前索引；待确认快照、已拒绝快照和目录候选不参与已拥有 box 变化。",
+        ),
+        ("人工决定为 accept", "人工决定为接收"),
+        ("unsafe accept 阻断检查已通过", "接收安全检查已通过"),
         ("UIA selector calibration", "官方 UI 坐标校准"),
         ("navigation step(s)", "导航步骤"),
         ("still need", "仍需"),
@@ -215,6 +225,8 @@ def humanize_link_label(label: str) -> str:
         "review_apply_receipt.md": "复核应用回执",
         "review_apply_receipt.json": "复核应用数据",
         "review_log.json": "复核日志",
+        "roster_delta.md": "练度变化说明",
+        "roster_delta.json": "练度变化数据",
         "rank_check.html": "评级快检页",
         "rank_check.json": "评级快检数据",
         "miyoushe_export_workflow.html": "APP 导出流程页",
@@ -753,6 +765,11 @@ def human_status(value: Any) -> str:
         "not_applied": "未应用",
         "applied": "已应用",
         "applied_with_warnings": "已应用，有警告",
+        "accept": "接收",
+        "reject": "拒绝",
+        "accepted": "已接收",
+        "rejected": "已拒绝",
+        "validated": "已校验",
         "ready_with_override": "可人工确认应用",
         "blocked": "已阻断",
         "warning": "有警告",
@@ -2377,12 +2394,12 @@ def render_review_apply(summary: dict[str, Any]) -> str:
     receipt_summary = review_apply.get("summary") if isinstance(review_apply.get("summary"), dict) else {}
     records = review_apply.get("records") if isinstance(review_apply.get("records"), list) else []
     warnings = review_apply.get("warnings") if isinstance(review_apply.get("warnings"), list) else []
-    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Apply Receipt Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>复核应用警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if review_apply.get("error"):
-        body = f'<div class="errors"><strong>Review apply receipt failed</strong><ul><li>{e(review_apply.get("error"))}</li></ul></div>'
+        body = f'<div class="errors"><strong>复核应用回执生成失败</strong><ul><li>{he(review_apply.get("error"))}</li></ul></div>'
     elif not records:
-        body = '<div class="empty">还没有 apply receipt；当前只是预览或待人工处理。</div>'
+        body = '<div class="empty">还没有应用回执；当前只是预览或待人工处理。</div>'
     else:
         rows = []
         for item in records:
@@ -2390,11 +2407,11 @@ def render_review_apply(summary: dict[str, Any]) -> str:
                 continue
             effect = []
             if item.get("did_enter_roster"):
-                effect.append("进入 roster")
+                effect.append("进入角色库")
             if item.get("did_write_accepted"):
-                effect.append("写 accepted")
+                effect.append("写入已接收快照")
             if item.get("did_write_rejected"):
-                effect.append("写 rejected")
+                effect.append("写入已拒绝快照")
             if not effect:
                 effect.append("无写入")
             evidence = item.get("accept_evidence") if isinstance(item.get("accept_evidence"), dict) else {}
@@ -2404,7 +2421,7 @@ def render_review_apply(summary: dict[str, Any]) -> str:
             rows.append(
                 "<article class=\"resource-item\">"
                 f"<strong>{e(item.get('character'))}</strong>"
-                f"<span>{e(item.get('decision'))} · {e(item.get('status'))} · {e(' / '.join(effect))} · preview={e(item.get('preview_validation_status'))}"
+                f"<span>{e(human_status(item.get('decision')))} · {e(human_status(item.get('status')))} · {e(' / '.join(effect))} · 预览校验：{e(human_status(item.get('preview_validation_status')))}"
                 f"{'<br>证据：' + he(evidence_text or evidence_summary) if evidence else ''}</span>"
                 f"<em>{e(item.get('preview_decision_status') or item.get('normalized_json_sha256') or 'N/A')}</em>"
                 "</article>"
@@ -2415,22 +2432,22 @@ def render_review_apply(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>复核应用回执</h2>
-      <p class="muted-line">这里展示 apply 之后真实发生的副作用：是否写入 accepted/rejected、是否进入 roster index，以及是否经过 preview 校验。</p>
+      <p class="muted-line">这里展示人工应用之后真实发生的变化：是否写入已接收/已拒绝快照、是否进入角色库索引，以及是否经过复核预览校验。</p>
       <div class="links">
         {link("review_apply_receipt.md", review_apply.get("output_md"))}
         {link("review_apply_receipt.json", review_apply.get("output_json"))}
         {link("review_log.json", review_apply.get("review_log_json"))}
       </div>
       <div class="input-grid">
-        <div><span>apply status</span><strong>{e(review_apply.get("apply_status") or "not_applied")}</strong></div>
-        <div><span>accepted</span><strong>{e(receipt_summary.get("accepted_count", "N/A"))}</strong></div>
-        <div><span>rejected</span><strong>{e(receipt_summary.get("rejected_count", "N/A"))}</strong></div>
-        <div><span>pending</span><strong>{e(receipt_summary.get("pending_count", "N/A"))}</strong></div>
-        <div><span>entered roster</span><strong>{e(receipt_summary.get("did_enter_roster_count", "N/A"))}</strong></div>
-        <div><span>wrote accepted</span><strong>{e(receipt_summary.get("did_write_accepted_count", "N/A"))}</strong></div>
-        <div><span>wrote rejected</span><strong>{e(receipt_summary.get("did_write_rejected_count", "N/A"))}</strong></div>
-        <div><span>preview validated</span><strong>{e(receipt_summary.get("preview_validated_count", "N/A"))}</strong></div>
-        <div><span>preview missing</span><strong>{e(receipt_summary.get("preview_not_provided_count", "N/A"))}</strong></div>
+        <div><span>应用状态</span><strong>{e(human_status(review_apply.get("apply_status") or "not_applied"))}</strong></div>
+        <div><span>已接收</span><strong>{e(receipt_summary.get("accepted_count", "N/A"))}</strong></div>
+        <div><span>已拒绝</span><strong>{e(receipt_summary.get("rejected_count", "N/A"))}</strong></div>
+        <div><span>待处理</span><strong>{e(receipt_summary.get("pending_count", "N/A"))}</strong></div>
+        <div><span>进入角色库</span><strong>{e(receipt_summary.get("did_enter_roster_count", "N/A"))}</strong></div>
+        <div><span>写入接收</span><strong>{e(receipt_summary.get("did_write_accepted_count", "N/A"))}</strong></div>
+        <div><span>写入拒绝</span><strong>{e(receipt_summary.get("did_write_rejected_count", "N/A"))}</strong></div>
+        <div><span>预览已校验</span><strong>{e(receipt_summary.get("preview_validated_count", "N/A"))}</strong></div>
+        <div><span>未提供预览</span><strong>{e(receipt_summary.get("preview_not_provided_count", "N/A"))}</strong></div>
       </div>
       {warning_block}
       {body}
@@ -2446,12 +2463,12 @@ def render_roster_delta(summary: dict[str, Any]) -> str:
     delta_summary = delta.get("summary") if isinstance(delta.get("summary"), dict) else {}
     changes = delta.get("character_changes") if isinstance(delta.get("character_changes"), list) else []
     warnings = delta.get("warnings") if isinstance(delta.get("warnings"), list) else []
-    warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Delta Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
+    warning_block = f'<div class="warnings"><strong>练度变化警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
-        body = f'<div class="errors"><strong>Roster delta failed</strong><ul><li>{e(error)}</li></ul></div>'
+        body = f'<div class="errors"><strong>练度变化生成失败</strong><ul><li>{he(error)}</li></ul></div>'
     elif not changes:
-        body = '<div class="empty">没有可展示的 accepted roster 变化。</div>'
+        body = '<div class="empty">没有可展示的已确认角色库变化。</div>'
     else:
         rows = []
         visible_changes = [item for item in changes if isinstance(item, dict) and item.get("change_type") != "unchanged"]
@@ -2469,9 +2486,9 @@ def render_roster_delta(summary: dict[str, Any]) -> str:
                 "<div>"
                 f"<h3>{e(item.get('character'))}</h3>"
                 f"<p>{e(fields or '字段未变化')}</p>"
-                f"<span>受影响目标/队伍：{e(impacted_targets or 'none')}</span>"
+                f"<span>受影响目标/队伍：{e(impacted_targets or '无')}</span>"
                 f"<span>tier / 保值观察：{e(tier.get('tier') or 'N/A')} · {e(tier.get('status') or 'missing')} · {e(tier.get('trend') or 'trend?')}</span>"
-                f"<span>{e(warnings_text or 'delta 只基于 accepted roster，不包含 pending snapshot')}</span>"
+                f"<span>{he(warnings_text or '练度变化只基于已确认角色库，不包含待确认快照')}</span>"
                 "</div>"
                 f"<strong>{e(item.get('new_snapshot_json') or item.get('old_snapshot_json') or 'N/A')}</strong>"
                 "</article>"
@@ -2480,7 +2497,7 @@ def render_roster_delta(summary: dict[str, Any]) -> str:
     return f"""
     <section class="panel">
       <h2>本次练度更新影响</h2>
-      <p class="muted-line">delta 只基于 accepted roster，不包含 pending snapshot、rejected snapshot 或 catalog candidate。</p>
+      <p class="muted-line">练度变化只基于已确认角色库，不包含待确认快照、已拒绝快照或目录候选。</p>
       <div class="links">
         {link("roster_delta.md", delta.get("output_md"))}
         {link("roster_delta.json", delta.get("output_json"))}
