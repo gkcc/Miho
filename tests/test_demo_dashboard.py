@@ -844,6 +844,71 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("watch_only", html)
         self.assertNotIn("catalog candidate", html)
 
+    def test_roster_delta_uses_reader_friendly_tier_status_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["roster_delta"] = {
+            "summary": {"updated_character_count": 1},
+            "character_changes": [
+                {
+                    "character": "星见雅",
+                    "change_type": "updated",
+                    "field_changes": [{"field": "level"}],
+                    "impacted_targets": ["危局强袭战 稳定通关"],
+                    "tier_observation": {"tier": "S", "status": "verified", "trend": "stable"},
+                    "new_snapshot_json": "data/probes/roster/accepted/miyabi.json",
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_roster_delta(summary)
+
+        self.assertIn("已更新", html)
+        self.assertIn("保值观察：评级 S · 已验证 · 稳定", html)
+        self.assertNotIn("tier / 保值观察", html)
+        self.assertNotIn(">updated<", html)
+        self.assertNotIn("verified · stable", html)
+
+    def test_tier_watchlist_uses_reader_friendly_status_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["tier_watchlist"] = {
+            "summary": {"entry_count": 1},
+            "entries": [
+                {
+                    "character": "星见雅",
+                    "tier": "S",
+                    "retention_score": 0.9,
+                    "usage_rate": 0.42,
+                    "modes": ["危局强袭战"],
+                    "entry_status": "verified",
+                    "trend": "stable",
+                    "owned_status": "accepted_roster",
+                    "observation_status": "owned_high_value",
+                    "reason": "tier watchlist 只读取本地 snapshot；它不是联网爬取。",
+                    "evidence": {"period": "2026-06", "content_sha256_short": "abc123"},
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_tier_watchlist(summary)
+
+        self.assertIn("已有高保值", html)
+        self.assertIn("评级 S", html)
+        self.assertIn("已验证", html)
+        self.assertIn("稳定", html)
+        self.assertIn("已确认角色库", html)
+        self.assertIn("保值观察 只读取本地 snapshot", html)
+        self.assertNotIn("Tier watchlist failed", html)
+        self.assertNotIn("tier S", html)
+        self.assertNotIn("owned_high_value", html)
+        self.assertNotIn("accepted_roster", html)
+        self.assertNotIn(">stable<br>", html)
+
+        summary["tier_watchlist"] = {"error": "mock failure"}
+        error_html = dashboard_tool.render_tier_watchlist(summary)
+
+        self.assertIn("保值观察生成失败", error_html)
+        self.assertNotIn("Tier watchlist failed", error_html)
+
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
             dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),
@@ -2678,8 +2743,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("过期保值观察", html)
             self.assertIn("未验证保值观察", html)
             self.assertIn("tier_watchlist.json", html)
-            self.assertIn("owned_high_value", html)
-            self.assertIn("non_owned_watch_only", html)
+            self.assertIn("已有高保值", html)
+            self.assertIn("未拥有，仅观察", html)
             self.assertIn("不是最终抽取建议", html)
             self.assertIn("action_cards.json", html)
             self.assertIn("确认是否拥有 珂蕾妲", html)

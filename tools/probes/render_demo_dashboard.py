@@ -790,6 +790,7 @@ def human_status(value: Any) -> str:
         "accept": "接收",
         "reject": "拒绝",
         "accepted": "已接收",
+        "accepted_roster": "已确认角色库",
         "rejected": "已拒绝",
         "validated": "已校验",
         "verified": "已验证",
@@ -807,6 +808,9 @@ def human_status(value: Any) -> str:
         "has_parse_failure": "有解析失败",
         "stale_after_apply": "应用后已过期",
         "stale": "已过期",
+        "stable": "稳定",
+        "up": "上升",
+        "down": "下降",
         "fresh": "新鲜",
         "missing": "缺失",
         "not_checked": "未检查",
@@ -822,6 +826,8 @@ def human_status(value: Any) -> str:
         "catalog_candidate": "目录候选",
         "catalog_owned_missing_snapshot": "目录已拥有但缺快照",
         "owned_snapshot": "已确认快照",
+        "owned_high_value": "已有高保值",
+        "low_value_owned": "已有低保值",
         "non_owned_watch_only": "未拥有，仅观察",
         "watch_candidate": "观察候选",
         "review_pending_snapshot": "复核待确认快照",
@@ -2616,12 +2622,12 @@ def render_roster_delta(summary: dict[str, Any]) -> str:
             warnings_text = "；".join(str(warning) for warning in item.get("warnings", []) if warning)
             rows.append(
                 "<article class=\"plan-item\">"
-                f"<div class=\"plan-rank\">{e(item.get('change_type'))}</div>"
+                f"<div class=\"plan-rank\">{e(human_status(item.get('change_type')))}</div>"
                 "<div>"
                 f"<h3>{e(item.get('character'))}</h3>"
                 f"<p>{e(fields or '字段未变化')}</p>"
                 f"<span>受影响目标/队伍：{e(impacted_targets or '无')}</span>"
-                f"<span>tier / 保值观察：{e(tier.get('tier') or 'N/A')} · {e(tier.get('status') or 'missing')} · {e(tier.get('trend') or 'trend?')}</span>"
+                f"<span>保值观察：评级 {e(tier.get('tier') or 'N/A')} · {e(human_status(tier.get('status') or 'missing'))} · {e(human_status(tier.get('trend') or 'unknown'))}</span>"
                 f"<span>{he(warnings_text or '练度变化只基于已确认角色库，不包含待确认快照')}</span>"
                 "</div>"
                 f"<strong>{e(item.get('new_snapshot_json') or item.get('old_snapshot_json') or 'N/A')}</strong>"
@@ -2807,9 +2813,9 @@ def render_tier_watchlist(summary: dict[str, Any]) -> str:
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>保值观察警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
-        body = f'<div class="errors"><strong>Tier watchlist failed</strong><ul><li>{e(error)}</li></ul></div>'
+        body = f'<div class="errors"><strong>保值观察生成失败</strong><ul><li>{e(error)}</li></ul></div>'
     elif not entries:
-        body = '<div class="empty">没有 tier / 保值观察条目。</div>'
+        body = '<div class="empty">没有保值观察条目。</div>'
     else:
         rows = []
         for item in entries[:10]:
@@ -2817,19 +2823,19 @@ def render_tier_watchlist(summary: dict[str, Any]) -> str:
             modes = "、".join(str(mode) for mode in item.get("modes", []) if mode) if isinstance(item.get("modes"), list) else ""
             evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
             detail = (
-                f"{owned_note} · tier {item.get('tier')} · 保值 {percent_label(item.get('retention_score'))} "
+                f"{owned_note} · 评级 {item.get('tier')} · 保值 {percent_label(item.get('retention_score'))} "
                 f"· 使用 {percent_label(item.get('usage_rate'))} · {modes or '目标未标注'} "
-                f"· {item.get('entry_status') or 'verified'} · {evidence.get('period') or 'period?'} · {evidence.get('content_sha256_short') or 'hash?'}"
+                f"· {human_status(item.get('entry_status') or 'verified')} · {evidence.get('period') or '周期未知'} · {evidence.get('content_sha256_short') or 'hash?'}"
             )
             rows.append(
                 "<article class=\"plan-item\">"
                 f"<div class=\"plan-rank\">{e(item.get('tier') or 'N/A')}</div>"
                 "<div>"
-                f"<h3>{e(item.get('character'))} · {e(item.get('observation_status') or item.get('recommendation'))}</h3>"
-                f"<p>{e(item.get('reason'))}</p>"
+                f"<h3>{e(item.get('character'))} · {e(human_status(item.get('observation_status') or item.get('recommendation')))}</h3>"
+                f"<p>{he(item.get('reason'))}</p>"
                 f"<span>{e(detail)}</span>"
                 "</div>"
-                f"<strong>{e(item.get('trend'))}<br>{e(item.get('owned_status'))}</strong>"
+                f"<strong>{e(human_status(item.get('trend')))}<br>{e(human_status(item.get('owned_status')))}</strong>"
                 "</article>"
             )
         body = '<div class="plan-list">' + "".join(rows) + "</div>"
