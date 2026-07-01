@@ -166,6 +166,14 @@ def humanize_text(value: Any) -> str:
         ("warnings", "警告"),
         ("requires_review", "待人工确认"),
         ("pending snapshot", "待确认快照"),
+        ("pending_snapshot", "待确认快照"),
+        ("catalog_candidate", "目录候选"),
+        ("owned_snapshot", "已确认快照"),
+        ("ready_now", "可直接尝试"),
+        ("needs_recording", "需补录"),
+        ("watch_only", "仅观察"),
+        ("review_pending_snapshot", "复核待确认快照"),
+        ("record_missing_character", "补录缺失角色"),
         ("needs_review", "待复核"),
         ("data_warning", "数据警告"),
         ("blocked", "已阻断"),
@@ -761,6 +769,8 @@ def human_status(value: Any) -> str:
     text = str(value or "").lower()
     labels = {
         "ready": "就绪",
+        "ready_now": "可直接尝试",
+        "playable_now": "当前可用",
         "pass": "通过",
         "done": "完成",
         "generated": "已生成",
@@ -770,6 +780,8 @@ def human_status(value: Any) -> str:
         "ready_to_try": "可尝试",
         "needs_review": "待复核",
         "requires_review": "待复核",
+        "needs_recording": "需补录",
+        "needs_candidate_confirmation": "需确认候选",
         "needs_rerun": "需重跑",
         "needs_apply": "需应用复核",
         "not_applied": "未应用",
@@ -780,6 +792,7 @@ def human_status(value: Any) -> str:
         "accepted": "已接收",
         "rejected": "已拒绝",
         "validated": "已校验",
+        "verified": "已验证",
         "executed": "已执行",
         "executed_with_followup_warning": "已执行，后续诊断有警告",
         "printed": "仅打印命令",
@@ -798,12 +811,21 @@ def human_status(value: Any) -> str:
         "missing": "缺失",
         "not_checked": "未检查",
         "new": "新增",
+        "updated": "已更新",
         "changed": "已变化",
         "unchanged": "未变化",
         "diffed": "已生成差异",
         "covered": "已覆盖",
         "unmatched": "未覆盖",
         "local_draft": "本地草案",
+        "pending_snapshot": "待确认快照",
+        "catalog_candidate": "目录候选",
+        "catalog_owned_missing_snapshot": "目录已拥有但缺快照",
+        "owned_snapshot": "已确认快照",
+        "non_owned_watch_only": "未拥有，仅观察",
+        "watch_candidate": "观察候选",
+        "review_pending_snapshot": "复核待确认快照",
+        "record_missing_character": "补录缺失角色",
         "public_web_snapshot": "公开网页快照",
         "official_snapshot": "官方快照",
         "official_current": "官方当前数据",
@@ -812,11 +834,21 @@ def human_status(value: Any) -> str:
         "high": "高",
         "medium": "中",
         "low": "低",
+        "watch_only": "仅观察",
         "ok": "正常",
+        "observe": "观察",
         "unknown": "未知",
         "n/a": "无",
     }
     return labels.get(text, str(value or "N/A"))
+
+
+def source_class_label(value: Any) -> str:
+    return human_status(value)
+
+
+def action_type_label(value: Any) -> str:
+    return human_status(value)
 
 
 def artifact_label(value: Any) -> str:
@@ -1912,7 +1944,7 @@ def render_action_cards(summary: dict[str, Any]) -> str:
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>行动卡警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
-        body = f'<div class="errors"><strong>Action cards failed</strong><ul><li>{e(error)}</li></ul></div>'
+        body = f'<div class="errors"><strong>行动卡生成失败</strong><ul><li>{e(error)}</li></ul></div>'
     elif not cards:
         body = '<div class="empty">没有生成下一步行动卡。</div>'
     else:
@@ -1927,9 +1959,9 @@ def render_action_cards(summary: dict[str, Any]) -> str:
                 evidence_bits.append(str(evidence.get("target_hash")))
             tier_bits = []
             if tier_signal:
-                tier_bits.append(str(tier_signal.get("recommendation") or "unknown"))
+                tier_bits.append(human_status(tier_signal.get("recommendation") or "unknown"))
                 if tier_signal.get("tier"):
-                    tier_bits.append(f"tier {tier_signal.get('tier')}")
+                    tier_bits.append(f"评级 {tier_signal.get('tier')}")
                 if tier_signal.get("retention_score") is not None:
                     tier_bits.append(f"保值 {percent_label(tier_signal.get('retention_score'))}")
             tier_note = f"<span>保值观察：{e(' · '.join(tier_bits))}</span>" if tier_bits else ""
@@ -1943,12 +1975,12 @@ def render_action_cards(summary: dict[str, Any]) -> str:
                 f"<div class=\"plan-rank\">#{e(item.get('rank'))}</div>"
                 "<div>"
                 f"<h3>{e(item.get('title'))}</h3>"
-                f"<p>{e(item.get('reason'))}</p>"
+                f"<p>{he(item.get('reason'))}</p>"
                 f"<span>{e(item.get('target'))}</span>"
                 f"<span>{e(source_note)} · 证据：{e(' · '.join(evidence_bits) or 'N/A')}</span>"
                 f"{tier_note}"
                 "</div>"
-                f"<strong>{e(item.get('priority'))}<br>{e(item.get('status'))}</strong>"
+                f"<strong>{e(human_status(item.get('priority')))}<br>{e(human_status(item.get('status')))}</strong>"
                 "</article>"
             )
         body = '<div class="plan-list">' + "".join(rows) + "</div>"
@@ -1970,7 +2002,7 @@ def render_action_cards(summary: dict[str, Any]) -> str:
         <div><span>低保值复核</span><strong>{e(card_summary.get("low_value_review_count", "N/A"))}</strong></div>
         <div><span>已确认角色</span><strong>{e(card_summary.get("owned_character_count", "N/A"))}</strong></div>
         <div><span>待确认快照</span><strong>{e(card_summary.get("pending_snapshot_count", "N/A"))}</strong></div>
-        <div><span>snapshot files</span><strong>{e(card_summary.get("snapshot_file_count", "N/A"))}</strong></div>
+        <div><span>快照文件</span><strong>{e(card_summary.get("snapshot_file_count", "N/A"))}</strong></div>
       </div>
       {warning_block}
       {body}
@@ -1989,7 +2021,7 @@ def render_team_cards(summary: dict[str, Any]) -> str:
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>配队建议警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
-        body = f'<div class="errors"><strong>Team cards failed</strong><ul><li>{e(error)}</li></ul></div>'
+        body = f'<div class="errors"><strong>配队建议生成失败</strong><ul><li>{e(error)}</li></ul></div>'
     elif not cards:
         body = '<div class="empty">没有生成高难配队候选卡。</div>'
     else:
@@ -2006,15 +2038,15 @@ def render_team_cards(summary: dict[str, Any]) -> str:
                 tier_badge = ""
                 if tier_signal:
                     tier_badge = (
-                        f" · {tier_signal.get('tier') or 'tier?'}"
-                        f"/{tier_signal.get('observation_status') or tier_signal.get('recommendation') or 'observe'}"
-                        f"/{tier_signal.get('entry_status') or 'verified'}"
+                        f" · 评级 {tier_signal.get('tier') or '?'}"
+                        f"/{human_status(tier_signal.get('observation_status') or tier_signal.get('recommendation') or 'observe')}"
+                        f"/{human_status(tier_signal.get('entry_status') or 'verified')}"
                     )
                 member_bits.append(
-                    f"{member.get('slot')}: {member.get('character')} [{member.get('source_class')}]{tier_badge}"
+                    f"{member.get('slot')}：{member.get('character')}（{source_class_label(member.get('source_class'))}）{tier_badge}"
                 )
             card_warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
-            warning_text = "；".join(str(warning) for warning in card_warnings) or "none"
+            warning_text = "；".join(str(warning) for warning in card_warnings) or "无"
             evidence_bits = []
             if evidence.get("target_source"):
                 evidence_bits.append(str(evidence.get("target_source")))
@@ -2025,13 +2057,13 @@ def render_team_cards(summary: dict[str, Any]) -> str:
                 f"<div class=\"plan-rank\">#{e(item.get('rank'))}</div>"
                 "<div>"
                 f"<h3>{e(item.get('team_title'))}</h3>"
-                f"<p>{e(item.get('coverage_reason'))}</p>"
+                f"<p>{he(item.get('coverage_reason'))}</p>"
                 f"<span>{e(' / '.join(member_bits) or '无成员')}</span>"
                 f"<span>队伍保值：已确认高保值 {e(team_value.get('accepted_high_value_members', 0))} · 过期 {e(team_value.get('stale_meta_count', 0))} · 未验证 {e(team_value.get('unverified_meta_count', 0))}</span>"
                 f"<span>证据：{e(' · '.join(evidence_bits) or 'N/A')}</span>"
                 f"<span>警告：{he(warning_text)}</span>"
                 "</div>"
-                f"<strong>{e(item.get('target_priority'))}<br>{e(item.get('team_status'))}</strong>"
+                f"<strong>{e(human_status(item.get('target_priority')))}<br>{e(human_status(item.get('team_status')))}</strong>"
                 "</article>"
             )
         body = '<div class="plan-list">' + "".join(rows) + "</div>"
@@ -2678,7 +2710,7 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
     warning_block = f'<div class="warnings"><strong>高难方案警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
-        body = f'<div class="errors"><strong>Endgame plan failed</strong><ul><li>{e(error)}</li></ul></div>'
+        body = f'<div class="errors"><strong>高难方案生成失败</strong><ul><li>{e(error)}</li></ul></div>'
     elif not target_plans:
         body = '<div class="empty">没有生成本期高难方案。</div>'
     else:
@@ -2695,12 +2727,15 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
                 source_class = member.get("source_class") or "unknown"
                 source_effective = member.get("source_class_effective") or source_class
                 delta = member.get("delta_change_type") or "missing"
+                source_label = source_class_label(source_class)
+                effective_label = source_class_label(source_effective)
+                source_text = source_label if source_label == effective_label else f"{source_label} -> {effective_label}"
                 member_bits.append(
-                    f"{member.get('character')} [{source_class}->{source_effective}] · {tier}/{member.get('tier_entry_status') or 'missing'} · delta {delta}"
+                    f"{member.get('character')}（来源：{source_text}） · 评级 {tier} / {human_status(member.get('tier_entry_status') or 'missing')} · 变化：{human_status(delta)}"
                 )
             actions = item.get("next_actions") if isinstance(item.get("next_actions"), list) else []
             action_bits = "；".join(
-                f"{action.get('action_type')}: {action.get('title') or action.get('character') or ''}".strip()
+                f"{action_type_label(action.get('action_type'))}：{action.get('title') or action.get('character') or ''}".strip()
                 for action in actions[:3]
                 if isinstance(action, dict)
             )
@@ -2709,11 +2744,11 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
             hash_bits = []
             for key, value in artifact_hashes.items():
                 if isinstance(value, dict) and value.get("sha256_short"):
-                    hash_bits.append(f"{key}:{value.get('sha256_short')}")
+                    hash_bits.append(f"{artifact_label(key)}:{value.get('sha256_short')}")
             warnings_text = "；".join(str(warning) for warning in item.get("warnings", []) if warning)
             rows.append(
                 "<article class=\"plan-item\">"
-                f"<div class=\"plan-rank\">{e(item.get('plan_status'))}</div>"
+                f"<div class=\"plan-rank\">{e(human_status(item.get('plan_status')))}</div>"
                 "<div>"
                 f"<h3>{e(item.get('target'))}</h3>"
                 f"<p>{e(item.get('recommended_line'))}</p>"
@@ -2724,7 +2759,7 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
                 f"<span>可信度：{e(human_status(item.get('plan_trust_level') or 'N/A'))} · 来源状态 {e(human_status(item.get('source_plan_status') or item.get('plan_status')))}</span>"
                 f"<span>警告：{he(warnings_text or '无')}</span>"
                 "</div>"
-                f"<strong>{e(item.get('target_priority'))}<br>{e(first_team.get('team_status') or item.get('plan_status'))}</strong>"
+                f"<strong>{e(human_status(item.get('target_priority')))}<br>{e(human_status(first_team.get('team_status') or item.get('plan_status')))}</strong>"
                 "</article>"
             )
         body = '<div class="plan-list">' + "".join(rows) + "</div>"

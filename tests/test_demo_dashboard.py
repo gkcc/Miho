@@ -709,6 +709,141 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("MISSING_EXPECTED", html)
         self.assertNotIn("方案 Trust", html)
 
+    def test_action_cards_use_reader_friendly_source_and_status_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["action_cards"] = {
+            "output_json": "data/probes/demo/action_cards.json",
+            "output_md": "data/probes/demo/action_cards.md",
+            "summary": {
+                "covered_target_count": 1,
+                "uncovered_target_count": 1,
+                "high_priority_action_count": 1,
+                "needs_recording_count": 1,
+                "tier_signal_count": 1,
+                "high_value_owned_action_count": 0,
+                "low_value_review_count": 0,
+                "owned_character_count": 0,
+                "pending_snapshot_count": 1,
+                "snapshot_file_count": 1,
+            },
+            "cards": [
+                {
+                    "rank": 1,
+                    "title": "复核 星见雅 的解析快照",
+                    "target": "危局强袭战 稳定通关",
+                    "reason": "pending snapshot 尚未进入 accepted roster；确认前不能进入 try_now。",
+                    "priority": "high",
+                    "status": "needs_review",
+                    "source_class": "pending_snapshot",
+                    "evidence": {"target_hash": "abcdef123456"},
+                    "tier_signal": {"recommendation": "watch_candidate", "tier": "S", "retention_score": 0.9},
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_action_cards(summary)
+
+        self.assertIn("快照文件", html)
+        self.assertIn("这张解析结果还没人工确认", html)
+        self.assertIn("观察候选", html)
+        self.assertIn("评级 S", html)
+        self.assertIn(">高<br>待复核<", html)
+        self.assertNotIn("snapshot files", html)
+        self.assertNotIn("watch_candidate", html)
+        self.assertNotIn(">high<br>needs_review<", html)
+        self.assertNotIn("pending snapshot", html)
+
+    def test_team_cards_use_reader_friendly_member_status_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["team_cards"] = {
+            "summary": {"target_count": 1, "team_card_count": 1},
+            "cards": [
+                {
+                    "rank": 1,
+                    "team_title": "待确认快照队",
+                    "target_priority": "high",
+                    "team_status": "needs_review",
+                    "coverage_reason": "包含 pending snapshot，需要先人工复核解析快照。",
+                    "members": [
+                        {
+                            "slot": "核心",
+                            "character": "莱特",
+                            "source_class": "pending_snapshot",
+                            "tier_signal": {
+                                "tier": "A",
+                                "observation_status": "non_owned_watch_only",
+                                "entry_status": "verified",
+                            },
+                        }
+                    ],
+                    "warnings": ["catalog candidate 不代表已拥有；需要人工确认或补录官方分享图。"],
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_team_cards(summary)
+
+        self.assertIn("核心：莱特（待确认快照）", html)
+        self.assertIn("评级 A/未拥有，仅观察/已验证", html)
+        self.assertIn("目录候选 不代表已拥有", html)
+        self.assertIn(">高<br>待复核<", html)
+        self.assertNotIn("[pending_snapshot]", html)
+        self.assertNotIn("non_owned_watch_only", html)
+        self.assertNotIn(">high<br>needs_review<", html)
+        self.assertNotIn("none", html)
+
+    def test_endgame_plan_uses_reader_friendly_status_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["endgame_plan"] = {
+            "plan_trust_level": "warning",
+            "summary": {"target_count": 1},
+            "target_plans": [
+                {
+                    "target": "危局强袭战 稳定通关",
+                    "target_priority": "high",
+                    "plan_status": "ready_now",
+                    "source_plan_status": "ready_now",
+                    "plan_trust_level": "trusted",
+                    "recommended_line": "可先尝试：星见雅 核心队。",
+                    "team_candidates": [
+                        {
+                            "team_title": "星见雅 核心队",
+                            "team_status": "ready_now",
+                            "rank_reason": "全员来自 accepted roster。",
+                            "members": [
+                                {
+                                    "character": "星见雅",
+                                    "source_class": "owned_snapshot",
+                                    "source_class_effective": "owned_snapshot",
+                                    "tier": "S",
+                                    "tier_entry_status": "verified",
+                                    "delta_change_type": "updated",
+                                }
+                            ],
+                        }
+                    ],
+                    "next_actions": [{"action_type": "review_pending_snapshot", "title": "复核 莱特 的解析快照"}],
+                    "evidence": {"input_artifact_hashes": {"team_cards": {"sha256_short": "111111111111"}}},
+                    "warnings": ["watch_only 不是抽卡建议；catalog candidate 不能当作已拥有战力。"],
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_endgame_plan(summary)
+
+        self.assertIn("可直接尝试", html)
+        self.assertIn("来源：已确认快照", html)
+        self.assertIn("评级 S / 已验证", html)
+        self.assertIn("变化：已更新", html)
+        self.assertIn("复核待确认快照：复核 莱特 的解析快照", html)
+        self.assertIn("队伍卡:111111111111", html)
+        self.assertIn(">高<br>可直接尝试<", html)
+        self.assertNotIn("ready_now", html)
+        self.assertNotIn("owned_snapshot", html)
+        self.assertNotIn("review_pending_snapshot", html)
+        self.assertNotIn("watch_only", html)
+        self.assertNotIn("catalog candidate", html)
+
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
             dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),
@@ -2555,8 +2690,8 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("需补录队伍", html)
             self.assertIn("候选队伍", html)
             self.assertIn("team_cards.json", html)
-            self.assertIn("pending_snapshot", html)
-            self.assertIn("catalog_candidate", html)
+            self.assertIn("待确认快照", html)
+            self.assertIn("目录候选", html)
             self.assertIn("待确认快照 尚未进入 已确认角色库", html)
             self.assertIn("目录候选 不代表已拥有", html)
             self.assertIn("本次练度更新影响", html)
@@ -2577,14 +2712,10 @@ class DemoDashboardTests(unittest.TestCase):
             self.assertIn("先复核", html)
             self.assertIn("需补录", html)
             self.assertIn("仅观察", html)
-            self.assertIn("ready_now", html)
-            self.assertIn("needs_review", html)
-            self.assertIn("needs_recording", html)
-            self.assertIn("watch_only", html)
             self.assertIn("可信度", html)
             self.assertIn("来源状态", html)
-            self.assertIn("owned_snapshot-&gt;owned_snapshot", html)
-            self.assertIn("review_pending_snapshot", html)
+            self.assertIn("来源：已确认快照", html)
+            self.assertIn("复核待确认快照", html)
             self.assertIn("培养优先级候选", html)
             self.assertIn("目标来源状态", html)
             self.assertIn("本地草案", html)
