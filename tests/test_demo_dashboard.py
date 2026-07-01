@@ -468,7 +468,12 @@ class DemoDashboardTests(unittest.TestCase):
             "output_json": "data/probes/demo/review_preview/review_decision_preview.json",
             "output_md": "data/probes/demo/review_preview/review_decision_preview.md",
             "source_check": {"warnings": ["source_run_manifest_sha256 与当前文件不一致。"]},
-            "summary": {"would_update_roster_count": 0},
+            "summary": {
+                "accept_count": 1,
+                "blocked_accept_count": 1,
+                "override_accept_count": 0,
+                "would_update_roster_count": 0,
+            },
             "items": [
                 {
                     "character": "星见雅",
@@ -487,8 +492,64 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertIn("星见雅", html)
         self.assertIn("标准化结果校验不一致", html)
         self.assertIn("该快照还有质量阻断项", html)
+        self.assertIn("接收决策", html)
+        self.assertIn("阻断接收", html)
+        self.assertIn("人工说明接收", html)
+        self.assertIn("将写入角色库", html)
         self.assertNotIn("source_run_manifest_sha256", html)
         self.assertNotIn("normalized_json_sha256 mismatch", html)
+
+    def test_action_checklist_surfaces_source_check_blockers(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["action_checklist"] = {
+            "checklist_status": "blocked",
+            "summary": {"item_count": 0, "ready_count": 0, "needs_review_count": 0, "blocked_count": 1},
+            "warnings": [],
+        }
+        summary["review_decision_preview"] = {
+            "preview_status": "blocked",
+            "source_check": {
+                "blockers": ["template_source_mismatch"],
+                "warnings": ["source_review_inbox_sha256 缺失，无法确认模板来源。"],
+            },
+            "summary": {"would_update_roster_count": 0},
+            "items": [],
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("复核预览已阻断", html)
+        self.assertIn("复核模板来源不匹配", html)
+        self.assertIn("复核模板缺少收件箱校验", html)
+        self.assertNotIn("template_source_mismatch", html)
+
+    def test_action_checklist_marks_ready_with_override_as_safe_apply_state(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["action_checklist"] = {
+            "checklist_status": "ready",
+            "summary": {"item_count": 1, "ready_count": 1, "needs_review_count": 0, "blocked_count": 0},
+            "warnings": [],
+            "safe_apply_command": "python tools/probes/apply_review_decisions.py --require-preview-ready",
+        }
+        summary["review_decision_preview"] = {
+            "preview_status": "ready_with_override",
+            "summary": {"would_update_roster_count": 1},
+            "items": [
+                {
+                    "character": "星见雅",
+                    "decision": "accept",
+                    "decision_status": "ready_with_override",
+                    "warnings": ["quality blockers 由 note/override_reason 解释，仅作为 dry-run 预览。"],
+                }
+            ],
+        }
+
+        html = dashboard_tool.render_html(summary)
+
+        self.assertIn("复核预览带人工说明", html)
+        self.assertIn("ready_with_override", html)
+        self.assertIn("应用命令：ready_with_override", html)
+        self.assertNotIn("应用命令：not_applied", html)
 
     def test_dashboard_shows_final_brief_before_details(self) -> None:
         summary = {

@@ -627,7 +627,7 @@ preview 规则：
 * `decision=accept` 且存在普通质量 blocker 时，必须填写 `note` 或 `override_reason`，否则只进入 `needs_review`；填写后为 `ready_with_override`；
 * `decision=pending` / `decision=reject` 不会进入 accepted roster；
 * preview 只输出 `would_enter_roster` / `would_replace_existing` 预览，不写 accepted/rejected，也不调用 apply。
-* Dashboard 的“执行清单”会直接展示 preview source mismatch、hash mismatch、quality blocker 等门禁原因；不用打开 JSON 才能知道为什么 safe apply 被 blocked。
+* Dashboard 的“执行清单”会直接展示 preview source mismatch、hash mismatch、quality blocker 等门禁原因，以及 `accept_count`、`blocked_accept_count`、`override_accept_count`、`would_update_roster_count`；不用打开 JSON 才能知道为什么 safe apply 被 blocked，或是否真的会写入 accepted roster。
 
 accept 决策必须使用 safe apply，不能绕过 preview：
 
@@ -649,6 +649,7 @@ safe apply 规则：
 * accepted snapshot 会写入 `review_apply_audit`，记录 decision manifest、preview result、run manifest 和 normalized snapshot 的 hash；
 * `decision=reject` / `decision=pending` 不会进入 accepted roster，可不依赖 preview；如果提供了 preview，apply 仍会校验 decision manifest、review inbox 和 run manifest hash；
 * CLI 只要传入 `--preview-result`，就会按 `--require-preview-ready` 的安全语义执行，避免误用非 ready preview；
+* Dashboard 的“安全应用”状态会区分 `blocked`、`ready`、`ready_with_override`、`applied` 和 `not_applied`，避免把可人工应用的预览误看成尚未准备；
 * apply 会额外写入 `data/probes/roster/review_apply_receipt.json/md`，每条记录包含 `did_write_accepted`、`did_write_rejected`、`did_enter_roster`、`preview_validation_status` 和 source hash；
 * demo pipeline 会读取该 receipt，并在 Dashboard 的“复核应用回执”面板展示应用结果，不需要先打开 JSON 才知道是否真正进入 roster；
 * demo pipeline 还会生成 `data/probes/demo/demo_command.json/md`、`data/probes/demo/refresh_status/refresh_status.json/md` 和 `data/probes/demo/demo_doctor/demo_doctor.json/md`。如果 receipt 比 run manifest 新、当前 `roster_index.json` SHA256 与 run manifest 记录不一致，或刷新状态无法确认，`refresh_status=stale_after_apply/unknown`，Final Brief、Action Checklist 和 Demo Doctor 会阻断 `try_now`，提示先按 `demo_command` 记录的真实命令重跑 demo pipeline；如果该命令本身 `safe_to_rerun=false`，Demo Doctor 会显示 `doctor_status=blocked` 和 `primary_next_action=repair_demo_command`。

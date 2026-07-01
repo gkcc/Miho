@@ -2200,6 +2200,9 @@ def render_action_checklist(summary: dict[str, Any]) -> str:
         <div><span>待复核</span><strong>{e(checklist_summary.get("needs_review_count", "N/A"))}</strong></div>
         <div><span>已阻断</span><strong>{e(checklist_summary.get("blocked_count", "N/A"))}</strong></div>
         <div><span>隐藏项</span><strong>{e(checklist_summary.get("hidden_item_count", "N/A"))}</strong></div>
+        <div><span>接收决策</span><strong>{e(preview_summary.get("accept_count", "N/A"))}</strong></div>
+        <div><span>阻断接收</span><strong>{e(preview_summary.get("blocked_accept_count", "N/A"))}</strong></div>
+        <div><span>人工说明接收</span><strong>{e(preview_summary.get("override_accept_count", "N/A"))}</strong></div>
         <div><span>将写入角色库</span><strong>{e(preview_summary.get("would_update_roster_count", "N/A"))}</strong></div>
       </div>
       <p class="muted-line">复核决策必须先预览，再人工应用；预览不会写 accepted/rejected。</p>
@@ -2217,6 +2220,7 @@ def render_review_preview_gate(preview: dict[str, Any]) -> str:
     preview_status = str(preview.get("preview_status") or "").lower()
     source = preview.get("source_check") if isinstance(preview.get("source_check"), dict) else {}
     reasons: list[str] = []
+    reasons.extend(str(item) for item in (source.get("blockers") if isinstance(source.get("blockers"), list) else []) if item)
     reasons.extend(str(item) for item in (source.get("warnings") if isinstance(source.get("warnings"), list) else []) if item)
     preview_items = preview.get("items") if isinstance(preview.get("items"), list) else []
     for item in preview_items:
@@ -2266,6 +2270,8 @@ def safe_apply_status(summary: dict[str, Any]) -> str:
     preview_status = str(preview.get("preview_status") or "").lower()
     if preview_status in {"blocked", "needs_review"}:
         return "blocked"
+    if preview_status in {"ready", "ready_with_override"}:
+        return preview_status
     return "not_applied"
 
 
