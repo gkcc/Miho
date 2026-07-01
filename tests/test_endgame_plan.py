@@ -284,8 +284,22 @@ class EndgamePlanTests(unittest.TestCase):
             self.assertIn("不是抽卡建议", markdown)
             self.assertIn("本地保值观察", markdown)
             self.assertIn("角色库变化", markdown)
+            self.assertIn("## 概览", markdown)
+            self.assertIn("## 目标方案", markdown)
+            self.assertIn("方案可信度: 可信", markdown)
+            self.assertIn("候选队伍", markdown)
+            self.assertIn("来源 已确认快照", markdown)
+            self.assertIn("当前判定 已确认快照", markdown)
+            self.assertIn("保值证据 已验证", markdown)
+            self.assertIn("变化 已更新", markdown)
             self.assertNotIn("tier / 保值观察", markdown)
-            self.assertIn("plan_trust_level", markdown)
+            self.assertNotIn("plan_status:", markdown)
+            self.assertNotIn("source_plan_status:", markdown)
+            self.assertNotIn("plan_trust_level", markdown)
+            self.assertNotIn("team_candidates:", markdown)
+            self.assertNotIn("effective=", markdown)
+            self.assertNotIn("status=", markdown)
+            self.assertNotIn("delta=", markdown)
 
     def test_build_endgame_plan_can_degrade_from_team_targets_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

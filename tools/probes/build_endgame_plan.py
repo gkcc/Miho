@@ -552,6 +552,104 @@ def plan_sort_key(plan: dict[str, Any]) -> tuple[int, int, str]:
     return status_weight, priority_weight, str(plan.get("target") or "")
 
 
+SUMMARY_LABELS = [
+    ("target_count", "目标数"),
+    ("ready_now_count", "可直接尝试"),
+    ("needs_review_count", "需先复核"),
+    ("needs_recording_count", "需补录"),
+    ("watch_only_count", "仅观察"),
+    ("blocked_count", "已阻断"),
+    ("trusted_plan_count", "可信方案"),
+    ("warning_plan_count", "需留意方案"),
+    ("blocked_plan_count", "阻断方案"),
+    ("stale_or_unverified_count", "过期或未验证"),
+    ("artifact_consistent", "产物同批"),
+    ("artifact_warning_count", "产物警告"),
+]
+
+
+STATUS_LABELS = {
+    "ready_now": "可直接尝试",
+    "needs_review": "需先复核",
+    "needs_recording": "需补录",
+    "watch_only": "仅观察",
+    "blocked": "已阻断",
+    "trusted": "可信",
+    "warning": "需留意",
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+    "playable_now": "当前可用",
+    "verified": "已验证",
+    "stale": "已过期",
+    "unverified": "未验证",
+    "invalid_source": "来源无效",
+    "low_trust": "低信任",
+    "missing": "缺失",
+    "updated": "已更新",
+    "added": "新增",
+    "removed": "移除",
+    "unchanged": "未变化",
+}
+
+
+SOURCE_LABELS = {
+    "owned_snapshot": "已确认快照",
+    "pending_snapshot": "待确认快照",
+    "catalog_owned_missing_snapshot": "目录已拥有但缺快照",
+    "catalog_candidate": "目录候选",
+    "missing_from_current_roster": "不在当前已确认角色库",
+    "rejected_snapshot": "已拒绝快照",
+    "unknown": "未知来源",
+}
+
+
+ACTION_LABELS = {
+    "review_pending_snapshot": "复核待确认快照",
+    "record_missing_character": "补录角色分享图",
+    "confirm_catalog_candidate": "确认目录候选",
+    "try_now": "按清单试一次",
+    "watch_only": "仅观察",
+}
+
+
+TEXT_REPLACEMENTS = (
+    ("stale/unverified/low_trust", "过期、未验证或低信任"),
+    ("accepted roster", "已确认角色库"),
+    ("pending snapshot", "待确认快照"),
+    ("catalog candidate", "目录候选"),
+    ("catalog owned missing snapshot", "目录已拥有但缺快照"),
+    ("owned_snapshot", "已确认快照"),
+    ("ready_now", "可直接尝试"),
+    ("watch_only", "仅观察"),
+    ("tier 证据", "保值证据"),
+    ("tier 信号", "保值信号"),
+    ("tier", "保值观察"),
+)
+
+
+def label_status(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return STATUS_LABELS.get(text, text or "未知")
+
+
+def label_source(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return SOURCE_LABELS.get(text, text or "未知来源")
+
+
+def label_action(value: Any) -> str:
+    text = str(value or "unknown").strip()
+    return ACTION_LABELS.get(text, text or "后续动作")
+
+
+def human_text(value: Any) -> str:
+    text = str(value or "")
+    for old, new in TEXT_REPLACEMENTS:
+        text = text.replace(old, new)
+    return text
+
+
 def render_markdown(plan: dict[str, Any]) -> str:
     summary = plan.get("summary") if isinstance(plan.get("summary"), dict) else {}
     lines = [
@@ -559,52 +657,56 @@ def render_markdown(plan: dict[str, Any]) -> str:
         "",
         "本方案只聚合已确认角色库、本地快照、本地目标配置、本地保值观察和角色库变化；不是抽卡建议，也不保证自动通关。",
         "",
-        "## Summary",
+        "## 概览",
         "",
     ]
-    for key, value in summary.items():
-        lines.append(f"- {key}: {value}")
-    lines.extend(["", "## Target Plans", ""])
+    for key, label in SUMMARY_LABELS:
+        if key in summary:
+            lines.append(f"- {label}: {summary.get(key)}")
+    lines.extend(["", "## 目标方案", ""])
     for item in plan.get("target_plans", []):
         lines.extend(
             [
                 f"### {item.get('target')}",
-                f"- plan_status: {item.get('plan_status')}",
-                f"- source_plan_status: {item.get('source_plan_status')}",
-                f"- plan_trust_level: {item.get('plan_trust_level')}",
-                f"- target_priority: {item.get('target_priority')}",
-                f"- recommended_line: {item.get('recommended_line')}",
+                f"- 当前状态: {label_status(item.get('plan_status'))}",
+                f"- 原始状态: {label_status(item.get('source_plan_status'))}",
+                f"- 方案可信度: {label_status(item.get('plan_trust_level'))}",
+                f"- 目标优先级: {label_status(item.get('target_priority'))}",
+                f"- 建议: {human_text(item.get('recommended_line'))}",
             ]
         )
         evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
-        lines.append(f"- target_source: {evidence.get('target_source') or 'N/A'}")
-        lines.append(f"- target_hash: {evidence.get('target_hash') or 'N/A'}")
-        lines.append("- team_candidates:")
+        lines.append(f"- 目标来源: {evidence.get('target_source') or 'N/A'}")
+        lines.append(f"- 目标校验: {evidence.get('target_hash') or 'N/A'}")
+        lines.append("- 候选队伍:")
         for team in item.get("team_candidates", []):
             if not isinstance(team, dict):
                 continue
-            lines.append(f"  - {team.get('team_title')} ({team.get('team_status')}): {team.get('rank_reason')}")
+            lines.append(f"  - {team.get('team_title')}（{label_status(team.get('team_status'))}）：{human_text(team.get('rank_reason'))}")
             for member in team.get("members", []):
                 if isinstance(member, dict):
+                    source_class = member.get("source_class")
+                    source_effective = member.get("source_class_effective") or source_class
                     lines.append(
                         "    - "
-                        f"{member.get('character')} [{member.get('source_class')}] "
-                        f"effective={member.get('source_class_effective') or member.get('source_class')} "
-                        f"tier={member.get('tier') or 'N/A'} "
-                        f"status={member.get('tier_entry_status')} "
-                        f"delta={member.get('delta_change_type')}"
+                        f"{member.get('character')}："
+                        f"来源 {label_source(source_class)}；"
+                        f"当前判定 {label_source(source_effective)}；"
+                        f"评级 {member.get('tier') or 'N/A'}；"
+                        f"保值证据 {label_status(member.get('tier_entry_status'))}；"
+                        f"变化 {label_status(member.get('delta_change_type'))}"
                     )
         actions = item.get("next_actions") if isinstance(item.get("next_actions"), list) else []
         if actions:
-            lines.append("- next_actions:")
+            lines.append("- 下一步:")
             for action in actions:
                 if isinstance(action, dict):
-                    lines.append(f"  - {action.get('action_type')}: {action.get('title')}")
+                    lines.append(f"  - {label_action(action.get('action_type'))}: {human_text(action.get('title'))}")
         warnings = item.get("warnings") if isinstance(item.get("warnings"), list) else []
         if warnings:
-            lines.append("- warnings:")
+            lines.append("- 提醒:")
             for warning in warnings:
-                lines.append(f"  - {warning}")
+                lines.append(f"  - {human_text(warning)}")
         lines.append("")
     return "\n".join(lines)
 
