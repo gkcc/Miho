@@ -1830,29 +1830,43 @@ def load_roster_quality(path: str | Path | None) -> dict[str, Any]:
     }
 
 
-def build_roster_review_gate(latest_roster: str | None, roster_quality: dict[str, Any]) -> dict[str, Any]:
+def paired_roster_markdown(path: str | Path | None) -> str | None:
+    if not path:
+        return None
+    markdown = Path(path).with_suffix(".md")
+    return str(markdown) if markdown.exists() else None
+
+
+def build_roster_review_gate(
+    latest_roster: str | None,
+    roster_quality: dict[str, Any],
+    roster_review_markdown: str | None = None,
+) -> dict[str, Any]:
     quality_status = str(roster_quality.get("status") or "unknown")
     needs_review_count = probe_int(roster_quality.get("needs_review_count"), 0)
+    review_hint = f"复核文件：{roster_review_markdown}" if roster_review_markdown else "未找到 roster 复核 Markdown；可重新跑 box-roster 生成。"
     if not latest_roster:
         status = "no_roster_probe"
         message = "还没有 roster probe；先生成 roster，再人工确认后才能进入 accepted roster。"
         blocks_accepted_roster = True
     elif quality_status == "needs_review":
         status = "needs_manual_review"
-        message = f"当前 roster 有 {needs_review_count} 个待复核项；可跑 probe 价值报告，但不能当作 accepted roster。"
+        message = f"当前 roster 有 {needs_review_count} 个待复核项；可跑 probe 价值报告，但不能当作 accepted roster。{review_hint}"
         blocks_accepted_roster = True
     elif quality_status == "ok":
         status = "quality_ok_manual_confirmation_required"
-        message = "roster probe 质量检查为 ok；进入 accepted roster 前仍需要人工确认。"
+        message = f"roster probe 质量检查为 ok；进入 accepted roster 前仍需要人工确认。{review_hint}"
         blocks_accepted_roster = False
     else:
         status = "quality_unknown"
-        message = "无法判断 roster 复核状态；不要把它当作 accepted roster。"
+        message = f"无法判断 roster 复核状态；不要把它当作 accepted roster。{review_hint}"
         blocks_accepted_roster = True
     return {
         "status": status,
         "message": message,
         "blocks_accepted_roster": blocks_accepted_roster,
+        "review_markdown": roster_review_markdown,
+        "review_markdown_status": "available" if roster_review_markdown else "missing" if latest_roster else "not_applicable",
         "manual_confirmation_required_before_accepted_roster": True,
     }
 
@@ -1877,7 +1891,8 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
     latest_roster = latest_roster_record["path"] if latest_roster_record else None
     roster_source = load_roster_source(latest_roster)
     roster_quality = load_roster_quality(latest_roster)
-    review_gate = build_roster_review_gate(latest_roster, roster_quality)
+    roster_review_markdown = paired_roster_markdown(latest_roster)
+    review_gate = build_roster_review_gate(latest_roster, roster_quality, roster_review_markdown)
     latest_image_sha256: str | None = None
     latest_image_hash_error: str | None = None
     if latest_image:
@@ -1968,6 +1983,7 @@ def build_box_status(args: argparse.Namespace) -> dict[str, Any]:
             "image": latest_image,
             "meta_snapshot": latest_meta,
             "roster_probe": latest_roster,
+            "roster_review_markdown": roster_review_markdown,
             "value_report": value_reports[0]["path"] if value_reports else None,
         },
         "freshness": {
@@ -2075,6 +2091,7 @@ def render_box_status_html(report: dict[str, Any], output_html: Path) -> None:
         <span>roster_quality={html_escape(str(roster_quality.get("status") or "unknown"))}</span>
         <span>roster_needs_review={html_escape(str(roster_quality.get("needs_review_count", 0)))}</span>
         <span>review_gate={html_escape(str(review_gate.get("status") or "unknown"))}</span>
+        <span>review_markdown={html_escape(str(review_gate.get("review_markdown_status") or "unknown"))}</span>
       </div>
       <p>{html_escape(str(review_gate.get("message") or ""))}</p>
     </section>
@@ -2110,6 +2127,7 @@ def run_box_status(args: argparse.Namespace) -> int:
     print(f"box_status_roster_quality: {roster_quality.get('status', 'unknown')}", flush=True)
     print(f"box_status_roster_needs_review_count: {roster_quality.get('needs_review_count', 0)}", flush=True)
     print(f"box_status_review_gate: {review_gate.get('status', 'unknown')}", flush=True)
+    print(f"box_status_roster_review_markdown: {review_gate.get('review_markdown') or 'missing'}", flush=True)
     print(f"box_status_next: {report['next_command']}", flush=True)
     print(f"box_status_json: {output_json}", flush=True)
     print(f"box_status_html: {output_html}", flush=True)

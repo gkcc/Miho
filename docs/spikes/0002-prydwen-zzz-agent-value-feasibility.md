@@ -45,7 +45,7 @@ tools/probes/extract_zzz_box_roster.py
 tools/probes/run_zzz_box_value_pipeline.py --box-image ...
 ```
 
-该草案只读取用户显式传入的米游社官方 box 总览图，输出脱敏 roster JSON / Markdown，不保存 header UID、昵称或原始 OCR 文本块，不读取 cookie/token，不写正式数据库。`needs_review_count > 0` 时只能作为 probe 输入，人工确认前不得进入 accepted roster。
+该草案只读取用户显式传入的米游社官方 box 总览图，输出脱敏 roster JSON / Markdown，不保存 header UID、昵称或原始 OCR 文本块，不读取 cookie/token，不写正式数据库。`needs_review_count > 0` 时只能作为 probe 输入，人工确认前不得进入 accepted roster。`box-status` 已补充 `box_status_review_gate` 和 `box_status_roster_review_markdown`，用于区分“可继续生成 probe 价值报告”“该看哪份复核 Markdown”和“是否允许进入 accepted roster”；即使质量检查为 `ok`，进入 accepted roster 前仍需要人工确认。
 
 默认输出到：
 
@@ -200,15 +200,15 @@ https://www.prydwen.gg/zenless/banners
 
 ## 后续任务
 
-1. 新增 `build_agent_value_cards.py`：
+1. `build_agent_value_cards.py` 首版 probe 已新增：
    - 输入 accepted roster；
    - 输入 `zzz_prydwen_meta_snapshot.json`；
    - 输出 box 内代理人现实价值、潜力价值、推荐状态、证据链。
 
-2. 收口 box roster 识别草案：
+2. 继续收口 box roster 识别草案：
    - 增加更多不同分辨率 / 语言 / 缩放 fixture 的人工对照；
-   - 将 `needs_review_count` 与 accepted roster 决策流打通；
-   - 人工确认前仍不得进入 accepted roster。
+   - `box-status` 已输出 `review_gate`，阻止把待复核 roster probe 误当作 accepted roster；
+   - 人工确认前仍不得进入 accepted roster，后续如果要自动汇入必须另走 review decision / safe apply 流。
 
 3. 新增配队匹配：
    - 从公开 team usage 生成候选队伍；
