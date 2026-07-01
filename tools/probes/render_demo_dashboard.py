@@ -791,6 +791,10 @@ def human_status(value: Any) -> str:
         "fresh": "新鲜",
         "missing": "缺失",
         "not_checked": "未检查",
+        "new": "新增",
+        "changed": "已变化",
+        "unchanged": "未变化",
+        "ok": "正常",
         "unknown": "未知",
         "n/a": "无",
     }
@@ -1668,8 +1672,8 @@ def render_update_state(summary: dict[str, Any]) -> str:
         update_rows.append(
             '<article class="resource-item">'
             f'<strong>{e(item.get("character"))}</strong>'
-            f'<span>{e(item.get("image_name"))} · {e(item.get("update_status"))} · {e(item.get("review_status") or "N/A")}</span>'
-            f'<em>{e("review" if item.get("requires_manual_review") else "ok")}</em>'
+            f'<span>{e(item.get("image_name"))} · {e(human_status(item.get("update_status")))} · {e(human_status(item.get("review_status") or "N/A"))}</span>'
+            f'<em>{e("需复核" if item.get("requires_manual_review") else "正常")}</em>'
             '</article>'
         )
     skipped = update.get("skipped_images") if isinstance(update.get("skipped_images"), list) else []
@@ -1680,20 +1684,20 @@ def render_update_state(summary: dict[str, Any]) -> str:
         updates_block = (
             '<div class="resource-plan"><h3>本轮角色更新</h3>'
             f'<div class="resource-list">{update_list}</div>'
-            f'<p class="muted-line">跳过未变更图片：{e(skipped_text or "none")}</p>'
+            f'<p class="muted-line">跳过未变更图片：{e(skipped_text or "无")}</p>'
             '</div>'
         )
     return f"""
     <section class="panel">
       <h2>本地更新扫描</h2>
       <div class="input-grid">
-        <div><span>state_file</span><strong>{e(rel_label(update.get("state_file")) or "N/A")}</strong></div>
-        <div><span>discovered</span><strong>{e(update.get("discovered_image_count", 0))}</strong></div>
-        <div><span>processed</span><strong>{e(update.get("processed_image_count", 0))}</strong></div>
-        <div><span>characters</span><strong>{e(update.get("processed_character_count", 0))}</strong></div>
-        <div><span>skipped unchanged</span><strong>{e(update.get("skipped_unchanged_count", 0))}</strong></div>
-        <div><span>new</span><strong>{e(counts.get("new", 0))}</strong></div>
-        <div><span>changed</span><strong>{e(counts.get("changed", 0))}</strong></div>
+        <div><span>更新状态文件</span><strong>{e(rel_label(update.get("state_file")) or "N/A")}</strong></div>
+        <div><span>发现图片</span><strong>{e(update.get("discovered_image_count", 0))}</strong></div>
+        <div><span>已处理图片</span><strong>{e(update.get("processed_image_count", 0))}</strong></div>
+        <div><span>处理角色</span><strong>{e(update.get("processed_character_count", 0))}</strong></div>
+        <div><span>跳过未变更</span><strong>{e(update.get("skipped_unchanged_count", 0))}</strong></div>
+        <div><span>新增结果</span><strong>{e(counts.get("new", 0))}</strong></div>
+        <div><span>变化结果</span><strong>{e(counts.get("changed", 0))}</strong></div>
       </div>
       {updates_block}
     </section>
@@ -1708,7 +1712,7 @@ def render_training_plan(summary: dict[str, Any]) -> str:
     items = plan.get("top_plan_items") if isinstance(plan.get("top_plan_items"), list) else []
     warnings = plan.get("warnings") if isinstance(plan.get("warnings"), list) else []
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Planner Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>培养规划警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     resource = plan.get("resource_plan") if isinstance(plan.get("resource_plan"), dict) else {}
     source_status = plan.get("target_source_status") if isinstance(plan.get("target_source_status"), dict) else {}
     catalog_summary = plan.get("character_catalog_summary") if isinstance(plan.get("character_catalog_summary"), dict) else {}
@@ -1843,7 +1847,7 @@ def render_action_cards(summary: dict[str, Any]) -> str:
     card_summary = actions.get("summary") if isinstance(actions.get("summary"), dict) else {}
     warnings = actions.get("warnings") if isinstance(actions.get("warnings"), list) else []
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Action Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>行动卡警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
         body = f'<div class="errors"><strong>Action cards failed</strong><ul><li>{e(error)}</li></ul></div>'
     elif not cards:
@@ -1920,7 +1924,7 @@ def render_team_cards(summary: dict[str, Any]) -> str:
     team_summary = teams.get("summary") if isinstance(teams.get("summary"), dict) else {}
     warnings = teams.get("warnings") if isinstance(teams.get("warnings"), list) else []
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Team Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>配队建议警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
         body = f'<div class="errors"><strong>Team cards failed</strong><ul><li>{e(error)}</li></ul></div>'
     elif not cards:
@@ -2066,7 +2070,7 @@ def render_refresh_status(summary: dict[str, Any]) -> str:
     rerun_required = action_state.get("rerun_required")
     rerun_text = "未知" if rerun_required is None else "是" if rerun_required else "否"
     warning_html = "".join(f"<li>{he(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Refresh Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>刷新状态警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if refresh.get("error"):
         body = f'<div class="errors"><strong>Refresh status failed</strong><ul><li>{e(refresh.get("error"))}</li></ul></div>'
     else:
@@ -2559,7 +2563,7 @@ def render_run_manifest(summary: dict[str, Any]) -> str:
     inputs = manifest.get("inputs") if isinstance(manifest.get("inputs"), dict) else {}
     warnings = status.get("warnings") if isinstance(status.get("warnings"), list) else []
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Manifest Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>运行一致性警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     input_rows = []
     for name, item in inputs.items():
         if not isinstance(item, dict):
@@ -2609,7 +2613,7 @@ def render_endgame_plan(summary: dict[str, Any]) -> str:
     target_plans = plan.get("target_plans") if isinstance(plan.get("target_plans"), list) else []
     warnings = plan.get("warnings") if isinstance(plan.get("warnings"), list) else []
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Plan Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>高难方案警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
         body = f'<div class="errors"><strong>Endgame plan failed</strong><ul><li>{e(error)}</li></ul></div>'
     elif not target_plans:
@@ -2703,7 +2707,7 @@ def render_tier_watchlist(summary: dict[str, Any]) -> str:
     tier_summary = watchlist.get("summary") if isinstance(watchlist.get("summary"), dict) else {}
     warnings = watchlist.get("warnings") if isinstance(watchlist.get("warnings"), list) else []
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Tier Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>保值观察警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     if error:
         body = f'<div class="errors"><strong>Tier watchlist failed</strong><ul><li>{e(error)}</li></ul></div>'
     elif not entries:
@@ -2799,7 +2803,7 @@ def render_target_refresh(summary: dict[str, Any]) -> str:
         return ""
     warnings = refresh.get("warnings") if isinstance(refresh.get("warnings"), list) else []
     warning_html = "".join(f"<li>{e(item)}</li>" for item in warnings)
-    warning_block = f'<div class="warnings"><strong>Target Warning</strong><ul>{warning_html}</ul></div>' if warning_html else ""
+    warning_block = f'<div class="warnings"><strong>终局目标刷新警告</strong><ul>{warning_html}</ul></div>' if warning_html else ""
     error = refresh.get("error")
     error_block = ""
     if error:

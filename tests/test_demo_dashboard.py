@@ -303,6 +303,110 @@ class DemoDashboardTests(unittest.TestCase):
         self.assertNotIn("latest_only", html)
         self.assertNotIn("Warning</strong>", html)
 
+    def test_update_state_panel_uses_reader_friendly_labels(self) -> None:
+        summary = dashboard_minimal_summary()
+        summary["update_state"] = {
+            "state_file": "data/probes/demo/update_state.json",
+            "discovered_image_count": 3,
+            "processed_image_count": 2,
+            "processed_character_count": 1,
+            "skipped_unchanged_count": 1,
+            "status_counts": {"new": 1, "changed": 1},
+            "character_updates": [
+                {
+                    "character": "星见雅",
+                    "image_name": "miyoushe_share.png",
+                    "update_status": "new",
+                    "review_status": "needs_review",
+                    "requires_manual_review": True,
+                }
+            ],
+            "skipped_images": ["old_share.png"],
+        }
+
+        html = dashboard_tool.render_update_state(summary)
+
+        self.assertIn("更新状态文件", html)
+        self.assertIn("发现图片", html)
+        self.assertIn("已处理图片", html)
+        self.assertIn("处理角色", html)
+        self.assertIn("跳过未变更", html)
+        self.assertIn("新增结果", html)
+        self.assertIn("变化结果", html)
+        self.assertIn("miyoushe_share.png · 新增 · 待复核", html)
+        self.assertIn(">需复核<", html)
+        self.assertNotIn("<span>state_file</span>", html)
+        self.assertNotIn("<span>discovered</span>", html)
+        self.assertNotIn("<span>processed</span>", html)
+        self.assertNotIn("<span>characters</span>", html)
+        self.assertNotIn("<span>skipped unchanged</span>", html)
+        self.assertNotIn("<span>new</span>", html)
+        self.assertNotIn("<span>changed</span>", html)
+        self.assertNotIn(">review<", html)
+
+    def test_dashboard_warning_titles_are_reader_friendly(self) -> None:
+        warning_cases = [
+            (
+                dashboard_tool.render_training_plan,
+                {"training_plan": {"warnings": ["目标配置待确认。"], "top_plan_items": []}},
+                "培养规划警告",
+                "Planner Warning",
+            ),
+            (
+                dashboard_tool.render_action_cards,
+                {"action_cards": {"warnings": ["存在待补录角色。"], "cards": []}},
+                "行动卡警告",
+                "Action Warning",
+            ),
+            (
+                dashboard_tool.render_team_cards,
+                {"team_cards": {"warnings": ["配队数据不足。"], "cards": []}},
+                "配队建议警告",
+                "Team Warning",
+            ),
+            (
+                dashboard_tool.render_refresh_status,
+                {"refresh_status": {"warnings": ["页面可能过期。"], "stale_reasons": []}},
+                "刷新状态警告",
+                "Refresh Warning",
+            ),
+            (
+                dashboard_tool.render_run_manifest,
+                {"run_manifest": {"artifact_status": {"warnings": ["缺少输入产物。"]}, "inputs": {}}},
+                "运行一致性警告",
+                "Manifest Warning",
+            ),
+            (
+                dashboard_tool.render_endgame_plan,
+                {"endgame_plan": {"warnings": ["高难目标未完全覆盖。"], "target_plans": []}},
+                "高难方案警告",
+                "Plan Warning",
+            ),
+            (
+                dashboard_tool.render_tier_watchlist,
+                {"tier_watchlist": {"warnings": ["保值快照可能过期。"], "entries": []}},
+                "保值观察警告",
+                "Tier Warning",
+            ),
+            (
+                dashboard_tool.render_target_refresh,
+                {"target_refresh": {"warnings": ["终局目标来源待复核。"]}},
+                "终局目标刷新警告",
+                "Target Warning",
+            ),
+        ]
+
+        for renderer, partial_summary, expected_title, old_title in warning_cases:
+            with self.subTest(old_title=old_title):
+                summary = dashboard_minimal_summary()
+                summary.update(partial_summary)
+
+                html = renderer(summary)
+
+                self.assertIn(expected_title, html)
+                self.assertNotIn(old_title, html)
+                self.assertNotIn("Warning</strong>", html)
+
     def test_humanize_text_explains_internal_gate_terms(self) -> None:
         self.assertEqual(
             dashboard_tool.humanize_text("缺少 run_manifest；无法确认本轮产物是否同批生成。"),
