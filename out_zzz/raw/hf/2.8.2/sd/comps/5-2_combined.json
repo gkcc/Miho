@@ -1,0 +1,1812 @@
+[
+  {
+    "char_one": "miyabi",
+    "char_two": "nangong-yu",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "biggest-fan",
+    "app_rate": 25.13,
+    "rank": 1,
+    "avg_round": 32134,
+    "avg_round_m1": 35344
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "nangong-yu",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "biggest-fan",
+    "app_rate": 10.62,
+    "rank": 2,
+    "avg_round": 32501,
+    "avg_round_m1": 37942
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "vivian",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "robin",
+    "app_rate": 8.02,
+    "rank": 3,
+    "avg_round": 27585,
+    "avg_round_m1": 31660
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "robin",
+    "app_rate": 7.37,
+    "rank": 4,
+    "avg_round": 31721,
+    "avg_round_m1": 36589
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "nangong-yu",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 3.17,
+    "rank": 5,
+    "avg_round": 30182,
+    "avg_round_m1": 33274
+  },
+  {
+    "char_one": "aria",
+    "char_two": "nangong-yu",
+    "char_three": "sunna",
+    "bangboo": "biggest-fan",
+    "app_rate": 2.96,
+    "rank": 6,
+    "avg_round": 29928,
+    "avg_round_m1": 35265
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "vivian",
+    "char_three": "astra-yao",
+    "bangboo": "robin",
+    "app_rate": 2.41,
+    "rank": 7,
+    "avg_round": 27082,
+    "avg_round_m1": 31602
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "agent-gulliver",
+    "app_rate": 2.08,
+    "rank": 8,
+    "avg_round": 27695,
+    "avg_round_m1": 31107
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "ju-fufu",
+    "char_three": "lucia",
+    "bangboo": "belion",
+    "app_rate": 1.94,
+    "rank": 9,
+    "avg_round": 25702,
+    "avg_round_m1": 31514
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "dialyn",
+    "char_three": "lucia",
+    "bangboo": "belion",
+    "app_rate": 1.43,
+    "rank": 10,
+    "avg_round": 26762,
+    "avg_round_m1": 32436
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "burnice",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "miss-esme",
+    "app_rate": 1.35,
+    "rank": 11,
+    "avg_round": 29621,
+    "avg_round_m1": 32703
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "ukinami-yuzuha",
+    "char_three": "soukaku",
+    "bangboo": "sharkboo",
+    "app_rate": 1.25,
+    "rank": 12,
+    "avg_round": 28486,
+    "avg_round_m1": 32366
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "astra-yao",
+    "bangboo": "agent-gulliver",
+    "app_rate": 1.19,
+    "rank": 13,
+    "avg_round": 25812,
+    "avg_round_m1": 30844
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "nangong-yu",
+    "char_three": "sunna",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.93,
+    "rank": 14,
+    "avg_round": 30057,
+    "avg_round_m1": 32826
+  },
+  {
+    "char_one": "yidhari",
+    "char_two": "lycaon",
+    "char_three": "lucia",
+    "bangboo": "miss-esme",
+    "app_rate": 0.87,
+    "rank": 15,
+    "avg_round": 26302,
+    "avg_round_m1": 30909
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "nangong-yu",
+    "char_three": "sunna",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.82,
+    "rank": 16,
+    "avg_round": 30608,
+    "avg_round_m1": 38137
+  },
+  {
+    "char_one": "aria",
+    "char_two": "nangong-yu",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.67,
+    "rank": 17,
+    "avg_round": 30265,
+    "avg_round_m1": 31689
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "miyabi",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "sharkboo",
+    "app_rate": 0.63,
+    "rank": 18,
+    "avg_round": 30134,
+    "avg_round_m1": 31851
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "lycaon",
+    "char_three": "soukaku",
+    "bangboo": "sharkboo",
+    "app_rate": 0.62,
+    "rank": 19,
+    "avg_round": 23150,
+    "avg_round_m1": 26727
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "astra-yao",
+    "bangboo": "robin",
+    "app_rate": 0.6,
+    "rank": 20,
+    "avg_round": 28957,
+    "avg_round_m1": 35477
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "nangong-yu",
+    "bangboo": "robin",
+    "app_rate": 0.57,
+    "rank": 21,
+    "avg_round": 27126,
+    "avg_round_m1": 30904
+  },
+  {
+    "char_one": "hugo",
+    "char_two": "lycaon",
+    "char_three": "lighter",
+    "bangboo": "robin",
+    "app_rate": 0.56,
+    "rank": 22,
+    "avg_round": 24449,
+    "avg_round_m1": 27698
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "pan-yinhu",
+    "char_three": "lucia",
+    "bangboo": "belion",
+    "app_rate": 0.46,
+    "rank": 23,
+    "avg_round": 23568,
+    "avg_round_m1": 28496
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "burnice",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.45,
+    "rank": 24,
+    "avg_round": 28477,
+    "avg_round_m1": 32223
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "nangong-yu",
+    "char_three": "nicole-demara",
+    "bangboo": "resonaboo",
+    "app_rate": 0.45,
+    "rank": 24,
+    "avg_round": 27747,
+    "avg_round_m1": 31938
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "nangong-yu",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.42,
+    "rank": 26,
+    "avg_round": 30248,
+    "avg_round_m1": 34748
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "nicole-demara",
+    "char_three": "astra-yao",
+    "bangboo": "resonaboo",
+    "app_rate": 0.4,
+    "rank": 27,
+    "avg_round": 26281,
+    "avg_round_m1": 33424
+  },
+  {
+    "char_one": "yidhari",
+    "char_two": "dialyn",
+    "char_three": "lucia",
+    "bangboo": "miss-esme",
+    "app_rate": 0.35,
+    "rank": 28,
+    "avg_round": 26555,
+    "avg_round_m1": 32906
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "nangong-yu",
+    "char_three": "soukaku",
+    "bangboo": "sharkboo",
+    "app_rate": 0.33,
+    "rank": 29,
+    "avg_round": 25163,
+    "avg_round_m1": 26211
+  },
+  {
+    "char_one": "yidhari",
+    "char_two": "ju-fufu",
+    "char_three": "lucia",
+    "bangboo": "miss-esme",
+    "app_rate": 0.31,
+    "rank": 30,
+    "avg_round": 27015,
+    "avg_round_m1": 32922
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "miyabi",
+    "char_three": "astra-yao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.3,
+    "rank": 31,
+    "avg_round": 26856,
+    "avg_round_m1": 31668
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "lycaon",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "sharkboo",
+    "app_rate": 0.27,
+    "rank": 32,
+    "avg_round": 25376,
+    "avg_round_m1": 29484
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "ukinami-yuzuha",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.25,
+    "rank": 33,
+    "avg_round": 27848,
+    "avg_round_m1": 32571
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "vivian",
+    "char_three": "nicole-demara",
+    "bangboo": "robin",
+    "app_rate": 0.2,
+    "rank": 34,
+    "avg_round": 22336,
+    "avg_round_m1": 28526
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "alice",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "miss-esme",
+    "app_rate": 0.2,
+    "rank": 34,
+    "avg_round": 28465,
+    "avg_round_m1": 30638
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "lycaon",
+    "char_three": "astra-yao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.17,
+    "rank": 36,
+    "avg_round": 26015,
+    "avg_round_m1": 28405
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "burnice",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "sharkboo",
+    "app_rate": 0.17,
+    "rank": 36,
+    "avg_round": 28317,
+    "avg_round_m1": 30044
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "lucia",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.16,
+    "rank": 38,
+    "avg_round": 24169,
+    "avg_round_m1": 31641
+  },
+  {
+    "char_one": "ye-shunguang",
+    "char_two": "zhao",
+    "char_three": "sunna",
+    "bangboo": "sprout",
+    "app_rate": 0.15,
+    "rank": 39,
+    "avg_round": 30646,
+    "avg_round_m1": 41976
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "vivian",
+    "char_three": "nangong-yu",
+    "bangboo": "robin",
+    "app_rate": 0.15,
+    "rank": 39,
+    "avg_round": 20699,
+    "avg_round_m1": 25073
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "zhao",
+    "bangboo": "robin",
+    "app_rate": 0.14,
+    "rank": 41,
+    "avg_round": 26810,
+    "avg_round_m1": 32954
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "lycaon",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "sharkboo",
+    "app_rate": 0.13,
+    "rank": 42,
+    "avg_round": 26370,
+    "avg_round_m1": 29847
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "nangong-yu",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.13,
+    "rank": 42,
+    "avg_round": 21070,
+    "avg_round_m1": 25826
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "nangong-yu",
+    "char_three": "nicole-demara",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.11,
+    "rank": 44,
+    "avg_round": 25684,
+    "avg_round_m1": 28499
+  },
+  {
+    "char_one": "burnice",
+    "char_two": "vivian",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "robin",
+    "app_rate": 0.11,
+    "rank": 44,
+    "avg_round": 24505,
+    "avg_round_m1": 31442
+  },
+  {
+    "char_one": "aria",
+    "char_two": "nangong-yu",
+    "char_three": "astra-yao",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.11,
+    "rank": 44,
+    "avg_round": 27215,
+    "avg_round_m1": 27411
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "trigger",
+    "char_three": "lucia",
+    "bangboo": "belion",
+    "app_rate": 0.1,
+    "rank": 47,
+    "avg_round": 23343,
+    "avg_round_m1": 28608
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "ju-fufu",
+    "char_three": "pan-yinhu",
+    "bangboo": "belion",
+    "app_rate": 0.1,
+    "rank": 47,
+    "avg_round": 21757,
+    "avg_round_m1": 25686
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "soukaku",
+    "char_three": "astra-yao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.1,
+    "rank": 47,
+    "avg_round": 23897,
+    "avg_round_m1": 28077
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "burnice",
+    "char_three": "lucy",
+    "bangboo": "rocketboo",
+    "app_rate": 0.09,
+    "rank": 50,
+    "avg_round": 24866,
+    "avg_round_m1": 26012
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "lighter",
+    "char_three": "lucy",
+    "bangboo": "rocketboo",
+    "app_rate": 0.09,
+    "rank": 50,
+    "avg_round": 25244,
+    "avg_round_m1": 28158
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "zhao",
+    "char_three": "soukaku",
+    "bangboo": "sharkboo",
+    "app_rate": 0.09,
+    "rank": 50,
+    "avg_round": 26967,
+    "avg_round_m1": 25659
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "lycaon",
+    "char_three": "astra-yao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.09,
+    "rank": 50,
+    "avg_round": 24972,
+    "avg_round_m1": 25309
+  },
+  {
+    "char_one": "aria",
+    "char_two": "lycaon",
+    "char_three": "sunna",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.08,
+    "rank": 54,
+    "avg_round": 28608,
+    "avg_round_m1": 34174
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "lighter",
+    "char_three": "astra-yao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.08,
+    "rank": 54,
+    "avg_round": 22467,
+    "avg_round_m1": 28006
+  },
+  {
+    "char_one": "yanagi",
+    "char_two": "vivian",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "robin",
+    "app_rate": 0.08,
+    "rank": 54,
+    "avg_round": 25596,
+    "avg_round_m1": 29256
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "vivian",
+    "char_three": "soukaku",
+    "bangboo": "robin",
+    "app_rate": 0.07,
+    "rank": 57,
+    "avg_round": 20099,
+    "avg_round_m1": 24465
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "ukinami-yuzuha",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 31135,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "ye-shunguang",
+    "char_two": "dialyn",
+    "char_three": "zhao",
+    "bangboo": "sprout",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 32159,
+    "avg_round_m1": 37448
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "vivian",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 24442,
+    "avg_round_m1": 21907
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "trigger",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 0,
+    "avg_round_m1": 35670
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "zhao",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "birkblick",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 28226,
+    "avg_round_m1": 34095
+  },
+  {
+    "char_one": "hugo",
+    "char_two": "lighter",
+    "char_three": "dialyn",
+    "bangboo": "robin",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 24770,
+    "avg_round_m1": 30210
+  },
+  {
+    "char_one": "aria",
+    "char_two": "nangong-yu",
+    "char_three": "zhao",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 28828,
+    "avg_round_m1": 38721
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "trigger",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 23384,
+    "avg_round_m1": 30805
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "rina",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 23276,
+    "avg_round_m1": 23599
+  },
+  {
+    "char_one": "anby-demara-soldier-0",
+    "char_two": "orphie-and-magus",
+    "char_three": "trigger",
+    "bangboo": "mercury",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 27799,
+    "avg_round_m1": 33613
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "ukinami-yuzuha",
+    "char_three": "nicole-demara",
+    "bangboo": "sharkboo",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 21383,
+    "avg_round_m1": 30644
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "pulchra",
+    "char_three": "lucia",
+    "bangboo": "belion",
+    "app_rate": 0.06,
+    "rank": 58,
+    "avg_round": 20572,
+    "avg_round_m1": 26717
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "ju-fufu",
+    "char_three": "astra-yao",
+    "bangboo": "belion",
+    "app_rate": 0.05,
+    "rank": 70,
+    "avg_round": 19904,
+    "avg_round_m1": 24724
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "aria",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "snap",
+    "app_rate": 0.05,
+    "rank": 70,
+    "avg_round": 30288,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "alice",
+    "char_two": "vivian",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "robin",
+    "app_rate": 0.05,
+    "rank": 70,
+    "avg_round": 24268,
+    "avg_round_m1": 34182
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "burnice",
+    "char_three": "astra-yao",
+    "bangboo": "rocketboo",
+    "app_rate": 0.05,
+    "rank": 70,
+    "avg_round": 26020,
+    "avg_round_m1": 29626
+  },
+  {
+    "char_one": "grace-howard",
+    "char_two": "nangong-yu",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "snap",
+    "app_rate": 0.05,
+    "rank": 70,
+    "avg_round": 26313,
+    "avg_round_m1": 27536
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "soukaku",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.05,
+    "rank": 70,
+    "avg_round": 19362,
+    "avg_round_m1": 22509
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "lycaon",
+    "char_three": "lucia",
+    "bangboo": "resonaboo",
+    "app_rate": 0.05,
+    "rank": 70,
+    "avg_round": 22384,
+    "avg_round_m1": 32176
+  },
+  {
+    "char_one": "alice",
+    "char_two": "nangong-yu",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "miss-esme",
+    "app_rate": 0.05,
+    "rank": 70,
+    "avg_round": 26038,
+    "avg_round_m1": 34443
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "nicole-demara",
+    "bangboo": "robin",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 25961,
+    "avg_round_m1": 34432
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "nangong-yu",
+    "char_three": "lucy",
+    "bangboo": "sharkboo",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 24009,
+    "avg_round_m1": 27449
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "dialyn",
+    "char_three": "astra-yao",
+    "bangboo": "butler",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 26660,
+    "avg_round_m1": 32778
+  },
+  {
+    "char_one": "aria",
+    "char_two": "lycaon",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 27515,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "sunna",
+    "bangboo": "robin",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 25104,
+    "avg_round_m1": 32037
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "qingyi",
+    "char_three": "lucia",
+    "bangboo": "belion",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 20998,
+    "avg_round_m1": 26491
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "pan-yinhu",
+    "char_three": "astra-yao",
+    "bangboo": "belion",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 17589,
+    "avg_round_m1": 27672
+  },
+  {
+    "char_one": "yanagi",
+    "char_two": "nangong-yu",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "booltergeist",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 28806,
+    "avg_round_m1": 30971
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "zhao",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 25163,
+    "avg_round_m1": 33258
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "koleda",
+    "char_three": "lucia",
+    "bangboo": "resonaboo",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 0,
+    "avg_round_m1": 25773
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "zhao",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "sharkboo",
+    "app_rate": 0.04,
+    "rank": 78,
+    "avg_round": 29333,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "lycaon",
+    "char_three": "zhao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 18462,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "yanagi",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "miss-esme",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 27217,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "aria",
+    "char_three": "nangong-yu",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 29779,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "ju-fufu",
+    "char_three": "dialyn",
+    "bangboo": "belion",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 20816,
+    "avg_round_m1": 30382
+  },
+  {
+    "char_one": "evelyn",
+    "char_two": "lighter",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 24951,
+    "avg_round_m1": 26277
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "zhao",
+    "char_three": "nicole-demara",
+    "bangboo": "devilboo",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 0,
+    "avg_round_m1": 30708
+  },
+  {
+    "char_one": "yidhari",
+    "char_two": "zhao",
+    "char_three": "lucia",
+    "bangboo": "birkblick",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 31626,
+    "avg_round_m1": 36024
+  },
+  {
+    "char_one": "yidhari",
+    "char_two": "pan-yinhu",
+    "char_three": "lucia",
+    "bangboo": "miss-esme",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 21261,
+    "avg_round_m1": 29860
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "miyabi",
+    "char_three": "nangong-yu",
+    "bangboo": "sharkboo",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 24875,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "cissia",
+    "char_two": "seed",
+    "char_three": "astra-yao",
+    "bangboo": "plugboo",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 32149,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "lighter",
+    "char_three": "zhao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 20701,
+    "avg_round_m1": 26815
+  },
+  {
+    "char_one": "aria",
+    "char_two": "ukinami-yuzuha",
+    "char_three": "sunna",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 23831,
+    "avg_round_m1": 22764
+  },
+  {
+    "char_one": "hugo",
+    "char_two": "lycaon",
+    "char_three": "dialyn",
+    "bangboo": "robin",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 22075,
+    "avg_round_m1": 28829
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "miyabi",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 22577,
+    "avg_round_m1": 33130
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "lycaon",
+    "char_three": "astra-yao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 26989,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "nicole-demara",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 18750,
+    "avg_round_m1": 24231
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "burnice",
+    "char_three": "soukaku",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 20586,
+    "avg_round_m1": 22224
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "zhao",
+    "char_three": "astra-yao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 20482,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "aria",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "penguinboo",
+    "app_rate": 0.03,
+    "rank": 89,
+    "avg_round": 27305,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "yidhari",
+    "char_two": "lycaon",
+    "char_three": "pan-yinhu",
+    "bangboo": "belion",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 28271,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "nicole-demara",
+    "char_three": "astra-yao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 23246,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "piper",
+    "char_two": "vivian",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "robin",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 14144,
+    "avg_round_m1": 28010
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "dialyn",
+    "char_three": "astra-yao",
+    "bangboo": "resonaboo",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 21144,
+    "avg_round_m1": 27994
+  },
+  {
+    "char_one": "jane-doe",
+    "char_two": "vivian",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "robin",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 22299,
+    "avg_round_m1": 32348
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "nangong-yu",
+    "char_three": "zhao",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 25198,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "burnice",
+    "char_two": "nangong-yu",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "overtimeboo",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 26221,
+    "avg_round_m1": 33586
+  },
+  {
+    "char_one": "burnice",
+    "char_two": "grace-howard",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "butler",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 23166,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "trigger",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "plugboo",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 0,
+    "avg_round_m1": 35222
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "vivian",
+    "char_three": "lucia",
+    "bangboo": "robin",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 18700,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "vivian",
+    "char_three": "sunna",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 0,
+    "avg_round_m1": 25139
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "aria",
+    "char_three": "nangong-yu",
+    "bangboo": "overtimeboo",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 19159,
+    "avg_round_m1": 24200
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "lycaon",
+    "bangboo": "robin",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 24796,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "dialyn",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 0,
+    "avg_round_m1": 27212
+  },
+  {
+    "char_one": "vivian",
+    "char_two": "nangong-yu",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "robin",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 25406,
+    "avg_round_m1": 27672
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "nangong-yu",
+    "char_three": "zhao",
+    "bangboo": "snap",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 21853,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "lucy",
+    "bangboo": "sharkboo",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 24675,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "soldier-11",
+    "char_two": "lighter",
+    "char_three": "astra-yao",
+    "bangboo": "rocketboo",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 28342,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "trigger",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 34546,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "aria",
+    "char_two": "lycaon",
+    "char_three": "zhao",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 26516,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "soldier-11",
+    "char_two": "lighter",
+    "char_three": "sunna",
+    "bangboo": "rocketboo",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 30895,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "ukinami-yuzuha",
+    "char_three": "caesar",
+    "bangboo": "bangvolver",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 0,
+    "avg_round_m1": 27220
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "zhao",
+    "char_three": "lucia",
+    "bangboo": "belion",
+    "app_rate": 0.02,
+    "rank": 109,
+    "avg_round": 20455,
+    "avg_round_m1": 30600
+  },
+  {
+    "char_one": "hugo",
+    "char_two": "lycaon",
+    "char_three": "astra-yao",
+    "bangboo": "robin",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 20018,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "aria",
+    "char_two": "sunna",
+    "char_three": "nicole-demara",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 20423,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "miyabi",
+    "char_three": "soukaku",
+    "bangboo": "sharkboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 24232,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "sunna",
+    "char_three": "soukaku",
+    "bangboo": "sharkboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 25379,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "yanagi",
+    "char_two": "burnice",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "plugboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 31846,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "grace-howard",
+    "char_three": "soukaku",
+    "bangboo": "sharkboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 16393,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "dialyn",
+    "char_three": "pan-yinhu",
+    "bangboo": "belion",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 26496
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "ellen",
+    "char_three": "soukaku",
+    "bangboo": "sharkboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 18212,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "soukaku",
+    "bangboo": "robin",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 18170,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "jane-doe",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "miss-esme",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 28790
+  },
+  {
+    "char_one": "ye-shunguang",
+    "char_two": "ju-fufu",
+    "char_three": "zhao",
+    "bangboo": "sprout",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 31316,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "billy-starlight",
+    "char_two": "ju-fufu",
+    "char_three": "lucia",
+    "bangboo": "miss-esme",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 21000,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "vivian",
+    "char_three": "lucia",
+    "bangboo": "resonaboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 20295,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "yidhari",
+    "char_two": "lucia",
+    "char_three": "astra-yao",
+    "bangboo": "excaliboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 35262
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "miyabi",
+    "char_three": "lycaon",
+    "bangboo": "sharkboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 23357,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "lycaon",
+    "char_three": "soukaku",
+    "bangboo": "sharkboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 22036
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "pulchra",
+    "char_three": "pan-yinhu",
+    "bangboo": "belion",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 25524
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "lycaon",
+    "char_three": "nicole-demara",
+    "bangboo": "penguinboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 22937,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "miyabi",
+    "char_three": "lucia",
+    "bangboo": "belion",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 25535
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "alice",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 24673,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "astra-yao",
+    "char_three": "caesar",
+    "bangboo": "knightboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 28580
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "dialyn",
+    "char_three": "zhao",
+    "bangboo": "sharkboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 30265
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "ju-fufu",
+    "char_three": "astra-yao",
+    "bangboo": "butler",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 26649
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "nangong-yu",
+    "char_three": "soukaku",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 24042,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "lycaon",
+    "char_three": "caesar",
+    "bangboo": "penguinboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 18522,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "caesar",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 27214
+  },
+  {
+    "char_one": "yidhari",
+    "char_two": "pulchra",
+    "char_three": "lucia",
+    "bangboo": "excaliboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 23188,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "nangong-yu",
+    "char_three": "lucia",
+    "bangboo": "penguinboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 23964,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "jane-doe",
+    "char_two": "vivian",
+    "char_three": "astra-yao",
+    "bangboo": "robin",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 26614
+  },
+  {
+    "char_one": "aria",
+    "char_two": "zhao",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "birkblick",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 21291,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "trigger",
+    "char_three": "nangong-yu",
+    "bangboo": "butler",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 24464,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "burnice",
+    "char_three": "nangong-yu",
+    "bangboo": "biggest-fan",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 22004
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "vivian",
+    "char_three": "rina",
+    "bangboo": "robin",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 22859,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "vivian",
+    "char_three": "lucy",
+    "bangboo": "bangvolver",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 16367,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "alice",
+    "char_two": "burnice",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "miss-esme",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 24121,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "aria",
+    "char_two": "nangong-yu",
+    "char_three": "nicole-demara",
+    "bangboo": "resonaboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 25980,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "trigger",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "sharkboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 23125
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "burnice",
+    "char_three": "nangong-yu",
+    "bangboo": "birkblick",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 25339
+  },
+  {
+    "char_one": "evelyn",
+    "char_two": "dialyn",
+    "char_three": "astra-yao",
+    "bangboo": "snap",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 25631,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "yixuan",
+    "char_two": "lucia",
+    "char_three": "caesar",
+    "bangboo": "booressure",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 19860,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "alice",
+    "char_two": "jane-doe",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "bangvolver",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 22768,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "aria",
+    "char_three": "sunna",
+    "bangboo": "resonaboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 20840,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "trigger",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "robin",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 34007,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "lighter",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "sharkboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 26458,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "ellen",
+    "char_two": "dialyn",
+    "char_three": "sunna",
+    "bangboo": "birkblick",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 0,
+    "avg_round_m1": 29078
+  },
+  {
+    "char_one": "cissia",
+    "char_two": "seed",
+    "char_three": "trigger",
+    "bangboo": "plugboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 26786,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "grace-howard",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "plugboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 22946,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "soukaku",
+    "char_three": "caesar",
+    "bangboo": "magnetiboo",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 18803,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "promeia",
+    "char_two": "burnice",
+    "char_three": "zhao",
+    "bangboo": "miss-esme",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 26419,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "dialyn",
+    "char_three": "ukinami-yuzuha",
+    "bangboo": "birkblick",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 28372,
+    "avg_round_m1": 0
+  },
+  {
+    "char_one": "miyabi",
+    "char_two": "yanagi",
+    "char_three": "lycaon",
+    "bangboo": "agent-gulliver",
+    "app_rate": 0.01,
+    "rank": 133,
+    "avg_round": 17158,
+    "avg_round_m1": 0
+  }
+]

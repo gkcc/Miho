@@ -1,0 +1,23 @@
+﻿section,metric,value
+summary,snapshots,9
+summary,modes,"异相仲裁(aa), 末日幻影(as), 混沌回忆(moc), 虚构叙事(pf)"
+rows,character_usage_long,3424
+rows,team_rank_raw,105680
+rows,team_rank_dedup_ordered,44522
+rows,team_rank_dedup_unordered,44340
+dedup,raw_rows_removed_by_ordered_dedup,61158
+dedup,raw_rows_removed_by_unordered_dedup,61340
+display,top_teams_latest,unordered unique Top 100 per mode
+names,name_map,87
+names,name_map_unresolved,0
+prydwen_tier,current_rows,279
+prydwen_tier,usage_trend_rows_t0_t2,1866
+prydwen_tier,charts,12
+quality,warnings,3
+coverage,异相仲裁,9
+coverage,末日幻影,9
+coverage,混沌回忆,9
+coverage,虚构叙事,9
+warning,,3.8.2: config is in requested date range but no dataset directory was listed
+warning,,3.8.3: config is in requested date range but no dataset directory was listed
+warning,,3.8.4: config is in requested date range but no dataset directory was listed

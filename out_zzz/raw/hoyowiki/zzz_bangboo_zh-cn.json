@@ -1,0 +1,1547 @@
+[
+  {
+    "entry_page_id": "1107",
+    "name": "超极杰克",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2026/06/16/537827828c797dea5947fc87d16c19d9_376268456910417094.png",
+    "display_field": {
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"72\",\"base_def\":\"28\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8863\",\"base_def\":\"666\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8502\",\"base_def\":\"587\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"4143\",\"base_def\":\"474\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2117\",\"base_def\":\"360\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1089\",\"base_def\":\"246\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"463\",\"base_def\":\"133\",\"base_imp\":\"103\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "外务筹策局"
+        ],
+        "value_types": [
+          {
+            "id": "139",
+            "value": "外务筹策局",
+            "mi18n_key": "filter_custom_98",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2026/04/29/68e7a029711d89003907a08bd7248abd_5167992600714159990.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "1092",
+    "name": "幽浮布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2026/05/08/62c3dab880f1c85734cd9e7d53f9794b_8082585354551214192.png",
+    "display_field": {
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6570\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"6303\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"3070\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1568\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"807\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"342\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "1016",
+    "name": "阿饭",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2026/02/05/77d11fa4faf54fe8ca0c18f5e368eaa9_379200820967016904.png",
+    "display_field": {
+      "attr_level_20": "{\"base_hp\":\"2063\",\"base_atk\":\"971\",\"base_def\":\"246\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1242\",\"base_atk\":\"411\",\"base_def\":\"133\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_1": "{\"base_hp\":\"479\",\"base_atk\":\"64\",\"base_def\":\"28\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"5095\",\"base_atk\":\"7896\",\"base_def\":\"666\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"4524\",\"base_atk\":\"7575\",\"base_def\":\"587\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3703\",\"base_atk\":\"3691\",\"base_def\":\"474\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_30": "{\"base_hp\":\"2883\",\"base_atk\":\"1886\",\"base_def\":\"360\",\"base_imp\":\"110\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "妄想天使"
+        ],
+        "value_types": [
+          {
+            "id": "133",
+            "value": "妄想天使",
+            "mi18n_key": "filter_custom_95",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2026/01/19/c93defa8bd7240b8ab05dd78db73303d_1519697745040938179.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "985",
+    "name": "芽芽",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/12/29/e9c641b8db057f51a644c54d54621b97_3507731744732263654.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8502\",\"base_def\":\"587\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"4143\",\"base_def\":\"474\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2117\",\"base_def\":\"360\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1089\",\"base_def\":\"246\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"463\",\"base_def\":\"133\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"72\",\"base_def\":\"28\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8863\",\"base_def\":\"666\",\"base_imp\":\"103\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "filter_key_17": {
+        "values": [
+          "云岿山"
+        ],
+        "value_types": [
+          {
+            "id": "125",
+            "value": "云岿山",
+            "mi18n_key": "filter_custom_90",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/06/06/d8403daf6d7d07d2fd024651b2ce5cc8_6283694854921546061.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      },
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "967",
+    "name": "乐玩布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/11/28/5d8267aee09de897da2dabbf1eae6768_5055067474944873763.png",
+    "display_field": {
+      "attr_level_60": "{\"base_hp\":\"3,827\",\"base_atk\":\"6,570\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3,399\",\"base_atk\":\"6,303\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2,782\",\"base_atk\":\"3,070\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_30": "{\"base_hp\":\"2,166\",\"base_atk\":\"1,568\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1,549\",\"base_atk\":\"807\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"342\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "966",
+    "name": "比克布利克",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/11/26/f51dfaee63cc8ade66834e4865d63d6f_8799704040233724924.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3,739\",\"base_atk\":\"7,575\",\"base_def\":\"587\",\"base_imp\":\"123\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2,383\",\"base_atk\":\"1,886\",\"base_def\":\"360\",\"base_imp\":\"123\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4,210\",\"base_atk\":\"7,896\",\"base_def\":\"666\",\"base_imp\":\"123\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3,061\",\"base_atk\":\"3,961\",\"base_def\":\"474\",\"base_imp\":\"123\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1,027\",\"base_atk\":\"411\",\"base_def\":\"133\",\"base_imp\":\"123\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"64\",\"base_def\":\"28\",\"base_imp\":\"123\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1,705\",\"base_atk\":\"971\",\"base_def\":\"246\",\"base_imp\":\"123\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "坎卜斯黑枝"
+        ],
+        "value_types": [
+          {
+            "id": "129",
+            "value": "坎卜斯黑枝",
+            "mi18n_key": "filter_custom_93",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/11/27/3e5e082c6f71f5b8e61ee17e41a85bb5_2890312576375524645.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "912",
+    "name": "圣剑布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2026/02/15/165915622/52983421a01aba057aa9b9b5867bf77e_3100098186801001771.png",
+    "display_field": {
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"807\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"6303\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1568\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6570\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"3070\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"342\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "911",
+    "name": "「墨丘利」",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/09/04/1010908/2db1895ea4e021e85aa3ced4ebdaf020_4789675270570519753.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8502\",\"base_def\":\"587\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2117\",\"base_def\":\"360\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8863\",\"base_def\":\"666\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"4143\",\"base_def\":\"474\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"463\",\"base_def\":\"133\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"72\",\"base_def\":\"28\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1089\",\"base_def\":\"246\",\"base_imp\":\"103\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "防卫军·奥波勒斯小队"
+        ],
+        "value_types": [
+          {
+            "id": "100",
+            "value": "防卫军·奥波勒斯小队",
+            "mi18n_key": "filter_custom_38",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/05/07/5d8267a1f12bdb48fb4f8974ab755ffe_464325563450413858.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "878",
+    "name": "艾丝弥小姐",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/07/17/1010908/ba1655d985f82ac4737229f76313d9f7_7175791658972727828.png",
+    "display_field": {
+      "attr_level_60": "{\"base_hp\":\"5095\",\"base_atk\":\"7896\",\"base_def\":\"666\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3703\",\"base_atk\":\"3691\",\"base_def\":\"474\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1242\",\"base_atk\":\"411\",\"base_def\":\"133\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"479\",\"base_atk\":\"64\",\"base_def\":\"28\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"2063\",\"base_atk\":\"971\",\"base_def\":\"246\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"4524\",\"base_atk\":\"7575\",\"base_def\":\"587\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2883\",\"base_atk\":\"1886\",\"base_def\":\"360\",\"base_imp\":\"110\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "filter_key_17": {
+        "values": [
+          "怪啖屋"
+        ],
+        "value_types": [
+          {
+            "id": "127",
+            "value": "怪啖屋",
+            "mi18n_key": "filter_custom_92",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/07/15/199c7c03ea3f0a84ff593d5c3a475d89_402696562446580722.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      },
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "793",
+    "name": "狮耶",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/06/28/1010908/3cc63c35daaa925703b360d48a6cca98_2235952880310231429.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8502\",\"base_def\":\"587\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2117\",\"base_def\":\"360\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8863\",\"base_def\":\"666\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"4143\",\"base_def\":\"474\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"463\",\"base_def\":\"133\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"72\",\"base_def\":\"28\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1089\",\"base_def\":\"246\",\"base_imp\":\"103\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "云岿山"
+        ],
+        "value_types": [
+          {
+            "id": "125",
+            "value": "云岿山",
+            "mi18n_key": "filter_custom_90",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/06/06/d8403daf6d7d07d2fd024651b2ce5cc8_6283694854921546061.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "709",
+    "name": "加班布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/04/28/1010908/35d4b16fb54a28f3662f349bcb246849_140566382239965158.png",
+    "display_field": {
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1568\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6570\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"3070\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"993\",\"base_atk\":\"342\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"807\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"6303\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "708",
+    "name": "罗宾",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/04/28/1010908/d4d6fbb7c770c6dfc84974f9bd1497e9_7297103352256755632.png",
+    "display_field": {
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"4030\",\"base_def\":\"474\",\"base_imp\":\"117\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"450\",\"base_def\":\"133\",\"base_imp\":\"117\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"70\",\"base_def\":\"28\",\"base_imp\":\"117\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1060\",\"base_def\":\"246\",\"base_imp\":\"117\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8270\",\"base_def\":\"587\",\"base_imp\":\"117\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2059\",\"base_def\":\"360\",\"base_imp\":\"117\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8261\",\"base_def\":\"666\",\"base_imp\":\"117\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "反舌鸟"
+        ],
+        "value_types": [
+          {
+            "id": "115",
+            "value": "反舌鸟",
+            "mi18n_key": "filter_custom_88",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/04/23/c7e3cbe8d8a2d2b8f5612ecccf863870_6303397998609998358.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "592",
+    "name": "咔嚓仔",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/02/04/1010908/0d3e46e0dbf92c7679b9e952d0bd7102_579385385970323877.png",
+    "display_field": {
+      "attr_level_10": "{\"base_hp\":\"1242\",\"base_atk\":\"411\",\"base_def\":\"133\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"479\",\"base_atk\":\"64\",\"base_def\":\"28\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"2063\",\"base_atk\":\"971\",\"base_def\":\"246\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"4524\",\"base_atk\":\"7575\",\"base_def\":\"587\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2883\",\"base_atk\":\"1886\",\"base_def\":\"360\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"5095\",\"base_atk\":\"7896\",\"base_def\":\"666\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3703\",\"base_atk\":\"3691\",\"base_def\":\"474\",\"base_imp\":\"110\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "filter_key_17": {
+        "values": [
+          "天琴座"
+        ],
+        "value_types": [
+          {
+            "id": "104",
+            "value": "天琴座",
+            "mi18n_key": "filter_custom_79",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/01/21/5fcf72ce37090f2e6661fb3448fb4f39_4341270331890131564.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      },
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "543",
+    "name": "格斗布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/02/04/1010908/e76bcc49e24bc8dddfd08a2b223d68a2_4708054505967837458.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"6303\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1568\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6570\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"3070\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"342\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"807\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "542",
+    "name": "格列佛探员",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/02/04/1010908/2e8518711144717cbbc192bb19146229_8070874190157235838.png",
+    "display_field": {
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"68\",\"base_def\":\"28\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1030\",\"base_def\":\"246\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8039\",\"base_def\":\"587\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2001\",\"base_def\":\"360\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8380\",\"base_def\":\"666\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"3917\",\"base_def\":\"474\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"437\",\"base_def\":\"133\",\"base_imp\":\"103\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "对空洞特别行动部第六课"
+        ],
+        "value_types": [
+          {
+            "id": "101",
+            "value": "对空洞特别行动部第六课",
+            "mi18n_key": "filter_custom_39",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/01/21/ab5e2492e6327f2a049f58d1d88bb20d_906252755410101860.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "533",
+    "name": "骑士布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/02/04/1010908/80239589ec63934d08055e0f3d65b1a0_5557441235462968217.png",
+    "display_field": {
+      "attr_level_1": "{\"base_hp\":\"436\",\"base_atk\":\"47\",\"base_def\":\"32\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1875\",\"base_atk\":\"716\",\"base_def\":\"288\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"4113\",\"base_atk\":\"5588\",\"base_def\":\"688\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2622\",\"base_atk\":\"1391\",\"base_def\":\"422\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4632\",\"base_atk\":\"5825\",\"base_def\":\"781\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3367\",\"base_atk\":\"2723\",\"base_def\":\"556\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1130\",\"base_atk\":\"304\",\"base_def\":\"156\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "532",
+    "name": "不良布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/02/04/1010908/3c15f9930df07d99531d5c1d05c04650_4665465599657355721.png",
+    "display_field": {
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"807\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"6303\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1568\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6570\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"3070\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"342\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "390",
+    "name": "赤红莫库斯",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/02/04/1010908/7c3e5eb345f6dfee56099b9a5fb74ce7_8628629265389691117.png",
+    "display_field": {
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1089\",\"base_def\":\"246\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8502\",\"base_def\":\"587\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2117\",\"base_def\":\"360\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8863\",\"base_def\":\"666\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"4143\",\"base_def\":\"474\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"463\",\"base_def\":\"133\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"72\",\"base_def\":\"28\",\"base_imp\":\"103\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "卡吕冬之子"
+        ],
+        "value_types": [
+          {
+            "id": "103",
+            "value": "卡吕冬之子",
+            "mi18n_key": "filter_custom_37",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/01/21/fb813eecc6365d0938fa2bb07506b1c0_2456787248097726466.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "356",
+    "name": "阿崔巡查",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/02/04/1010908/4b202ef353700cf4f9de821c6b17120f_8184619134668267150.png",
+    "display_field": {
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2117\",\"base_def\":\"360\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8863\",\"base_def\":\"666\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"4143\",\"base_def\":\"474\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"463\",\"base_def\":\"133\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"72\",\"base_def\":\"28\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1089\",\"base_def\":\"246\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8502\",\"base_def\":\"587\",\"base_imp\":\"103\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "filter_key_17": {
+        "values": [
+          "治安局·刑侦特勤组"
+        ],
+        "value_types": [
+          {
+            "id": "102",
+            "value": "治安局·刑侦特勤组",
+            "mi18n_key": "filter_custom_40",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2025/01/21/9bac29f5257c5b03706b85c0747f7436_1834534273445570528.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      },
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "124",
+    "name": "招财布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/5b7e6ea74e84e0ee8bffa711d115d7bf_4385042104220641262.png",
+    "display_field": {
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"50\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"761\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"5945\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1479\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6198\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"2896\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"323\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "123",
+    "name": "寻宝布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/53dab370ea77cca66cce7f1f22eb8d3e_3622094711400413949.png",
+    "display_field": {
+      "attr_level_10": "{\"base_hp\":\"1130\",\"base_atk\":\"317\",\"base_def\":\"133\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"436\",\"base_atk\":\"49\",\"base_def\":\"28\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1875\",\"base_atk\":\"746\",\"base_def\":\"246\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"4113\",\"base_atk\":\"5827\",\"base_def\":\"587\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2622\",\"base_atk\":\"1450\",\"base_def\":\"360\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4632\",\"base_atk\":\"6074\",\"base_def\":\"666\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3367\",\"base_atk\":\"2839\",\"base_def\":\"474\",\"base_imp\":\"100\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "122",
+    "name": "扑击布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/fc26af897a2f1cec8368e0aebfb5c8e3_9159197252012602825.png",
+    "display_field": {
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"5825\",\"base_def\":\"781\",\"base_imp\":\"112\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"2723\",\"base_def\":\"556\",\"base_imp\":\"112\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"304\",\"base_def\":\"156\",\"base_imp\":\"112\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"47\",\"base_def\":\"32\",\"base_imp\":\"112\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"716\",\"base_def\":\"288\",\"base_imp\":\"112\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"5588\",\"base_def\":\"688\",\"base_imp\":\"112\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1391\",\"base_def\":\"422\",\"base_imp\":\"112\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "121",
+    "name": "纸壳布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/327729383949aaba0bbde44a7bc74b87_3236297680051947340.png",
+    "display_field": {
+      "attr_level_40": "{\"base_hp\":\"3367\",\"base_atk\":\"2723\",\"base_def\":\"556\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1130\",\"base_atk\":\"304\",\"base_def\":\"156\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"436\",\"base_atk\":\"47\",\"base_def\":\"32\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1875\",\"base_atk\":\"716\",\"base_def\":\"288\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"4113\",\"base_atk\":\"5588\",\"base_def\":\"688\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2622\",\"base_atk\":\"1391\",\"base_def\":\"422\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4632\",\"base_atk\":\"5825\",\"base_def\":\"781\",\"base_imp\":\"100\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "120",
+    "name": "纸袋布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/15fbe9208f371ad617a4dc1da44227e7_7335300946497209435.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"6303\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1568\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6570\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"3070\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"342\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"807\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "119",
+    "name": "泪眼布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/0b3319532d11e5d89f1dd9e96642b0c3_2743346199391493002.png",
+    "display_field": {
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"50\",\"base_def\":\"30\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"761\",\"base_def\":\"267\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"5945\",\"base_def\":\"638\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1479\",\"base_def\":\"391\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6198\",\"base_def\":\"723\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"2896\",\"base_def\":\"515\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"323\",\"base_def\":\"145\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "118",
+    "name": "果核布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/f357bbcd09f667f4114345b524b8cf27_7894903170534746660.png",
+    "display_field": {
+      "attr_level_20": "{\"base_hp\":\"1875\",\"base_atk\":\"716\",\"base_def\":\"288\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"4113\",\"base_atk\":\"5588\",\"base_def\":\"688\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2622\",\"base_atk\":\"1391\",\"base_def\":\"422\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4632\",\"base_atk\":\"5825\",\"base_def\":\"781\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3367\",\"base_atk\":\"2723\",\"base_def\":\"556\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1130\",\"base_atk\":\"304\",\"base_def\":\"156\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"436\",\"base_atk\":\"47\",\"base_def\":\"32\",\"base_imp\":\"100\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "117",
+    "name": "飞靶布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/471e86417932af6e1b0f1ff79376a576_8919771156051662124.png",
+    "display_field": {
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"342\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"807\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"6303\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1568\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6570\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"3070\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "116",
+    "name": "电击布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/c14b7a140b7f3a14c30c7a5350175e88_7171967207132461109.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"5945\",\"base_def\":\"638\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1479\",\"base_def\":\"391\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6198\",\"base_def\":\"723\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"2896\",\"base_def\":\"515\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"323\",\"base_def\":\"145\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"50\",\"base_def\":\"30\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"761\",\"base_def\":\"267\",\"base_imp\":\"90\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "115",
+    "name": "磁力布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/04/29/1010908/cd5a4ec7ffa96ebfed3aaeae2292f489_8275131828008885300.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"6303\",\"base_def\":\"688\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1568\",\"base_def\":\"422\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6570\",\"base_def\":\"781\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"3070\",\"base_def\":\"556\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"342\",\"base_def\":\"156\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"32\",\"base_imp\":\"94\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"807\",\"base_def\":\"288\",\"base_imp\":\"94\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "114",
+    "name": "气压布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/5321fd591ea1c61d54062a37f396ac85_594392590788198819.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"4113\",\"base_atk\":\"5588\",\"base_def\":\"688\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2622\",\"base_atk\":\"1391\",\"base_def\":\"422\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4632\",\"base_atk\":\"5825\",\"base_def\":\"781\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3367\",\"base_atk\":\"2723\",\"base_def\":\"556\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1130\",\"base_atk\":\"304\",\"base_def\":\"156\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"436\",\"base_atk\":\"47\",\"base_def\":\"32\",\"base_imp\":\"100\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1875\",\"base_atk\":\"716\",\"base_def\":\"288\",\"base_imp\":\"100\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "113",
+    "name": "鲨牙布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/b9889a41aabce17df2f22dbf733db1df_2576041677791829023.png",
+    "display_field": {
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"65\",\"base_def\":\"30\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"990\",\"base_def\":\"267\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"7729\",\"base_def\":\"638\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"1924\",\"base_def\":\"391\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8057\",\"base_def\":\"723\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"3766\",\"base_def\":\"515\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"420\",\"base_def\":\"145\",\"base_imp\":\"99\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "112",
+    "name": "恶魔布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/11ca47a873de3271913c8137b2550cdd_8977569051109752324.png",
+    "display_field": {
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"807\",\"base_def\":\"267\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"6303\",\"base_def\":\"638\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1568\",\"base_def\":\"391\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6570\",\"base_def\":\"723\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"3070\",\"base_def\":\"515\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"342\",\"base_def\":\"145\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"53\",\"base_def\":\"50\",\"base_imp\":\"90\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "111",
+    "name": "飚速布",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/a0a61fddbd310375b0bffd4a1d7a1969_7877026011775790670.png",
+    "display_field": {
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"69\",\"base_def\":\"30\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1049\",\"base_def\":\"267\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8193\",\"base_def\":\"638\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2039\",\"base_def\":\"391\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8541\",\"base_def\":\"723\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"3992\",\"base_def\":\"515\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"445\",\"base_def\":\"145\",\"base_imp\":\"99\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "110",
+    "name": "插头布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/04/30/1010908/49c88838e356e33978831d191266b9fa_3984744645107006967.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"7729\",\"base_def\":\"638\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"1924\",\"base_def\":\"391\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8057\",\"base_def\":\"723\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"3766\",\"base_def\":\"515\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"420\",\"base_def\":\"145\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"65\",\"base_def\":\"30\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"990\",\"base_def\":\"267\",\"base_imp\":\"99\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "109",
+    "name": "共鸣布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/04/30/1010908/f4e66eb9f9778605f5a0cc99f59bfef4_2833728813505591247.png",
+    "display_field": {
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"420\",\"base_def\":\"145\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"65\",\"base_def\":\"30\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"990\",\"base_def\":\"267\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"7729\",\"base_def\":\"638\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"1924\",\"base_def\":\"391\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8057\",\"base_def\":\"723\",\"base_imp\":\"99\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"3766\",\"base_def\":\"515\",\"base_imp\":\"99\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "108",
+    "name": "左轮布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2025/04/30/1010908/29906e3742133bbc967169951eb832a8_8392910172103197677.png",
+    "display_field": {
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"1924\",\"base_def\":\"422\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8057\",\"base_def\":\"781\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"3766\",\"base_def\":\"556\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"420\",\"base_def\":\"156\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"65\",\"base_def\":\"32\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"990\",\"base_def\":\"288\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"7729\",\"base_def\":\"688\",\"base_imp\":\"103\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "104",
+    "name": "阿全",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/3a10782a455b8d0e882b8119aa5039ad_200056632655590386.png",
+    "display_field": {
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"463\",\"base_def\":\"133\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"72\",\"base_def\":\"28\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1089\",\"base_def\":\"246\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8502\",\"base_def\":\"587\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2117\",\"base_def\":\"360\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8863\",\"base_def\":\"666\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"4143\",\"base_def\":\"474\",\"base_imp\":\"103\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "filter_key_17": {
+        "values": [
+          "白祇重工"
+        ],
+        "value_types": [
+          {
+            "id": "99",
+            "value": "白祇重工",
+            "mi18n_key": "filter_custom_36",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/05/07/f5ece26bc1228c006e6dc658a7a5de5c_770010439864217639.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      },
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "100",
+    "name": "艾米莉安",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/2e87e64e87a1bd82846dd067471024dc_7135824588869231314.png",
+    "display_field": {
+      "attr_level_1": "{\"base_hp\":\"396\",\"base_atk\":\"72\",\"base_def\":\"28\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1705\",\"base_atk\":\"1089\",\"base_def\":\"246\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"3739\",\"base_atk\":\"8502\",\"base_def\":\"587\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2383\",\"base_atk\":\"2117\",\"base_def\":\"360\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"4210\",\"base_atk\":\"8863\",\"base_def\":\"666\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3061\",\"base_atk\":\"4143\",\"base_def\":\"474\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1027\",\"base_atk\":\"463\",\"base_def\":\"133\",\"base_imp\":\"103\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "狡兔屋"
+        ],
+        "value_types": [
+          {
+            "id": "97",
+            "value": "狡兔屋",
+            "mi18n_key": "filter_custom_34",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/05/07/31645d75c2009b667abc29bfda9c4e0e_3135215487461325630.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "99",
+    "name": "巴特勒",
+    "icon_url": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/03/8fa285ec0840d10867cf6bce34f1479d_3959115066837110768.png",
+    "display_field": {
+      "attr_level_60": "{\"base_hp\":\"5095\",\"base_atk\":\"7896\",\"base_def\":\"666\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"3703\",\"base_atk\":\"3691\",\"base_def\":\"474\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"1242\",\"base_atk\":\"411\",\"base_def\":\"133\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"479\",\"base_atk\":\"64\",\"base_def\":\"28\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"2063\",\"base_atk\":\"971\",\"base_def\":\"246\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_50": "{\"base_hp\":\"4524\",\"base_atk\":\"7575\",\"base_def\":\"587\",\"base_imp\":\"110\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2883\",\"base_atk\":\"1886\",\"base_def\":\"360\",\"base_imp\":\"110\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "S"
+        ],
+        "value_types": [
+          {
+            "id": "43",
+            "value": "S",
+            "mi18n_key": "filter_custom_62",
+            "icon": "",
+            "enum_string": "s"
+          }
+        ],
+        "key": null
+      },
+      "filter_key_17": {
+        "values": [
+          "维多利亚家政"
+        ],
+        "value_types": [
+          {
+            "id": "98",
+            "value": "维多利亚家政",
+            "mi18n_key": "filter_custom_35",
+            "icon": "https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/05/07/19370e53b19310e8db22bec32a1a9fc5_6408236221122459240.png",
+            "enum_string": ""
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  },
+  {
+    "entry_page_id": "4",
+    "name": "企鹅布",
+    "icon_url": "https://act-upload.hoyoverse.com/event-ugc-hoyowiki/2024/07/04/327628065/0150d81a9735ad2fc2338f302a91e673_3572670284250474033.png",
+    "display_field": {
+      "attr_level_50": "{\"base_hp\":\"3399\",\"base_atk\":\"5945\",\"base_def\":\"638\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_30": "{\"base_hp\":\"2166\",\"base_atk\":\"1479\",\"base_def\":\"391\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_60": "{\"base_hp\":\"3827\",\"base_atk\":\"6198\",\"base_def\":\"723\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_40": "{\"base_hp\":\"2782\",\"base_atk\":\"2896\",\"base_def\":\"515\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_10": "{\"base_hp\":\"933\",\"base_atk\":\"323\",\"base_def\":\"145\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "materials": "[\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/cd6682dd2d871dc93dfa28c3f281d527_7793444478727984954.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8b1d6f7a0549cd25e254fbc3ff5c7926_2574870644591776197.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/8738b8c6d2385a67ad1a8a62f84aaa56_3327715367191662364.png\",\"https://act-webstatic.hoyoverse.com/event-static-hoyowiki-admin/2024/07/22/801f285d9b917e47a787cd019ac9b047_6773126463528203033.png\"]",
+      "attr_level_1": "{\"base_hp\":\"360\",\"base_atk\":\"50\",\"base_def\":\"30\",\"base_imp\":\"90\",\"dynamic\":{}}",
+      "attr_level_20": "{\"base_hp\":\"1549\",\"base_atk\":\"761\",\"base_def\":\"267\",\"base_imp\":\"90\",\"dynamic\":{}}"
+    },
+    "filter_values": {
+      "bangboo_rarity": {
+        "values": [
+          "A"
+        ],
+        "value_types": [
+          {
+            "id": "44",
+            "value": "A",
+            "mi18n_key": "filter_custom_61",
+            "icon": "",
+            "enum_string": "a"
+          }
+        ],
+        "key": null
+      }
+    },
+    "desc": ""
+  }
+]

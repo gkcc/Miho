@@ -1,0 +1,7072 @@
+[
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 27.53,
+    "rank": 1,
+    "avg_round": 39939.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 15.87,
+    "rank": 2,
+    "avg_round": 34182.0,
+    "avg_round_c1": 38530.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 15.31,
+    "rank": 3,
+    "avg_round": 33716.0,
+    "avg_round_c1": 39780.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "lingsha",
+    "app_rate": 6.49,
+    "rank": 4,
+    "avg_round": 29440.0,
+    "avg_round_c1": 35759.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "huohuo",
+    "app_rate": 5.95,
+    "rank": 5,
+    "avg_round": 32726.0,
+    "avg_round_c1": 39041.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 5.54,
+    "rank": 6,
+    "avg_round": 39335.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 3.94,
+    "rank": 7,
+    "avg_round": 27066.0,
+    "avg_round_c1": 39118.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 3.63,
+    "rank": 8,
+    "avg_round": 35339.0,
+    "avg_round_c1": 39260.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 3.12,
+    "rank": 9,
+    "avg_round": 38949.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 3.07,
+    "rank": 10,
+    "avg_round": 36663.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-harmony",
+    "char_four": "the-dahlia",
+    "app_rate": 2.58,
+    "rank": 11,
+    "avg_round": 32100.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 2.52,
+    "rank": 12,
+    "avg_round": 40000.0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 2.46,
+    "rank": 13,
+    "avg_round": 34528.0,
+    "avg_round_c1": 39864.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 1.96,
+    "rank": 14,
+    "avg_round": 29052.0,
+    "avg_round_c1": 37857.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 1.92,
+    "rank": 15,
+    "avg_round": 29496.0,
+    "avg_round_c1": 35123.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 1.67,
+    "rank": 16,
+    "avg_round": 33944.0,
+    "avg_round_c1": 39010.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "hyacine",
+    "app_rate": 1.66,
+    "rank": 17,
+    "avg_round": 32489.0,
+    "avg_round_c1": 38660.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "gallagher",
+    "app_rate": 1.57,
+    "rank": 18,
+    "avg_round": 27923.0,
+    "avg_round_c1": 33092.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "cyrene",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 1.52,
+    "rank": 19,
+    "avg_round": 35250.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 1.5,
+    "rank": 20,
+    "avg_round": 34699.0,
+    "avg_round_c1": 39938.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "ruan-mei",
+    "char_four": "the-dahlia",
+    "app_rate": 1.48,
+    "rank": 21,
+    "avg_round": 30743.0,
+    "avg_round_c1": 38293.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 1.38,
+    "rank": 22,
+    "avg_round": 33519.0,
+    "avg_round_c1": 39289.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "sunday",
+    "app_rate": 1.38,
+    "rank": 22,
+    "avg_round": 28648.0,
+    "avg_round_c1": 39996.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "aventurine",
+    "app_rate": 1.17,
+    "rank": 24,
+    "avg_round": 31499.0,
+    "avg_round_c1": 37750.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "trailblazer-remembrance",
+    "app_rate": 0.99,
+    "rank": 25,
+    "avg_round": 29048.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.99,
+    "rank": 25,
+    "avg_round": 26939.0,
+    "avg_round_c1": 39997.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.92,
+    "rank": 27,
+    "avg_round": 30346.0,
+    "avg_round_c1": 38308.0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.87,
+    "rank": 28,
+    "avg_round": 25222.0,
+    "avg_round_c1": 29568.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "ruan-mei",
+    "app_rate": 0.86,
+    "rank": 29,
+    "avg_round": 35637.0,
+    "avg_round_c1": 39970.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "hyacine",
+    "app_rate": 0.86,
+    "rank": 29,
+    "avg_round": 35214.0,
+    "avg_round_c1": 38532.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "tribbie",
+    "app_rate": 0.85,
+    "rank": 31,
+    "avg_round": 34339.0,
+    "avg_round_c1": 39841.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.76,
+    "rank": 32,
+    "avg_round": 31177.0,
+    "avg_round_c1": 38946.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.74,
+    "rank": 33,
+    "avg_round": 31943.0,
+    "avg_round_c1": 39219.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "aventurine",
+    "app_rate": 0.73,
+    "rank": 34,
+    "avg_round": 34148.0,
+    "avg_round_c1": 37832.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.68,
+    "rank": 35,
+    "avg_round": 27875.0,
+    "avg_round_c1": 35003.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.68,
+    "rank": 35,
+    "avg_round": 36817.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "fu-xuan",
+    "app_rate": 0.67,
+    "rank": 37,
+    "avg_round": 33933.0,
+    "avg_round_c1": 37934.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "cerydra",
+    "char_four": "sunday",
+    "app_rate": 0.64,
+    "rank": 38,
+    "avg_round": 28071.0,
+    "avg_round_c1": 39939.0
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "lingsha",
+    "app_rate": 0.62,
+    "rank": 39,
+    "avg_round": 27067.0,
+    "avg_round_c1": 34197.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.6,
+    "rank": 40,
+    "avg_round": 25275.0,
+    "avg_round_c1": 37848.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "trailblazer-harmony",
+    "char_three": "ruan-mei",
+    "char_four": "the-dahlia",
+    "app_rate": 0.6,
+    "rank": 40,
+    "avg_round": 28080,
+    "avg_round_c1": 35775
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "trailblazer-harmony",
+    "char_three": "the-dahlia",
+    "char_four": "lingsha",
+    "app_rate": 0.58,
+    "rank": 42,
+    "avg_round": 28624.0,
+    "avg_round_c1": 34537.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "yao-guang",
+    "app_rate": 0.58,
+    "rank": 42,
+    "avg_round": 39180.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.57,
+    "rank": 44,
+    "avg_round": 26051.0,
+    "avg_round_c1": 30674.0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.55,
+    "rank": 45,
+    "avg_round": 25190,
+    "avg_round_c1": 34266.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.55,
+    "rank": 45,
+    "avg_round": 27476.0,
+    "avg_round_c1": 31987.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.53,
+    "rank": 47,
+    "avg_round": 36935.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "tingyun-fugue",
+    "char_three": "ruan-mei",
+    "char_four": "the-dahlia",
+    "app_rate": 0.49,
+    "rank": 48,
+    "avg_round": 31540,
+    "avg_round_c1": 38808.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "cyrene",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.46,
+    "rank": 49,
+    "avg_round": 31409.0,
+    "avg_round_c1": 39624.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.45,
+    "rank": 50,
+    "avg_round": 34562.0,
+    "avg_round_c1": 38839.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "luocha",
+    "app_rate": 0.43,
+    "rank": 51,
+    "avg_round": 31685,
+    "avg_round_c1": 37753.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "trailblazer-elation",
+    "char_four": "huohuo",
+    "app_rate": 0.42,
+    "rank": 52,
+    "avg_round": 30842.0,
+    "avg_round_c1": 38416.0
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "cyrene",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.4,
+    "rank": 53,
+    "avg_round": 32932,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "sunday",
+    "app_rate": 0.38,
+    "rank": 54,
+    "avg_round": 26632,
+    "avg_round_c1": 39953.0
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 0.37,
+    "rank": 55,
+    "avg_round": 31501.0,
+    "avg_round_c1": 39277.0
+  },
+  {
+    "char_one": "lingsha",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-harmony",
+    "char_four": "the-dahlia",
+    "app_rate": 0.37,
+    "rank": 55,
+    "avg_round": 32303.0,
+    "avg_round_c1": 39945.0
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.37,
+    "rank": 55,
+    "avg_round": 26255.0,
+    "avg_round_c1": 34322.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.37,
+    "rank": 55,
+    "avg_round": 25836.0,
+    "avg_round_c1": 32632.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "trailblazer-harmony",
+    "char_three": "the-dahlia",
+    "char_four": "gallagher",
+    "app_rate": 0.37,
+    "rank": 55,
+    "avg_round": 27574.0,
+    "avg_round_c1": 33373.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "gallagher",
+    "app_rate": 0.37,
+    "rank": 55,
+    "avg_round": 31770,
+    "avg_round_c1": 39168.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.36,
+    "rank": 61,
+    "avg_round": 34224.0,
+    "avg_round_c1": 39900.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.35,
+    "rank": 62,
+    "avg_round": 33059.0,
+    "avg_round_c1": 39498.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "robin",
+    "app_rate": 0.34,
+    "rank": 63,
+    "avg_round": 34505.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-harmony",
+    "char_four": "the-dahlia",
+    "app_rate": 0.34,
+    "rank": 63,
+    "avg_round": 32767.0,
+    "avg_round_c1": 39898.0
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.33,
+    "rank": 65,
+    "avg_round": 25581.0,
+    "avg_round_c1": 31227
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "tribbie",
+    "app_rate": 0.31,
+    "rank": 66,
+    "avg_round": 38606.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.31,
+    "rank": 66,
+    "avg_round": 39976.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "yao-guang",
+    "app_rate": 0.3,
+    "rank": 68,
+    "avg_round": 39538.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "lingsha",
+    "app_rate": 0.29,
+    "rank": 69,
+    "avg_round": 33072,
+    "avg_round_c1": 36077.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "lingsha",
+    "app_rate": 0.28,
+    "rank": 70,
+    "avg_round": 29745.0,
+    "avg_round_c1": 36908.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "trailblazer-elation",
+    "char_four": "yao-guang",
+    "app_rate": 0.28,
+    "rank": 70,
+    "avg_round": 38947.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.27,
+    "rank": 72,
+    "avg_round": 32956.0,
+    "avg_round_c1": 38783.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "ruan-mei",
+    "char_four": "hyacine",
+    "app_rate": 0.27,
+    "rank": 72,
+    "avg_round": 32184,
+    "avg_round_c1": 39623.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.26,
+    "rank": 74,
+    "avg_round": 27659.0,
+    "avg_round_c1": 34143.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.26,
+    "rank": 74,
+    "avg_round": 25470.0,
+    "avg_round_c1": 26992.0
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-harmony",
+    "char_four": "the-dahlia",
+    "app_rate": 0.25,
+    "rank": 76,
+    "avg_round": 33210,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "sparkle",
+    "char_four": "yao-guang",
+    "app_rate": 0.25,
+    "rank": 76,
+    "avg_round": 36229.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.23,
+    "rank": 80,
+    "avg_round": 28790,
+    "avg_round_c1": 35182.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.23,
+    "rank": 80,
+    "avg_round": 29955,
+    "avg_round_c1": 35094.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "tribbie",
+    "char_four": "lingsha",
+    "app_rate": 0.23,
+    "rank": 80,
+    "avg_round": 27824.0,
+    "avg_round_c1": 35483.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "lingsha",
+    "app_rate": 0.23,
+    "rank": 80,
+    "avg_round": 27522.0,
+    "avg_round_c1": 34823.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "ruan-mei",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.22,
+    "rank": 85,
+    "avg_round": 28850,
+    "avg_round_c1": 39873.0
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "gallagher",
+    "app_rate": 0.22,
+    "rank": 85,
+    "avg_round": 25919.0,
+    "avg_round_c1": 29142.0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "cyrene",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.22,
+    "rank": 85,
+    "avg_round": 28662.0,
+    "avg_round_c1": 34359.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "lingsha",
+    "app_rate": 0.22,
+    "rank": 85,
+    "avg_round": 32437.0,
+    "avg_round_c1": 38208.0
+  },
+  {
+    "char_one": "seele",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.21,
+    "rank": 89,
+    "avg_round": 33246.0,
+    "avg_round_c1": 39050.0
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "huohuo",
+    "app_rate": 0.21,
+    "rank": 89,
+    "avg_round": 24493.0,
+    "avg_round_c1": 26778.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.21,
+    "rank": 89,
+    "avg_round": 27690,
+    "avg_round_c1": 32479.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "cyrene",
+    "char_four": "luocha",
+    "app_rate": 0.21,
+    "rank": 89,
+    "avg_round": 29851.0,
+    "avg_round_c1": 34888
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "lingsha",
+    "app_rate": 0.2,
+    "rank": 93,
+    "avg_round": 30130.0,
+    "avg_round_c1": 37589.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "cyrene",
+    "app_rate": 0.2,
+    "rank": 93,
+    "avg_round": 32528,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "yao-guang",
+    "char_four": "hyacine",
+    "app_rate": 0.19,
+    "rank": 95,
+    "avg_round": 37209.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.19,
+    "rank": 95,
+    "avg_round": 26864,
+    "avg_round_c1": 31884.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "sparkle",
+    "app_rate": 0.19,
+    "rank": 95,
+    "avg_round": 30016,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "ruan-mei",
+    "char_four": "hyacine",
+    "app_rate": 0.19,
+    "rank": 95,
+    "avg_round": 28611.0,
+    "avg_round_c1": 33066.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "tribbie",
+    "app_rate": 0.19,
+    "rank": 95,
+    "avg_round": 0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "ashveil",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.19,
+    "rank": 95,
+    "avg_round": 29307.0,
+    "avg_round_c1": 35788.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.19,
+    "rank": 95,
+    "avg_round": 28106.0,
+    "avg_round_c1": 33697.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.19,
+    "rank": 95,
+    "avg_round": 24900.0,
+    "avg_round_c1": 34879.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "sunday",
+    "app_rate": 0.18,
+    "rank": 104,
+    "avg_round": 23933.0,
+    "avg_round_c1": 39152.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.18,
+    "rank": 104,
+    "avg_round": 34716.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "tribbie",
+    "app_rate": 0.18,
+    "rank": 104,
+    "avg_round": 36720.0,
+    "avg_round_c1": 39903.0
+  },
+  {
+    "char_one": "cyrene",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.18,
+    "rank": 104,
+    "avg_round": 39787.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "gallagher",
+    "app_rate": 0.17,
+    "rank": 108,
+    "avg_round": 34291.0,
+    "avg_round_c1": 37874.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "cerydra",
+    "char_four": "sparkle",
+    "app_rate": 0.17,
+    "rank": 108,
+    "avg_round": 25213.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "ruan-mei",
+    "char_three": "the-dahlia",
+    "char_four": "lingsha",
+    "app_rate": 0.16,
+    "rank": 112,
+    "avg_round": 24340.0,
+    "avg_round_c1": 31309.0
+  },
+  {
+    "char_one": "saber",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.16,
+    "rank": 112,
+    "avg_round": 26132,
+    "avg_round_c1": 29893.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "hyacine",
+    "app_rate": 0.16,
+    "rank": 112,
+    "avg_round": 33127.0,
+    "avg_round_c1": 38423.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.16,
+    "rank": 112,
+    "avg_round": 26754.0,
+    "avg_round_c1": 37994.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.16,
+    "rank": 112,
+    "avg_round": 25853.0,
+    "avg_round_c1": 33968.0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "huohuo",
+    "app_rate": 0.16,
+    "rank": 112,
+    "avg_round": 0,
+    "avg_round_c1": 26307.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.15,
+    "rank": 118,
+    "avg_round": 0,
+    "avg_round_c1": 29718.0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.15,
+    "rank": 118,
+    "avg_round": 20693.0,
+    "avg_round_c1": 33345.0
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.15,
+    "rank": 118,
+    "avg_round": 25460.0,
+    "avg_round_c1": 30418.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.15,
+    "rank": 118,
+    "avg_round": 0,
+    "avg_round_c1": 28944.0
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.15,
+    "rank": 118,
+    "avg_round": 24136,
+    "avg_round_c1": 31581.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "ruan-mei",
+    "char_three": "the-dahlia",
+    "char_four": "gallagher",
+    "app_rate": 0.15,
+    "rank": 118,
+    "avg_round": 26715,
+    "avg_round_c1": 26625.0
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "tingyun-fugue",
+    "char_three": "ruan-mei",
+    "char_four": "the-dahlia",
+    "app_rate": 0.15,
+    "rank": 118,
+    "avg_round": 0,
+    "avg_round_c1": 35262.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.14,
+    "rank": 125,
+    "avg_round": 28009.0,
+    "avg_round_c1": 38636.0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.14,
+    "rank": 125,
+    "avg_round": 31020,
+    "avg_round_c1": 36010.0
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "trailblazer-remembrance",
+    "app_rate": 0.14,
+    "rank": 125,
+    "avg_round": 33316.0,
+    "avg_round_c1": 39457.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.13,
+    "rank": 129,
+    "avg_round": 24525,
+    "avg_round_c1": 33560
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "sparkle",
+    "app_rate": 0.13,
+    "rank": 129,
+    "avg_round": 0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.13,
+    "rank": 129,
+    "avg_round": 26328.0,
+    "avg_round_c1": 38952.0
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.13,
+    "rank": 129,
+    "avg_round": 27460,
+    "avg_round_c1": 32840
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "argenti",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.13,
+    "rank": 129,
+    "avg_round": 28748.0,
+    "avg_round_c1": 32883.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.13,
+    "rank": 129,
+    "avg_round": 28986.0,
+    "avg_round_c1": 33451.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.12,
+    "rank": 135,
+    "avg_round": 25858.0,
+    "avg_round_c1": 36704
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "luocha",
+    "app_rate": 0.12,
+    "rank": 135,
+    "avg_round": 32873.0,
+    "avg_round_c1": 33960
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.12,
+    "rank": 135,
+    "avg_round": 23012,
+    "avg_round_c1": 30578.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "huohuo",
+    "app_rate": 0.12,
+    "rank": 135,
+    "avg_round": 25936,
+    "avg_round_c1": 31087.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.12,
+    "rank": 135,
+    "avg_round": 30920,
+    "avg_round_c1": 37100
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.12,
+    "rank": 135,
+    "avg_round": 25907.0,
+    "avg_round_c1": 26996.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.12,
+    "rank": 135,
+    "avg_round": 28340.0,
+    "avg_round_c1": 38291.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "ruan-mei",
+    "char_four": "hyacine",
+    "app_rate": 0.12,
+    "rank": 135,
+    "avg_round": 38020,
+    "avg_round_c1": 39591.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "cerydra",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.11,
+    "rank": 143,
+    "avg_round": 24051.0,
+    "avg_round_c1": 38938.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.11,
+    "rank": 143,
+    "avg_round": 28590,
+    "avg_round_c1": 35114.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "huohuo",
+    "app_rate": 0.11,
+    "rank": 143,
+    "avg_round": 33992,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "trailblazer-elation",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.11,
+    "rank": 143,
+    "avg_round": 29123.0,
+    "avg_round_c1": 36244.0
+  },
+  {
+    "char_one": "seele",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.11,
+    "rank": 143,
+    "avg_round": 34973.0,
+    "avg_round_c1": 37328
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.11,
+    "rank": 143,
+    "avg_round": 25300.0,
+    "avg_round_c1": 33578.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 27800,
+    "avg_round_c1": 35198.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 28331.0,
+    "avg_round_c1": 34731.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 23810,
+    "avg_round_c1": 38973.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "tribbie",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 37680,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "firefly",
+    "char_three": "tingyun-fugue",
+    "char_four": "the-dahlia",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 29147.0,
+    "avg_round_c1": 34556.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "tribbie",
+    "char_four": "luocha",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 27989.0,
+    "avg_round_c1": 33437.0
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 27257.0,
+    "avg_round_c1": 33946.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "yao-guang",
+    "char_four": "fu-xuan",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 37793.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "ashveil",
+    "char_three": "robin",
+    "char_four": "aventurine",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 25260.0,
+    "avg_round_c1": 26416.0
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "tingyun-fugue",
+    "char_three": "ruan-mei",
+    "char_four": "lingsha",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 24280,
+    "avg_round_c1": 24425.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "silver-wolf",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 0,
+    "avg_round_c1": 38749.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.1,
+    "rank": 150,
+    "avg_round": 25820,
+    "avg_round_c1": 31002.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "cipher",
+    "app_rate": 0.09,
+    "rank": 163,
+    "avg_round": 36880,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "ruan-mei",
+    "char_three": "sparkle",
+    "char_four": "yao-guang",
+    "app_rate": 0.09,
+    "rank": 163,
+    "avg_round": 36747.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.09,
+    "rank": 163,
+    "avg_round": 26070.0,
+    "avg_round_c1": 32940
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "tribbie",
+    "char_four": "yao-guang",
+    "app_rate": 0.09,
+    "rank": 163,
+    "avg_round": 37860,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "gallagher",
+    "app_rate": 0.09,
+    "rank": 163,
+    "avg_round": 26246.0,
+    "avg_round_c1": 30927.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.09,
+    "rank": 163,
+    "avg_round": 29847.0,
+    "avg_round_c1": 31060
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "cyrene",
+    "char_three": "sunday",
+    "char_four": "hyacine",
+    "app_rate": 0.09,
+    "rank": 163,
+    "avg_round": 26952,
+    "avg_round_c1": 33344
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "robin",
+    "char_four": "sparkle",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 28850,
+    "avg_round_c1": 37655.0
+  },
+  {
+    "char_one": "saber",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 25167.0,
+    "avg_round_c1": 27293.0
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 25552,
+    "avg_round_c1": 30533.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "jiaoqiu",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 25353.0,
+    "avg_round_c1": 36083.0
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 0,
+    "avg_round_c1": 39529.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "ruan-mei",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "robin",
+    "char_four": "tribbie",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 0,
+    "avg_round_c1": 38493.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "luocha",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 27308,
+    "avg_round_c1": 32366.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 25380,
+    "avg_round_c1": 36173.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 32240.0,
+    "avg_round_c1": 38794.0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 0,
+    "avg_round_c1": 35438.0
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "ashveil",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.08,
+    "rank": 171,
+    "avg_round": 28110,
+    "avg_round_c1": 31498.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "cyrene",
+    "char_four": "gallagher",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 30818.0,
+    "avg_round_c1": 37824
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "robin",
+    "char_four": "sunday",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 26840.0,
+    "avg_round_c1": 39766.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "aventurine",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 33378.0,
+    "avg_round_c1": 37220
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "sparkle",
+    "char_four": "sunday",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 24560,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "silver-wolf",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 22640,
+    "avg_round_c1": 31480
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 25373.0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "sunday",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 28340,
+    "avg_round_c1": 34542.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "cyrene",
+    "char_four": "lingsha",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 29660,
+    "avg_round_c1": 35360
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 27560,
+    "avg_round_c1": 33477.0
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "ashveil",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 24630,
+    "avg_round_c1": 31302.0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 24695,
+    "avg_round_c1": 33915
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "tribbie",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "cipher",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "acheron",
+    "char_three": "black-swan",
+    "char_four": "kafka",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 29870,
+    "avg_round_c1": 39337.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.07,
+    "rank": 184,
+    "avg_round": 24560.0,
+    "avg_round_c1": 33502.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "yao-guang",
+    "char_four": "aventurine",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 38733.0,
+    "avg_round_c1": 37250
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "castorice",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 29560,
+    "avg_round_c1": 36036.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 31400,
+    "avg_round_c1": 37400
+  },
+  {
+    "char_one": "seele",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 26540,
+    "avg_round_c1": 37628
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "jiaoqiu",
+    "char_four": "aventurine",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 24853.0,
+    "avg_round_c1": 26527.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "tribbie",
+    "char_four": "fu-xuan",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 0,
+    "avg_round_c1": 34142.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "gallagher",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 31947.0,
+    "avg_round_c1": 39276.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "fu-xuan",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 0,
+    "avg_round_c1": 35447.0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "sunday",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 31440,
+    "avg_round_c1": 38952
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "cipher",
+    "char_four": "hyacine",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 36257.0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 29960,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "gallagher",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 25270,
+    "avg_round_c1": 34570
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 27320,
+    "avg_round_c1": 34367.0
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 24600,
+    "avg_round_c1": 32645
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "castorice",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 31580,
+    "avg_round_c1": 37976
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "tribbie",
+    "char_four": "gallagher",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 26160,
+    "avg_round_c1": 32748
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "hyacine",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 0,
+    "avg_round_c1": 35163.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 25680,
+    "avg_round_c1": 32990
+  },
+  {
+    "char_one": "archer",
+    "char_two": "cipher",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 23260,
+    "avg_round_c1": 32924.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "sunday",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 24776,
+    "avg_round_c1": 33889.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 28180,
+    "avg_round_c1": 36910
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "fu-xuan",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 33573.0,
+    "avg_round_c1": 32978.0
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "ashveil",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 25093.0,
+    "avg_round_c1": 34740
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "trailblazer-elation",
+    "char_four": "sparkle",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 35080,
+    "avg_round_c1": 39300
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 25792,
+    "avg_round_c1": 27298.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 0,
+    "avg_round_c1": 34137.0
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 25980,
+    "avg_round_c1": 29055
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 0,
+    "avg_round_c1": 32446.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "sparkle",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 26880,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 0,
+    "avg_round_c1": 28330
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "tribbie",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 34680,
+    "avg_round_c1": 38987.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "huohuo",
+    "app_rate": 0.06,
+    "rank": 204,
+    "avg_round": 26120,
+    "avg_round_c1": 34527.0
+  },
+  {
+    "char_one": "seele",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 0,
+    "avg_round_c1": 35928
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 27827.0,
+    "avg_round_c1": 35280
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "hyacine",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 27760,
+    "avg_round_c1": 31180
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "cipher",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 24860,
+    "avg_round_c1": 27444.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 28520,
+    "avg_round_c1": 33165
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "robin",
+    "char_four": "huohuo",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 23360,
+    "avg_round_c1": 30665
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "silver-wolf",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 0,
+    "avg_round_c1": 33664
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 26933.0,
+    "avg_round_c1": 33810
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 24080,
+    "avg_round_c1": 38233.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 28744,
+    "avg_round_c1": 33000
+  },
+  {
+    "char_one": "blade",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 0,
+    "avg_round_c1": 29811.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "silver-wolf",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 0,
+    "avg_round_c1": 30036
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "cipher",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 26048,
+    "avg_round_c1": 32920
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "bronya",
+    "char_three": "tingyun-fugue",
+    "char_four": "the-dahlia",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 0,
+    "avg_round_c1": 40000.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 27120.0,
+    "avg_round_c1": 33168
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "fu-xuan",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 0,
+    "avg_round_c1": 32789.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.05,
+    "rank": 246,
+    "avg_round": 27147.0,
+    "avg_round_c1": 32720
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "luocha",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 30173.0,
+    "avg_round_c1": 36087.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "trailblazer-elation",
+    "char_four": "hyacine",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 30587.0,
+    "avg_round_c1": 34448
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "yao-guang",
+    "char_four": "welt",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 37760,
+    "avg_round_c1": 37467.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cipher",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 38744,
+    "avg_round_c1": 39910
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "cipher",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 28180,
+    "avg_round_c1": 33304
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "gallagher",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 23470,
+    "avg_round_c1": 35136
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "cyrene",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 38129.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "himeko",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 27560,
+    "avg_round_c1": 32547.0
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "cyrene",
+    "char_three": "sunday",
+    "char_four": "hyacine",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 28620,
+    "avg_round_c1": 34793.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 33347.0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 23100,
+    "avg_round_c1": 30063.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 26860,
+    "avg_round_c1": 39180
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 23720,
+    "avg_round_c1": 31113.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 28280,
+    "avg_round_c1": 29500
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 36820,
+    "avg_round_c1": 34740
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "gallagher",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 27100,
+    "avg_round_c1": 33820
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "ruan-mei",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 37990
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-harmony",
+    "char_four": "ruan-mei",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 26889.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 35965
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 27920,
+    "avg_round_c1": 28320
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "ruan-mei",
+    "char_four": "sunday",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 36458.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 25904,
+    "avg_round_c1": 30680
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "robin",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 32493.0,
+    "avg_round_c1": 37896
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "robin",
+    "char_four": "lingsha",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 24413.0,
+    "avg_round_c1": 32376
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "ruan-mei",
+    "char_four": "tribbie",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 37355
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 25900,
+    "avg_round_c1": 26608
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 26970,
+    "avg_round_c1": 38690
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "trailblazer-remembrance",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "ruan-mei",
+    "char_three": "sparkle",
+    "char_four": "sunday",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 32653.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sunday",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 33010,
+    "avg_round_c1": 37970
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "acheron",
+    "char_three": "kafka",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 30232,
+    "avg_round_c1": 29520
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "cyrene",
+    "char_four": "huohuo",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 34205
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 25340,
+    "avg_round_c1": 33297.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 25950,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "robin",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 38649.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "serval",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.04,
+    "rank": 264,
+    "avg_round": 0,
+    "avg_round_c1": 35862.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sunday",
+    "char_three": "tingyun",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 32940,
+    "avg_round_c1": 36370
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-harmony",
+    "char_four": "ruan-mei",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 27960,
+    "avg_round_c1": 33712
+  },
+  {
+    "char_one": "herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 25750,
+    "avg_round_c1": 28227.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "cyrene",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 38147.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 39337.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 27440,
+    "avg_round_c1": 30020
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "fu-xuan",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 33480,
+    "avg_round_c1": 38000
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "silver-wolf",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 23720,
+    "avg_round_c1": 30120
+  },
+  {
+    "char_one": "cyrene",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 30000,
+    "avg_round_c1": 35260
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "sunday",
+    "char_four": "tingyun",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 34806.0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "huohuo",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 25027.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "yao-guang",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 32010,
+    "avg_round_c1": 39253.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "cipher",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 31420,
+    "avg_round_c1": 39450
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "robin",
+    "char_four": "aventurine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 25994.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "huohuo",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 25020,
+    "avg_round_c1": 33150
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "silver-wolf",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 35566.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "aventurine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 22020,
+    "avg_round_c1": 31672
+  },
+  {
+    "char_one": "saber",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 27320
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "cyrene",
+    "char_three": "sunday",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 27947.0,
+    "avg_round_c1": 34200
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 24800,
+    "avg_round_c1": 30900
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "silver-wolf",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 34820
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "lingsha",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 37120,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 33080,
+    "avg_round_c1": 33450
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "cipher",
+    "char_three": "sparkle",
+    "char_four": "yao-guang",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 37320,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 24400,
+    "avg_round_c1": 26333.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "lingsha",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 25947.0,
+    "avg_round_c1": 34440
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 28373.0,
+    "avg_round_c1": 31760
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 24767.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "tribbie",
+    "char_four": "luocha",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 25930,
+    "avg_round_c1": 31540
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "sunday",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 36033.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "huohuo",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 32107.0,
+    "avg_round_c1": 36413.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cipher",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 32260,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 26787.0,
+    "avg_round_c1": 30453.0
+  },
+  {
+    "char_one": "argenti",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 33817.0
+  },
+  {
+    "char_one": "welt",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 30960,
+    "avg_round_c1": 32660
+  },
+  {
+    "char_one": "archer",
+    "char_two": "ruan-mei",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 30663.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "luocha",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 27280,
+    "avg_round_c1": 33000
+  },
+  {
+    "char_one": "archer",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "yao-guang",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 33420
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "cipher",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 30753.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 30400,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "cyrene",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "ruan-mei",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 36473.0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 24060,
+    "avg_round_c1": 35570
+  },
+  {
+    "char_one": "saber",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 25680,
+    "avg_round_c1": 26110
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "aventurine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 25400,
+    "avg_round_c1": 36390
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "ruan-mei",
+    "char_three": "the-dahlia",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 27731.0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "cyrene",
+    "char_four": "huohuo",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 30380,
+    "avg_round_c1": 37232
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 28176,
+    "avg_round_c1": 31120
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 30500,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "jiaoqiu",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 27450,
+    "avg_round_c1": 25653.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 32080,
+    "avg_round_c1": 34973.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "silver-wolf",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 20920,
+    "avg_round_c1": 26256
+  },
+  {
+    "char_one": "archer",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 29667.0
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 23560,
+    "avg_round_c1": 26707.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 0,
+    "avg_round_c1": 30007.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 33010,
+    "avg_round_c1": 37747.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "yao-guang",
+    "char_four": "luocha",
+    "app_rate": 0.03,
+    "rank": 312,
+    "avg_round": 34890,
+    "avg_round_c1": 37200
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "cyrene",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 26240,
+    "avg_round_c1": 38380
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "cerydra",
+    "char_four": "cyrene",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 38080
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 38740
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "cipher",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 26408
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "huohuo",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 24467.0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 30984
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "trailblazer-harmony",
+    "char_three": "the-dahlia",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 24987.0,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "robin",
+    "char_four": "sunday",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 37100
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "cyrene",
+    "char_three": "robin",
+    "char_four": "sunday",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 35770
+  },
+  {
+    "char_one": "herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 27980,
+    "avg_round_c1": 30480
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "ruan-mei",
+    "char_three": "silver-wolf",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 38784
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "aventurine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 23267.0,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "sparkle",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 29640,
+    "avg_round_c1": 32467.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "silver-wolf",
+    "char_four": "fu-xuan",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 25040
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "ashveil",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 29530
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 27260,
+    "avg_round_c1": 24860
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "argenti",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 34560,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "march-7th-evernight",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 39110
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 33280,
+    "avg_round_c1": 35300
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 31220,
+    "avg_round_c1": 39933.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "luocha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 30600,
+    "avg_round_c1": 29200
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "lingsha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 23360,
+    "avg_round_c1": 38660
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 36696
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 24696
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "huohuo",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 23870
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "luocha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 25710
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 28020,
+    "avg_round_c1": 28400
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "yao-guang",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 26907.0,
+    "avg_round_c1": 35160
+  },
+  {
+    "char_one": "imbibitor-lunae",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 32248
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "tribbie",
+    "char_four": "lingsha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 27160,
+    "avg_round_c1": 30787.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "fu-xuan",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 31640
+  },
+  {
+    "char_one": "boothill",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "lingsha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 27650
+  },
+  {
+    "char_one": "argenti",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 29920,
+    "avg_round_c1": 34853.0
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "gallagher",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 31340
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "luocha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 24720,
+    "avg_round_c1": 33340
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 38560
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "gallagher",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 25053.0,
+    "avg_round_c1": 34640
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "herta",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 30600
+  },
+  {
+    "char_one": "archer",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 32690
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 38904
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 33570
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "silver-wolf",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 26390
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "luocha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 35088,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 25620,
+    "avg_round_c1": 36120
+  },
+  {
+    "char_one": "archer",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "yao-guang",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 34080
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "lingsha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 25380,
+    "avg_round_c1": 26700
+  },
+  {
+    "char_one": "welt",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 26420,
+    "avg_round_c1": 33460
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "silver-wolf",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 24790
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "luocha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 32600
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "jade",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 28500
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cyrene",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 30216
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "silver-wolf",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 28690
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "sparkle",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 28240,
+    "avg_round_c1": 36360
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "silver-wolf",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 29360,
+    "avg_round_c1": 32427.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "trailblazer-elation",
+    "char_four": "luocha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 30267.0,
+    "avg_round_c1": 34120
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "sunday",
+    "char_four": "huohuo",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 24120,
+    "avg_round_c1": 25280
+  },
+  {
+    "char_one": "argenti",
+    "char_two": "tingyun-fugue",
+    "char_three": "ruan-mei",
+    "char_four": "the-dahlia",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 36120
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-elation",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 26500,
+    "avg_round_c1": 31840
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "luocha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 27048
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "sunday",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 39340
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "sparkle",
+    "char_four": "fu-xuan",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 34280
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "trailblazer-harmony",
+    "char_three": "the-dahlia",
+    "char_four": "lingsha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 26740,
+    "avg_round_c1": 29067.0
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "luocha",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 32616
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 33533.0,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "seele",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 36500,
+    "avg_round_c1": 30347.0
+  },
+  {
+    "char_one": "argenti",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-harmony",
+    "char_four": "the-dahlia",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 39410
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 28200,
+    "avg_round_c1": 32413.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "ruan-mei",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 28230
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 36000,
+    "avg_round_c1": 38120
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "ruan-mei",
+    "char_four": "gallagher",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 24568
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 24060,
+    "avg_round_c1": 30160
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "yao-guang",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 30267.0,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 36460
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "silver-wolf",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 25460,
+    "avg_round_c1": 27600
+  },
+  {
+    "char_one": "blade",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 32090
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 25180,
+    "avg_round_c1": 34720
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "jade",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 36810
+  },
+  {
+    "char_one": "yunli",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 26590
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "tribbie",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 0,
+    "avg_round_c1": 37912
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "silver-wolf",
+    "char_four": "aventurine",
+    "app_rate": 0.02,
+    "rank": 400,
+    "avg_round": 23940,
+    "avg_round_c1": 25020
+  },
+  {
+    "char_one": "yunli",
+    "char_two": "robin",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27440
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37500
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "trailblazer-harmony",
+    "char_three": "ruan-mei",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 22140
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38627.0
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26120
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "welt",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 35080,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 30780
+  },
+  {
+    "char_one": "seele",
+    "char_two": "silver-wolf",
+    "char_three": "sparkle",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25747.0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39800
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "himeko",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33700
+  },
+  {
+    "char_one": "seele",
+    "char_two": "ashveil",
+    "char_three": "cerydra",
+    "char_four": "robin",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37307.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "robin",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31500
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24660
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "silver-wolf",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39187.0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 35060,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "trailblazer-harmony",
+    "char_three": "the-dahlia",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38013.0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sunday",
+    "char_three": "yao-guang",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25560
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 25573.0,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "robin",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "acheron",
+    "char_three": "kafka",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 29640
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "pela",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 29100
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37980
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "silver-wolf",
+    "char_three": "sparkle",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27107.0
+  },
+  {
+    "char_one": "seele",
+    "char_two": "ashveil",
+    "char_three": "robin",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 22700,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26360
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37133.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 23400,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "bailu",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 26400,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 24520,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "luocha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26840
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 23620,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "cerydra",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35240
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sunday",
+    "char_three": "welt",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35500
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "ruan-mei",
+    "char_three": "tribbie",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38180
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "cerydra",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "cyrene",
+    "char_three": "sparkle",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39720
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "yao-guang",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31900
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "ruan-mei",
+    "char_three": "the-dahlia",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 29140
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "robin",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33240
+  },
+  {
+    "char_one": "clara",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33947.0
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24720
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tingyun",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 26700,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27400
+  },
+  {
+    "char_one": "lingsha",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-harmony",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24840
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "robin",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "ashveil",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35520
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "ashveil",
+    "char_three": "yao-guang",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 24720,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "imbibitor-lunae",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27320
+  },
+  {
+    "char_one": "seele",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31080
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38480
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "robin",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 24780,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "ruan-mei",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32340
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "cipher",
+    "char_three": "ruan-mei",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 36800
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "argenti",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31560
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "ruan-mei",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32520
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "silver-wolf",
+    "char_three": "sparkle",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24800
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "trailblazer-harmony",
+    "char_three": "ruan-mei",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 22820
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "sparkle",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 29200
+  },
+  {
+    "char_one": "saber",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32560
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "ashveil",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 25280,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "ruan-mei",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31160
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "robin",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27067.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "acheron",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35360
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39360
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27560
+  },
+  {
+    "char_one": "seele",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39580
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "robin",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31360
+  },
+  {
+    "char_one": "jade",
+    "char_two": "robin",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37893.0
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "tingyun-fugue",
+    "char_three": "ruan-mei",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32240
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "yao-guang",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 28400,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "herta",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34780
+  },
+  {
+    "char_one": "jingliu",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 30100
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "tingyun",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39000
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "ashveil",
+    "char_three": "sunday",
+    "char_four": "luocha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33600
+  },
+  {
+    "char_one": "herta",
+    "char_two": "jade",
+    "char_three": "ruan-mei",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24880
+  },
+  {
+    "char_one": "lingsha",
+    "char_two": "trailblazer-harmony",
+    "char_three": "ruan-mei",
+    "char_four": "the-dahlia",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 36380
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "tribbie",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 27000,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "silver-wolf",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "seele",
+    "char_two": "cipher",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25560
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 25780,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "ashveil",
+    "char_three": "sparkle",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27280
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "ashveil",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 26780,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33560
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "ruan-mei",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34680
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "sparkle",
+    "char_four": "sunday",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-harmony",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26440
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "ruan-mei",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39987.0
+  },
+  {
+    "char_one": "yunli",
+    "char_two": "robin",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31480
+  },
+  {
+    "char_one": "seele",
+    "char_two": "robin",
+    "char_three": "ruan-mei",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35160
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "bailu",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 30387.0,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24700
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38820
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "cyrene",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 31500,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "asta",
+    "char_three": "trailblazer-elation",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 36080,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 36520,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34973.0
+  },
+  {
+    "char_one": "saber",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24980
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 30260
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "sparkle",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25533.0
+  },
+  {
+    "char_one": "argenti",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32900
+  },
+  {
+    "char_one": "archer",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34320
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "ruan-mei",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31533.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "bronya",
+    "char_three": "trailblazer-harmony",
+    "char_four": "the-dahlia",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "cipher",
+    "char_three": "robin",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25620
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33320
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28160
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "tingyun",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26580
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "jiaoqiu",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 26600,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "bronya",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34300
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "serval",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 30220
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 23147.0
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "guinaifen",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25420
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "jiaoqiu",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24160
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "sparkle",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26067.0
+  },
+  {
+    "char_one": "jade",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38140
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27267.0
+  },
+  {
+    "char_one": "yunli",
+    "char_two": "ashveil",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27380
+  },
+  {
+    "char_one": "seele",
+    "char_two": "ashveil",
+    "char_three": "robin",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 36920
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 29320,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34360
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "serval",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 23000,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "acheron",
+    "char_three": "kafka",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 24880,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "clara",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26380
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26347.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "robin",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 24640,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "trailblazer-harmony",
+    "char_three": "sunday",
+    "char_four": "the-dahlia",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31040
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "robin",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 36000
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "the-dahlia",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33980
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cyrene",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37427.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "serval",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32300
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "trailblazer-remembrance",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35000
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "robin",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34827.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "ashveil",
+    "char_three": "cipher",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35240
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "robin",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 24180,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "tingyun",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "argenti",
+    "char_three": "ruan-mei",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "archer",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 29600
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "robin",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35440
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "sparkle",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34420
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 26820,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "tribbie",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 36240
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "ruan-mei",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39133.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35760
+  },
+  {
+    "char_one": "seele",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33400
+  },
+  {
+    "char_one": "xueyi",
+    "char_two": "tingyun-fugue",
+    "char_three": "ruan-mei",
+    "char_four": "the-dahlia",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 29700
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "silver-wolf",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 23020
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "sparkle",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31460
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "guinaifen",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 22620,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "robin",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34293.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "sunday",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33960
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "anaxa",
+    "char_three": "march-7th-evernight",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32667.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "robin",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33613.0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26267.0
+  },
+  {
+    "char_one": "argenti",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34180
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25620
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "ruan-mei",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24040
+  },
+  {
+    "char_one": "trailblazer-remembrance",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31380
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24747.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24400
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "robin",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "bailu",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39293.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39420
+  },
+  {
+    "char_one": "seele",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35440
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "yao-guang",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37660
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "argenti",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35640
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "ashveil",
+    "char_three": "jiaoqiu",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25920
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "sunday",
+    "char_three": "tingyun",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 30020
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "sparkle",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 30520
+  },
+  {
+    "char_one": "yunli",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27200
+  },
+  {
+    "char_one": "argenti",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 27840,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 30160
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "ruan-mei",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33520
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "robin",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27420
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "topaz",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28560
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "robin",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "cyrene",
+    "char_four": "sunday",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38500
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27540
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "sparkle",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33760
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "sunday",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38540
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 31300,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-elation",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32360
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "robin",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39080
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32720
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sparkle",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33373.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33820
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 25360,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38560
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "trailblazer-harmony",
+    "char_three": "the-dahlia",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32000
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "tingyun",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "himeko",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 23640
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25493.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "robin",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35300
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "robin",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 22880,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "ruan-mei",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31000
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "robin",
+    "char_four": "sunday",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35653.0
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "ruan-mei",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "bronya",
+    "char_three": "cerydra",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32620
+  },
+  {
+    "char_one": "welt",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "sunday",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28780
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34587.0
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39613.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "tingyun",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38640
+  },
+  {
+    "char_one": "jing-yuan",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26040
+  },
+  {
+    "char_one": "seele",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "tribbie",
+    "char_four": "luocha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28460
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "cyrene",
+    "char_three": "tribbie",
+    "char_four": "luocha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 36780
+  },
+  {
+    "char_one": "black-swan",
+    "char_two": "kafka",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 23427.0,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "ruan-mei",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 29360
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25940
+  },
+  {
+    "char_one": "clara",
+    "char_two": "robin",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28540
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "luocha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 22920
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "trailblazer-elation",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32080
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "bronya",
+    "char_three": "sunday",
+    "char_four": "luocha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24940
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "asta",
+    "char_three": "cyrene",
+    "char_four": "trailblazer-remembrance",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26300
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "robin",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34200
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28780
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "jade",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "seele",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31347.0
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "luocha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27100
+  },
+  {
+    "char_one": "mydei",
+    "char_two": "castorice",
+    "char_three": "march-7th-evernight",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 28120,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "ruan-mei",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "sparkle",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32720
+  },
+  {
+    "char_one": "saber",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "robin",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28160
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "tribbie",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "firefly",
+    "char_three": "tingyun-fugue",
+    "char_four": "the-dahlia",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 30580,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "trailblazer-elation",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38700
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28460
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24040
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "tribbie",
+    "char_three": "yao-guang",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39040
+  },
+  {
+    "char_one": "seele",
+    "char_two": "cerydra",
+    "char_three": "robin",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "blade",
+    "char_three": "ruan-mei",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34480
+  },
+  {
+    "char_one": "archer",
+    "char_two": "sparkle",
+    "char_three": "yao-guang",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25307.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "ruan-mei",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 23520
+  },
+  {
+    "char_one": "seele",
+    "char_two": "ashveil",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32747.0
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "sparkle",
+    "char_three": "sunday",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 35400
+  },
+  {
+    "char_one": "archer",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sparkle",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32000
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "sparkle",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 27080
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "welt",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 36540
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "black-swan",
+    "char_three": "kafka",
+    "char_four": "natasha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "archer",
+    "char_two": "cerydra",
+    "char_three": "robin",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38960
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "jiaoqiu",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33600
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "cerydra",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28620
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "tingyun-fugue",
+    "char_three": "the-dahlia",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 39100
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "yao-guang",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28480
+  },
+  {
+    "char_one": "sparxie",
+    "char_two": "silver-wolf",
+    "char_three": "sparkle",
+    "char_four": "yao-guang",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33220
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "jiaoqiu",
+    "char_three": "tribbie",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26480
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "herta",
+    "char_two": "sunday",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26267.0
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33220
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "cipher",
+    "char_three": "silver-wolf",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26840
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "kafka",
+    "char_three": "jiaoqiu",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38660
+  },
+  {
+    "char_one": "feixiao",
+    "char_two": "jade",
+    "char_three": "robin",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24560
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "cerydra",
+    "char_three": "cyrene",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25853.0
+  },
+  {
+    "char_one": "rappa",
+    "char_two": "trailblazer-harmony",
+    "char_three": "ruan-mei",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 22940
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "jade",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 24080,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "bronya",
+    "char_three": "sunday",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28040
+  },
+  {
+    "char_one": "argenti",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "robin",
+    "char_four": "sparkle",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31040
+  },
+  {
+    "char_one": "clara",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 25000
+  },
+  {
+    "char_one": "hysilens",
+    "char_two": "acheron",
+    "char_three": "kafka",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38760
+  },
+  {
+    "char_one": "march-7th-evernight",
+    "char_two": "cyrene",
+    "char_three": "ruan-mei",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 36760
+  },
+  {
+    "char_one": "herta",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26760
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "trailblazer-remembrance",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 24160
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "jade",
+    "char_three": "tribbie",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 38680
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "herta",
+    "char_three": "sunday",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33740
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "robin",
+    "char_three": "yao-guang",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33533.0
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "cyrene",
+    "char_three": "sunday",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 26260
+  },
+  {
+    "char_one": "castorice",
+    "char_two": "march-7th-evernight",
+    "char_three": "cyrene",
+    "char_four": "trailblazer-remembrance",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37840
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "cipher",
+    "char_three": "cyrene",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37360
+  },
+  {
+    "char_one": "trailblazer-remembrance",
+    "char_two": "ruan-mei",
+    "char_three": "tribbie",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "bronya",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "hyacine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34560
+  },
+  {
+    "char_one": "aglaea",
+    "char_two": "robin",
+    "char_three": "sunday",
+    "char_four": "fu-xuan",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 28040
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cyrene",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "luocha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "anaxa",
+    "char_two": "ashveil",
+    "char_three": "cerydra",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 24040,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "sparxie",
+    "char_three": "yao-guang",
+    "char_four": "gallagher",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 37427.0
+  },
+  {
+    "char_one": "firefly",
+    "char_two": "ruan-mei",
+    "char_three": "the-dahlia",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "trailblazer-remembrance",
+    "char_four": "ruan-mei",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 32160
+  },
+  {
+    "char_one": "silver-wolf-lv-999",
+    "char_two": "trailblazer-elation",
+    "char_three": "yao-guang",
+    "char_four": "lingsha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 35800,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "archer",
+    "char_two": "robin",
+    "char_three": "sparkle",
+    "char_four": "huohuo",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 29540
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "argenti",
+    "char_three": "robin",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 33780
+  },
+  {
+    "char_one": "the-herta",
+    "char_two": "anaxa",
+    "char_three": "cyrene",
+    "char_four": "tribbie",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 40000
+  },
+  {
+    "char_one": "phainon",
+    "char_two": "cerydra",
+    "char_three": "sunday",
+    "char_four": "luocha",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 34720
+  },
+  {
+    "char_one": "seele",
+    "char_two": "silver-wolf",
+    "char_three": "sparkle",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 31080
+  },
+  {
+    "char_one": "ashveil",
+    "char_two": "herta",
+    "char_three": "tribbie",
+    "char_four": "aventurine",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 28880,
+    "avg_round_c1": 0
+  },
+  {
+    "char_one": "acheron",
+    "char_two": "sparkle",
+    "char_three": "tribbie",
+    "char_four": "dan-heng-permansor-terrae",
+    "app_rate": 0.01,
+    "rank": 524,
+    "avg_round": 0,
+    "avg_round_c1": 30200
+  }
+]

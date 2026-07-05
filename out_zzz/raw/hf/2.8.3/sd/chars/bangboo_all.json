@@ -1,0 +1,322 @@
+[
+  {
+    "char": "cryboo",
+    "app_rate": 0.11,
+    "avg_round": 0,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "paperboo",
+    "app_rate": 0.0,
+    "avg_round": 0,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "exploreboo",
+    "app_rate": 0.05,
+    "avg_round": 0,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "magnetiboo",
+    "app_rate": 0.12,
+    "avg_round": 0,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "boollseye",
+    "app_rate": 0.0,
+    "avg_round": 0,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "avocaboo",
+    "app_rate": 0.08,
+    "avg_round": 0,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "bagboo",
+    "app_rate": 0.05,
+    "avg_round": 0,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "electroboo",
+    "app_rate": 0.06,
+    "avg_round": 0,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "safety",
+    "app_rate": 0.03,
+    "avg_round": 0,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "officer-cui",
+    "app_rate": 0.19,
+    "avg_round": 0,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "ultra-jake",
+    "app_rate": 0.0,
+    "avg_round": 0,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "rocketboo",
+    "app_rate": 4.03,
+    "avg_round": 28438,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "baddieboo",
+    "app_rate": 0.35,
+    "avg_round": 28561,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "brawlerboo",
+    "app_rate": 0.33,
+    "avg_round": 28988,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "bild-n-boolok",
+    "app_rate": 0.27,
+    "avg_round": 28999,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "belion",
+    "app_rate": 33.77,
+    "avg_round": 29724,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "plugboo",
+    "app_rate": 3.35,
+    "avg_round": 29810,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "mercury",
+    "app_rate": 8.44,
+    "avg_round": 29830,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "snap",
+    "app_rate": 25.79,
+    "avg_round": 30042,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "knightboo",
+    "app_rate": 1.51,
+    "avg_round": 30448,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "agent-gulliver",
+    "app_rate": 7.98,
+    "avg_round": 30498,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "robin",
+    "app_rate": 21.11,
+    "avg_round": 30858,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "red-moccus",
+    "app_rate": 0.99,
+    "avg_round": 30882,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "miss-esme",
+    "app_rate": 17.95,
+    "avg_round": 31183,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "overtimeboo",
+    "app_rate": 0.64,
+    "avg_round": 31298,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "excaliboo",
+    "app_rate": 2.92,
+    "avg_round": 31391,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "sumoboo",
+    "app_rate": 0.16,
+    "avg_round": 31483,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "bangvolver",
+    "app_rate": 4.84,
+    "avg_round": 31523,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "sharkboo",
+    "app_rate": 11.22,
+    "avg_round": 31588,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "luckyboo",
+    "app_rate": 1.28,
+    "avg_round": 31856,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "amillion",
+    "app_rate": 0.82,
+    "avg_round": 31919,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "butler",
+    "app_rate": 3.12,
+    "avg_round": 32093,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "resonaboo",
+    "app_rate": 6.54,
+    "avg_round": 32364,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "booressure",
+    "app_rate": 0.89,
+    "avg_round": 33315,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "penguinboo",
+    "app_rate": 3.35,
+    "avg_round": 33440,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "biggest-fan",
+    "app_rate": 23.59,
+    "avg_round": 33659,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "birkblick",
+    "app_rate": 18.76,
+    "avg_round": 33791,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "booltergeist",
+    "app_rate": 2.6,
+    "avg_round": 34050,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "sprout",
+    "app_rate": 68.28,
+    "avg_round": 35542,
+    "rarity": "S",
+    "diff": 0.0,
+    "diff_rounds": 0
+  },
+  {
+    "char": "devilboo",
+    "app_rate": 3.46,
+    "avg_round": 36325,
+    "rarity": "A",
+    "diff": 0.0,
+    "diff_rounds": 0
+  }
+]

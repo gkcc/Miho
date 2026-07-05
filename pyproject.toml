@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hsr-endgame-exporter"
+version = "0.1.0"
+description = "Local exporter for Honkai: Star Rail endgame usage data from MocStats and Prydwen."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+excel = ["pandas", "openpyxl"]
+test = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["hsr_endgame_exporter*", "zzz_endgame_exporter*"]

@@ -1,0 +1,13 @@
+﻿tier_mode,tier_mode_cn,role_group,role_group_cn,chart_file,series_count,point_count
+moc,混沌回忆,main_dps,主C,out\charts\prydwen_tier_usage\moc_main_dps_t0_t2_usage.svg,20,228
+moc,混沌回忆,sub_dps,副C,out\charts\prydwen_tier_usage\moc_sub_dps_t0_t2_usage.svg,7,120
+moc,混沌回忆,support,辅助,out\charts\prydwen_tier_usage\moc_support_t0_t2_usage.svg,19,160
+moc,混沌回忆,sustain,生存位,out\charts\prydwen_tier_usage\moc_sustain_t0_t2_usage.svg,8,72
+pf,虚构叙事,main_dps,主C,out\charts\prydwen_tier_usage\pf_main_dps_t0_t2_usage.svg,21,255
+pf,虚构叙事,sub_dps,副C,out\charts\prydwen_tier_usage\pf_sub_dps_t0_t2_usage.svg,9,156
+pf,虚构叙事,support,辅助,out\charts\prydwen_tier_usage\pf_support_t0_t2_usage.svg,20,169
+pf,虚构叙事,sustain,生存位,out\charts\prydwen_tier_usage\pf_sustain_t0_t2_usage.svg,8,72
+as,末日幻影,main_dps,主C,out\charts\prydwen_tier_usage\as_main_dps_t0_t2_usage.svg,21,237
+as,末日幻影,sub_dps,副C,out\charts\prydwen_tier_usage\as_sub_dps_t0_t2_usage.svg,10,147
+as,末日幻影,support,辅助,out\charts\prydwen_tier_usage\as_support_t0_t2_usage.svg,21,178
+as,末日幻影,sustain,生存位,out\charts\prydwen_tier_usage\as_sustain_t0_t2_usage.svg,8,72

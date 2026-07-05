@@ -1,0 +1,245 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="528" viewBox="0 0 1180 528">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="74" y="34" font-size="24" font-weight="700" fill="#111827">Prydwen T0-T2 辅助 - 混沌回忆 近半年出场率</text>
+<text x="74" y="56" font-size="13" fill="#6b7280">T档来自 Prydwen 当前榜；出场率来自本地 MocStats long table，数值单位为 %。</text>
+<line x1="74" y1="430.0" x2="820" y2="430.0" stroke="#e5e7eb"/>
+<text x="64" y="434.0" text-anchor="end" font-size="11" fill="#6b7280">0</text>
+<line x1="74" y1="358.0" x2="820" y2="358.0" stroke="#e5e7eb"/>
+<text x="64" y="362.0" text-anchor="end" font-size="11" fill="#6b7280">15</text>
+<line x1="74" y1="286.0" x2="820" y2="286.0" stroke="#e5e7eb"/>
+<text x="64" y="290.0" text-anchor="end" font-size="11" fill="#6b7280">30</text>
+<line x1="74" y1="214.0" x2="820" y2="214.0" stroke="#e5e7eb"/>
+<text x="64" y="218.0" text-anchor="end" font-size="11" fill="#6b7280">45</text>
+<line x1="74" y1="142.0" x2="820" y2="142.0" stroke="#e5e7eb"/>
+<text x="64" y="146.0" text-anchor="end" font-size="11" fill="#6b7280">60</text>
+<line x1="74" y1="70.0" x2="820" y2="70.0" stroke="#e5e7eb"/>
+<text x="64" y="74.0" text-anchor="end" font-size="11" fill="#6b7280">75</text>
+<line x1="74" y1="70" x2="74" y2="430" stroke="#374151"/>
+<line x1="74" y1="430" x2="820" y2="430" stroke="#374151"/>
+<text x="74.0" y="452" text-anchor="middle" font-size="11" fill="#374151">02-22</text>
+<text x="167.2" y="452" text-anchor="middle" font-size="11" fill="#374151">03-06</text>
+<text x="260.5" y="452" text-anchor="middle" font-size="11" fill="#374151">04-03</text>
+<text x="353.8" y="452" text-anchor="middle" font-size="11" fill="#374151">04-19</text>
+<text x="447.0" y="452" text-anchor="middle" font-size="11" fill="#374151">05-02</text>
+<text x="540.2" y="452" text-anchor="middle" font-size="11" fill="#374151">05-16</text>
+<text x="633.5" y="452" text-anchor="middle" font-size="11" fill="#374151">05-29</text>
+<text x="726.8" y="452" text-anchor="middle" font-size="11" fill="#374151">06-11</text>
+<text x="820.0" y="452" text-anchor="middle" font-size="11" fill="#374151">06-25</text>
+<polyline points="74.0,415.5 167.2,318.3 260.5,297.8 353.8,292.8 447.0,270.4 540.2,257.7 633.5,182.8 726.8,110.0 820.0,108.6" fill="none" stroke="#2563eb" stroke-width="2.2"/>
+<circle cx="74.0" cy="415.5" r="2.8" fill="#2563eb"/>
+<circle cx="167.2" cy="318.3" r="2.8" fill="#2563eb"/>
+<circle cx="260.5" cy="297.8" r="2.8" fill="#2563eb"/>
+<circle cx="353.8" cy="292.8" r="2.8" fill="#2563eb"/>
+<circle cx="447.0" cy="270.4" r="2.8" fill="#2563eb"/>
+<circle cx="540.2" cy="257.7" r="2.8" fill="#2563eb"/>
+<circle cx="633.5" cy="182.8" r="2.8" fill="#2563eb"/>
+<circle cx="726.8" cy="110.0" r="2.8" fill="#2563eb"/>
+<circle cx="820.0" cy="108.6" r="2.8" fill="#2563eb"/>
+<line x1="856" y1="82" x2="878" y2="82" stroke="#2563eb" stroke-width="3"/>
+<text x="886" y="86" font-size="12" fill="#111827">爻光 T0</text>
+<polyline points="447.0,401.0 540.2,377.5 633.5,286.2 726.8,253.4 820.0,253.6" fill="none" stroke="#dc2626" stroke-width="2.2"/>
+<circle cx="447.0" cy="401.0" r="2.8" fill="#dc2626"/>
+<circle cx="540.2" cy="377.5" r="2.8" fill="#dc2626"/>
+<circle cx="633.5" cy="286.2" r="2.8" fill="#dc2626"/>
+<circle cx="726.8" cy="253.4" r="2.8" fill="#dc2626"/>
+<circle cx="820.0" cy="253.6" r="2.8" fill="#dc2626"/>
+<line x1="856" y1="104" x2="878" y2="104" stroke="#dc2626" stroke-width="3"/>
+<text x="886" y="108" font-size="12" fill="#111827">开拓者•欢愉 T0</text>
+<polyline points="74.0,193.0 167.2,203.3 260.5,210.1 353.8,200.5 447.0,215.2 540.2,220.5 633.5,291.5 726.8,262.9 820.0,264.1" fill="none" stroke="#16a34a" stroke-width="2.2"/>
+<circle cx="74.0" cy="193.0" r="2.8" fill="#16a34a"/>
+<circle cx="167.2" cy="203.3" r="2.8" fill="#16a34a"/>
+<circle cx="260.5" cy="210.1" r="2.8" fill="#16a34a"/>
+<circle cx="353.8" cy="200.5" r="2.8" fill="#16a34a"/>
+<circle cx="447.0" cy="215.2" r="2.8" fill="#16a34a"/>
+<circle cx="540.2" cy="220.5" r="2.8" fill="#16a34a"/>
+<circle cx="633.5" cy="291.5" r="2.8" fill="#16a34a"/>
+<circle cx="726.8" cy="262.9" r="2.8" fill="#16a34a"/>
+<circle cx="820.0" cy="264.1" r="2.8" fill="#16a34a"/>
+<line x1="856" y1="126" x2="878" y2="126" stroke="#16a34a" stroke-width="3"/>
+<text x="886" y="130" font-size="12" fill="#111827">昔涟 T0</text>
+<polyline points="74.0,253.7 167.2,317.6 260.5,325.5 353.8,360.0 447.0,354.0 540.2,354.2 633.5,301.1 726.8,274.1 820.0,276.0" fill="none" stroke="#9333ea" stroke-width="2.2"/>
+<circle cx="74.0" cy="253.7" r="2.8" fill="#9333ea"/>
+<circle cx="167.2" cy="317.6" r="2.8" fill="#9333ea"/>
+<circle cx="260.5" cy="325.5" r="2.8" fill="#9333ea"/>
+<circle cx="353.8" cy="360.0" r="2.8" fill="#9333ea"/>
+<circle cx="447.0" cy="354.0" r="2.8" fill="#9333ea"/>
+<circle cx="540.2" cy="354.2" r="2.8" fill="#9333ea"/>
+<circle cx="633.5" cy="301.1" r="2.8" fill="#9333ea"/>
+<circle cx="726.8" cy="274.1" r="2.8" fill="#9333ea"/>
+<circle cx="820.0" cy="276.0" r="2.8" fill="#9333ea"/>
+<line x1="856" y1="148" x2="878" y2="148" stroke="#9333ea" stroke-width="3"/>
+<text x="886" y="152" font-size="12" fill="#111827">大丽花 T0</text>
+<polyline points="74.0,280.7 167.2,332.2 260.5,339.7 353.8,367.1 447.0,364.0 540.2,365.1 633.5,321.0 726.8,299.5 820.0,301.3" fill="none" stroke="#ea580c" stroke-width="2.2"/>
+<circle cx="74.0" cy="280.7" r="2.8" fill="#ea580c"/>
+<circle cx="167.2" cy="332.2" r="2.8" fill="#ea580c"/>
+<circle cx="260.5" cy="339.7" r="2.8" fill="#ea580c"/>
+<circle cx="353.8" cy="367.1" r="2.8" fill="#ea580c"/>
+<circle cx="447.0" cy="364.0" r="2.8" fill="#ea580c"/>
+<circle cx="540.2" cy="365.1" r="2.8" fill="#ea580c"/>
+<circle cx="633.5" cy="321.0" r="2.8" fill="#ea580c"/>
+<circle cx="726.8" cy="299.5" r="2.8" fill="#ea580c"/>
+<circle cx="820.0" cy="301.3" r="2.8" fill="#ea580c"/>
+<line x1="856" y1="170" x2="878" y2="170" stroke="#ea580c" stroke-width="3"/>
+<text x="886" y="174" font-size="12" fill="#111827">忘归人 T0.5</text>
+<polyline points="74.0,286.6 167.2,317.3 260.5,314.7 353.8,286.8 447.0,295.1 540.2,295.7 633.5,349.6 726.8,317.5 820.0,314.9" fill="none" stroke="#0891b2" stroke-width="2.2"/>
+<circle cx="74.0" cy="286.6" r="2.8" fill="#0891b2"/>
+<circle cx="167.2" cy="317.3" r="2.8" fill="#0891b2"/>
+<circle cx="260.5" cy="314.7" r="2.8" fill="#0891b2"/>
+<circle cx="353.8" cy="286.8" r="2.8" fill="#0891b2"/>
+<circle cx="447.0" cy="295.1" r="2.8" fill="#0891b2"/>
+<circle cx="540.2" cy="295.7" r="2.8" fill="#0891b2"/>
+<circle cx="633.5" cy="349.6" r="2.8" fill="#0891b2"/>
+<circle cx="726.8" cy="317.5" r="2.8" fill="#0891b2"/>
+<circle cx="820.0" cy="314.9" r="2.8" fill="#0891b2"/>
+<line x1="856" y1="192" x2="878" y2="192" stroke="#0891b2" stroke-width="3"/>
+<text x="886" y="196" font-size="12" fill="#111827">缇宝 T0.5</text>
+<polyline points="74.0,338.2 167.2,254.0 260.5,233.1 353.8,241.1 447.0,279.8 540.2,290.7 633.5,363.2 726.8,349.9 820.0,350.1" fill="none" stroke="#be123c" stroke-width="2.2"/>
+<circle cx="74.0" cy="338.2" r="2.8" fill="#be123c"/>
+<circle cx="167.2" cy="254.0" r="2.8" fill="#be123c"/>
+<circle cx="260.5" cy="233.1" r="2.8" fill="#be123c"/>
+<circle cx="353.8" cy="241.1" r="2.8" fill="#be123c"/>
+<circle cx="447.0" cy="279.8" r="2.8" fill="#be123c"/>
+<circle cx="540.2" cy="290.7" r="2.8" fill="#be123c"/>
+<circle cx="633.5" cy="363.2" r="2.8" fill="#be123c"/>
+<circle cx="726.8" cy="349.9" r="2.8" fill="#be123c"/>
+<circle cx="820.0" cy="350.1" r="2.8" fill="#be123c"/>
+<line x1="856" y1="214" x2="878" y2="214" stroke="#be123c" stroke-width="3"/>
+<text x="886" y="218" font-size="12" fill="#111827">花火 T0</text>
+<polyline points="74.0,308.3 167.2,331.6 260.5,329.6 353.8,330.6 447.0,337.2 540.2,341.7 633.5,375.6 726.8,363.5 820.0,364.1" fill="none" stroke="#4f46e5" stroke-width="2.2"/>
+<circle cx="74.0" cy="308.3" r="2.8" fill="#4f46e5"/>
+<circle cx="167.2" cy="331.6" r="2.8" fill="#4f46e5"/>
+<circle cx="260.5" cy="329.6" r="2.8" fill="#4f46e5"/>
+<circle cx="353.8" cy="330.6" r="2.8" fill="#4f46e5"/>
+<circle cx="447.0" cy="337.2" r="2.8" fill="#4f46e5"/>
+<circle cx="540.2" cy="341.7" r="2.8" fill="#4f46e5"/>
+<circle cx="633.5" cy="375.6" r="2.8" fill="#4f46e5"/>
+<circle cx="726.8" cy="363.5" r="2.8" fill="#4f46e5"/>
+<circle cx="820.0" cy="364.1" r="2.8" fill="#4f46e5"/>
+<line x1="856" y1="236" x2="878" y2="236" stroke="#4f46e5" stroke-width="3"/>
+<text x="886" y="240" font-size="12" fill="#111827">星期日 T0.5</text>
+<polyline points="74.0,343.5 167.2,350.2 260.5,349.1 353.8,354.2 447.0,365.1 540.2,368.8 633.5,379.7 726.8,367.2 820.0,367.4" fill="none" stroke="#65a30d" stroke-width="2.2"/>
+<circle cx="74.0" cy="343.5" r="2.8" fill="#65a30d"/>
+<circle cx="167.2" cy="350.2" r="2.8" fill="#65a30d"/>
+<circle cx="260.5" cy="349.1" r="2.8" fill="#65a30d"/>
+<circle cx="353.8" cy="354.2" r="2.8" fill="#65a30d"/>
+<circle cx="447.0" cy="365.1" r="2.8" fill="#65a30d"/>
+<circle cx="540.2" cy="368.8" r="2.8" fill="#65a30d"/>
+<circle cx="633.5" cy="379.7" r="2.8" fill="#65a30d"/>
+<circle cx="726.8" cy="367.2" r="2.8" fill="#65a30d"/>
+<circle cx="820.0" cy="367.4" r="2.8" fill="#65a30d"/>
+<line x1="856" y1="258" x2="878" y2="258" stroke="#65a30d" stroke-width="3"/>
+<text x="886" y="262" font-size="12" fill="#111827">刻律德菈 T0.5</text>
+<polyline points="726.8,385.0 820.0,375.5" fill="none" stroke="#a16207" stroke-width="2.2"/>
+<circle cx="726.8" cy="385.0" r="2.8" fill="#a16207"/>
+<circle cx="820.0" cy="375.5" r="2.8" fill="#a16207"/>
+<line x1="856" y1="280" x2="878" y2="280" stroke="#a16207" stroke-width="3"/>
+<text x="886" y="284" font-size="12" fill="#111827">千冶•刃 T0</text>
+<polyline points="74.0,370.2 167.2,395.6 260.5,397.0 353.8,405.2 447.0,400.1 540.2,398.3 633.5,386.6 726.8,377.9 820.0,378.9" fill="none" stroke="#0f766e" stroke-width="2.2"/>
+<circle cx="74.0" cy="370.2" r="2.8" fill="#0f766e"/>
+<circle cx="167.2" cy="395.6" r="2.8" fill="#0f766e"/>
+<circle cx="260.5" cy="397.0" r="2.8" fill="#0f766e"/>
+<circle cx="353.8" cy="405.2" r="2.8" fill="#0f766e"/>
+<circle cx="447.0" cy="400.1" r="2.8" fill="#0f766e"/>
+<circle cx="540.2" cy="398.3" r="2.8" fill="#0f766e"/>
+<circle cx="633.5" cy="386.6" r="2.8" fill="#0f766e"/>
+<circle cx="726.8" cy="377.9" r="2.8" fill="#0f766e"/>
+<circle cx="820.0" cy="378.9" r="2.8" fill="#0f766e"/>
+<line x1="856" y1="302" x2="878" y2="302" stroke="#0f766e" stroke-width="3"/>
+<text x="886" y="306" font-size="12" fill="#111827">阮•梅 T1</text>
+<polyline points="74.0,331.4 167.2,347.9 260.5,345.1 353.8,332.4 447.0,345.6 540.2,350.7 633.5,399.6 726.8,392.6 820.0,392.5" fill="none" stroke="#7c3aed" stroke-width="2.2"/>
+<circle cx="74.0" cy="331.4" r="2.8" fill="#7c3aed"/>
+<circle cx="167.2" cy="347.9" r="2.8" fill="#7c3aed"/>
+<circle cx="260.5" cy="345.1" r="2.8" fill="#7c3aed"/>
+<circle cx="353.8" cy="332.4" r="2.8" fill="#7c3aed"/>
+<circle cx="447.0" cy="345.6" r="2.8" fill="#7c3aed"/>
+<circle cx="540.2" cy="350.7" r="2.8" fill="#7c3aed"/>
+<circle cx="633.5" cy="399.6" r="2.8" fill="#7c3aed"/>
+<circle cx="726.8" cy="392.6" r="2.8" fill="#7c3aed"/>
+<circle cx="820.0" cy="392.5" r="2.8" fill="#7c3aed"/>
+<line x1="856" y1="324" x2="878" y2="324" stroke="#7c3aed" stroke-width="3"/>
+<text x="886" y="328" font-size="12" fill="#111827">开拓者•记忆 T0.5</text>
+<polyline points="74.0,378.3 167.2,397.2 260.5,400.1 353.8,406.9 447.0,406.0 540.2,406.9 633.5,400.3 726.8,393.8 820.0,395.2" fill="none" stroke="#2563eb" stroke-width="2.2"/>
+<circle cx="74.0" cy="378.3" r="2.8" fill="#2563eb"/>
+<circle cx="167.2" cy="397.2" r="2.8" fill="#2563eb"/>
+<circle cx="260.5" cy="400.1" r="2.8" fill="#2563eb"/>
+<circle cx="353.8" cy="406.9" r="2.8" fill="#2563eb"/>
+<circle cx="447.0" cy="406.0" r="2.8" fill="#2563eb"/>
+<circle cx="540.2" cy="406.9" r="2.8" fill="#2563eb"/>
+<circle cx="633.5" cy="400.3" r="2.8" fill="#2563eb"/>
+<circle cx="726.8" cy="393.8" r="2.8" fill="#2563eb"/>
+<circle cx="820.0" cy="395.2" r="2.8" fill="#2563eb"/>
+<line x1="856" y1="346" x2="878" y2="346" stroke="#2563eb" stroke-width="3"/>
+<text x="886" y="350" font-size="12" fill="#111827">开拓者 - 同谐 T0.5</text>
+<polyline points="74.0,402.8 167.2,413.0 260.5,412.3 353.8,411.8 447.0,410.8 540.2,411.0 633.5,416.2 726.8,413.6 820.0,413.5" fill="none" stroke="#dc2626" stroke-width="2.2"/>
+<circle cx="74.0" cy="402.8" r="2.8" fill="#dc2626"/>
+<circle cx="167.2" cy="413.0" r="2.8" fill="#dc2626"/>
+<circle cx="260.5" cy="412.3" r="2.8" fill="#dc2626"/>
+<circle cx="353.8" cy="411.8" r="2.8" fill="#dc2626"/>
+<circle cx="447.0" cy="410.8" r="2.8" fill="#dc2626"/>
+<circle cx="540.2" cy="411.0" r="2.8" fill="#dc2626"/>
+<circle cx="633.5" cy="416.2" r="2.8" fill="#dc2626"/>
+<circle cx="726.8" cy="413.6" r="2.8" fill="#dc2626"/>
+<circle cx="820.0" cy="413.5" r="2.8" fill="#dc2626"/>
+<line x1="856" y1="368" x2="878" y2="368" stroke="#dc2626" stroke-width="3"/>
+<text x="886" y="372" font-size="12" fill="#111827">知更鸟 T1.5</text>
+<polyline points="74.0,430.0 167.2,430.0 260.5,430.0 353.8,429.9 447.0,422.2 540.2,421.3 633.5,422.1 726.8,418.7 820.0,418.4" fill="none" stroke="#16a34a" stroke-width="2.2"/>
+<circle cx="74.0" cy="430.0" r="2.8" fill="#16a34a"/>
+<circle cx="167.2" cy="430.0" r="2.8" fill="#16a34a"/>
+<circle cx="260.5" cy="430.0" r="2.8" fill="#16a34a"/>
+<circle cx="353.8" cy="429.9" r="2.8" fill="#16a34a"/>
+<circle cx="447.0" cy="422.2" r="2.8" fill="#16a34a"/>
+<circle cx="540.2" cy="421.3" r="2.8" fill="#16a34a"/>
+<circle cx="633.5" cy="422.1" r="2.8" fill="#16a34a"/>
+<circle cx="726.8" cy="418.7" r="2.8" fill="#16a34a"/>
+<circle cx="820.0" cy="418.4" r="2.8" fill="#16a34a"/>
+<line x1="856" y1="390" x2="878" y2="390" stroke="#16a34a" stroke-width="3"/>
+<text x="886" y="394" font-size="12" fill="#111827">瓦尔特 T1</text>
+<polyline points="74.0,412.9 167.2,422.5 260.5,422.7 353.8,422.0 447.0,422.1 540.2,422.3 633.5,424.4 726.8,422.3 820.0,422.3" fill="none" stroke="#9333ea" stroke-width="2.2"/>
+<circle cx="74.0" cy="412.9" r="2.8" fill="#9333ea"/>
+<circle cx="167.2" cy="422.5" r="2.8" fill="#9333ea"/>
+<circle cx="260.5" cy="422.7" r="2.8" fill="#9333ea"/>
+<circle cx="353.8" cy="422.0" r="2.8" fill="#9333ea"/>
+<circle cx="447.0" cy="422.1" r="2.8" fill="#9333ea"/>
+<circle cx="540.2" cy="422.3" r="2.8" fill="#9333ea"/>
+<circle cx="633.5" cy="424.4" r="2.8" fill="#9333ea"/>
+<circle cx="726.8" cy="422.3" r="2.8" fill="#9333ea"/>
+<circle cx="820.0" cy="422.3" r="2.8" fill="#9333ea"/>
+<line x1="856" y1="412" x2="878" y2="412" stroke="#9333ea" stroke-width="3"/>
+<text x="886" y="416" font-size="12" fill="#111827">银狼 T1</text>
+<polyline points="74.0,406.2 167.2,420.3 260.5,421.0 353.8,420.0 447.0,420.4 540.2,420.8 633.5,425.1 726.8,422.7 820.0,422.6" fill="none" stroke="#ea580c" stroke-width="2.2"/>
+<circle cx="74.0" cy="406.2" r="2.8" fill="#ea580c"/>
+<circle cx="167.2" cy="420.3" r="2.8" fill="#ea580c"/>
+<circle cx="260.5" cy="421.0" r="2.8" fill="#ea580c"/>
+<circle cx="353.8" cy="420.0" r="2.8" fill="#ea580c"/>
+<circle cx="447.0" cy="420.4" r="2.8" fill="#ea580c"/>
+<circle cx="540.2" cy="420.8" r="2.8" fill="#ea580c"/>
+<circle cx="633.5" cy="425.1" r="2.8" fill="#ea580c"/>
+<circle cx="726.8" cy="422.7" r="2.8" fill="#ea580c"/>
+<circle cx="820.0" cy="422.6" r="2.8" fill="#ea580c"/>
+<line x1="856" y1="434" x2="878" y2="434" stroke="#ea580c" stroke-width="3"/>
+<text x="886" y="438" font-size="12" fill="#111827">赛飞儿 T0.5</text>
+<polyline points="74.0,400.8 167.2,412.4 260.5,412.5 353.8,419.7 447.0,420.2 540.2,420.5 633.5,425.4 726.8,424.7 820.0,424.8" fill="none" stroke="#0891b2" stroke-width="2.2"/>
+<circle cx="74.0" cy="400.8" r="2.8" fill="#0891b2"/>
+<circle cx="167.2" cy="412.4" r="2.8" fill="#0891b2"/>
+<circle cx="260.5" cy="412.5" r="2.8" fill="#0891b2"/>
+<circle cx="353.8" cy="419.7" r="2.8" fill="#0891b2"/>
+<circle cx="447.0" cy="420.2" r="2.8" fill="#0891b2"/>
+<circle cx="540.2" cy="420.5" r="2.8" fill="#0891b2"/>
+<circle cx="633.5" cy="425.4" r="2.8" fill="#0891b2"/>
+<circle cx="726.8" cy="424.7" r="2.8" fill="#0891b2"/>
+<circle cx="820.0" cy="424.8" r="2.8" fill="#0891b2"/>
+<line x1="856" y1="456" x2="878" y2="456" stroke="#0891b2" stroke-width="3"/>
+<text x="886" y="460" font-size="12" fill="#111827">布洛妮娅 T2</text>
+<polyline points="74.0,429.9 167.2,429.9 260.5,429.9 353.8,429.8 447.0,428.6 540.2,428.1 633.5,427.4 726.8,427.1 820.0,427.3" fill="none" stroke="#be123c" stroke-width="2.2"/>
+<circle cx="74.0" cy="429.9" r="2.8" fill="#be123c"/>
+<circle cx="167.2" cy="429.9" r="2.8" fill="#be123c"/>
+<circle cx="260.5" cy="429.9" r="2.8" fill="#be123c"/>
+<circle cx="353.8" cy="429.8" r="2.8" fill="#be123c"/>
+<circle cx="447.0" cy="428.6" r="2.8" fill="#be123c"/>
+<circle cx="540.2" cy="428.1" r="2.8" fill="#be123c"/>
+<circle cx="633.5" cy="427.4" r="2.8" fill="#be123c"/>
+<circle cx="726.8" cy="427.1" r="2.8" fill="#be123c"/>
+<circle cx="820.0" cy="427.3" r="2.8" fill="#be123c"/>
+<line x1="856" y1="478" x2="878" y2="478" stroke="#be123c" stroke-width="3"/>
+<text x="886" y="482" font-size="12" fill="#111827">艾丝妲 T2</text>
+</svg>
