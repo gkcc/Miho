@@ -1,7 +1,7 @@
 import csv
 import json
 
-from miho_core.evidence import build_evidence_pool_from_paths, format_evidence_report
+from miho_core.evidence import build_evidence_pool_from_paths, build_team_signature_aggregates, format_evidence_report
 from zzz_endgame_exporter.cli import main
 
 
@@ -22,12 +22,20 @@ def test_evidence_pool_includes_owned_and_planned_records(tmp_path):
 
     assert owned_team.confidence == "B+"
     assert owned_team.plan_dependency == ("none",)
+    assert owned_team.agent_signature == "lucy|miyabi|nicole-demara"
+    assert owned_team.full_team_signature == "lucy|miyabi|nicole-demara|bangboo:biggest-fan"
+    assert owned_team.team_signature == owned_team.full_team_signature
+    assert owned_team.bangboo_slug == "biggest-fan"
+    assert owned_team.bangboo_name_cn == "阿饭"
+    assert owned_team.bangboo_checked == "邦布未校验"
     assert owned_team.record_count == 6
     assert owned_team.snapshot_count == 3
     assert owned_team.phase_count == 3
     assert owned_team.boss_count == 2
     assert owned_team.non_sentinel_score_count == 6
     assert owned_team.sentinel_score_count == 0
+    assert owned_team.metric_direction == "higher_better"
+    assert owned_team.best_score == 30500
     assert planned_team.confidence == "C"
     assert planned_team.plan_dependency == ("sunna",)
     assert planned_team.sentinel_score_count == 1
@@ -38,6 +46,10 @@ def test_evidence_pool_includes_owned_and_planned_records(tmp_path):
     report = format_evidence_report(pool, title="测试证据池")
     assert "plan_dependency" in report
     assert "team signature" in report
+    assert "full_team_signature" in report
+    assert "bangboo_checked" in report
+    assert "邦布未校验" in report
+    assert "metric_direction" in report
     assert "sentinel" in report
 
 
@@ -91,7 +103,32 @@ def test_zzz_coverage_cli_writes_split_reports(tmp_path):
     assert "scenario：`target_box`" in target_text
     assert "lucy, miyabi, sunna" not in current_text
     assert "lucy, miyabi, sunna" in target_text
+    assert "bangboo_slug" in target_text
+    assert "full_team_signature" in target_text
+    assert "metric_direction" in target_text
+    assert "邦布未校验" in target_text
+    assert "agent_signature,full_team_signature" in aggregate_csv
     assert "record_count,snapshot_count,phase_count,mode_count,scope_count,boss_count" in aggregate_csv
+
+
+def test_min_a_app_rate_changes_classification(tmp_path):
+    out = _write_threshold_fixture(tmp_path)
+
+    default_aggregate = build_team_signature_aggregates(out)[0]
+    relaxed_aggregate = build_team_signature_aggregates(out, min_a_app_rate=5)[0]
+
+    assert default_aggregate.confidence == "B+"
+    assert relaxed_aggregate.confidence == "A"
+    assert "min_a_app_rate=5" in relaxed_aggregate.evidence_comment
+
+
+def test_avg_round_lower_better_uses_min_score(tmp_path):
+    out = _write_avg_round_fixture(tmp_path)
+
+    aggregate = build_team_signature_aggregates(out)[0]
+
+    assert aggregate.metric_direction == "lower_better"
+    assert aggregate.best_score == 3
 
 
 def _write_evidence_fixture(tmp_path):
@@ -155,6 +192,95 @@ def _write_evidence_fixture(tmp_path):
             _team("2.8.3", "sd", "5-2", "miyabi", "lucy", "nicole-demara", 8.8, 30500),
             _team("2.8.2", "sd", "5-1", "miyabi", "lucy", "sunna", 8.0, 0),
             _team("2.8.2", "sd", "5-1", "miyabi", "zhao", "lucy", 20.0, 32000),
+        ],
+    )
+    return out
+
+
+def _write_threshold_fixture(tmp_path):
+    out = tmp_path / "threshold_out"
+    out.mkdir()
+    _write_csv(
+        out / "name_map.csv",
+        ["character_slug", "character_name_en", "character_name_cn", "aliases", "kind"],
+        [
+            {"character_slug": "miyabi", "character_name_en": "Miyabi", "character_name_cn": "星见雅", "aliases": "", "kind": "agent"},
+            {"character_slug": "lucy", "character_name_en": "Lucy", "character_name_cn": "露西", "aliases": "", "kind": "agent"},
+            {"character_slug": "sunna", "character_name_en": "Sunna", "character_name_cn": "千夏", "aliases": "", "kind": "agent"},
+        ],
+    )
+    columns = [
+        "snapshot_id",
+        "collect_date",
+        "mode",
+        "sub_mode",
+        "phase_ver",
+        "scope",
+        "rank",
+        "char_1_slug",
+        "char_2_slug",
+        "char_3_slug",
+        "bangboo_slug",
+        "app_rate",
+        "avg_score",
+    ]
+    rows = []
+    for index in range(12):
+        mode = "sd" if index < 6 else "da"
+        sub_mode = f"{1 + index % 3}-{1 + index % 2}"
+        phase = f"2.8.{1 + index // 2}"
+        rows.append(
+            {
+                "snapshot_id": phase,
+                "collect_date": "2026-06-01",
+                "mode": mode,
+                "sub_mode": sub_mode,
+                "phase_ver": phase,
+                "scope": f"{sub_mode}_combined.json",
+                "rank": 1,
+                "char_1_slug": "miyabi",
+                "char_2_slug": "lucy",
+                "char_3_slug": "sunna",
+                "bangboo_slug": "",
+                "app_rate": 8,
+                "avg_score": 30000 + index,
+            }
+        )
+    _write_csv(out / "team_rank_dedup_unordered.csv", columns, rows)
+    return out
+
+
+def _write_avg_round_fixture(tmp_path):
+    out = tmp_path / "avg_round_out"
+    out.mkdir()
+    _write_csv(
+        out / "name_map.csv",
+        ["character_slug", "character_name_en", "character_name_cn", "aliases", "kind"],
+        [
+            {"character_slug": "a", "character_name_en": "A", "character_name_cn": "A", "aliases": "", "kind": "agent"},
+            {"character_slug": "b", "character_name_en": "B", "character_name_cn": "B", "aliases": "", "kind": "agent"},
+            {"character_slug": "c", "character_name_en": "C", "character_name_cn": "C", "aliases": "", "kind": "agent"},
+        ],
+    )
+    columns = [
+        "snapshot_id",
+        "mode",
+        "sub_mode",
+        "phase_ver",
+        "scope",
+        "rank",
+        "char_1_slug",
+        "char_2_slug",
+        "char_3_slug",
+        "app_rate",
+        "avg_round",
+    ]
+    _write_csv(
+        out / "team_rank_dedup_unordered.csv",
+        columns,
+        [
+            {"snapshot_id": "1", "mode": "moc", "sub_mode": "all", "phase_ver": "1", "scope": "all", "rank": 2, "char_1_slug": "a", "char_2_slug": "b", "char_3_slug": "c", "app_rate": 2, "avg_round": 5},
+            {"snapshot_id": "2", "mode": "moc", "sub_mode": "all", "phase_ver": "2", "scope": "all", "rank": 1, "char_1_slug": "a", "char_2_slug": "b", "char_3_slug": "c", "app_rate": 2, "avg_round": 3},
         ],
     )
     return out

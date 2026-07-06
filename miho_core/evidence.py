@@ -28,8 +28,12 @@ class NameIndex:
 @dataclass(frozen=True)
 class TeamSignatureAggregate:
     team_signature: str
+    agent_signature: str
+    full_team_signature: str
     team_slugs: tuple[str, ...]
     team_cn: tuple[str, ...]
+    bangboo_slug: str
+    bangboo_name_cn: str
     record_count: int
     snapshot_count: int
     phase_count: int
@@ -41,6 +45,7 @@ class TeamSignatureAggregate:
     median_app_rate: float | None
     best_rank: int | None
     best_score: float | int | None
+    metric_direction: str
     non_sentinel_score_count: int
     sentinel_score_count: int
     confidence: str
@@ -57,8 +62,13 @@ class EvidenceRecord:
     evidence_id: str
     scenario: str
     team_signature: str
+    agent_signature: str
+    full_team_signature: str
     team_slugs: tuple[str, ...]
     team_cn: tuple[str, ...]
+    bangboo_slug: str
+    bangboo_name_cn: str
+    bangboo_checked: str
     owned_count: int
     plan_dependency: tuple[str, ...]
     missing_parts: tuple[str, ...]
@@ -74,6 +84,7 @@ class EvidenceRecord:
     median_app_rate: float | None
     best_rank: int | None
     best_score: float | int | None
+    metric_direction: str
     non_sentinel_score_count: int
     sentinel_score_count: int
     modes: tuple[str, ...]
@@ -92,8 +103,12 @@ class EvidencePool:
 
 AGGREGATE_COLUMNS = [
     "team_signature",
+    "agent_signature",
+    "full_team_signature",
     "team_slugs",
     "team_cn",
+    "bangboo_slug",
+    "bangboo_name_cn",
     "confidence",
     "record_count",
     "snapshot_count",
@@ -106,6 +121,7 @@ AGGREGATE_COLUMNS = [
     "median_app_rate",
     "best_rank",
     "best_score",
+    "metric_direction",
     "non_sentinel_score_count",
     "sentinel_score_count",
     "modes",
@@ -177,6 +193,19 @@ def load_owned_slugs(box_path: str | Path, names: NameIndex | None = None) -> se
     return {slug for slug in owned if slug}
 
 
+def load_owned_bangboo_slugs(box_path: str | Path, names: NameIndex | None = None) -> tuple[bool, set[str]]:
+    name_index = names or NameIndex({}, {}, {})
+    data = load_config(box_path)
+    known = False
+    owned: set[str] = set()
+    for key in ("bangboo", "bangboos", "owned_bangboo", "owned_bangboos"):
+        if key not in data:
+            continue
+        known = True
+        owned.update(_owned_slug_rows(data.get(key), name_index))
+    return known, {slug for slug in owned if slug}
+
+
 def load_planned_slugs_from_banner_plan(
     plan_path: str | Path,
     *,
@@ -206,6 +235,7 @@ def build_team_signature_aggregates(
     data_dir: str | Path,
     *,
     sentinel_values: set[float] | None = None,
+    min_a_app_rate: float | dict[str, float] | None = None,
 ) -> list[TeamSignatureAggregate]:
     out = Path(data_dir)
     names = load_name_index(out)
@@ -217,7 +247,7 @@ def build_team_signature_aggregates(
     char_columns = _detect_team_columns(columns)
     metric_column = _detect_metric_column(columns)
     sentinels = sentinel_values if sentinel_values is not None else DEFAULT_SENTINELS
-    grouped: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[tuple[tuple[str, ...], str], list[dict[str, Any]]] = defaultdict(list)
 
     for row in rows:
         app_rate = parse_percent(row.get("app_rate"))
@@ -227,24 +257,32 @@ def build_team_signature_aggregates(
         team = tuple(slug for slug in team if slug)
         if not team:
             continue
+        agent_signature_tuple = tuple(sorted(team))
+        bangboo_slug = canonical_slug(str(row.get("bangboo_slug") or ""), names)
         score = parse_number(row.get(metric_column)) if metric_column else None
-        grouped[tuple(sorted(team))].append(
+        grouped[(agent_signature_tuple, bangboo_slug)].append(
             {
                 "row": row,
                 "app_rate": app_rate,
                 "rank": _int_or_none(row.get("rank")),
                 "score": score,
                 "score_sentinel": _is_sentinel(score, sentinels),
+                "metric_direction": _metric_direction(row, metric_column),
             }
         )
 
     aggregates: list[TeamSignatureAggregate] = []
-    for signature, items in grouped.items():
+    for (agent_signature_tuple, bangboo_slug), items in grouped.items():
         app_rates = [item["app_rate"] for item in items if item.get("app_rate") is not None]
         non_sentinel_scores = [item["score"] for item in items if not item["score_sentinel"] and item.get("score") is not None]
         sentinel_count = sum(1 for item in items if item["score_sentinel"])
         best_rank = min((item["rank"] for item in items if item.get("rank") is not None), default=None)
-        best_score = max(non_sentinel_scores, default=None)
+        metric_direction = _combined_metric_direction(item["metric_direction"] for item in items)
+        best_score = _best_score_by_direction(
+            (item["score"], item["metric_direction"])
+            for item in items
+            if not item["score_sentinel"] and item.get("score") is not None
+        )
         snapshots = sorted({str(item["row"].get("snapshot_id") or "") for item in items if item["row"].get("snapshot_id")})
         phase_keys = sorted(
             {
@@ -266,12 +304,21 @@ def build_team_signature_aggregates(
             median_app_rate=median(app_rates) if app_rates else None,
             non_sentinel_score_count=len(non_sentinel_scores),
             sentinel_score_count=sentinel_count,
+            modes=modes,
+            min_a_app_rate=min_a_app_rate,
         )
+        if metric_direction == "mixed":
+            risk_comment = _append_comment(risk_comment, "混合指标方向，best_score 不做跨方向比较")
+        full_signature = _full_team_signature(agent_signature_tuple, bangboo_slug)
         aggregates.append(
             TeamSignatureAggregate(
-                team_signature="|".join(signature),
-                team_slugs=signature,
-                team_cn=tuple(_name_cn(slug, names) for slug in signature),
+                team_signature=full_signature,
+                agent_signature="|".join(agent_signature_tuple),
+                full_team_signature=full_signature,
+                team_slugs=agent_signature_tuple,
+                team_cn=tuple(_name_cn(slug, names) for slug in agent_signature_tuple),
+                bangboo_slug=bangboo_slug,
+                bangboo_name_cn=_bangboo_name_cn(bangboo_slug, names, items),
                 record_count=len(items),
                 snapshot_count=len(snapshots),
                 phase_count=len(phase_keys),
@@ -283,6 +330,7 @@ def build_team_signature_aggregates(
                 median_app_rate=median(app_rates) if app_rates else None,
                 best_rank=best_rank,
                 best_score=best_score,
+                metric_direction=metric_direction,
                 non_sentinel_score_count=len(non_sentinel_scores),
                 sentinel_score_count=sentinel_count,
                 confidence=confidence,
@@ -305,13 +353,21 @@ def build_evidence_pool(
     scenario: str = "target_box",
     include_missing: bool = False,
     sentinel_values: set[float] | None = None,
+    min_a_app_rate: float | dict[str, float] | None = None,
+    owned_bangboo_slugs: Iterable[str] | None = None,
+    bangboo_ownership_known: bool = False,
 ) -> EvidencePool:
     names = load_name_index(data_dir)
     owned = {canonical_slug(slug, names) for slug in owned_slugs if canonical_slug(slug, names)}
     planned_order = [canonical_slug(slug, names) for slug in planned_slugs if canonical_slug(slug, names)]
     planned_order = list(dict.fromkeys(planned_order))
     target = owned | set(planned_order)
-    aggregates = build_team_signature_aggregates(data_dir, sentinel_values=sentinel_values)
+    owned_bangboo = {canonical_slug(slug, names) for slug in (owned_bangboo_slugs or []) if canonical_slug(slug, names)}
+    aggregates = build_team_signature_aggregates(
+        data_dir,
+        sentinel_values=sentinel_values,
+        min_a_app_rate=min_a_app_rate,
+    )
     records: list[EvidenceRecord] = []
     for aggregate in aggregates:
         team_set = set(aggregate.team_slugs)
@@ -323,13 +379,27 @@ def build_evidence_pool(
         risk_comment = aggregate.risk_comment
         if missing:
             risk_comment = _append_comment(risk_comment, "缺目标账号成员：" + ", ".join(missing))
+        bangboo_checked = _bangboo_checked(
+            aggregate.bangboo_slug,
+            owned_bangboo,
+            ownership_known=bangboo_ownership_known,
+        )
+        if bangboo_checked == "缺邦布":
+            risk_comment = _append_comment(risk_comment, "Bangboo 记录缺拥有校验：" + aggregate.bangboo_slug)
+        elif bangboo_checked == "邦布未校验":
+            risk_comment = _append_comment(risk_comment, "Bangboo 未参与账号覆盖校验")
         records.append(
             EvidenceRecord(
                 evidence_id=f"E{len(records) + 1:04d}",
                 scenario=scenario,
                 team_signature=aggregate.team_signature,
+                agent_signature=aggregate.agent_signature,
+                full_team_signature=aggregate.full_team_signature,
                 team_slugs=aggregate.team_slugs,
                 team_cn=aggregate.team_cn,
+                bangboo_slug=aggregate.bangboo_slug,
+                bangboo_name_cn=aggregate.bangboo_name_cn,
+                bangboo_checked=bangboo_checked,
                 owned_count=sum(1 for slug in aggregate.team_slugs if slug in owned),
                 plan_dependency=dependency,
                 missing_parts=missing or ("none",),
@@ -345,6 +415,7 @@ def build_evidence_pool(
                 median_app_rate=aggregate.median_app_rate,
                 best_rank=aggregate.best_rank,
                 best_score=aggregate.best_score,
+                metric_direction=aggregate.metric_direction,
                 non_sentinel_score_count=aggregate.non_sentinel_score_count,
                 sentinel_score_count=aggregate.sentinel_score_count,
                 modes=aggregate.modes,
@@ -369,6 +440,8 @@ def build_evidence_pool(
         "dependency_counts": dict(Counter(",".join(record.plan_dependency) for record in records)),
         "mode_counts": dict(Counter(mode for record in records for mode in record.modes)),
         "include_missing": include_missing,
+        "min_a_app_rate": min_a_app_rate if min_a_app_rate is not None else 10.0,
+        "bangboo_ownership_known": bangboo_ownership_known,
     }
     return EvidencePool(records=records, summary=summary, aggregates=aggregates)
 
@@ -380,15 +453,20 @@ def build_evidence_pool_from_paths(
     planned_slugs: Iterable[str] = (),
     scenario: str = "target_box",
     include_missing: bool = False,
+    min_a_app_rate: float | dict[str, float] | None = None,
 ) -> EvidencePool:
     names = load_name_index(data_dir)
     owned = load_owned_slugs(box_path, names)
+    bangboo_known, owned_bangboo = load_owned_bangboo_slugs(box_path, names)
     return build_evidence_pool(
         data_dir,
         owned_slugs=owned,
         planned_slugs=planned_slugs,
         scenario=scenario,
         include_missing=include_missing,
+        min_a_app_rate=min_a_app_rate,
+        owned_bangboo_slugs=owned_bangboo,
+        bangboo_ownership_known=bangboo_known,
     )
 
 
@@ -404,13 +482,13 @@ def write_evidence_report(
     scenario: str = "target_box",
     min_a_app_rate: float | None = None,
 ) -> EvidencePool:
-    _ = min_a_app_rate
     pool = build_evidence_pool_from_paths(
         data_dir,
         box_path=box_path,
         planned_slugs=planned_slugs,
         scenario=scenario,
         include_missing=include_missing,
+        min_a_app_rate=min_a_app_rate,
     )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -427,15 +505,20 @@ def write_coverage_reports(
     target_output_path: str | Path,
     aggregate_output_path: str | Path | None = None,
     limit: int = 0,
+    min_a_app_rate: float | dict[str, float] | None = None,
 ) -> tuple[EvidencePool, EvidencePool]:
     names = load_name_index(data_dir)
     owned = load_owned_slugs(box_path, names)
+    bangboo_known, owned_bangboo = load_owned_bangboo_slugs(box_path, names)
     current_pool = build_evidence_pool(
         data_dir,
         owned_slugs=owned,
         planned_slugs=[],
         scenario="current_box",
         include_missing=False,
+        min_a_app_rate=min_a_app_rate,
+        owned_bangboo_slugs=owned_bangboo,
+        bangboo_ownership_known=bangboo_known,
     )
     target_pool = build_evidence_pool(
         data_dir,
@@ -443,6 +526,9 @@ def write_coverage_reports(
         planned_slugs=planned_slugs,
         scenario="target_box",
         include_missing=False,
+        min_a_app_rate=min_a_app_rate,
+        owned_bangboo_slugs=owned_bangboo,
+        bangboo_ownership_known=bangboo_known,
     )
     current_path = Path(current_output_path)
     target_path = Path(target_output_path)
@@ -481,6 +567,8 @@ def format_coverage_report(pool: EvidencePool, *, title: str = "队伍覆盖报�
         f"- team signature 聚合数：{summary.get('aggregate_count', 0)}",
         f"- 当前拥有：{summary.get('owned_count', 0)}；计划角色：{', '.join(summary.get('planned') or []) or 'none'}；目标账号角色数：{summary.get('target_count', 0)}",
         f"- 可组 team signature：{summary.get('included_records', 0)}",
+        f"- A 档 min_app_rate 阈值：{_threshold_text(summary.get('min_a_app_rate'))}",
+        f"- Bangboo 拥有信息：{'已读取' if summary.get('bangboo_ownership_known') else '未提供，报告标记为邦布未校验'}",
         f"- 置信度分布：{_dict_text(summary.get('confidence_counts') or {})}",
         f"- 计划依赖分布：{_dict_text(summary.get('dependency_counts') or {})}",
         "",
@@ -494,28 +582,33 @@ def format_coverage_report(pool: EvidencePool, *, title: str = "队伍覆盖报�
         "",
         "## 数据口径",
         "",
-        "- 先按无序三代理人 team signature 聚合，再做 current/target coverage。",
+        "- 先按无序三代理人 `agent_signature` 做账号覆盖，再按三代理人 + Bangboo 的 `full_team_signature` 聚合真实队伍证据。",
         "- planned 只作为 target scenario 的增量成员，不和 current_box 结论混写；target 表保留 `plan_dependency`。",
         "- `0`、`99.99`、缺失分数按 sentinel / missing 处理，不作为真实表现。",
-        "- SD/DA 分数不互相横比；这里只在同一 team signature 内做证据强弱聚合。",
-        "- Bangboo 不参与账号拥有覆盖判断。",
+        "- `metric_direction` 控制 best_score 取值方向；SD/DA 本地原始 JSON 的 `avg_round` 实为分数，按 `higher_better` 处理，但 SD/DA 分数仍不互相横比。",
+        "- Bangboo 写入 full evidence signature；只有 box 提供 Bangboo 拥有信息时才校验，否则标记 `邦布未校验`，不影响三代理人可组判断。",
         "",
         "## 覆盖记录",
         "",
-        "| evidence_id | scenario | confidence | team_signature | team_slugs | team_cn | owned_count | plan_dependency | missing_parts | record_count | snapshot_count | phase_count | mode_count | scope_count | boss_count | source_kind_count | max_app_rate | median_app_rate | best_rank | best_score | non_sentinel_score_count | sentinel_score_count | modes | evidence_comment | risk_comment |",
-        "|---|---|---|---|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---|---|---|",
+        "| evidence_id | scenario | confidence | team_signature | agent_signature | full_team_signature | team_slugs | team_cn | bangboo_slug | bangboo_name_cn | bangboo_checked | owned_count | plan_dependency | missing_parts | record_count | snapshot_count | phase_count | mode_count | scope_count | boss_count | source_kind_count | max_app_rate | median_app_rate | best_rank | best_score | metric_direction | non_sentinel_score_count | sentinel_score_count | modes | evidence_comment | risk_comment |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---:|---:|---|---|---|",
     ]
     if not records:
-        lines.append("| - | - | - | - | - | - | 0 | - | - | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - | - | 0 | 0 | - | 无可组真实队伍记录 | 检查 box、计划角色或数据源 |")
+        lines.append("| - | - | - | - | - | - | - | - | - | - | - | 0 | - | - | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - | - | - | 0 | 0 | - | 无可组真实队伍记录 | 检查 box、计划角色或数据源 |")
     for record in records:
         lines.append(
-            "| {evidence_id} | {scenario} | {confidence} | {signature} | {team_slugs} | {team_cn} | {owned_count} | {plan_dependency} | {missing_parts} | {record_count} | {snapshot_count} | {phase_count} | {mode_count} | {scope_count} | {boss_count} | {source_kind_count} | {max_app_rate} | {median_app_rate} | {best_rank} | {best_score} | {non_sentinel} | {sentinel} | {modes} | {evidence_comment} | {risk_comment} |".format(
+            "| {evidence_id} | {scenario} | {confidence} | {signature} | {agent_signature} | {full_team_signature} | {team_slugs} | {team_cn} | {bangboo_slug} | {bangboo_name_cn} | {bangboo_checked} | {owned_count} | {plan_dependency} | {missing_parts} | {record_count} | {snapshot_count} | {phase_count} | {mode_count} | {scope_count} | {boss_count} | {source_kind_count} | {max_app_rate} | {median_app_rate} | {best_rank} | {best_score} | {metric_direction} | {non_sentinel} | {sentinel} | {modes} | {evidence_comment} | {risk_comment} |".format(
                 evidence_id=record.evidence_id,
                 scenario=_md(record.scenario),
                 confidence=record.confidence,
                 signature=_md(record.team_signature),
+                agent_signature=_md(record.agent_signature),
+                full_team_signature=_md(record.full_team_signature),
                 team_slugs=_md(", ".join(record.team_slugs)),
                 team_cn=_md(" / ".join(record.team_cn)),
+                bangboo_slug=_md(record.bangboo_slug or "-"),
+                bangboo_name_cn=_md(record.bangboo_name_cn or "-"),
+                bangboo_checked=_md(record.bangboo_checked),
                 owned_count=record.owned_count,
                 plan_dependency=_md(", ".join(record.plan_dependency)),
                 missing_parts=_md(", ".join(record.missing_parts)),
@@ -530,6 +623,7 @@ def format_coverage_report(pool: EvidencePool, *, title: str = "队伍覆盖报�
                 median_app_rate=_number_text(record.median_app_rate),
                 best_rank=record.best_rank if record.best_rank is not None else "-",
                 best_score=_number_text(record.best_score),
+                metric_direction=_md(record.metric_direction),
                 non_sentinel=record.non_sentinel_score_count,
                 sentinel=record.sentinel_score_count,
                 modes=_md(", ".join(record.modes)),
@@ -551,9 +645,13 @@ def _classify_aggregate(
     median_app_rate: float | None,
     non_sentinel_score_count: int,
     sentinel_score_count: int,
+    modes: Sequence[str] = (),
+    min_a_app_rate: float | dict[str, float] | None = None,
 ) -> tuple[str, str, str]:
     max_app = max_app_rate or 0.0
     median_app = median_app_rate or 0.0
+    min_a = _min_a_threshold(modes, min_a_app_rate)
+    min_b_plus = max(1.0, min_a / 2)
     notes = [
         f"record_count={record_count}",
         f"phase_count={phase_count}",
@@ -561,6 +659,7 @@ def _classify_aggregate(
         f"boss_count={boss_count}",
         f"max_app_rate={_number_text(max_app_rate)}",
         f"median_app_rate={_number_text(median_app_rate)}",
+        f"min_a_app_rate={_number_text(min_a)}",
     ]
     risks: list[str] = []
     if non_sentinel_score_count == 0:
@@ -568,9 +667,9 @@ def _classify_aggregate(
         return ("C" if record_count <= 1 else "B-"), "；".join(notes), "；".join(risks)
     if sentinel_score_count:
         risks.append(f"包含 {sentinel_score_count} 条 sentinel/missing 分数")
-    if record_count >= 12 and phase_count >= 4 and mode_count >= 2 and boss_count >= 3 and max_app >= 10 and median_app >= 1:
+    if record_count >= 12 and phase_count >= 4 and mode_count >= 2 and boss_count >= 3 and max_app >= min_a and median_app >= 1:
         return "A", "；".join(notes), "；".join(risks) if risks else "无"
-    if record_count >= 6 and phase_count >= 3 and (mode_count >= 2 or boss_count >= 2) and max_app >= 5:
+    if record_count >= 6 and phase_count >= 3 and (mode_count >= 2 or boss_count >= 2) and max_app >= min_b_plus:
         return "B+", "；".join(notes), "；".join(risks) if risks else "重复度较好，但未达到 A 档广度/强度"
     if record_count >= 3 and phase_count >= 2 and max_app >= 1:
         return "B", "；".join(notes), "；".join(risks) if risks else "有重复记录，可作普通证据"
@@ -583,8 +682,12 @@ def _classify_aggregate(
 def _aggregate_row(aggregate: TeamSignatureAggregate) -> dict[str, Any]:
     return {
         "team_signature": aggregate.team_signature,
+        "agent_signature": aggregate.agent_signature,
+        "full_team_signature": aggregate.full_team_signature,
         "team_slugs": ", ".join(aggregate.team_slugs),
         "team_cn": " / ".join(aggregate.team_cn),
+        "bangboo_slug": aggregate.bangboo_slug,
+        "bangboo_name_cn": aggregate.bangboo_name_cn,
         "confidence": aggregate.confidence,
         "record_count": aggregate.record_count,
         "snapshot_count": aggregate.snapshot_count,
@@ -597,6 +700,7 @@ def _aggregate_row(aggregate: TeamSignatureAggregate) -> dict[str, Any]:
         "median_app_rate": _number_text(aggregate.median_app_rate),
         "best_rank": aggregate.best_rank if aggregate.best_rank is not None else "",
         "best_score": _number_text(aggregate.best_score) if aggregate.best_score is not None else "",
+        "metric_direction": aggregate.metric_direction,
         "non_sentinel_score_count": aggregate.non_sentinel_score_count,
         "sentinel_score_count": aggregate.sentinel_score_count,
         "modes": ", ".join(aggregate.modes),
@@ -643,6 +747,59 @@ def _detect_metric_column(columns: Sequence[str]) -> str:
     return ""
 
 
+def _metric_direction(row: dict[str, Any], metric_column: str) -> str:
+    mode = str(row.get("mode") or "").strip().lower()
+    if metric_column in {"avg_score", "score"}:
+        return "higher_better"
+    if metric_column == "avg_round" and mode in {"sd", "da"}:
+        return "higher_better"
+    if metric_column == "avg_round":
+        return "lower_better"
+    return "unknown"
+
+
+def _combined_metric_direction(values: Iterable[str]) -> str:
+    directions = {str(value or "unknown") for value in values if str(value or "")}
+    if not directions:
+        return "unknown"
+    if len(directions) == 1:
+        return next(iter(directions))
+    return "mixed"
+
+
+def _best_score_by_direction(values: Iterable[tuple[Any, str]]) -> float | int | None:
+    scores_by_direction = [(score, direction) for score, direction in values if score is not None]
+    if not scores_by_direction:
+        return None
+    directions = {direction for _, direction in scores_by_direction}
+    scores = [score for score, _ in scores_by_direction]
+    if directions == {"lower_better"}:
+        return min(scores)
+    if directions == {"higher_better"}:
+        return max(scores)
+    return None
+
+
+def _full_team_signature(agent_signature: Sequence[str], bangboo_slug: str) -> str:
+    parts = list(agent_signature)
+    if bangboo_slug:
+        parts.append(f"bangboo:{bangboo_slug}")
+    return "|".join(parts)
+
+
+def _bangboo_name_cn(bangboo_slug: str, names: NameIndex, items: Sequence[dict[str, Any]]) -> str:
+    if not bangboo_slug:
+        return ""
+    indexed = _name_cn(bangboo_slug, names)
+    if indexed and indexed != bangboo_slug:
+        return indexed
+    for item in items:
+        name = str(item.get("row", {}).get("bangboo_name_cn") or "").strip()
+        if name:
+            return name
+    return indexed
+
+
 def _boss_key(row: dict[str, Any]) -> str:
     mode = str(row.get("mode") or "")
     sub_mode = str(row.get("sub_mode") or "").strip().lower()
@@ -656,6 +813,14 @@ def _boss_key(row: dict[str, Any]) -> str:
 def _is_sentinel(value: Any, sentinel_values: set[float]) -> bool:
     number = _float_or_none(value)
     return number is None or number in sentinel_values
+
+
+def _bangboo_checked(bangboo_slug: str, owned_bangboo: set[str], *, ownership_known: bool) -> str:
+    if not bangboo_slug:
+        return "无邦布记录"
+    if not ownership_known:
+        return "邦布未校验"
+    return "已拥有" if bangboo_slug in owned_bangboo else "缺邦布"
 
 
 def _name_cn(slug: str, names: NameIndex) -> str:
@@ -688,6 +853,30 @@ def _dict_text(value: dict[str, Any]) -> str:
     return " / ".join(f"{key or '-'} {count}" for key, count in value.items())
 
 
+def _threshold_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return ", ".join(f"{key}:{_number_text(item)}" for key, item in value.items()) or "-"
+    return _number_text(_float_or_none(value) if value is not None else None)
+
+
+def _min_a_threshold(modes: Sequence[str], min_a_app_rate: float | dict[str, float] | None) -> float:
+    if min_a_app_rate is None:
+        return 10.0
+    if isinstance(min_a_app_rate, dict):
+        values = [
+            _float_or_none(min_a_app_rate.get(mode))
+            for mode in modes
+            if mode in min_a_app_rate
+        ]
+        values = [value for value in values if value is not None]
+        default = _float_or_none(min_a_app_rate.get("default"))
+        if values:
+            return max(values)
+        return default if default is not None else 10.0
+    value = _float_or_none(min_a_app_rate)
+    return value if value is not None else 10.0
+
+
 def _append_comment(base: str, addition: str) -> str:
     if not base or base == "无":
         return addition
@@ -718,6 +907,27 @@ def _int_or_none(value: Any) -> int | None:
         return int(float(value))
     except (TypeError, ValueError):
         return None
+
+
+def _owned_slug_rows(value: Any, names: NameIndex) -> set[str]:
+    owned: set[str] = set()
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                if not _truthy(item.get("owned", True)):
+                    continue
+                slug = item.get("slug") or item.get("id") or item.get("name_en") or item.get("name")
+                owned.add(canonical_slug(str(slug), names))
+            else:
+                owned.add(canonical_slug(str(item), names))
+    elif isinstance(value, dict):
+        for slug, item in value.items():
+            is_owned = _truthy(item.get("owned", True)) if isinstance(item, dict) else _truthy(item)
+            if is_owned:
+                owned.add(canonical_slug(str(slug), names))
+    elif isinstance(value, str):
+        owned.update(canonical_slug(slug, names) for slug in split_slugs(value))
+    return {slug for slug in owned if slug}
 
 
 def _truthy(value: Any) -> bool:

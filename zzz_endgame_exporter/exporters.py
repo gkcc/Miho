@@ -47,12 +47,14 @@ def dedup_teams(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         chars = [row.get("char_1_slug"), row.get("char_2_slug"), row.get("char_3_slug")]
+        bangboo = normalize_character_id(row.get("bangboo_slug"))
         signature = "|".join(
             [
                 str(row.get("mode", "")),
                 str(row.get("sub_mode", "")),
                 str(row.get("phase_ver", "")),
                 ">".join(sorted(normalize_character_id(x) for x in chars if x)),
+                f"bangboo:{bangboo}" if bangboo else "bangboo:",
             ]
         )
         groups[signature].append(row)
