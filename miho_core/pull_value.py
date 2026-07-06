@@ -29,10 +29,11 @@ class PullValueCard:
     candidate_type: str
     status: str
     pull_value: str
-    stage_recommendation: str
+    stage_recommendation: dict[str, str]
     history_summary: str
     global_usage_summary: str
     team_coverage_summary: str
+    mechanism_review_summary: str
     mechanism_summary: str
     replacement_risk: str
     decision_basis: tuple[str, ...]
@@ -47,6 +48,7 @@ def write_pull_value_report(
     plan_path: str | Path | None = None,
     planned_slugs: Iterable[str] = (),
     statuses: Sequence[str] = ("next",),
+    mechanism_notes_dir: str | Path | None = None,
     output_path: str | Path,
 ) -> dict[str, Any]:
     result = build_pull_value_cards(
@@ -55,6 +57,7 @@ def write_pull_value_report(
         plan_path=plan_path,
         planned_slugs=planned_slugs,
         statuses=statuses,
+        mechanism_notes_dir=mechanism_notes_dir,
     )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -69,6 +72,7 @@ def write_gpt_review_packet(
     plan_path: str | Path | None = None,
     planned_slugs: Iterable[str] = (),
     statuses: Sequence[str] = ("next",),
+    mechanism_notes_dir: str | Path | None = None,
     output_path: str | Path,
 ) -> dict[str, Any]:
     result = build_pull_value_cards(
@@ -77,6 +81,7 @@ def write_gpt_review_packet(
         plan_path=plan_path,
         planned_slugs=planned_slugs,
         statuses=statuses,
+        mechanism_notes_dir=mechanism_notes_dir,
     )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -91,6 +96,7 @@ def build_pull_value_cards(
     plan_path: str | Path | None = None,
     planned_slugs: Iterable[str] = (),
     statuses: Sequence[str] = ("next",),
+    mechanism_notes_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     out = Path(data_dir)
     names = load_name_index(out)
@@ -106,6 +112,10 @@ def build_pull_value_cards(
     usage_rows = _read_csv(out / "character_usage_long.csv")
     tier_rows = _read_csv(out / "prydwen_tier_current.csv")
     tier_index = _tier_index(tier_rows)
+    mechanism_notes = load_mechanism_notes(
+        mechanism_notes_dir or _default_mechanism_notes_dir(plan_path),
+        candidates=[candidate["slug"] for candidate in candidates],
+    )
     cards = [
         _build_card(
             candidate,
@@ -115,6 +125,7 @@ def build_pull_value_cards(
             target_pool=target_pool,
             usage_rows=usage_rows,
             tier_index=tier_index,
+            mechanism_notes=mechanism_notes,
         )
         for candidate in candidates
     ]
@@ -129,9 +140,28 @@ def build_pull_value_cards(
             "planned_slugs": planned,
             "current_coverage_records": len(current_pool.records),
             "target_coverage_records": len(target_pool.records),
+            "mechanism_notes_dir": str(mechanism_notes_dir or _default_mechanism_notes_dir(plan_path) or ""),
         },
         "cards": cards,
     }
+
+
+def load_mechanism_notes(notes_dir: str | Path | None, *, candidates: Iterable[str] = ()) -> dict[str, dict[str, Any]]:
+    if not notes_dir:
+        return {}
+    root = Path(notes_dir)
+    if not root.exists():
+        return {}
+    wanted = {normalize_character_id(slug) for slug in candidates if normalize_character_id(slug)}
+    output: dict[str, dict[str, Any]] = {}
+    paths = sorted(root.glob("*.yaml")) + sorted(root.glob("*.yml")) + sorted(root.glob("*.json"))
+    for path in paths:
+        slug = normalize_character_id(path.stem)
+        if wanted and slug not in wanted:
+            continue
+        data = load_config(path)
+        output[slug] = data
+    return output
 
 
 def format_pull_value_report(result: dict[str, Any]) -> str:
@@ -144,6 +174,7 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
         f"- 数据目录：`{summary['data_dir']}`",
         f"- Box：`{summary['box_path']}`",
         f"- 卡池计划：`{summary['plan_path'] or '-'}`",
+        f"- 机制笔记：`{summary.get('mechanism_notes_dir') or '-'}`",
         f"- 候选角色：{summary['candidate_count']}；planned_slugs：{', '.join(summary['planned_slugs']) or 'none'}",
         f"- current coverage records：{summary['current_coverage_records']}；target coverage records：{summary['target_coverage_records']}",
         "",
@@ -152,20 +183,25 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
         "- 复刻角色：按历史走势、全局出场、队伍覆盖、T 榜定位和 X+X 档位必要性评估。",
         "- 新角色：按机制信息完整度、拼图关系、售后确定性和替代风险评估；没有历史队伍记录是未实测状态，不作为负面扣分。",
         "- target coverage 只说明加入计划角色后的队伍覆盖，不单独决定抽取价值。",
+        "- mechanism_review 来自 `configs/zzz_mechanism_notes/*.yaml`，用于判断 0+0、0+1、1+0、1+1、2+1 等档位断点。",
         "- 队伍证据只引用 A / B+ / B / B- 聚合记录；C 只作为风险。",
         "",
         "## 总览",
         "",
-        "| character | type | pull_value | stage | evidence_ids | key_basis | risk |",
-        "|---|---|---|---|---|---|---|",
+        "| character | type | pull_value | recommended_stage | acceptable_stage | not_recommended_stage | missing_data | evidence_ids | key_basis | risk |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for card in cards:
+        stage = card.stage_recommendation
         lines.append(
-            "| {name} | {type} | {value} | {stage} | {evidence} | {basis} | {risk} |".format(
+            "| {name} | {type} | {value} | {recommended} | {acceptable} | {not_recommended} | {missing} | {evidence} | {basis} | {risk} |".format(
                 name=_md(f"{card.name_cn} `{card.slug}`"),
                 type=_md(card.candidate_type),
                 value=_md(card.pull_value),
-                stage=_md(card.stage_recommendation),
+                recommended=_md(stage.get("recommended_stage", "-")),
+                acceptable=_md(stage.get("acceptable_stage", "-")),
+                not_recommended=_md(stage.get("not_recommended_stage", "-")),
+                missing=_md(stage.get("missing_data", "-")),
                 evidence=_md(", ".join(card.evidence_ids) or "-"),
                 basis=_md("；".join(card.decision_basis[:3]) or "-"),
                 risk=_md("；".join(card.risk_notes[:3]) or "无"),
@@ -179,8 +215,8 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
             "## 本地 GPT 评判接入状态",
             "",
             "- 当前报告由本地确定性规则生成，可离线复现。",
-            "- 可以把同一份聚合证据、usage、tier、banner plan 作为模型输入，让 GPT 输出 X+X 档位建议和理由。",
-            "- 真正接入 OpenAI API 前，需要确认是否复用或创建 `OPENAI_API_KEY`；未配置密钥时，本地规则报告不受影响。",
+            "- 当前采用无 API key 交互版：本地自动生成 `gpt_pull_reviewer_packet.md`，你登录后让我读取 packet 做 X+X 评审。",
+            "- 如果未来要无人值守自动调用模型，再接入 OpenAI API key；未配置密钥时，本地规则报告不受影响。",
             "",
         ]
     )
@@ -199,10 +235,11 @@ def format_gpt_review_packet(result: dict[str, Any]) -> str:
                 "candidate_type": card.candidate_type,
                 "status": card.status,
                 "local_rule_pull_value": card.pull_value,
-                "local_rule_stage": card.stage_recommendation,
+                "stage_recommendation": card.stage_recommendation,
                 "history_summary": card.history_summary,
                 "global_usage_summary": card.global_usage_summary,
                 "team_coverage_summary": card.team_coverage_summary,
+                "mechanism_review_summary": card.mechanism_review_summary,
                 "mechanism_summary": card.mechanism_summary,
                 "replacement_risk": card.replacement_risk,
                 "decision_basis": list(card.decision_basis),
@@ -223,6 +260,7 @@ def format_gpt_review_packet(result: dict[str, Any]) -> str:
         "## 评审规则",
         "",
         "- 不要只按 target coverage 定性；复刻角色必须同时看历史走势、全局出场、T 榜定位、current/target 覆盖和 X+X 必要性。",
+        "- 必须把 historical_usage、target_coverage、mechanism_review 三类证据分开列出，再综合判断。",
         "- 新角色没有历史队伍记录只能标记为未实测，不能作为负面扣分。",
         "- C 档或 theoretical-only 不能作为抽取/档位主依据。",
         "- sentinel 分数不能当真实表现。",
@@ -258,11 +296,13 @@ def _build_card(
     target_pool: EvidencePool,
     usage_rows: list[dict[str, Any]],
     tier_index: dict[str, dict[str, Any]],
+    mechanism_notes: dict[str, dict[str, Any]],
 ) -> PullValueCard:
     slug = candidate["slug"]
     candidate_type = _candidate_type(candidate, slug, usage_rows, tier_index)
     usage = _usage_summary(slug, usage_rows)
     tier = tier_index.get(slug, {})
+    mechanism = mechanism_notes.get(slug, {})
     current_records = _records_for_slug(current_pool, slug)
     target_records = _records_for_slug(target_pool, slug)
     dependent_records = [record for record in target_records if slug in record.plan_dependency]
@@ -270,18 +310,18 @@ def _build_card(
     coverage_summary = _coverage_text(current_records, target_records, dependent_records)
     if candidate_type == "new":
         pull_value = "等实测"
-        stage = "暂不预设 X+X；等机制与首轮高难数据后再评估 0+0 / 0+1"
+        stage = _stage_from_mechanism(candidate_type, mechanism)
         basis = [
             "新角色没有历史队伍记录属于正常未实测状态，不作为负面",
-            _mechanism_text(candidate, tier),
+            _mechanism_text(candidate, tier, mechanism),
             "先验证是否补当前 Box 拼图，还是要求后续售后队友",
         ]
         risks = [
-            "机制、倍率、专属收益和售后环境尚未落地",
+            _missing_mechanism_data(mechanism) or "机制、倍率、专属收益和售后环境尚未落地",
             "替代风险无法从当前历史数据判断",
         ]
     else:
-        pull_value, stage, basis, risks = _rerun_value(candidate, usage, tier, current_records, target_records, dependent_records, slug in owned)
+        pull_value, stage, basis, risks = _rerun_value(candidate, usage, tier, current_records, target_records, dependent_records, slug in owned, mechanism)
     return PullValueCard(
         slug=slug,
         name_cn=str(candidate.get("name_cn") or names.get(slug) or tier.get("character_name_cn") or slug),
@@ -292,8 +332,9 @@ def _build_card(
         history_summary=_history_text(usage),
         global_usage_summary=_global_usage_text(usage),
         team_coverage_summary=coverage_summary,
-        mechanism_summary=_mechanism_text(candidate, tier),
-        replacement_risk=_replacement_text(candidate, tier, owned),
+        mechanism_review_summary=_mechanism_review_text(mechanism),
+        mechanism_summary=_mechanism_text(candidate, tier, mechanism),
+        replacement_risk=_replacement_text(candidate, tier, owned, mechanism),
         decision_basis=tuple(basis),
         risk_notes=tuple(risks),
         evidence_ids=evidence_ids,
@@ -308,7 +349,8 @@ def _rerun_value(
     target_records: list[Any],
     dependent_records: list[Any],
     owned: bool,
-) -> tuple[str, str, list[str], list[str]]:
+    mechanism: dict[str, Any],
+) -> tuple[str, dict[str, str], list[str], list[str]]:
     best_rating = _float(tier.get("best_rating"))
     avg_last3 = _float(usage.get("best_avg_last3"))
     usage_points = int(usage.get("points") or 0)
@@ -337,11 +379,8 @@ def _rerun_value(
     else:
         pull_value = "等实测"
         risks.append("复刻角色在本地历史样本不足")
-    role = str(tier.get("role_group_cn") or candidate.get("role_group_cn") or "")
-    if "辅助" in role or "支援" in role:
-        stage = "0+0 优先；0+1 只在专属/影画收益实测显著时考虑；当前数据不能证明 1+1 或 2+1 必要"
-    else:
-        stage = "0+0 先满足成队；0+1 看专属收益，暂不按历史队伍推高命"
+    stage = _stage_from_mechanism("rerun", mechanism, role=str(tier.get("role_group_cn") or candidate.get("role_group_cn") or ""))
+    basis.append("mechanism_review：" + _mechanism_review_text(mechanism))
     if owned:
         risks.append("已拥有时优先比较补档收益，而不是重新按未拥有抽取价值排序")
     if dependent_records and not current_records:
@@ -472,15 +511,72 @@ def _global_usage_text(usage: dict[str, Any]) -> str:
     return f"best_latest={_number_text(usage.get('best_latest'))}%；best_avg_last3={_number_text(usage.get('best_avg_last3'))}%；worst_trend={_number_text(usage.get('worst_trend_delta'))}"
 
 
-def _mechanism_text(candidate: dict[str, Any], tier: dict[str, Any]) -> str:
+def _mechanism_text(candidate: dict[str, Any], tier: dict[str, Any], mechanism: dict[str, Any]) -> str:
     role = candidate.get("role_group_cn") or tier.get("role_group_cn") or "未知定位"
     element = candidate.get("element_cn") or tier.get("element_cn") or "未知属性"
     style = candidate.get("style_cn") or tier.get("style_cn") or "未知特性"
     focus = candidate.get("focus") or "暂无机制文本"
-    return f"{element} / {style} / {role}；{focus}"
+    archetypes = _list_text(mechanism.get("archetypes"))
+    teammates = _list_text(mechanism.get("key_teammates"))
+    extra = []
+    if archetypes:
+        extra.append(f"archetype={archetypes}")
+    if teammates:
+        extra.append(f"关键队友={teammates}")
+    suffix = "；" + "；".join(extra) if extra else ""
+    return f"{element} / {style} / {role}；{focus}{suffix}"
 
 
-def _replacement_text(candidate: dict[str, Any], tier: dict[str, Any], owned: set[str]) -> str:
+def _mechanism_review_text(mechanism: dict[str, Any]) -> str:
+    if not mechanism:
+        return "暂无 mechanism_notes；等技能/影画/专武/首轮数据"
+    parts = [
+        f"0+0={mechanism.get('body_completeness_0_0') or '-'}",
+        f"0+1={mechanism.get('signature_value_0_1') or '-'}",
+        f"1+0={mechanism.get('cinema_value_1_0') or '-'}",
+        f"1+1={mechanism.get('combo_value_1_1') or '-'}",
+        f"2+1={mechanism.get('necessity_2_1') or '-'}",
+    ]
+    return "；".join(str(part) for part in parts)
+
+
+def _stage_from_mechanism(candidate_type: str, mechanism: dict[str, Any], *, role: str = "") -> dict[str, str]:
+    if not mechanism:
+        return {
+            "recommended_stage": "等技能/影画/专武/首轮数据",
+            "acceptable_stage": "暂不预设",
+            "not_recommended_stage": "暂不判断",
+            "reason": "缺少 mechanism_notes，不能把 coverage=0 当负面，也不能凭模板推 X+X",
+            "missing_data": "技能机制、影画、专武、实战队伍、首轮高难数据",
+        }
+    recommended = str(mechanism.get("recommended_stage") or "")
+    acceptable = str(mechanism.get("acceptable_stage") or "")
+    not_recommended = str(mechanism.get("not_recommended_stage") or "")
+    if not recommended:
+        recommended = "0+0" if ("辅助" in role or "支援" in role or candidate_type == "rerun") else "等实测"
+    if not acceptable:
+        acceptable = "0+0 / 0+1 视专武收益"
+    if not not_recommended:
+        not_recommended = str(mechanism.get("higher_stage_note") or "高档位只给竞速/真爱，不作长期 auto 奖励必需")
+    return {
+        "recommended_stage": recommended,
+        "acceptable_stage": acceptable,
+        "not_recommended_stage": not_recommended,
+        "reason": str(mechanism.get("stage_reason") or mechanism.get("reason") or _mechanism_review_text(mechanism)),
+        "missing_data": str(mechanism.get("missing_data") or "持续观察后续版本实战、队友和环境变化"),
+    }
+
+
+def _missing_mechanism_data(mechanism: dict[str, Any]) -> str:
+    if not mechanism:
+        return "等技能/影画/专武/首轮数据"
+    return str(mechanism.get("missing_data") or "")
+
+
+def _replacement_text(candidate: dict[str, Any], tier: dict[str, Any], owned: set[str], mechanism: dict[str, Any]) -> str:
+    counter = _list_text(mechanism.get("risks_and_counterevidence"))
+    if counter:
+        return counter
     role = candidate.get("role_group_cn") or tier.get("role_group_cn") or ""
     if not role:
         return "机制未知，替代风险无法判定"
@@ -490,14 +586,20 @@ def _replacement_text(candidate: dict[str, Any], tier: dict[str, Any], owned: se
 
 
 def _card_lines(card: PullValueCard) -> list[str]:
+    stage = card.stage_recommendation
     lines = [
         f"### {card.name_cn} `{card.slug}`：{card.pull_value}",
         "",
         f"- 类型：{card.candidate_type}；状态：{card.status or '-'}",
-        f"- X+X：{card.stage_recommendation}",
+        f"- recommended_stage：{stage.get('recommended_stage', '-')}",
+        f"- acceptable_stage：{stage.get('acceptable_stage', '-')}",
+        f"- not_recommended_stage：{stage.get('not_recommended_stage', '-')}",
+        f"- stage_reason：{stage.get('reason', '-')}",
+        f"- missing_data：{stage.get('missing_data', '-')}",
         f"- 历史走势：{card.history_summary}",
         f"- 全局出场：{card.global_usage_summary}",
         f"- 队伍覆盖：{card.team_coverage_summary}",
+        f"- mechanism_review：{card.mechanism_review_summary}",
         f"- 机制/拼图：{card.mechanism_summary}",
         f"- 替代风险：{card.replacement_risk}",
         f"- 证据：{', '.join(card.evidence_ids) if card.evidence_ids else '-'}",
@@ -535,3 +637,17 @@ def _number_text(value: Any) -> str:
 
 def _md(value: Any) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def _default_mechanism_notes_dir(plan_path: str | Path | None) -> Path:
+    if plan_path:
+        return Path(plan_path).parent / "zzz_mechanism_notes"
+    return Path("configs") / "zzz_mechanism_notes"
+
+
+def _list_text(value: Any) -> str:
+    if isinstance(value, list):
+        return "、".join(str(item) for item in value if str(item))
+    if value in {None, ""}:
+        return ""
+    return str(value)

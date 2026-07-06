@@ -1,0 +1,18 @@
+slug: sunna
+name_cn: 千夏
+body_completeness_0_0: 0+0 已具备复刻辅助的核心功能，历史全局出场和 T0 定位足以支持先拿本体。
+signature_value_0_1: 0+1 属于可选增强，需要确认专武相对通用音擎的收益；当前历史数据不能单独证明专武必需。
+cinema_value_1_0: 1+0 若提供关键循环、覆盖率或易用性改善可考虑，但不应优先于本体覆盖和队伍成型。
+combo_value_1_1: 1+1 只在本体和专武实测收益都明确、且长期绑定主队时考虑。
+necessity_2_1: 2+1 不是长期 auto 高难奖励必需，除非后续机制证明确有质变。
+higher_stage_note: 2+1 以上默认归为竞速/真爱/高预算，不进入普通抽取建议。
+recommended_stage: 0+0
+acceptable_stage: 0+0；若专武实测显著提升泛用辅助价值，可上调到 0+1。
+not_recommended_stage: 1+1、2+1 或更高暂不建议作为目标。
+stage_reason: historical_usage 很强，但 target_coverage 在当前 Box 只给弱覆盖；mechanism_review 支持先拿本体，不支持高档位。
+missing_data: 专武对比、影画断点实测、当前 Box 主队绑定度、下版本环境是否继续抬物理/支援。
+key_teammates: [ye-shunguang, zhao, miyabi, lucy]
+archetypes: [物理辅助, 泛用支援, 主C增益拼图]
+risks_and_counterevidence: target coverage 新增队伍多为 B-/C，不能单靠 box 覆盖定性；高档位收益需要专武/影画实测。
+source_url: https://www.prydwen.gg/zenless/tier-list
+source_summary: 本地 Prydwen tier/usage 数据显示 sunna 为 SD/DA T0，历史全局出场率稳定；机制断点仍需专武/影画实测补证。

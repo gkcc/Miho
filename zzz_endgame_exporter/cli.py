@@ -190,6 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
     pull_value.add_argument("--plan", default="./configs/zzz_banner_plan.json", help="Banner-plan YAML/JSON file")
     pull_value.add_argument("--plan-status", default="next", help="Comma/semicolon separated phase statuses to read from --plan.")
     pull_value.add_argument("--planned-slugs", default="", help="Extra comma/semicolon separated planned agent slugs.")
+    pull_value.add_argument("--mechanism-notes-dir", default="", help="Defaults to <plan dir>/zzz_mechanism_notes.")
     pull_value.add_argument("--output", default="", help="Defaults to <out>/pull_value_report.md.")
     review_packet = subparsers.add_parser("review-packet", help="Build no-key GPT reviewer packet for interactive X+X review")
     review_packet.add_argument("--box", required=True, help="Path to local ZZZ box YAML/JSON file")
@@ -197,6 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_packet.add_argument("--plan", default="./configs/zzz_banner_plan.json", help="Banner-plan YAML/JSON file")
     review_packet.add_argument("--plan-status", default="next", help="Comma/semicolon separated phase statuses to read from --plan.")
     review_packet.add_argument("--planned-slugs", default="", help="Extra comma/semicolon separated planned agent slugs.")
+    review_packet.add_argument("--mechanism-notes-dir", default="", help="Defaults to <plan dir>/zzz_mechanism_notes.")
     review_packet.add_argument("--output", default="", help="Defaults to <out>/gpt_pull_reviewer_packet.md.")
     serve = subparsers.add_parser("serve", help="Serve visualizer with local Box auto-save API")
     serve.add_argument("--root", default=".")
@@ -254,6 +256,7 @@ def run_pull_value(args: argparse.Namespace) -> None:
         plan_path=args.plan if args.plan else None,
         planned_slugs=planned,
         statuses=split_slugs(args.plan_status),
+        mechanism_notes_dir=args.mechanism_notes_dir or None,
         output_path=Path(args.output) if args.output else out_dir / "pull_value_report.md",
     )
 
@@ -267,6 +270,7 @@ def run_review_packet(args: argparse.Namespace) -> None:
         plan_path=args.plan if args.plan else None,
         planned_slugs=planned,
         statuses=split_slugs(args.plan_status),
+        mechanism_notes_dir=args.mechanism_notes_dir or None,
         output_path=Path(args.output) if args.output else out_dir / "gpt_pull_reviewer_packet.md",
     )
 

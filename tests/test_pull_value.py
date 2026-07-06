@@ -9,6 +9,7 @@ def test_pull_value_distinguishes_rerun_and_new_character(tmp_path):
     out = _write_pull_fixture(tmp_path)
     box = _write_box(tmp_path)
     plan = _write_plan(tmp_path)
+    _write_mechanism_notes(tmp_path)
 
     result = build_pull_value_cards(out, box_path=box, plan_path=plan, statuses=["next"])
     cards = {card.slug: card for card in result["cards"]}
@@ -16,18 +17,22 @@ def test_pull_value_distinguishes_rerun_and_new_character(tmp_path):
     assert cards["sunna"].candidate_type == "rerun"
     assert cards["sunna"].pull_value in {"高", "中高"}
     assert "历史出场点" in "；".join(cards["sunna"].decision_basis)
+    assert "mechanism_review" in "；".join(cards["sunna"].decision_basis)
     assert "target coverage 定性" in "；".join(cards["sunna"].risk_notes)
+    assert cards["sunna"].stage_recommendation["recommended_stage"] == "0+0"
+    assert "1+1" in cards["sunna"].stage_recommendation["not_recommended_stage"]
     assert cards["sunna"].evidence_ids
     assert cards["nom"].candidate_type == "new"
     assert cards["nom"].pull_value == "等实测"
     assert "没有历史队伍记录属于正常未实测状态" in "；".join(cards["nom"].decision_basis)
-    assert "暂不预设 X+X" in cards["nom"].stage_recommendation
+    assert cards["nom"].stage_recommendation["recommended_stage"] == "等技能/影画/专武/首轮数据"
 
 
 def test_pull_value_cli_writes_report(tmp_path):
     out = _write_pull_fixture(tmp_path)
     box = _write_box(tmp_path)
     plan = _write_plan(tmp_path)
+    _write_mechanism_notes(tmp_path)
     output = tmp_path / "pull_value.md"
 
     result = main(["pull-value", "--box", str(box), "--out", str(out), "--plan", str(plan), "--output", str(output)])
@@ -38,12 +43,15 @@ def test_pull_value_cli_writes_report(tmp_path):
     assert "千夏 `sunna`" in text
     assert "诺姆 `nom`" in text
     assert "没有历史队伍记录是未实测状态，不作为负面扣分" in text
+    assert "recommended_stage" in text
+    assert "mechanism_review" in text
 
 
 def test_gpt_review_packet_writes_no_key_prompt(tmp_path):
     out = _write_pull_fixture(tmp_path)
     box = _write_box(tmp_path)
     plan = _write_plan(tmp_path)
+    _write_mechanism_notes(tmp_path)
     output = tmp_path / "packet.md"
 
     write_gpt_review_packet(out, box_path=box, plan_path=plan, output_path=output)
@@ -53,6 +61,7 @@ def test_gpt_review_packet_writes_no_key_prompt(tmp_path):
     assert "无 API key 的交互版" in text
     assert '"slug": "sunna"' in text
     assert '"slug": "nom"' in text
+    assert '"recommended_stage": "0+0"' in text
     assert "新角色没有历史队伍记录只能标记为未实测" in text
 
 
@@ -60,6 +69,7 @@ def test_review_packet_cli_writes_packet(tmp_path):
     out = _write_pull_fixture(tmp_path)
     box = _write_box(tmp_path)
     plan = _write_plan(tmp_path)
+    _write_mechanism_notes(tmp_path)
     output = tmp_path / "packet_cli.md"
 
     result = main(["review-packet", "--box", str(box), "--out", str(out), "--plan", str(plan), "--output", str(output)])
@@ -160,6 +170,33 @@ def _write_plan(tmp_path):
         encoding="utf-8",
     )
     return plan
+
+
+def _write_mechanism_notes(tmp_path):
+    notes = tmp_path / "zzz_mechanism_notes"
+    notes.mkdir()
+    (notes / "sunna.yaml").write_text(
+        """
+body_completeness_0_0: 本体完整
+signature_value_0_1: 专武可选
+cinema_value_1_0: 影画可选
+combo_value_1_1: 组合非必需
+necessity_2_1: 非必要
+higher_stage_note: 高档只给竞速/真爱
+recommended_stage: 0+0
+acceptable_stage: 0+0；可等实测看 0+1
+not_recommended_stage: 1+1、2+1 暂不推荐
+stage_reason: 机制评审支持本体，不支持高档
+missing_data: 专武对比和影画收益
+key_teammates: [miyabi, lucy]
+archetypes: [辅助]
+risks_and_counterevidence: target coverage 不能单独定性
+source_url: https://example.com/sunna
+source_summary: 测试机制笔记
+""",
+        encoding="utf-8",
+    )
+    return notes
 
 
 def _team(phase, mode, sub_mode, char_1, char_2, char_3, app_rate, avg_score):
