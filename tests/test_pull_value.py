@@ -69,6 +69,8 @@ def test_gpt_review_packet_writes_no_key_prompt(tmp_path):
     assert '"recommended_stage": "0+0"' in text
     assert '"stage_confidence": "medium"' in text
     assert '"mechanism_notes"' in text
+    assert '"final_stage"' in text
+    assert '"local_rule_stage"' in text
     assert "新角色没有历史队伍记录只能标记为未实测" in text
 
 
@@ -83,8 +85,11 @@ def test_low_rarity_plan_candidates_are_filtered_but_kept_in_coverage(tmp_path):
 
     assert "sunna" in slugs
     assert "piper" not in slugs
+    assert "nicole-demara" not in slugs
     assert "piper" in result["summary"]["planned_slugs"]
+    assert "nicole-demara" in result["summary"]["planned_slugs"]
     assert "piper" in result["summary"]["filtered_low_rarity_slugs"]
+    assert "nicole-demara" in result["summary"]["filtered_low_rarity_slugs"]
 
     pool = build_evidence_pool(
         out,
@@ -94,6 +99,7 @@ def test_low_rarity_plan_candidates_are_filtered_but_kept_in_coverage(tmp_path):
     )
 
     assert any("piper" in record.team_slugs for record in pool.records)
+    assert any("nicole-demara" in record.team_slugs for record in pool.records)
 
 
 def test_gpt_review_packet_excludes_low_rarity_by_default(tmp_path):
@@ -108,6 +114,7 @@ def test_gpt_review_packet_excludes_low_rarity_by_default(tmp_path):
     text = output.read_text(encoding="utf-8")
     assert '"slug": "sunna"' in text
     assert '"slug": "piper"' not in text
+    assert '"slug": "nicole-demara"' not in text
     assert "A 级 / 四星角色默认不作为独立抽取价值候选" in text
 
 
@@ -124,6 +131,59 @@ def test_low_rarity_can_be_force_reviewed(tmp_path):
         slugs = {card.slug for card in result["cards"]}
 
         assert "piper" in slugs
+
+
+def test_decision_baseline_keeps_prior_final_stage_when_local_rule_differs(tmp_path):
+    out = _write_pull_fixture(tmp_path)
+    box = _write_box(tmp_path)
+    plan = _write_plan(tmp_path)
+    baseline = _write_decision_baseline(tmp_path)
+    _write_mechanism_notes(tmp_path)
+
+    result = build_pull_value_cards(out, box_path=box, plan_path=plan, statuses=["current"], decision_baseline_path=baseline)
+    cards = {card.slug: card for card in result["cards"]}
+
+    ye = cards["ye-shunguang"]
+    assert ye.local_rule_stage == "0+0"
+    assert ye.prior_final_stage == "1+1"
+    assert ye.final_stage == "1+1"
+    assert ye.recommended_stage_for_review == "1+1"
+    assert ye.stage_delta == "0+0 -> 1+1"
+    assert ye.delta_requires_review is True
+    assert ye.change_allowed_reason == "only_with_new_evidence"
+
+    velina = cards["velina"]
+    assert velina.local_rule_stage == "等实测"
+    assert velina.prior_final_stage == "0+1"
+    assert velina.final_stage == "0+1"
+    assert velina.stage_delta == "等实测 -> 0+1"
+    assert velina.delta_requires_review is True
+
+
+def test_review_packet_includes_baseline_delta_fields(tmp_path):
+    out = _write_pull_fixture(tmp_path)
+    box = _write_box(tmp_path)
+    plan = _write_plan(tmp_path)
+    baseline = _write_decision_baseline(tmp_path)
+    _write_mechanism_notes(tmp_path)
+    output = tmp_path / "current_packet.md"
+
+    write_gpt_review_packet(
+        out,
+        box_path=box,
+        plan_path=plan,
+        statuses=["current"],
+        decision_baseline_path=baseline,
+        output_path=output,
+    )
+
+    text = output.read_text(encoding="utf-8")
+    assert '"slug": "ye-shunguang"' in text
+    assert '"prior_final_stage": "1+1"' in text
+    assert '"local_rule_stage": "0+0"' in text
+    assert '"final_stage": "1+1"' in text
+    assert '"delta_requires_review": true' in text
+    assert '"slug": "piper"' not in text
 
 
 def test_review_packet_cli_writes_packet(tmp_path):
@@ -179,6 +239,9 @@ def _write_pull_fixture(tmp_path):
             {"character_slug": "sunna", "character_name_en": "Sunna", "character_name_cn": "千夏", "aliases": "", "kind": "agent"},
             {"character_slug": "nom", "character_name_en": "Nom", "character_name_cn": "诺姆", "aliases": "", "kind": "agent"},
             {"character_slug": "piper", "character_name_en": "Piper", "character_name_cn": "派派", "aliases": "", "kind": "agent"},
+            {"character_slug": "nicole-demara", "character_name_en": "Nicole Demara", "character_name_cn": "妮可", "aliases": "", "kind": "agent"},
+            {"character_slug": "ye-shunguang", "character_name_en": "Ye Shunguang", "character_name_cn": "叶瞬光", "aliases": "", "kind": "agent"},
+            {"character_slug": "velina", "character_name_en": "Velina", "character_name_cn": "维琳娜", "aliases": "", "kind": "agent"},
         ],
     )
     _write_csv(
@@ -191,6 +254,8 @@ def _write_pull_fixture(tmp_path):
             {"collect_date": "2026-04-01", "mode": "da", "sub_mode": "all", "phase_ver": "2.7.1", "character_slug": "sunna", "app_rate": 35},
             {"collect_date": "2026-05-01", "mode": "da", "sub_mode": "all", "phase_ver": "2.8.1", "character_slug": "sunna", "app_rate": 45},
             {"collect_date": "2026-06-01", "mode": "da", "sub_mode": "all", "phase_ver": "2.8.3", "character_slug": "sunna", "app_rate": 55},
+            {"collect_date": "2026-06-01", "mode": "sd", "sub_mode": "all", "phase_ver": "3.0.1", "character_slug": "ye-shunguang", "app_rate": 44},
+            {"collect_date": "2026-06-01", "mode": "sd", "sub_mode": "all", "phase_ver": "3.0.1", "character_slug": "velina", "app_rate": 12},
         ],
     )
     _write_csv(
@@ -200,6 +265,9 @@ def _write_pull_fixture(tmp_path):
             {"tier_mode": "sd", "character_slug": "sunna", "character_name_cn": "千夏", "role_group_cn": "辅助", "tier": "T0", "rating": 11, "element_cn": "物理", "style_cn": "支援", "rarity": "S"},
             {"tier_mode": "da", "character_slug": "sunna", "character_name_cn": "千夏", "role_group_cn": "辅助", "tier": "T0", "rating": 11, "element_cn": "物理", "style_cn": "支援", "rarity": "S"},
             {"tier_mode": "sd", "character_slug": "piper", "character_name_cn": "派派", "role_group_cn": "异常主C", "tier": "T1", "rating": 9, "element_cn": "物理", "style_cn": "异常", "rarity": "A"},
+            {"tier_mode": "sd", "character_slug": "nicole-demara", "character_name_cn": "妮可", "role_group_cn": "支援", "tier": "T1", "rating": 8, "element_cn": "以太", "style_cn": "支援", "rarity": "A"},
+            {"tier_mode": "sd", "character_slug": "ye-shunguang", "character_name_cn": "叶瞬光", "role_group_cn": "直伤主C", "tier": "T0", "rating": 11, "element_cn": "物理", "style_cn": "强攻", "rarity": "S"},
+            {"tier_mode": "sd", "character_slug": "velina", "character_name_cn": "维琳娜", "role_group_cn": "异常主C", "tier": "T0.5", "rating": 10, "element_cn": "风", "style_cn": "异常", "rarity": "S"},
         ],
     )
     _write_csv(
@@ -231,6 +299,7 @@ def _write_pull_fixture(tmp_path):
             _team("2.8.3", "sd", "5-1", "miyabi", "lucy", "sunna", 9, 33400),
             _team("2.8.3", "sd", "5-2", "miyabi", "lucy", "sunna", 8, 33500),
             _team("2.8.3", "sd", "5-3", "miyabi", "piper", "sunna", 2, 31000),
+            _team("2.8.3", "sd", "5-4", "miyabi", "nicole-demara", "sunna", 2, 30900),
         ],
     )
     return out
@@ -254,8 +323,11 @@ def _write_plan(tmp_path, *, piper_extra=None):
                     {
                         "status": "current",
                         "characters": [
+                            {"slug": "velina", "name_cn": "维琳娜", "banner_role": "限定 S 级 UP", "analysis_tags": ["新角色", "风", "异常"]},
+                            {"slug": "ye-shunguang", "name_cn": "叶瞬光", "banner_role": "限定 S 级复刻", "analysis_tags": ["复刻", "物理", "强攻"]},
                             {"slug": "sunna", "name_cn": "千夏", "banner_role": "限定 S 级复刻", "analysis_tags": ["复刻", "辅助"]},
                             piper,
+                            {"slug": "nicole-demara", "name_cn": "妮可", "banner_role": "A 级陪跑", "analysis_tags": ["A 级", "以太", "支援"]},
                         ],
                     },
                     {
@@ -274,9 +346,86 @@ def _write_plan(tmp_path, *, piper_extra=None):
     return plan
 
 
+def _write_decision_baseline(tmp_path):
+    baseline = tmp_path / "zzz_decision_baseline.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "new_evidence_categories": [
+                    "新一期 SD/DA 出场率显著变化",
+                    "新队伍 coverage 从 B-/C 提升到 A/B+",
+                    "专武/影画机制 notes 更新",
+                    "主流指南共识变化",
+                    "当前 Box 变化",
+                    "用户目标或预算变化",
+                ],
+                "decisions": [
+                    {
+                        "slug": "ye-shunguang",
+                        "final_stage": "1+1",
+                        "decision_status": "locked",
+                        "confidence": "medium_high",
+                        "reason": "测试基线：叶瞬光 1+1",
+                        "change_policy": "only_with_new_evidence",
+                    },
+                    {
+                        "slug": "velina",
+                        "final_stage": "0+1",
+                        "decision_status": "soft_locked",
+                        "confidence": "medium",
+                        "reason": "测试基线：维琳娜 0+1",
+                        "change_policy": "only_with_new_evidence",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return baseline
+
+
 def _write_mechanism_notes(tmp_path):
     notes = tmp_path / "zzz_mechanism_notes"
     notes.mkdir()
+    (notes / "ye-shunguang.yaml").write_text(
+        """
+recommended_stage: 0+0
+acceptable_stage: 0+0
+unresolved_stage: 0+1 / 1+0 / 1+1 / 2+1
+stage_confidence: medium
+not_recommended_stage: 未判定
+stage_reason: 测试机制笔记支持本体
+missing_data: 专武和影画收益
+source_quality:
+  historical_usage: high
+stage_notes:
+  "0+0":
+    value_type: 本体完整度
+    evidence: 历史强
+    missing_data: 无
+""",
+        encoding="utf-8",
+    )
+    (notes / "velina.yaml").write_text(
+        """
+recommended_stage: 等实测
+acceptable_stage: 暂不预设
+unresolved_stage: 0+0 / 0+1 / 1+0 / 1+1 / 2+1
+stage_confidence: low
+not_recommended_stage: 暂不判断
+stage_reason: 新角色测试笔记等待实测
+missing_data: 首轮数据
+source_quality:
+  historical_usage: first_cycle_only
+stage_notes:
+  "0+0":
+    value_type: 本体完整度
+    evidence: 新角色身份确认
+    missing_data: 首轮数据
+""",
+        encoding="utf-8",
+    )
     (notes / "sunna.yaml").write_text(
         """
 body_completeness_0_0: 本体完整

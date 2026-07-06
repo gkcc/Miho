@@ -1,0 +1,50 @@
+{
+  "updated_at": "2026-07-07",
+  "purpose": "Prior GPT/manual final-stage baseline for ZZZ pull-value delta review. Local deterministic rules may trigger review, but must not overwrite these final stages without new evidence.",
+  "new_evidence_categories": [
+    "新一期 SD/DA 出场率显著变化",
+    "新队伍 coverage 从 B-/C 提升到 A/B+",
+    "专武/影画机制 notes 更新",
+    "主流指南共识变化",
+    "当前 Box 变化",
+    "用户目标或预算变化"
+  ],
+  "decisions": [
+    {
+      "slug": "ye-shunguang",
+      "final_stage": "1+1",
+      "decision_status": "locked",
+      "confidence": "medium_high",
+      "reason": "既有 GPT/人工复审基线：叶瞬光按 1+1 作为当前最终目标；本地规则若因缺机制证据回落到 0+0，只能作为 delta review 输入。",
+      "change_policy": "only_with_new_evidence",
+      "new_evidence_categories": []
+    },
+    {
+      "slug": "velina",
+      "final_stage": "0+1",
+      "decision_status": "soft_locked",
+      "confidence": "medium",
+      "reason": "既有 GPT/人工复审基线：维琳娜按 0+1 作为软锁目标；首轮或机制信息变化后可复审。",
+      "change_policy": "only_with_new_evidence",
+      "new_evidence_categories": []
+    },
+    {
+      "slug": "sunna",
+      "final_stage": "0+0",
+      "decision_status": "locked",
+      "confidence": "medium",
+      "reason": "既有 GPT/人工复审基线：千夏按 0+0 拿本体；高档位保持未判定，等待专武/影画/指南/实战证据。",
+      "change_policy": "only_with_new_evidence",
+      "new_evidence_categories": []
+    },
+    {
+      "slug": "nom",
+      "final_stage": "等实测",
+      "decision_status": "watch",
+      "confidence": "low",
+      "reason": "既有 GPT/人工复审基线：诺姆技能、专武、影画和首轮数据未落地，暂时等实测。",
+      "change_policy": "wait_for_release_data",
+      "new_evidence_categories": []
+    }
+  ]
+}

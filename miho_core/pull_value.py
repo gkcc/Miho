@@ -14,11 +14,21 @@ from .box import load_config
 from .evidence import (
     CONFIDENCE_ORDER,
     EvidencePool,
+    NameIndex,
     build_evidence_pool,
     canonical_slug,
     load_name_index,
     load_owned_slugs,
     load_planned_slugs_from_banner_plan,
+)
+
+NEW_EVIDENCE_CATEGORIES = (
+    "新一期 SD/DA 出场率显著变化",
+    "新队伍 coverage 从 B-/C 提升到 A/B+",
+    "专武/影画机制 notes 更新",
+    "主流指南共识变化",
+    "当前 Box 变化",
+    "用户目标或预算变化",
 )
 
 
@@ -30,6 +40,18 @@ class PullValueCard:
     status: str
     pull_value: str
     stage_recommendation: dict[str, str]
+    prior_final_stage: str
+    prior_decision_status: str
+    prior_confidence: str
+    prior_reason: str
+    local_rule_stage: str
+    recommended_stage_for_review: str
+    final_stage: str
+    stage_delta: str
+    delta_requires_review: bool
+    delta_reason: str
+    change_allowed_reason: str
+    new_evidence_categories: tuple[str, ...]
     history_summary: str
     global_usage_summary: str
     team_coverage_summary: str
@@ -50,6 +72,7 @@ def write_pull_value_report(
     planned_slugs: Iterable[str] = (),
     statuses: Sequence[str] = ("next",),
     mechanism_notes_dir: str | Path | None = None,
+    decision_baseline_path: str | Path | None = None,
     output_path: str | Path,
 ) -> dict[str, Any]:
     result = build_pull_value_cards(
@@ -59,6 +82,7 @@ def write_pull_value_report(
         planned_slugs=planned_slugs,
         statuses=statuses,
         mechanism_notes_dir=mechanism_notes_dir,
+        decision_baseline_path=decision_baseline_path,
     )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -74,6 +98,7 @@ def write_gpt_review_packet(
     planned_slugs: Iterable[str] = (),
     statuses: Sequence[str] = ("next",),
     mechanism_notes_dir: str | Path | None = None,
+    decision_baseline_path: str | Path | None = None,
     output_path: str | Path,
 ) -> dict[str, Any]:
     result = build_pull_value_cards(
@@ -83,6 +108,7 @@ def write_gpt_review_packet(
         planned_slugs=planned_slugs,
         statuses=statuses,
         mechanism_notes_dir=mechanism_notes_dir,
+        decision_baseline_path=decision_baseline_path,
     )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +124,7 @@ def build_pull_value_cards(
     planned_slugs: Iterable[str] = (),
     statuses: Sequence[str] = ("next",),
     mechanism_notes_dir: str | Path | None = None,
+    decision_baseline_path: str | Path | None = None,
 ) -> dict[str, Any]:
     out = Path(data_dir)
     names = load_name_index(out)
@@ -118,6 +145,8 @@ def build_pull_value_cards(
         mechanism_notes_dir or _default_mechanism_notes_dir(plan_path),
         candidates=[candidate["slug"] for candidate in review_candidates],
     )
+    baseline_path = Path(decision_baseline_path) if decision_baseline_path is not None else _default_decision_baseline_path(plan_path)
+    decision_baseline = load_decision_baseline(baseline_path, names=names)
     cards = [
         _build_card(
             candidate,
@@ -128,6 +157,7 @@ def build_pull_value_cards(
             usage_rows=usage_rows,
             tier_index=tier_index,
             mechanism_notes=mechanism_notes,
+            decision_baseline=decision_baseline,
         )
         for candidate in review_candidates
     ]
@@ -145,9 +175,50 @@ def build_pull_value_cards(
             "current_coverage_records": len(current_pool.records),
             "target_coverage_records": len(target_pool.records),
             "mechanism_notes_dir": str(mechanism_notes_dir or _default_mechanism_notes_dir(plan_path) or ""),
+            "decision_baseline_path": str(baseline_path),
+            "decision_baseline_slugs": sorted(decision_baseline),
+            "new_evidence_categories": list(NEW_EVIDENCE_CATEGORIES),
         },
         "cards": cards,
     }
+
+
+def load_decision_baseline(baseline_path: str | Path | None, *, names: NameIndex | None = None) -> dict[str, dict[str, Any]]:
+    if not baseline_path:
+        return {}
+    path = Path(baseline_path)
+    if not path.exists():
+        return {}
+    data = load_config(path)
+    global_change_policy = data.get("change_policy") if isinstance(data.get("change_policy"), dict) else {}
+    global_categories = _string_tuple(
+        data.get("new_evidence_categories")
+        or data.get("allowed_new_evidence_categories")
+        or global_change_policy.get("allowed_new_evidence_categories")
+        or NEW_EVIDENCE_CATEGORIES
+    )
+    rows = data.get("decisions") or data.get("characters") or data.get("baseline") or {}
+    output: dict[str, dict[str, Any]] = {}
+    if isinstance(rows, dict):
+        iterable = []
+        for slug, value in rows.items():
+            row = dict(value) if isinstance(value, dict) else {"final_stage": value}
+            iterable.append({"slug": slug, **row})
+    elif isinstance(rows, list):
+        iterable = [dict(item) for item in rows if isinstance(item, dict)]
+    else:
+        iterable = []
+    for row in iterable:
+        raw_slug = str(row.get("slug") or row.get("character_slug") or "")
+        slug = canonical_slug(raw_slug, names) if names is not None else normalize_character_id(raw_slug)
+        if not slug:
+            continue
+        normalized = dict(row)
+        normalized["slug"] = slug
+        if "allowed_new_evidence_categories" not in normalized:
+            normalized["allowed_new_evidence_categories"] = list(global_categories)
+        output[slug] = normalized
+    return output
 
 
 def load_mechanism_notes(notes_dir: str | Path | None, *, candidates: Iterable[str] = ()) -> dict[str, dict[str, Any]]:
@@ -179,6 +250,7 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
         f"- Box：`{summary['box_path']}`",
         f"- 卡池计划：`{summary['plan_path'] or '-'}`",
         f"- 机制笔记：`{summary.get('mechanism_notes_dir') or '-'}`",
+        f"- 定档 baseline：`{summary.get('decision_baseline_path') or '-'}`；已有基线：{', '.join(summary.get('decision_baseline_slugs') or []) or 'none'}",
         f"- 候选角色：{summary['candidate_count']}；planned_slugs：{', '.join(summary['planned_slugs']) or 'none'}",
         f"- current coverage records：{summary['current_coverage_records']}；target coverage records：{summary['target_coverage_records']}",
         "",
@@ -189,21 +261,27 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
         "- A 级 / 四星角色默认不作为独立抽取价值候选；只作为陪跑顺带收益、队友或 coverage 证据保留。",
         "- target coverage 只说明加入计划角色后的队伍覆盖，不单独决定抽取价值。",
         "- mechanism_review 来自 `configs/zzz_mechanism_notes/*.yaml`，用于判断 0+0、0+1、1+0、1+1、2+1 等档位断点。",
+        "- 若存在 decision baseline，最终档位沿用 prior_final_stage；本地规则只作为 delta review 输入，不能在无新增证据时覆盖既有 GPT/人工定档。",
         "- 队伍证据只引用 A / B+ / B / B- 聚合记录；C 只作为风险。",
         "",
         "## 总览",
         "",
-        "| character | type | pull_value | recommended_stage | acceptable_stage | unresolved_stage | stage_confidence | not_recommended_stage | missing_data | evidence_ids | key_basis | risk |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| character | type | pull_value | prior_final_stage | local_rule_stage | final_stage | stage_delta | delta_requires_review | change_allowed_reason | acceptable_stage | unresolved_stage | stage_confidence | not_recommended_stage | missing_data | evidence_ids | key_basis | risk |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for card in cards:
         stage = card.stage_recommendation
         lines.append(
-            "| {name} | {type} | {value} | {recommended} | {acceptable} | {unresolved} | {confidence} | {not_recommended} | {missing} | {evidence} | {basis} | {risk} |".format(
+            "| {name} | {type} | {value} | {prior} | {local} | {final} | {delta} | {requires} | {change_reason} | {acceptable} | {unresolved} | {confidence} | {not_recommended} | {missing} | {evidence} | {basis} | {risk} |".format(
                 name=_md(f"{card.name_cn} `{card.slug}`"),
                 type=_md(card.candidate_type),
                 value=_md(card.pull_value),
-                recommended=_md(stage.get("recommended_stage", "-")),
+                prior=_md(card.prior_final_stage or "-"),
+                local=_md(card.local_rule_stage or "-"),
+                final=_md(card.final_stage or "-"),
+                delta=_md(card.stage_delta or "-"),
+                requires=_md("yes" if card.delta_requires_review else "no"),
+                change_reason=_md(card.change_allowed_reason or "-"),
                 acceptable=_md(stage.get("acceptable_stage", "-")),
                 unresolved=_md(stage.get("unresolved_stage", "-")),
                 confidence=_md(stage.get("stage_confidence", "-")),
@@ -243,6 +321,18 @@ def format_gpt_review_packet(result: dict[str, Any]) -> str:
                 "status": card.status,
                 "local_rule_pull_value": card.pull_value,
                 "stage_recommendation": card.stage_recommendation,
+                "prior_final_stage": card.prior_final_stage,
+                "prior_decision_status": card.prior_decision_status,
+                "prior_confidence": card.prior_confidence,
+                "prior_reason": card.prior_reason,
+                "local_rule_stage": card.local_rule_stage,
+                "recommended_stage_for_review": card.recommended_stage_for_review,
+                "final_stage": card.final_stage,
+                "stage_delta": card.stage_delta,
+                "delta_requires_review": card.delta_requires_review,
+                "delta_reason": card.delta_reason,
+                "change_allowed_reason": card.change_allowed_reason,
+                "new_evidence_categories": list(card.new_evidence_categories),
                 "history_summary": card.history_summary,
                 "global_usage_summary": card.global_usage_summary,
                 "team_coverage_summary": card.team_coverage_summary,
@@ -271,6 +361,7 @@ def format_gpt_review_packet(result: dict[str, Any]) -> str:
         "- 必须把 historical_usage、target_coverage、mechanism_review 三类证据分开列出，再综合判断。",
         "- 新角色没有历史队伍记录只能标记为未实测，不能作为负面扣分。",
         "- A 级 / 四星角色默认不作为独立抽取价值候选；它们只作为队友、陪跑顺带收益或 coverage 证据。",
+        "- 如果 Evidence Payload 含 prior_final_stage / final_stage，最终档位先沿用 baseline；local_rule_stage 只能触发 delta review，不能直接覆盖既有结论。",
         "- C 档或 theoretical-only 不能作为抽取/档位主依据。",
         "- sentinel 分数不能当真实表现。",
         "- 输出每个角色的 recommended_stage、unresolved_stage、stage_confidence、not_recommended_stage、理由、反证、需要等待的数据，以及是否建议立刻抽。",
@@ -306,6 +397,7 @@ def _build_card(
     usage_rows: list[dict[str, Any]],
     tier_index: dict[str, dict[str, Any]],
     mechanism_notes: dict[str, dict[str, Any]],
+    decision_baseline: dict[str, dict[str, Any]],
 ) -> PullValueCard:
     slug = candidate["slug"]
     candidate_type = _candidate_type(candidate, slug, usage_rows, tier_index)
@@ -331,6 +423,7 @@ def _build_card(
         ]
     else:
         pull_value, stage, basis, risks = _rerun_value(candidate, usage, tier, current_records, target_records, dependent_records, slug in owned, mechanism)
+    baseline = _stage_baseline_fields(slug, stage, decision_baseline)
     return PullValueCard(
         slug=slug,
         name_cn=str(candidate.get("name_cn") or names.get(slug) or tier.get("character_name_cn") or slug),
@@ -338,6 +431,18 @@ def _build_card(
         status=str(candidate.get("status") or ""),
         pull_value=pull_value,
         stage_recommendation=stage,
+        prior_final_stage=baseline["prior_final_stage"],
+        prior_decision_status=baseline["prior_decision_status"],
+        prior_confidence=baseline["prior_confidence"],
+        prior_reason=baseline["prior_reason"],
+        local_rule_stage=baseline["local_rule_stage"],
+        recommended_stage_for_review=baseline["recommended_stage_for_review"],
+        final_stage=baseline["final_stage"],
+        stage_delta=baseline["stage_delta"],
+        delta_requires_review=baseline["delta_requires_review"],
+        delta_reason=baseline["delta_reason"],
+        change_allowed_reason=baseline["change_allowed_reason"],
+        new_evidence_categories=baseline["new_evidence_categories"],
         history_summary=_history_text(usage),
         global_usage_summary=_global_usage_text(usage),
         team_coverage_summary=coverage_summary,
@@ -675,7 +780,17 @@ def _card_lines(card: PullValueCard) -> list[str]:
         f"### {card.name_cn} `{card.slug}`：{card.pull_value}",
         "",
         f"- 类型：{card.candidate_type}；状态：{card.status or '-'}",
-        f"- recommended_stage：{stage.get('recommended_stage', '-')}",
+        f"- prior_final_stage：{card.prior_final_stage or '-'}",
+        f"- prior_decision_status：{card.prior_decision_status or '-'}；prior_confidence：{card.prior_confidence or '-'}",
+        f"- prior_reason：{card.prior_reason or '-'}",
+        f"- local_rule_stage：{card.local_rule_stage or '-'}",
+        f"- recommended_stage_for_review：{card.recommended_stage_for_review or '-'}",
+        f"- final_stage：{card.final_stage or '-'}",
+        f"- stage_delta：{card.stage_delta or '-'}；delta_requires_review：{'yes' if card.delta_requires_review else 'no'}",
+        f"- delta_reason：{card.delta_reason or '-'}",
+        f"- change_allowed_reason：{card.change_allowed_reason or '-'}",
+        f"- new_evidence_categories：{', '.join(card.new_evidence_categories) if card.new_evidence_categories else '-'}",
+        f"- recommended_stage(local_rule)：{stage.get('recommended_stage', '-')}",
         f"- acceptable_stage：{stage.get('acceptable_stage', '-')}",
         f"- unresolved_stage：{stage.get('unresolved_stage', '-')}",
         f"- stage_confidence：{stage.get('stage_confidence', '-')}",
@@ -731,6 +846,78 @@ def _truthy(value: Any) -> bool:
     return str(value).strip().lower() not in {"0", "false", "no", "n", "未启用"}
 
 
+def _stage_baseline_fields(slug: str, stage: dict[str, str], decision_baseline: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    local_rule_stage = str(stage.get("recommended_stage") or "").strip()
+    entry = decision_baseline.get(slug) or {}
+    prior_final_stage = str(entry.get("final_stage") or entry.get("prior_final_stage") or entry.get("recommended_stage") or "").strip()
+    prior_decision_status = str(entry.get("decision_status") or entry.get("status") or "").strip()
+    prior_confidence = str(entry.get("confidence") or entry.get("prior_confidence") or "").strip()
+    prior_reason = str(entry.get("reason") or entry.get("prior_reason") or "").strip()
+    new_evidence_categories = _string_tuple(
+        entry.get("new_evidence_categories")
+        or entry.get("new_evidence")
+        or entry.get("changed_by_new_evidence")
+        or ()
+    )
+    if prior_final_stage:
+        final_stage = prior_final_stage
+        recommended_stage_for_review = prior_final_stage
+        differs = bool(local_rule_stage and local_rule_stage != prior_final_stage)
+        stage_delta = f"{local_rule_stage or '-'} -> {prior_final_stage}" if differs else "none"
+        delta_requires_review = differs
+        if differs and new_evidence_categories:
+            delta_reason = "本地规则与既有 baseline 不同；已登记新增证据类别，需要 GPT/人工复审后才可改最终定档。"
+            change_allowed_reason = "registered_new_evidence: " + "、".join(new_evidence_categories)
+        elif differs:
+            delta_reason = "本地规则与既有 baseline 不同；未登记新增证据，本地规则不能覆盖既有 GPT/人工定档。"
+            change_allowed_reason = str(entry.get("change_allowed_reason") or _baseline_change_policy_text(entry) or "no_new_evidence_baseline_locked")
+        else:
+            delta_reason = "本地规则与 baseline 一致；无需 delta review。"
+            change_allowed_reason = str(entry.get("change_allowed_reason") or "baseline_consistent")
+    else:
+        final_stage = local_rule_stage
+        recommended_stage_for_review = local_rule_stage
+        stage_delta = "none"
+        delta_requires_review = False
+        delta_reason = "无 prior baseline；沿用本地规则建议，仍需 GPT/人工评审。"
+        change_allowed_reason = "no_prior_baseline"
+    return {
+        "prior_final_stage": prior_final_stage,
+        "prior_decision_status": prior_decision_status,
+        "prior_confidence": prior_confidence,
+        "prior_reason": prior_reason,
+        "local_rule_stage": local_rule_stage,
+        "recommended_stage_for_review": recommended_stage_for_review,
+        "final_stage": final_stage,
+        "stage_delta": stage_delta,
+        "delta_requires_review": delta_requires_review,
+        "delta_reason": delta_reason,
+        "change_allowed_reason": change_allowed_reason,
+        "new_evidence_categories": new_evidence_categories,
+    }
+
+
+def _baseline_change_policy_text(entry: dict[str, Any]) -> str:
+    policy = str(entry.get("change_policy") or "").strip()
+    if policy == "wait_for_release_data":
+        return "wait_for_release_data"
+    if policy:
+        return policy
+    return ""
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if isinstance(value, dict):
+        items = [key for key, enabled in value.items() if _truthy(enabled)]
+    elif isinstance(value, (list, tuple, set)):
+        items = list(value)
+    elif value in {None, ""}:
+        items = []
+    else:
+        items = [part.strip() for part in str(value).replace("；", ",").replace("、", ",").split(",")]
+    return tuple(str(item).strip() for item in items if str(item).strip())
+
+
 def _md(value: Any) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ")
 
@@ -739,6 +926,12 @@ def _default_mechanism_notes_dir(plan_path: str | Path | None) -> Path:
     if plan_path:
         return Path(plan_path).parent / "zzz_mechanism_notes"
     return Path("configs") / "zzz_mechanism_notes"
+
+
+def _default_decision_baseline_path(plan_path: str | Path | None) -> Path:
+    if plan_path:
+        return Path(plan_path).parent / "zzz_decision_baseline.json"
+    return Path("configs") / "zzz_decision_baseline.json"
 
 
 def _list_text(value: Any) -> str:

@@ -200,6 +200,7 @@ def build_parser() -> argparse.ArgumentParser:
     pull_value.add_argument("--plan-status", default="current,next", help="Comma/semicolon separated phase statuses to read from --plan.")
     pull_value.add_argument("--planned-slugs", default="", help="Extra comma/semicolon separated planned agent slugs.")
     pull_value.add_argument("--mechanism-notes-dir", default="", help="Defaults to <plan dir>/zzz_mechanism_notes.")
+    pull_value.add_argument("--decision-baseline", default="./configs/zzz_decision_baseline.json", help="Prior GPT/manual final-stage baseline. Missing file is treated as empty.")
     pull_value.add_argument("--output", default="", help="Explicit single report path. Default writes <out>/current_pull_value_report.md and <out>/next_pull_value_report.md.")
     review_packet = subparsers.add_parser("review-packet", help="Build no-key GPT reviewer packet for interactive X+X review")
     review_packet.add_argument("--box", required=True, help="Path to local ZZZ box YAML/JSON file")
@@ -208,6 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_packet.add_argument("--plan-status", default="current,next", help="Comma/semicolon separated phase statuses to read from --plan.")
     review_packet.add_argument("--planned-slugs", default="", help="Extra comma/semicolon separated planned agent slugs.")
     review_packet.add_argument("--mechanism-notes-dir", default="", help="Defaults to <plan dir>/zzz_mechanism_notes.")
+    review_packet.add_argument("--decision-baseline", default="./configs/zzz_decision_baseline.json", help="Prior GPT/manual final-stage baseline. Missing file is treated as empty.")
     review_packet.add_argument("--output", default="", help="Explicit single packet path. Default writes <out>/current_gpt_pull_reviewer_packet.md and <out>/next_gpt_pull_reviewer_packet.md.")
     serve = subparsers.add_parser("serve", help="Serve visualizer with local Box auto-save API")
     serve.add_argument("--root", default=".")
@@ -269,6 +271,7 @@ def run_pull_value(args: argparse.Namespace) -> None:
             planned_slugs=planned,
             statuses=statuses,
             mechanism_notes_dir=args.mechanism_notes_dir or None,
+            decision_baseline_path=args.decision_baseline or None,
             output_path=Path(args.output),
         )
         return
@@ -280,6 +283,7 @@ def run_pull_value(args: argparse.Namespace) -> None:
             planned_slugs=planned,
             statuses=[status],
             mechanism_notes_dir=args.mechanism_notes_dir or None,
+            decision_baseline_path=args.decision_baseline or None,
             output_path=out_dir / f"{_safe_report_status(status)}_pull_value_report.md",
         )
 
@@ -296,6 +300,7 @@ def run_review_packet(args: argparse.Namespace) -> None:
             planned_slugs=planned,
             statuses=statuses,
             mechanism_notes_dir=args.mechanism_notes_dir or None,
+            decision_baseline_path=args.decision_baseline or None,
             output_path=Path(args.output),
         )
         return
@@ -307,6 +312,7 @@ def run_review_packet(args: argparse.Namespace) -> None:
             planned_slugs=planned,
             statuses=[status],
             mechanism_notes_dir=args.mechanism_notes_dir or None,
+            decision_baseline_path=args.decision_baseline or None,
             output_path=out_dir / f"{_safe_report_status(status)}_gpt_pull_reviewer_packet.md",
         )
 
