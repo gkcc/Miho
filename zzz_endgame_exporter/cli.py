@@ -167,7 +167,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Markdown output path. Defaults to <out>/evidence_pool_summary.md.",
     )
     evidence.add_argument("--limit", type=int, default=0, help="Limit evidence rows in Markdown; 0 writes all rows.")
-    evidence.add_argument("--min-a-app-rate", type=float, default=10.0, help="Minimum app_rate percent for A confidence.")
+    evidence.add_argument(
+        "--min-a-app-rate",
+        default="10.0",
+        help="Minimum app_rate percent for A confidence. Accepts a number or per-mode values like sd=8,da=10.",
+    )
     evidence.add_argument(
         "--include-missing",
         action=argparse.BooleanOptionalAction,
@@ -181,7 +185,11 @@ def build_parser() -> argparse.ArgumentParser:
     coverage.add_argument("--plan", default="", help="Optional banner-plan YAML/JSON file.")
     coverage.add_argument("--plan-status", default="next", help="Comma/semicolon separated phase statuses to read from --plan.")
     coverage.add_argument("--limit", type=int, default=0, help="Limit report rows; 0 writes all rows.")
-    coverage.add_argument("--min-a-app-rate", type=float, default=10.0, help="Minimum app_rate percent for A confidence.")
+    coverage.add_argument(
+        "--min-a-app-rate",
+        default="10.0",
+        help="Minimum app_rate percent for A confidence. Accepts a number or per-mode values like sd=8,da=10.",
+    )
     coverage.add_argument("--aggregate-output", default="", help="Defaults to <out>/team_signature_aggregates.csv.")
     coverage.add_argument("--current-output", default="", help="Defaults to <out>/current_box_team_coverage.md.")
     coverage.add_argument("--target-output", default="", help="Defaults to <out>/target_box_team_coverage.md.")
@@ -230,7 +238,7 @@ def run_evidence(args: argparse.Namespace) -> None:
         title="绝区零目标账号证据池队伍覆盖",
         include_missing=args.include_missing,
         limit=args.limit,
-        min_a_app_rate=args.min_a_app_rate,
+        min_a_app_rate=_parse_threshold_arg(args.min_a_app_rate),
     )
 
 
@@ -245,7 +253,7 @@ def run_coverage(args: argparse.Namespace) -> None:
         target_output_path=Path(args.target_output) if args.target_output else out_dir / "target_box_team_coverage.md",
         aggregate_output_path=Path(args.aggregate_output) if args.aggregate_output else out_dir / "team_signature_aggregates.csv",
         limit=args.limit,
-        min_a_app_rate=args.min_a_app_rate,
+        min_a_app_rate=_parse_threshold_arg(args.min_a_app_rate),
     )
 
 
@@ -320,6 +328,27 @@ def _planned_slugs_from_args(args: argparse.Namespace, out_dir: Path) -> list[st
             )
         )
     return list(dict.fromkeys(planned))
+
+
+def _parse_threshold_arg(value: Any) -> float | dict[str, float]:
+    text = str(value or "").strip()
+    if not text:
+        return 10.0
+    if "=" not in text:
+        return float(text)
+    output: dict[str, float] = {}
+    for part in re.split(r"[;,]", text):
+        item = part.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ValueError(f"invalid threshold item: {item}")
+        key, raw_number = item.split("=", 1)
+        mode = normalize_character_id(key)
+        if not mode:
+            raise ValueError(f"invalid threshold mode: {item}")
+        output[mode] = float(raw_number)
+    return output or 10.0
 
 
 def run_export(args: argparse.Namespace) -> None:

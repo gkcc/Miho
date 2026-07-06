@@ -67,6 +67,8 @@ def test_zzz_evidence_cli_writes_markdown(tmp_path):
             str(out),
             "--planned-slugs",
             "sunna",
+            "--min-a-app-rate",
+            "sd=5,da=10",
             "--output",
             str(output),
         ]
@@ -77,6 +79,8 @@ def test_zzz_evidence_cli_writes_markdown(tmp_path):
     assert "# 绝区零目标账号证据池队伍覆盖" in text
     assert "lucy, miyabi, nicole-demara" in text
     assert "lucy, miyabi, sunna" in text
+    assert "A 档 min_app_rate 阈值：sd:5, da:10" in text
+    assert "min_a_app_rate=5" in text
 
 
 def test_zzz_coverage_cli_writes_split_reports(tmp_path):
@@ -92,6 +96,8 @@ def test_zzz_coverage_cli_writes_split_reports(tmp_path):
             str(out),
             "--planned-slugs",
             "sunna",
+            "--min-a-app-rate",
+            "sd=5;da=10",
         ]
     )
 
@@ -107,6 +113,7 @@ def test_zzz_coverage_cli_writes_split_reports(tmp_path):
     assert "full_team_signature" in target_text
     assert "metric_direction" in target_text
     assert "邦布未校验" in target_text
+    assert "A 档 min_app_rate 阈值：sd:5, da:10" in target_text
     assert "agent_signature,full_team_signature" in aggregate_csv
     assert "record_count,snapshot_count,phase_count,mode_count,scope_count,boss_count" in aggregate_csv
 
