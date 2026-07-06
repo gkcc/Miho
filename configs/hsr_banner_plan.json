@@ -1,0 +1,172 @@
+{
+  "updated_at": "2026-07-05",
+  "notes": "星铁卡池情报用于可视化分析输入，不作为自动抽卡结论。官方后续跃迁公告变更时，以最新公告为准。",
+  "sources": [
+    {
+      "label": "星穹铁道官方新闻",
+      "url": "https://hsr.hoyoverse.com/zh-cn/news"
+    },
+    {
+      "label": "4.3版本更新说明",
+      "url": "https://hsr.hoyoverse.com/zh-cn/news/164415"
+    },
+    {
+      "label": "米游社官方：4.4前瞻特别节目回顾长图",
+      "url": "https://www.miyoushe.com/sr/article/76423172"
+    },
+    {
+      "label": "米游社官方：Fate[UBW]联动跃迁说明",
+      "url": "https://www.miyoushe.com/sr/article/76423940"
+    },
+    {
+      "label": "Prydwen HSR Tier List",
+      "url": "https://www.prydwen.gg/star-rail/tier-list"
+    }
+  ],
+  "phases": [
+    {
+      "id": "4.3-second-half",
+      "status": "current",
+      "title": "4.3 下半跃迁",
+      "subtitle": "当期 UP",
+      "date_range": "2026-06-24 12:00 至 2026-07-14 15:00",
+      "source_label": "官方社区公告：4.3版本活动跃迁（其二）",
+      "source_url": "https://www.miyoushe.com/sr/article/76192169",
+      "characters": [
+        {
+          "slug": "cyrene",
+          "banner_role": "限定 5 星复刻",
+          "analysis_tags": ["复刻", "记忆", "冰", "历史样本充分"],
+          "focus": "复刻角色优先看近半年同模式趋势、队友占用，以及你 Box 里是否已有可承接她队伍结构的核心队友。"
+        },
+        {
+          "slug": "phainon",
+          "banner_role": "限定 5 星复刻",
+          "analysis_tags": ["复刻", "毁灭", "物理", "主C"],
+          "focus": "主C复刻要重点看当前终局环境和同属性主C竞争；已有练满主C时，趋势只作为参考。"
+        }
+      ]
+    },
+    {
+      "id": "4.4-full-version-himeko",
+      "status": "next",
+      "title": "4.4 拓星启明 & 流光定影",
+      "subtitle": "新角色 / 新光锥",
+      "date_range": "持续整个 4.4 版本",
+      "source_label": "米游社官方4.4前瞻回顾长图",
+      "source_url": "https://www.miyoushe.com/sr/article/76423172",
+      "characters": [
+        {
+          "slug": "himeko-nova",
+          "banner_role": "限定 5 星新角色",
+          "analysis_tags": ["新角色", "4.4", "火", "智识", "持续整版本"],
+          "focus": "官方前瞻长图显示「拓星启明&流光定影」持续整个4.4版本；新角色仍要等正式技能、倍率和实战轴稳定后再做强度判断。"
+        }
+      ]
+    },
+    {
+      "id": "4.4-first-half",
+      "status": "next",
+      "title": "4.4 第一期活动跃迁",
+      "subtitle": "铭心之萃 & 真意之汇",
+      "date_range": "4.4 第一期，具体起止以活动跃迁公告为准",
+      "source_label": "米游社官方4.4前瞻回顾长图",
+      "source_url": "https://www.miyoushe.com/sr/article/76423172",
+      "characters": [
+        {
+          "slug": "sparxie",
+          "banner_role": "限定 5 星复刻",
+          "analysis_tags": ["复刻", "4.4上半", "火", "欢愉", "辅助"],
+          "focus": "复刻辅助优先看泛用队友覆盖面、当前终局适配和你 Box 的主C缺口；趋势只作为参考输入。"
+        },
+        {
+          "slug": "dan-heng-permansor-terrae",
+          "banner_role": "限定 5 星复刻",
+          "analysis_tags": ["复刻", "4.4上半", "物理", "存护", "生存位"],
+          "focus": "生存位复刻要重点看多队压力、已有盾奶覆盖和是否能服务你当前主推队伍。"
+        },
+        {
+          "slug": "evernight",
+          "banner_role": "限定 5 星复刻",
+          "analysis_tags": ["复刻", "4.4上半", "冰", "记忆"],
+          "focus": "复刻角色优先看近半年同模式趋势、历史队友占用，以及是否和你 Box 的核心体系重复。"
+        }
+      ]
+    },
+    {
+      "id": "4.4-second-half",
+      "status": "next",
+      "title": "4.4 第二期活动跃迁",
+      "subtitle": "铭心之萃 & 真意之汇",
+      "date_range": "4.4 第二期，具体起止以活动跃迁公告为准",
+      "source_label": "米游社官方4.4前瞻回顾长图",
+      "source_url": "https://www.miyoushe.com/sr/article/76423172",
+      "characters": [
+        {
+          "slug": "cerydra",
+          "banner_role": "限定 5 星复刻",
+          "analysis_tags": ["复刻", "4.4下半", "风", "同谐", "辅助"],
+          "focus": "同谐复刻重点看泛用增益、关键队友关系、与你已有辅助是否重叠。"
+        },
+        {
+          "slug": "anaxa",
+          "banner_role": "限定 5 星复刻",
+          "analysis_tags": ["复刻", "4.4下半", "风", "智识"],
+          "focus": "输出位复刻要结合当前高难弱点、历史出场率走势和同定位角色替代关系。"
+        },
+        {
+          "slug": "aventurine",
+          "banner_role": "限定 5 星复刻",
+          "analysis_tags": ["复刻", "4.4下半", "虚数", "存护", "生存位"],
+          "focus": "生存位价值不能只看T榜；还要看你已有生存覆盖、多队冲突和具体队伍的护盾/追击/增益需求。"
+        }
+      ]
+    },
+    {
+      "id": "4.4-fate-collab",
+      "status": "next",
+      "title": "Fate[UBW] 联动跃迁",
+      "subtitle": "联动限定角色 / 光锥",
+      "date_range": "2026-07-24 12:00 后长期开放",
+      "source_label": "米游社官方Fate[UBW]联动跃迁说明",
+      "source_url": "https://www.miyoushe.com/sr/article/76423940",
+      "characters": [
+        {
+          "slug": "rin-tohsaka",
+          "banner_role": "联动限定 5 星角色",
+          "analysis_tags": ["联动", "Fate", "量子", "智识", "长期开放"],
+          "focus": "官方公告显示联动跃迁长期开放；联动角色除强度外，还要单独评估获取窗口、专属光锥价值和队友体系。"
+        },
+        {
+          "slug": "gilgamesh",
+          "banner_role": "联动限定 5 星角色",
+          "analysis_tags": ["联动", "Fate", "雷", "毁灭", "长期开放"],
+          "focus": "官方公告显示联动跃迁长期开放；新联动角色仍要等实测队伍、倍率、专属光锥收益和环境适配。"
+        }
+      ]
+    },
+    {
+      "id": "4.3-first-half",
+      "status": "recent",
+      "title": "4.3 上半跃迁",
+      "subtitle": "本版本已结束 / 历史参考",
+      "date_range": "4.3版本更新后 至 2026-06-24 11:59",
+      "source_label": "官方社区公告：4.3版本活动跃迁（其一）",
+      "source_url": "https://www.miyoushe.com/sr/article/75715107",
+      "characters": [
+        {
+          "slug": "mortenax-blade",
+          "banner_role": "限定 5 星 UP",
+          "analysis_tags": ["新角色", "虚无", "火", "本版本样本较少"],
+          "focus": "新角色历史样本短，优先观察当前期高难队伍模板、核心队友和后续环境适配。"
+        },
+        {
+          "slug": "yao-guang",
+          "banner_role": "限定 5 星复刻",
+          "analysis_tags": ["复刻", "历史样本", "本版本已结束"],
+          "focus": "已结束池只作为回顾：保留趋势和历史组合，给后续复刻判断做对照。"
+        }
+      ]
+    }
+  ]
+}

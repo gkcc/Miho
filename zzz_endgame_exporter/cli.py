@@ -11,8 +11,18 @@ from typing import Any
 
 from hsr_endgame_exporter.hf_client import HuggingFaceClient
 from hsr_endgame_exporter.normalize import date_or_none, normalize_character_id, parse_date
+from miho_core.evidence import (
+    load_name_index,
+    load_planned_slugs_from_banner_plan,
+    split_slugs,
+    write_coverage_reports,
+    write_evidence_report,
+)
+from miho_core.local_server import run_server
+from miho_core.pull_value import write_gpt_review_packet, write_pull_value_report
 
 from .constants import DEFAULT_MODES, DEFAULT_REPO_ID, MODE_URLS
+from .decision_report import run_decision_report
 from .exporters import (
     build_name_rows,
     build_tier_usage_trend,
@@ -47,6 +57,44 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # pragma: no cover - command boundary
             print(f"export failed: {exc}", file=sys.stderr)
             return 1
+        return 0
+    if args.command == "decision":
+        try:
+            run_decision_report(args.box, args.out, args.rules)
+        except Exception as exc:  # pragma: no cover - command boundary
+            print(f"decision failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if args.command == "evidence":
+        try:
+            run_evidence(args)
+        except Exception as exc:  # pragma: no cover - command boundary
+            print(f"evidence failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if args.command == "coverage":
+        try:
+            run_coverage(args)
+        except Exception as exc:  # pragma: no cover - command boundary
+            print(f"coverage failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if args.command == "pull-value":
+        try:
+            run_pull_value(args)
+        except Exception as exc:  # pragma: no cover - command boundary
+            print(f"pull-value failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if args.command == "review-packet":
+        try:
+            run_review_packet(args)
+        except Exception as exc:  # pragma: no cover - command boundary
+            print(f"review-packet failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if args.command == "serve":
+        run_server(args.root, args.host, args.port)
         return 0
     parser.print_help()
     return 2
@@ -87,7 +135,154 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fill Chinese names from official HoYoWiki ZZZ agent and Bangboo lists.",
     )
     export.add_argument("--prydwen-top-n", type=int, default=100)
+    decision = subparsers.add_parser("decision", help="Build local Box pull/investment decision cards")
+    decision.add_argument("--box", required=True, help="Path to local ZZZ box YAML/JSON file")
+    decision.add_argument("--out", default="./zzz_endgame_export", help="Existing export directory and output target")
+    decision.add_argument(
+        "--rules",
+        default="./configs/zzz_decision_rules.yaml",
+        help="Decision rule YAML/JSON file. Missing file falls back to built-in defaults.",
+    )
+    evidence = subparsers.add_parser("evidence", help="Build evidence-first target-account team coverage")
+    evidence.add_argument("--box", required=True, help="Path to local ZZZ box YAML/JSON file")
+    evidence.add_argument("--out", default="./zzz_endgame_export", help="Existing export directory and output target")
+    evidence.add_argument(
+        "--planned-slugs",
+        default="",
+        help="Comma/semicolon separated planned agent slugs, e.g. nom,sunna.",
+    )
+    evidence.add_argument(
+        "--plan",
+        default="",
+        help="Optional banner-plan YAML/JSON file. Characters in selected statuses are added to planned slugs.",
+    )
+    evidence.add_argument(
+        "--plan-status",
+        default="next",
+        help="Comma/semicolon separated phase statuses to read from --plan. Defaults to next.",
+    )
+    evidence.add_argument(
+        "--output",
+        default="",
+        help="Markdown output path. Defaults to <out>/evidence_pool_summary.md.",
+    )
+    evidence.add_argument("--limit", type=int, default=0, help="Limit evidence rows in Markdown; 0 writes all rows.")
+    evidence.add_argument("--min-a-app-rate", type=float, default=10.0, help="Minimum app_rate percent for A confidence.")
+    evidence.add_argument(
+        "--include-missing",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Include records with agents outside owned + planned as C confidence.",
+    )
+    coverage = subparsers.add_parser("coverage", help="Build split current/target team coverage reports")
+    coverage.add_argument("--box", required=True, help="Path to local ZZZ box YAML/JSON file")
+    coverage.add_argument("--out", default="./zzz_endgame_export", help="Existing export directory and output target")
+    coverage.add_argument("--planned-slugs", default="", help="Comma/semicolon separated planned agent slugs.")
+    coverage.add_argument("--plan", default="", help="Optional banner-plan YAML/JSON file.")
+    coverage.add_argument("--plan-status", default="next", help="Comma/semicolon separated phase statuses to read from --plan.")
+    coverage.add_argument("--limit", type=int, default=0, help="Limit report rows; 0 writes all rows.")
+    coverage.add_argument("--aggregate-output", default="", help="Defaults to <out>/team_signature_aggregates.csv.")
+    coverage.add_argument("--current-output", default="", help="Defaults to <out>/current_box_team_coverage.md.")
+    coverage.add_argument("--target-output", default="", help="Defaults to <out>/target_box_team_coverage.md.")
+    pull_value = subparsers.add_parser("pull-value", help="Build rerun/new-character pull value report")
+    pull_value.add_argument("--box", required=True, help="Path to local ZZZ box YAML/JSON file")
+    pull_value.add_argument("--out", default="./zzz_endgame_export", help="Existing export directory and output target")
+    pull_value.add_argument("--plan", default="./configs/zzz_banner_plan.json", help="Banner-plan YAML/JSON file")
+    pull_value.add_argument("--plan-status", default="next", help="Comma/semicolon separated phase statuses to read from --plan.")
+    pull_value.add_argument("--planned-slugs", default="", help="Extra comma/semicolon separated planned agent slugs.")
+    pull_value.add_argument("--output", default="", help="Defaults to <out>/pull_value_report.md.")
+    review_packet = subparsers.add_parser("review-packet", help="Build no-key GPT reviewer packet for interactive X+X review")
+    review_packet.add_argument("--box", required=True, help="Path to local ZZZ box YAML/JSON file")
+    review_packet.add_argument("--out", default="./zzz_endgame_export", help="Existing export directory and output target")
+    review_packet.add_argument("--plan", default="./configs/zzz_banner_plan.json", help="Banner-plan YAML/JSON file")
+    review_packet.add_argument("--plan-status", default="next", help="Comma/semicolon separated phase statuses to read from --plan.")
+    review_packet.add_argument("--planned-slugs", default="", help="Extra comma/semicolon separated planned agent slugs.")
+    review_packet.add_argument("--output", default="", help="Defaults to <out>/gpt_pull_reviewer_packet.md.")
+    serve = subparsers.add_parser("serve", help="Serve visualizer with local Box auto-save API")
+    serve.add_argument("--root", default=".")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
     return parser
+
+
+def run_evidence(args: argparse.Namespace) -> None:
+    out_dir = Path(args.out)
+    names = load_name_index(out_dir)
+    planned = split_slugs(args.planned_slugs)
+    if args.plan:
+        planned.extend(
+            load_planned_slugs_from_banner_plan(
+                args.plan,
+                statuses=split_slugs(args.plan_status),
+                names=names,
+            )
+        )
+    planned = list(dict.fromkeys(planned))
+    output = Path(args.output) if args.output else out_dir / "evidence_pool_summary.md"
+    write_evidence_report(
+        out_dir,
+        box_path=args.box,
+        planned_slugs=planned,
+        output_path=output,
+        title="绝区零目标账号证据池队伍覆盖",
+        include_missing=args.include_missing,
+        limit=args.limit,
+        min_a_app_rate=args.min_a_app_rate,
+    )
+
+
+def run_coverage(args: argparse.Namespace) -> None:
+    out_dir = Path(args.out)
+    planned = _planned_slugs_from_args(args, out_dir)
+    write_coverage_reports(
+        out_dir,
+        box_path=args.box,
+        planned_slugs=planned,
+        current_output_path=Path(args.current_output) if args.current_output else out_dir / "current_box_team_coverage.md",
+        target_output_path=Path(args.target_output) if args.target_output else out_dir / "target_box_team_coverage.md",
+        aggregate_output_path=Path(args.aggregate_output) if args.aggregate_output else out_dir / "team_signature_aggregates.csv",
+        limit=args.limit,
+    )
+
+
+def run_pull_value(args: argparse.Namespace) -> None:
+    out_dir = Path(args.out)
+    planned = split_slugs(args.planned_slugs)
+    write_pull_value_report(
+        out_dir,
+        box_path=args.box,
+        plan_path=args.plan if args.plan else None,
+        planned_slugs=planned,
+        statuses=split_slugs(args.plan_status),
+        output_path=Path(args.output) if args.output else out_dir / "pull_value_report.md",
+    )
+
+
+def run_review_packet(args: argparse.Namespace) -> None:
+    out_dir = Path(args.out)
+    planned = split_slugs(args.planned_slugs)
+    write_gpt_review_packet(
+        out_dir,
+        box_path=args.box,
+        plan_path=args.plan if args.plan else None,
+        planned_slugs=planned,
+        statuses=split_slugs(args.plan_status),
+        output_path=Path(args.output) if args.output else out_dir / "gpt_pull_reviewer_packet.md",
+    )
+
+
+def _planned_slugs_from_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
+    names = load_name_index(out_dir)
+    planned = split_slugs(getattr(args, "planned_slugs", ""))
+    if getattr(args, "plan", ""):
+        planned.extend(
+            load_planned_slugs_from_banner_plan(
+                args.plan,
+                statuses=split_slugs(getattr(args, "plan_status", "next")),
+                names=names,
+            )
+        )
+    return list(dict.fromkeys(planned))
 
 
 def run_export(args: argparse.Namespace) -> None:

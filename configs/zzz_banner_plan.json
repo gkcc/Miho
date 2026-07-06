@@ -1,0 +1,131 @@
+{
+  "updated_at": "2026-07-05",
+  "notes": "卡池与卫星信息用于可视化分析输入，不作为自动抽卡结论。若官方后续公告变更，以最新公告为准。",
+  "sources": [
+    {
+      "label": "绝区零官方新闻",
+      "url": "https://zzz.mihoyo.com/news"
+    },
+    {
+      "label": "3.0版本限时频段（上期）",
+      "url": "https://zzz.mihoyo.com/news/164747"
+    },
+    {
+      "label": "Prydwen ZZZ Tier List",
+      "url": "https://www.prydwen.gg/zenless/tier-list"
+    }
+  ],
+  "phases": [
+    {
+      "id": "3.0-first-half",
+      "status": "current",
+      "title": "3.0 上半调频",
+      "subtitle": "当期 UP",
+      "date_range": "2026-06-18 至 2026-07-08 11:59",
+      "source_label": "官方调频公告 / 公开汇总",
+      "source_url": "https://zzz.mihoyo.com/news/164747",
+      "characters": [
+        {
+          "slug": "velina",
+          "banner_role": "限定 S 级 UP",
+          "analysis_tags": ["新角色", "风", "异常", "高未知度"],
+          "focus": "新角色历史样本少，重点看她是否是独立主C，还是更依赖特定异常/风体系。"
+        },
+        {
+          "slug": "ye-shunguang",
+          "banner_role": "限定 S 级复刻",
+          "analysis_tags": ["复刻", "物理", "强攻", "历史样本充分"],
+          "focus": "复刻角色应优先看长期趋势、主推队友占用和你 Box 里是否已有同定位主C。"
+        },
+        {
+          "slug": "piper",
+          "banner_role": "A 级陪跑",
+          "analysis_tags": ["A 级", "物理", "异常"],
+          "focus": "陪跑只作为顺带收益，不单独驱动抽卡。"
+        },
+        {
+          "slug": "nicole-demara",
+          "banner_role": "A 级陪跑",
+          "analysis_tags": ["A 级", "以太", "支援"],
+          "focus": "以太支援老角色，更多看你是否缺对应辅助和影画。"
+        }
+      ]
+    },
+    {
+      "id": "3.0-second-half",
+      "status": "next",
+      "title": "3.0 下半调频",
+      "subtitle": "下一期 UP",
+      "date_range": "2026-07-08 12:00 起",
+      "source_label": "官方前瞻 / 公开汇总",
+      "source_url": "https://zzz.mihoyo.com/news",
+      "characters": [
+        {
+          "slug": "nom",
+          "name_cn": "诺姆·霍洛维尔",
+          "banner_role": "限定 S 级 UP",
+          "element_cn": "未知",
+          "style_cn": "未知",
+          "role_group_cn": "未知",
+          "rarity": "S",
+          "source_label": "米游社官方代理人档案",
+          "source_url": "https://www.miyoushe.com/zzz/article/75009674",
+          "icon_url": "https://bbs-static.miyoushe.com/static/2026/04/29/372741cd9b0acdec2a8fa7495e96d69c_4245038187283874940.png",
+          "icon_source_label": "米游社官方话题头像",
+          "icon_source_url": "https://www.miyoushe.com/zzz/article/75009674",
+          "analysis_tags": ["新角色", "下期", "高未知度"],
+          "focus": "新角色在实测前只做关系识别：属性、特性、核心队友、是否替代已有主推体系。"
+        },
+        {
+          "slug": "sunna",
+          "banner_role": "限定 S 级复刻",
+          "analysis_tags": ["复刻", "物理", "支援", "辅助"],
+          "focus": "复刻辅助重点看泛用性、队友覆盖面，以及是否能补你 Box 的主C缺口。"
+        }
+      ]
+    },
+    {
+      "id": "announced-satellites",
+      "status": "satellite",
+      "title": "已公开卫星",
+      "subtitle": "官方已公开代理人档案",
+      "date_range": "待官方调频确认",
+      "source_label": "官方代理人档案",
+      "source_url": "https://zzz.mihoyo.com/news",
+      "characters": [
+        {
+          "slug": "remiel",
+          "name_cn": "蕾米埃尔·丹",
+          "banner_role": "已公开卫星",
+          "element_cn": "未知",
+          "style_cn": "未知",
+          "role_group_cn": "未知",
+          "rarity": "S",
+          "analysis_tags": ["卫星", "官方档案", "缺少实测"],
+          "source_label": "米游社官方代理人档案",
+          "source_url": "https://www.miyoushe.com/zzz/article/76123424",
+          "icon_url": "https://bbs-static.miyoushe.com/static/2026/06/20/c48d9cfa80863bd0aa7960d48c6abba3_1364241989580166633.png",
+          "icon_source_label": "米游社官方话题头像",
+          "icon_source_url": "https://www.miyoushe.com/zzz/article/76123424",
+          "focus": "卫星阶段只记录公开属性/特性和潜在队友，不做强度判断。"
+        },
+        {
+          "slug": "sigrid",
+          "name_cn": "希格莉德·德拉叙尔",
+          "banner_role": "已公开卫星",
+          "element_cn": "未知",
+          "style_cn": "未知",
+          "role_group_cn": "未知",
+          "rarity": "S",
+          "analysis_tags": ["卫星", "官方档案", "缺少实测"],
+          "source_label": "米游社官方代理人档案",
+          "source_url": "https://www.miyoushe.com/zzz/article/76125521",
+          "icon_url": "https://bbs-static.miyoushe.com/static/2026/06/20/74a2e1a800bc3b6df3c0bd5d3bf38908_8041034362737326389.png",
+          "icon_source_label": "米游社官方话题头像",
+          "icon_source_url": "https://www.miyoushe.com/zzz/article/76125521",
+          "focus": "卫星阶段只做关系推断输入，等待技能组、倍率和实战队伍。"
+        }
+      ]
+    }
+  ]
+}

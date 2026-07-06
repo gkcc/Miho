@@ -1,0 +1,35 @@
+account:
+  name: 示例账号
+  pull_budget: 120
+
+goals:
+  modes: [sd, da]
+  note: 优先补强高难多队，避免给 T1 及以下角色继续重投入
+
+agents:
+  - slug: miyabi
+    name_cn: 星见雅
+    owned: true
+    cinema: 0
+    signature: 1
+    level: 60
+    w_engine_level: 60
+    core_skill: 7
+    drive_discs: good
+    notes: 冰异常核心
+
+  - slug: astra-yao
+    name_cn: 耀嘉音
+    owned: true
+    cinema: 0
+    signature: 0
+    level: 60
+    w_engine_level: 60
+    core_skill: 7
+    drive_discs: good
+
+  - slug: alice
+    name_cn: 爱丽丝·泰姆菲尔德
+    owned: false
+    cinema: 0
+    signature: 0
