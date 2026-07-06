@@ -1,6 +1,7 @@
 import csv
 import json
 
+from miho_core.evidence import build_evidence_pool
 from miho_core.pull_value import build_pull_value_cards, write_gpt_review_packet
 from zzz_endgame_exporter.cli import main
 
@@ -71,6 +72,60 @@ def test_gpt_review_packet_writes_no_key_prompt(tmp_path):
     assert "新角色没有历史队伍记录只能标记为未实测" in text
 
 
+def test_low_rarity_plan_candidates_are_filtered_but_kept_in_coverage(tmp_path):
+    out = _write_pull_fixture(tmp_path)
+    box = _write_box(tmp_path)
+    plan = _write_plan(tmp_path)
+    _write_mechanism_notes(tmp_path)
+
+    result = build_pull_value_cards(out, box_path=box, plan_path=plan, statuses=["current"])
+    slugs = {card.slug for card in result["cards"]}
+
+    assert "sunna" in slugs
+    assert "piper" not in slugs
+    assert "piper" in result["summary"]["planned_slugs"]
+    assert "piper" in result["summary"]["filtered_low_rarity_slugs"]
+
+    pool = build_evidence_pool(
+        out,
+        owned_slugs=["miyabi", "lucy"],
+        planned_slugs=result["summary"]["planned_slugs"],
+        scenario="target_box",
+    )
+
+    assert any("piper" in record.team_slugs for record in pool.records)
+
+
+def test_gpt_review_packet_excludes_low_rarity_by_default(tmp_path):
+    out = _write_pull_fixture(tmp_path)
+    box = _write_box(tmp_path)
+    plan = _write_plan(tmp_path)
+    _write_mechanism_notes(tmp_path)
+    output = tmp_path / "current_packet.md"
+
+    write_gpt_review_packet(out, box_path=box, plan_path=plan, statuses=["current"], output_path=output)
+
+    text = output.read_text(encoding="utf-8")
+    assert '"slug": "sunna"' in text
+    assert '"slug": "piper"' not in text
+    assert "A 级 / 四星角色默认不作为独立抽取价值候选" in text
+
+
+def test_low_rarity_can_be_force_reviewed(tmp_path):
+    for flag in ("force_review", "include_low_rarity"):
+        case = tmp_path / flag
+        case.mkdir()
+        out = _write_pull_fixture(case)
+        box = _write_box(case)
+        plan = _write_plan(case, piper_extra={flag: True})
+        _write_mechanism_notes(case)
+
+        result = build_pull_value_cards(out, box_path=box, plan_path=plan, statuses=["current"])
+        slugs = {card.slug for card in result["cards"]}
+
+        assert "piper" in slugs
+
+
 def test_review_packet_cli_writes_packet(tmp_path):
     out = _write_pull_fixture(tmp_path)
     box = _write_box(tmp_path)
@@ -123,6 +178,7 @@ def _write_pull_fixture(tmp_path):
             {"character_slug": "lucy", "character_name_en": "Lucy", "character_name_cn": "露西", "aliases": "", "kind": "agent"},
             {"character_slug": "sunna", "character_name_en": "Sunna", "character_name_cn": "千夏", "aliases": "", "kind": "agent"},
             {"character_slug": "nom", "character_name_en": "Nom", "character_name_cn": "诺姆", "aliases": "", "kind": "agent"},
+            {"character_slug": "piper", "character_name_en": "Piper", "character_name_cn": "派派", "aliases": "", "kind": "agent"},
         ],
     )
     _write_csv(
@@ -139,10 +195,11 @@ def _write_pull_fixture(tmp_path):
     )
     _write_csv(
         out / "prydwen_tier_current.csv",
-        ["tier_mode", "character_slug", "character_name_cn", "role_group_cn", "tier", "rating", "element_cn", "style_cn"],
+        ["tier_mode", "character_slug", "character_name_cn", "role_group_cn", "tier", "rating", "element_cn", "style_cn", "rarity"],
         [
-            {"tier_mode": "sd", "character_slug": "sunna", "character_name_cn": "千夏", "role_group_cn": "辅助", "tier": "T0", "rating": 11, "element_cn": "物理", "style_cn": "支援"},
-            {"tier_mode": "da", "character_slug": "sunna", "character_name_cn": "千夏", "role_group_cn": "辅助", "tier": "T0", "rating": 11, "element_cn": "物理", "style_cn": "支援"},
+            {"tier_mode": "sd", "character_slug": "sunna", "character_name_cn": "千夏", "role_group_cn": "辅助", "tier": "T0", "rating": 11, "element_cn": "物理", "style_cn": "支援", "rarity": "S"},
+            {"tier_mode": "da", "character_slug": "sunna", "character_name_cn": "千夏", "role_group_cn": "辅助", "tier": "T0", "rating": 11, "element_cn": "物理", "style_cn": "支援", "rarity": "S"},
+            {"tier_mode": "sd", "character_slug": "piper", "character_name_cn": "派派", "role_group_cn": "异常主C", "tier": "T1", "rating": 9, "element_cn": "物理", "style_cn": "异常", "rarity": "A"},
         ],
     )
     _write_csv(
@@ -173,6 +230,7 @@ def _write_pull_fixture(tmp_path):
             _team("2.8.2", "sd", "5-2", "miyabi", "lucy", "sunna", 10, 33300),
             _team("2.8.3", "sd", "5-1", "miyabi", "lucy", "sunna", 9, 33400),
             _team("2.8.3", "sd", "5-2", "miyabi", "lucy", "sunna", 8, 33500),
+            _team("2.8.3", "sd", "5-3", "miyabi", "piper", "sunna", 2, 31000),
         ],
     )
     return out
@@ -184,8 +242,11 @@ def _write_box(tmp_path):
     return box
 
 
-def _write_plan(tmp_path):
+def _write_plan(tmp_path, *, piper_extra=None):
     plan = tmp_path / "plan.json"
+    piper = {"slug": "piper", "name_cn": "派派", "banner_role": "A 级陪跑", "analysis_tags": ["A 级", "物理", "异常"]}
+    if piper_extra:
+        piper.update(piper_extra)
     plan.write_text(
         json.dumps(
             {
@@ -194,6 +255,7 @@ def _write_plan(tmp_path):
                         "status": "current",
                         "characters": [
                             {"slug": "sunna", "name_cn": "千夏", "banner_role": "限定 S 级复刻", "analysis_tags": ["复刻", "辅助"]},
+                            piper,
                         ],
                     },
                     {

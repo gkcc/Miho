@@ -113,9 +113,10 @@ def build_pull_value_cards(
     usage_rows = _read_csv(out / "character_usage_long.csv")
     tier_rows = _read_csv(out / "prydwen_tier_current.csv")
     tier_index = _tier_index(tier_rows)
+    review_candidates, filtered_candidates = _filter_review_candidates(candidates, tier_index)
     mechanism_notes = load_mechanism_notes(
         mechanism_notes_dir or _default_mechanism_notes_dir(plan_path),
-        candidates=[candidate["slug"] for candidate in candidates],
+        candidates=[candidate["slug"] for candidate in review_candidates],
     )
     cards = [
         _build_card(
@@ -128,7 +129,7 @@ def build_pull_value_cards(
             tier_index=tier_index,
             mechanism_notes=mechanism_notes,
         )
-        for candidate in candidates
+        for candidate in review_candidates
     ]
     cards.sort(key=lambda card: (_value_sort_key(card.pull_value), card.slug))
     return {
@@ -139,6 +140,8 @@ def build_pull_value_cards(
             "plan_path": str(plan_path or ""),
             "candidate_count": len(cards),
             "planned_slugs": planned,
+            "reviewed_slugs": [candidate["slug"] for candidate in review_candidates],
+            "filtered_low_rarity_slugs": [candidate["slug"] for candidate in filtered_candidates],
             "current_coverage_records": len(current_pool.records),
             "target_coverage_records": len(target_pool.records),
             "mechanism_notes_dir": str(mechanism_notes_dir or _default_mechanism_notes_dir(plan_path) or ""),
@@ -183,6 +186,7 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
         "",
         "- 复刻角色：按历史走势、全局出场、队伍覆盖、T 榜定位和 X+X 档位必要性评估。",
         "- 新角色：按机制信息完整度、拼图关系、售后确定性和替代风险评估；没有历史队伍记录是未实测状态，不作为负面扣分。",
+        "- A 级 / 四星角色默认不作为独立抽取价值候选；只作为陪跑顺带收益、队友或 coverage 证据保留。",
         "- target coverage 只说明加入计划角色后的队伍覆盖，不单独决定抽取价值。",
         "- mechanism_review 来自 `configs/zzz_mechanism_notes/*.yaml`，用于判断 0+0、0+1、1+0、1+1、2+1 等档位断点。",
         "- 队伍证据只引用 A / B+ / B / B- 聚合记录；C 只作为风险。",
@@ -266,6 +270,7 @@ def format_gpt_review_packet(result: dict[str, Any]) -> str:
         "- 不要只按 target coverage 定性；复刻角色必须同时看历史走势、全局出场、T 榜定位、current/target 覆盖和 X+X 必要性。",
         "- 必须把 historical_usage、target_coverage、mechanism_review 三类证据分开列出，再综合判断。",
         "- 新角色没有历史队伍记录只能标记为未实测，不能作为负面扣分。",
+        "- A 级 / 四星角色默认不作为独立抽取价值候选；它们只作为队友、陪跑顺带收益或 coverage 证据。",
         "- C 档或 theoretical-only 不能作为抽取/档位主依据。",
         "- sentinel 分数不能当真实表现。",
         "- 输出每个角色的 recommended_stage、unresolved_stage、stage_confidence、not_recommended_stage、理由、反证、需要等待的数据，以及是否建议立刻抽。",
@@ -396,6 +401,7 @@ def _rerun_value(
 def _load_candidates(plan_path: str | Path, *, statuses: Sequence[str], names: Any) -> list[dict[str, Any]]:
     data = load_config(plan_path)
     status_set = {str(status).strip().lower() for status in statuses if str(status).strip()}
+    global_include_low_rarity = _truthy(data.get("include_low_rarity"))
     output: list[dict[str, Any]] = []
     for phase in data.get("phases") or []:
         if not isinstance(phase, dict):
@@ -403,15 +409,19 @@ def _load_candidates(plan_path: str | Path, *, statuses: Sequence[str], names: A
         status = str(phase.get("status") or "").strip().lower()
         if status_set and status not in status_set:
             continue
+        phase_include_low_rarity = global_include_low_rarity or _truthy(phase.get("include_low_rarity"))
         for character in phase.get("characters") or []:
             if not isinstance(character, dict):
                 continue
             slug = canonical_slug(str(character.get("slug") or ""), names)
             if not slug:
                 continue
+            row = dict(character)
+            if phase_include_low_rarity and "include_low_rarity" not in row:
+                row["include_low_rarity"] = True
             output.append(
                 {
-                    **character,
+                    **row,
                     "slug": slug,
                     "status": status,
                     "phase_title": phase.get("title", ""),
@@ -419,6 +429,49 @@ def _load_candidates(plan_path: str | Path, *, statuses: Sequence[str], names: A
                 }
             )
     return output
+
+
+def _filter_review_candidates(
+    candidates: Sequence[dict[str, Any]],
+    tier_index: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    review: list[dict[str, Any]] = []
+    filtered: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if _force_review(candidate):
+            review.append(candidate)
+            continue
+        if _is_low_rarity_candidate(candidate, tier_index.get(str(candidate.get("slug") or ""), {})):
+            filtered.append(candidate)
+            continue
+        review.append(candidate)
+    return review, filtered
+
+
+def _force_review(candidate: dict[str, Any]) -> bool:
+    return _truthy(candidate.get("force_review")) or _truthy(candidate.get("include_low_rarity"))
+
+
+def _is_low_rarity_candidate(candidate: dict[str, Any], tier: dict[str, Any]) -> bool:
+    rarity = _rarity_text(candidate.get("rarity") or tier.get("rarity"))
+    if rarity in {"a", "4", "4star", "4-star", "fourstar"}:
+        return True
+    text = _candidate_text(candidate).lower()
+    return any(marker in text for marker in ("a 级", "a级", "四星", "4星", "4-star", "4 star"))
+
+
+def _candidate_text(candidate: dict[str, Any]) -> str:
+    return " ".join(
+        [
+            str(candidate.get("banner_role") or ""),
+            str(candidate.get("rarity") or ""),
+            " ".join(str(item) for item in candidate.get("analysis_tags") or []),
+        ]
+    )
+
+
+def _rarity_text(value: Any) -> str:
+    return normalize_character_id(value).replace("-", "")
 
 
 def _usage_summary(slug: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -668,6 +721,14 @@ def _number_text(value: Any) -> str:
         return f"{float(value):g}"
     except (TypeError, ValueError):
         return "-"
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in {None, ""}:
+        return False
+    return str(value).strip().lower() not in {"0", "false", "no", "n", "未启用"}
 
 
 def _md(value: Any) -> str:
