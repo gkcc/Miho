@@ -1,0 +1,60 @@
+slug: ye-shunguang
+name_cn: 叶瞬光
+
+identity:
+  element_cn: 物理
+  style_cn: 强攻
+  role_group_cn: 直伤主C
+  rarity: S
+mechanism_status: 复刻物理强攻主C；历史 SD/DA usage 和 tier 证据充分，但专武、影画和高档位断点仍需机制/指南证据。
+
+source_quality:
+  identity: official_or_exported
+  historical_usage: high
+  target_coverage: medium
+  guide_consensus: pending
+  skill_text: pending
+  cinema_signature_breakpoints: pending
+stage_confidence: medium
+
+body_completeness_0_0: 0+0 的历史 usage 和 T0 定位足以证明角色本体强度与长期存在感。
+signature_value_0_1: 0+1 可能是主C纵向补强；缺专武相对通用音擎的收益、循环和阈值数据。
+cinema_value_1_0: 1+0 可能是输出或手感断点；缺影画文本、收益量化和 auto 稳定性证据。
+combo_value_1_1: 1+1 需确认专武与 1 影是否互相放大，且是否优先于补其他体系本体。
+necessity_2_1: 2+1 未判定；当前资料不能证明长期 auto 高难奖励必需。
+higher_stage_note: 未判定：2+1 以上缺少机制、指南和实战数据证明长期高难 auto 必要。
+
+recommended_stage: 0+0
+acceptable_stage: 0+0
+unresolved_stage: 0+1 / 1+0 / 1+1 / 2+1
+not_recommended_stage: 未判定 / 缺证据：0+1、1+0、1+1、2+1 需要机制、专武、影画、指南证据
+stage_reason: historical_usage 与 T0 定位支持本体价值；但纵向档位不能只靠历史队伍和覆盖推断。
+missing_data: 专武对比、1 影与 2 影文本、影画收益量化、0+1/1+0/1+1 的边际收益、是否绑定特定辅助、当前 Box 同定位主C替代关系。
+
+stage_notes:
+  "0+0":
+    value_type: 本体完整度
+    evidence: 本地 Prydwen tier/usage 显示叶瞬光为 SD/DA T0，近半年多期高出场。
+    missing_data: 当前版本指南是否仍推荐 0+0 作为长期 auto 奖励投入线。
+  "0+1":
+    value_type: 专武价值
+    evidence: 主C专武通常可能影响输出阈值，但当前 notes 没有稳定断点证据。
+    missing_data: 专武数值、通用音擎替代、伤害/循环/阈值对比。
+  "1+0":
+    value_type: 影画断点
+    evidence: 暂无可确认断点。
+    missing_data: 1 影文本、收益量化、是否改善 auto 稳定性。
+  "1+1":
+    value_type: 本体+专武+影画组合
+    evidence: 暂无组合收益证据。
+    missing_data: 0+1 与 1+0 是否互相放大、是否优先于补其他角色。
+  "2+1":
+    value_type: 高档位必要性
+    evidence: 当前没有足够资料证明 2+1 是长期 auto 高难奖励必需。
+    missing_data: 2 影文本、2+1 实战质变、指南共识、与低档位的边际收益差。
+
+key_teammates: [sunna, zhao, lucy]
+archetypes: [物理强攻, 直伤主C, 高历史出场主C]
+risks_and_counterevidence: 主C纵向投入容易和新体系本体竞争；高档位保持未判定，缺资料只能记为缺证据。
+source_url: https://www.prydwen.gg/zenless/tier-list
+source_summary: 本地 tier/usage 显示叶瞬光长期 SD/DA 高评级和高出场；X+X 断点仍需专武、影画和攻略证据。

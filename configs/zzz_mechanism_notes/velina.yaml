@@ -1,0 +1,60 @@
+slug: velina
+name_cn: 维琳娜·艾嘉德
+
+identity:
+  element_cn: 风
+  style_cn: 异常
+  role_group_cn: 异常主C
+  rarity: S
+mechanism_status: 当前新 S 风属性异常主C；已有首轮 tier/usage，但技能、专武、影画和长期环境仍需更多实战验证。
+
+source_quality:
+  identity: official_or_exported
+  historical_usage: first_cycle_only
+  target_coverage: low
+  guide_consensus: pending
+  skill_text: pending
+  cinema_signature_breakpoints: pending
+stage_confidence: low
+
+body_completeness_0_0: 0+0 本体完整度未判定；已有首轮 SD/DA 记录，但新角色长期表现仍需后续期数验证。
+signature_value_0_1: 0+1 未判定；缺专武相对通用音擎和异常体系队友的收益对比。
+cinema_value_1_0: 1+0 未判定；缺影画文本、伤害/异常积蓄收益和 auto 稳定性证据。
+combo_value_1_1: 1+1 未判定；缺本体、专武、影画组合收益。
+necessity_2_1: 2+1 未判定；新角色首轮资料不足，不能预设高档位必要性。
+higher_stage_note: 未判定：高档位缺机制、指南、首轮后续复测和长期环境证据。
+
+recommended_stage: 等技能/影画/专武/首轮后续数据
+acceptable_stage: 暂不预设；若机制与 Box 拼图高度吻合，先评估 0+0。
+unresolved_stage: 0+0 / 0+1 / 1+0 / 1+1 / 2+1
+not_recommended_stage: 未判定 / 缺证据：0+1、1+0、1+1、2+1 需要机制、专武、影画、指南证据
+stage_reason: 维琳娜是当前新 S，已有首轮 usage/tier 但历史窗口短；不能因为 coverage 或首轮单点直接给 X+X 结论。
+missing_data: 正式机制细读、专武对比、影画文本、核心队友、首轮后续 SD/DA 复测、长期环境、是否要求后续售后队友。
+
+stage_notes:
+  "0+0":
+    value_type: 本体完整度
+    evidence: 本地数据已有 3.0.1 首轮 SD/DA usage 和 Prydwen T0.5 记录。
+    missing_data: 后续期数复测、队伍稳定性、当前 Box 可组核心队。
+  "0+1":
+    value_type: 专武价值
+    evidence: 暂无可确认断点。
+    missing_data: 专武数值、通用音擎替代、异常积蓄/伤害/循环收益。
+  "1+0":
+    value_type: 影画断点
+    evidence: 暂无可确认断点。
+    missing_data: 1 影文本、收益量化、是否改善 auto 稳定性。
+  "1+1":
+    value_type: 本体+专武+影画组合
+    evidence: 暂无组合收益证据。
+    missing_data: 0+1 与 1+0 是否互相放大、是否绑定特定异常队友。
+  "2+1":
+    value_type: 高档位必要性
+    evidence: 暂无资料证明 2+1 是长期 auto 高难奖励必需。
+    missing_data: 2 影文本、2+1 实战质变、指南共识、长期环境。
+
+key_teammates: []
+archetypes: [风异常, 异常主C, 当前新 S]
+risks_and_counterevidence: 新角色首轮数据波动大；高档位保持未判定，缺资料只能记为缺证据。
+source_url: https://www.prydwen.gg/zenless/tier-list
+source_summary: 本地 tier/usage 已有维琳娜首轮 SD/DA 记录和 T0.5 定位；X+X 断点仍需正式机制、专武、影画、指南和后续期数数据。

@@ -22,7 +22,7 @@ def test_pull_value_distinguishes_rerun_and_new_character(tmp_path):
     assert cards["sunna"].stage_recommendation["recommended_stage"] == "0+0"
     assert cards["sunna"].stage_recommendation["unresolved_stage"] == "0+1 / 1+0 / 1+1 / 2+1"
     assert cards["sunna"].stage_recommendation["stage_confidence"] == "medium"
-    assert cards["sunna"].stage_recommendation["not_recommended_stage"].startswith("2+1以上")
+    assert "未判定" in cards["sunna"].stage_recommendation["not_recommended_stage"]
     assert cards["sunna"].evidence_ids
     assert cards["nom"].candidate_type == "new"
     assert cards["nom"].pull_value == "等实测"
@@ -227,7 +227,7 @@ recommended_stage: 0+0
 acceptable_stage: 0+0
 unresolved_stage: 0+1 / 1+0 / 1+1 / 2+1
 stage_confidence: medium
-not_recommended_stage: 2+1以上仅在机制/指南/实战证明必要时考虑
+not_recommended_stage: 未判定 / 缺证据：2+1以上需要机制、指南、实战证据
 stage_reason: 机制评审支持本体，其他档位待实证
 missing_data: 专武对比和影画收益
 source_quality:

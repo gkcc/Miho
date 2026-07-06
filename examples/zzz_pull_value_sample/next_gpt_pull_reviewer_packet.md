@@ -23,7 +23,7 @@
 ```json
 {
   "summary": {
-    "generated_at": "2026-07-06T23:25:41",
+    "generated_at": "2026-07-06T23:39:23",
     "data_dir": "out_zzz",
     "box_path": ".miho\\zzz_box_state.json",
     "plan_path": "configs\\zzz_banner_plan.json",
@@ -48,12 +48,12 @@
         "acceptable_stage": "0+0",
         "unresolved_stage": "0+1 / 1+0 / 1+1 / 2+1",
         "stage_confidence": "medium",
-        "not_recommended_stage": "2+1以上仅在机制/指南/实战证明必要时考虑",
+        "not_recommended_stage": "未判定 / 缺证据：2+1以上缺机制、指南和实战必要性证据",
         "reason": "historical_usage 很强，支持 0+0 本体价值；target_coverage 在当前 Box 只给弱覆盖，不能单独推高档；专武/影画/2+1 属于待机制与实战确认。",
         "missing_data": "专武对比、1+0 影画文本与实战收益、1+1 组合收益、2+1 是否有长期 auto 质变、当前 Box 主队绑定度、下版本环境是否继续抬物理/支援。"
       },
-      "history_summary": "sd: points 8 / latest 53.72% / avg_last3 53.947% / trend 24.53；da: points 8 / latest 46.41% / avg_last3 52.06% / trend 4.45",
-      "global_usage_summary": "best_latest=53.72%；best_avg_last3=53.947%；worst_trend=4.45",
+      "history_summary": "sd: points 9 / latest 53.72% / avg_last3 53.947% / trend 0；da: points 9 / latest 46.41% / avg_last3 52.06% / trend -7.93",
+      "global_usage_summary": "best_latest=53.72%；best_avg_last3=53.947%；worst_trend=-7.93",
       "team_coverage_summary": "current 0(0)；target 7(B- 6 / C 1)；新增依赖 7(B- 6 / C 1)",
       "mechanism_review_summary": "source_quality=identity=official_or_exported；historical_usage=high；target_coverage=medium；guide_consensus=pending；skill_text=pending；cinema_signature_breakpoints=pending；stage_confidence=medium；0+0(value_type=本体完整度; evidence=历史 usage 与 tier 数据支持复刻辅助本体价值；本地 target coverage 只作为辅助证据。; missing_data=需要确认当前版本实战指南是否仍认定 0+0 即可承担核心辅助功能。)；0+1(value_type=专武价值; evidence=目前只可判断为潜在增强，不能从历史队伍记录直接推断必需。; missing_data=专武数值、触发条件、覆盖率、循环改善、相对通用音擎收益。)；1+0(value_type=影画断点; evidence=可能改善循环或覆盖面，但当前 notes 未取得稳定攻略共识。; missing_data=1 影文本、收益量化、是否改变 auto 手感或队伍阈值。)；1+1(value_type=本体+专武+影画组合; evidence=组合收益需建立在 0+1 和 1+0 均明确有价值的前提上。; missing_data=专武与 1 影是否互相放大、是否绑定特定主队、是否优先于其他角色本体。)；2+1(value_type=高档位必要性; evidence=当前没有足够资料证明 2+1 是长期 auto 高难奖励必需。; missing_data=2 影文本、2+1 实战质变、指南共识、和 0+0/0+1/1+0 的边际收益差。)",
       "mechanism_notes": {
@@ -79,12 +79,12 @@
         "signature_value_0_1": "0+1 可能是可选增强；需要专武相对通用音擎的收益、覆盖率和循环改善实测。",
         "cinema_value_1_0": "1+0 可能提供循环、覆盖率或易用性改善；当前资料不足以证明优先级。",
         "combo_value_1_1": "1+1 需要本体、专武、影画组合收益都明确后再判断。",
-        "necessity_2_1": "2+1 不能仅因缺少断点数据就判为不推荐；等待机制/指南/实战证明是否有长期 auto 质变。",
-        "higher_stage_note": "2+1 以上默认归为竞速/真爱/高预算，除非机制、指南和实战数据证明长期高难 auto 必要。",
+        "necessity_2_1": "2+1 未判定；缺机制、指南和实战证据证明是否有长期 auto 质变。",
+        "higher_stage_note": "未判定：2+1 以上缺少机制、指南和实战数据证明长期高难 auto 必要。",
         "recommended_stage": "0+0",
         "acceptable_stage": "0+0",
         "unresolved_stage": "0+1 / 1+0 / 1+1 / 2+1",
-        "not_recommended_stage": "2+1以上仅在机制/指南/实战证明必要时考虑",
+        "not_recommended_stage": "未判定 / 缺证据：2+1以上缺机制、指南和实战必要性证据",
         "stage_reason": "historical_usage 很强，支持 0+0 本体价值；target_coverage 在当前 Box 只给弱覆盖，不能单独推高档；专武/影画/2+1 属于待机制与实战确认。",
         "missing_data": "专武对比、1+0 影画文本与实战收益、1+1 组合收益、2+1 是否有长期 auto 质变、当前 Box 主队绑定度、下版本环境是否继续抬物理/支援。",
         "stage_notes": {
@@ -133,7 +133,7 @@
       "replacement_risk": "target coverage 新增队伍多为 B-/C，不能单靠 box 覆盖定性；高档位不能因“缺少资料”直接判死刑，应保持 unresolved。",
       "decision_basis": [
         "T 榜最好评级 T0 / rating 11",
-        "历史出场点 16，近三期最高均值 53.947%",
+        "历史出场点 18，近三期最高均值 53.947%",
         "目标 Box 新增依赖队伍 7 条，其中 A/B+ 0 条、A/B+/B 0 条",
         "mechanism_review：source_quality=identity=official_or_exported；historical_usage=high；target_coverage=medium；guide_consensus=pending；skill_text=pending；cinema_signature_breakpoints=pending；stage_confidence=medium；0+0(value_type=本体完整度; evidence=历史 usage 与 tier 数据支持复刻辅助本体价值；本地 target coverage 只作为辅助证据。; missing_data=需要确认当前版本实战指南是否仍认定 0+0 即可承担核心辅助功能。)；0+1(value_type=专武价值; evidence=目前只可判断为潜在增强，不能从历史队伍记录直接推断必需。; missing_data=专武数值、触发条件、覆盖率、循环改善、相对通用音擎收益。)；1+0(value_type=影画断点; evidence=可能改善循环或覆盖面，但当前 notes 未取得稳定攻略共识。; missing_data=1 影文本、收益量化、是否改变 auto 手感或队伍阈值。)；1+1(value_type=本体+专武+影画组合; evidence=组合收益需建立在 0+1 和 1+0 均明确有价值的前提上。; missing_data=专武与 1 影是否互相放大、是否绑定特定主队、是否优先于其他角色本体。)；2+1(value_type=高档位必要性; evidence=当前没有足够资料证明 2+1 是长期 auto 高难奖励必需。; missing_data=2 影文本、2+1 实战质变、指南共识、和 0+0/0+1/1+0 的边际收益差。)"
       ],
