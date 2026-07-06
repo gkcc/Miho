@@ -61,7 +61,7 @@ if (-not $SkipZzz) {
         "--box", $ZzzBox,
         "--out", $ZzzOut,
         "--plan", $ZzzPlan,
-        "--plan-status", $ZzzPlanStatus
+        "--plan-status", $ZzzPullPlanStatus
     )
 }
 
