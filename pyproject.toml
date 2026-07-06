@@ -14,4 +14,4 @@ excel = ["pandas", "openpyxl"]
 test = ["pytest"]
 
 [tool.setuptools.packages.find]
-include = ["hsr_endgame_exporter*", "zzz_endgame_exporter*"]
+include = ["hsr_endgame_exporter*", "zzz_endgame_exporter*", "miho_core*"]

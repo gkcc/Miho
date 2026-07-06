@@ -1,0 +1,31 @@
+candidate_min_rating: 9
+max_generated_candidates: 30
+pull_rating: 10
+skip_rating: 8
+low_tier_warning_rating: 9
+trend_warning_delta: -5
+min_pull_avg_usage: 5
+bad_trend_block_delta: -10
+bad_trend_block_avg_usage: 20
+default_max_recommended_stage: 0+1
+
+investment_thresholds:
+  level: 60
+  w_engine_level: 60
+  core_skill: 6
+
+stage_ladder:
+  - stage: 0+0
+    label: 0+0 本体
+    pull_cost: 1
+  - stage: 0+1
+    label: 0+1 本体+专武
+    pull_cost: 2
+  - stage: 1+1
+    label: 1+1 一影+专武
+    pull_cost: 3
+  - stage: 2+1
+    label: 2+1 二影+专武
+    pull_cost: 4
+
+candidates: []
