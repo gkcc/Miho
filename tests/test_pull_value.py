@@ -2,7 +2,7 @@ import csv
 import json
 
 from miho_core.evidence import build_evidence_pool
-from miho_core.pull_value import build_pull_value_cards, write_gpt_review_packet
+from miho_core.pull_value import build_pull_value_cards, write_gpt_review_packet, write_pull_value_report
 from zzz_endgame_exporter.cli import main
 
 
@@ -158,6 +158,31 @@ def test_decision_baseline_keeps_prior_final_stage_when_local_rule_differs(tmp_p
     assert velina.final_stage == "0+1"
     assert velina.stage_delta == "等实测 -> 0+1"
     assert velina.delta_requires_review is True
+
+
+def test_pull_value_report_shows_baseline_final_stage_and_delta(tmp_path):
+    out = _write_pull_fixture(tmp_path)
+    box = _write_box(tmp_path)
+    plan = _write_plan(tmp_path)
+    baseline = _write_decision_baseline(tmp_path)
+    _write_mechanism_notes(tmp_path)
+    output = tmp_path / "pull_value.md"
+
+    write_pull_value_report(
+        out,
+        box_path=box,
+        plan_path=plan,
+        statuses=["current"],
+        decision_baseline_path=baseline,
+        output_path=output,
+    )
+
+    text = output.read_text(encoding="utf-8")
+    assert "prior_final_stage | local_rule_stage | final_stage | stage_delta | delta_requires_review | change_allowed_reason" in text
+    assert "叶瞬光 `ye-shunguang` | rerun | 中高 | 1+1 | 0+0 | 1+1 | 0+0 -> 1+1 | yes | only_with_new_evidence" in text
+    assert "维琳娜 `velina` | new | 等实测 | 0+1 | 等实测 | 0+1 | 等实测 -> 0+1 | yes | only_with_new_evidence" in text
+    assert "派派 `piper`" not in text
+    assert "妮可 `nicole-demara`" not in text
 
 
 def test_review_packet_includes_baseline_delta_fields(tmp_path):
@@ -365,6 +390,7 @@ def _write_decision_baseline(tmp_path):
                         "final_stage": "1+1",
                         "decision_status": "locked",
                         "confidence": "medium_high",
+                        "source": "manual_gpt_review",
                         "reason": "测试基线：叶瞬光 1+1",
                         "change_policy": "only_with_new_evidence",
                     },
@@ -373,6 +399,7 @@ def _write_decision_baseline(tmp_path):
                         "final_stage": "0+1",
                         "decision_status": "soft_locked",
                         "confidence": "medium",
+                        "source": "manual_gpt_review",
                         "reason": "测试基线：维琳娜 0+1",
                         "change_policy": "only_with_new_evidence",
                     },
