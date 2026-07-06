@@ -64,17 +64,17 @@
           "slug": "nom",
           "name_cn": "诺姆·霍洛维尔",
           "banner_role": "限定 S 级 UP",
-          "element_cn": "未知",
-          "style_cn": "未知",
-          "role_group_cn": "未知",
+          "element_cn": "火",
+          "style_cn": "击破",
+          "role_group_cn": "击破",
           "rarity": "S",
           "source_label": "米游社官方代理人档案",
           "source_url": "https://www.miyoushe.com/zzz/article/75009674",
           "icon_url": "https://bbs-static.miyoushe.com/static/2026/04/29/372741cd9b0acdec2a8fa7495e96d69c_4245038187283874940.png",
           "icon_source_label": "米游社官方话题头像",
           "icon_source_url": "https://www.miyoushe.com/zzz/article/75009674",
-          "analysis_tags": ["新角色", "下期", "高未知度"],
-          "focus": "新角色在实测前只做关系识别：属性、特性、核心队友、是否替代已有主推体系。"
+          "analysis_tags": ["新角色", "下期", "火", "击破", "机制未实测"],
+          "focus": "新 S 火属性击破；技能、专武、影画和首轮高难数据未落地，先只做关系识别。"
         },
         {
           "slug": "sunna",

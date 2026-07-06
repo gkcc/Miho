@@ -1,18 +1,60 @@
 slug: sunna
 name_cn: 千夏
-body_completeness_0_0: 0+0 已具备复刻辅助的核心功能，历史全局出场和 T0 定位足以支持先拿本体。
-signature_value_0_1: 0+1 属于可选增强，需要确认专武相对通用音擎的收益；当前历史数据不能单独证明专武必需。
-cinema_value_1_0: 1+0 若提供关键循环、覆盖率或易用性改善可考虑，但不应优先于本体覆盖和队伍成型。
-combo_value_1_1: 1+1 只在本体和专武实测收益都明确、且长期绑定主队时考虑。
-necessity_2_1: 2+1 不是长期 auto 高难奖励必需，除非后续机制证明确有质变。
-higher_stage_note: 2+1 以上默认归为竞速/真爱/高预算，不进入普通抽取建议。
+
+identity:
+  element_cn: 物理
+  style_cn: 支援
+  role_group_cn: 辅助
+  rarity: S
+mechanism_status: 复刻辅助；历史表现充足，但专武、影画和高档位断点仍需机制/指南/实战交叉确认。
+
+source_quality:
+  identity: official_or_exported
+  historical_usage: high
+  target_coverage: medium
+  guide_consensus: pending
+  skill_text: pending
+  cinema_signature_breakpoints: pending
+stage_confidence: medium
+
+body_completeness_0_0: 0+0 已具备复刻辅助的核心功能；历史全局出场和 T0 定位支持先拿本体。
+signature_value_0_1: 0+1 可能是可选增强；需要专武相对通用音擎的收益、覆盖率和循环改善实测。
+cinema_value_1_0: 1+0 可能提供循环、覆盖率或易用性改善；当前资料不足以证明优先级。
+combo_value_1_1: 1+1 需要本体、专武、影画组合收益都明确后再判断。
+necessity_2_1: 2+1 不能仅因缺少断点数据就判为不推荐；等待机制/指南/实战证明是否有长期 auto 质变。
+higher_stage_note: 2+1 以上默认归为竞速/真爱/高预算，除非机制、指南和实战数据证明长期高难 auto 必要。
+
 recommended_stage: 0+0
-acceptable_stage: 0+0；若专武实测显著提升泛用辅助价值，可上调到 0+1。
-not_recommended_stage: 1+1、2+1 或更高暂不建议作为目标。
-stage_reason: historical_usage 很强，但 target_coverage 在当前 Box 只给弱覆盖；mechanism_review 支持先拿本体，不支持高档位。
-missing_data: 专武对比、影画断点实测、当前 Box 主队绑定度、下版本环境是否继续抬物理/支援。
+acceptable_stage: 0+0
+unresolved_stage: 0+1 / 1+0 / 1+1 / 2+1
+not_recommended_stage: 2+1以上仅在机制/指南/实战证明必要时考虑
+stage_reason: historical_usage 很强，支持 0+0 本体价值；target_coverage 在当前 Box 只给弱覆盖，不能单独推高档；专武/影画/2+1 属于待机制与实战确认。
+missing_data: 专武对比、1+0 影画文本与实战收益、1+1 组合收益、2+1 是否有长期 auto 质变、当前 Box 主队绑定度、下版本环境是否继续抬物理/支援。
+
+stage_notes:
+  "0+0":
+    value_type: 本体完整度
+    evidence: 历史 usage 与 tier 数据支持复刻辅助本体价值；本地 target coverage 只作为辅助证据。
+    missing_data: 需要确认当前版本实战指南是否仍认定 0+0 即可承担核心辅助功能。
+  "0+1":
+    value_type: 专武价值
+    evidence: 目前只可判断为潜在增强，不能从历史队伍记录直接推断必需。
+    missing_data: 专武数值、触发条件、覆盖率、循环改善、相对通用音擎收益。
+  "1+0":
+    value_type: 影画断点
+    evidence: 可能改善循环或覆盖面，但当前 notes 未取得稳定攻略共识。
+    missing_data: 1 影文本、收益量化、是否改变 auto 手感或队伍阈值。
+  "1+1":
+    value_type: 本体+专武+影画组合
+    evidence: 组合收益需建立在 0+1 和 1+0 均明确有价值的前提上。
+    missing_data: 专武与 1 影是否互相放大、是否绑定特定主队、是否优先于其他角色本体。
+  "2+1":
+    value_type: 高档位必要性
+    evidence: 当前没有足够资料证明 2+1 是长期 auto 高难奖励必需。
+    missing_data: 2 影文本、2+1 实战质变、指南共识、和 0+0/0+1/1+0 的边际收益差。
+
 key_teammates: [ye-shunguang, zhao, miyabi, lucy]
 archetypes: [物理辅助, 泛用支援, 主C增益拼图]
-risks_and_counterevidence: target coverage 新增队伍多为 B-/C，不能单靠 box 覆盖定性；高档位收益需要专武/影画实测。
+risks_and_counterevidence: target coverage 新增队伍多为 B-/C，不能单靠 box 覆盖定性；高档位不能因“缺少资料”直接判死刑，应保持 unresolved。
 source_url: https://www.prydwen.gg/zenless/tier-list
-source_summary: 本地 Prydwen tier/usage 数据显示 sunna 为 SD/DA T0，历史全局出场率稳定；机制断点仍需专武/影画实测补证。
+source_summary: 本地 Prydwen tier/usage 数据显示 sunna 为 SD/DA 高评级且历史全局出场率稳定；机制断点仍需专武、影画、攻略和首轮实战补证。

@@ -4,3 +4,5 @@ __pycache__/
 *.egg-info/
 out_zzz_probe/
 .miho/
+out_zzz/*pull_value_report.md
+out_zzz/*gpt_pull_reviewer_packet.md

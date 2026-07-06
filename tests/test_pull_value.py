@@ -20,7 +20,9 @@ def test_pull_value_distinguishes_rerun_and_new_character(tmp_path):
     assert "mechanism_review" in "；".join(cards["sunna"].decision_basis)
     assert "target coverage 定性" in "；".join(cards["sunna"].risk_notes)
     assert cards["sunna"].stage_recommendation["recommended_stage"] == "0+0"
-    assert "1+1" in cards["sunna"].stage_recommendation["not_recommended_stage"]
+    assert cards["sunna"].stage_recommendation["unresolved_stage"] == "0+1 / 1+0 / 1+1 / 2+1"
+    assert cards["sunna"].stage_recommendation["stage_confidence"] == "medium"
+    assert cards["sunna"].stage_recommendation["not_recommended_stage"].startswith("2+1以上")
     assert cards["sunna"].evidence_ids
     assert cards["nom"].candidate_type == "new"
     assert cards["nom"].pull_value == "等实测"
@@ -44,6 +46,8 @@ def test_pull_value_cli_writes_report(tmp_path):
     assert "诺姆 `nom`" in text
     assert "没有历史队伍记录是未实测状态，不作为负面扣分" in text
     assert "recommended_stage" in text
+    assert "unresolved_stage" in text
+    assert "stage_confidence" in text
     assert "mechanism_review" in text
 
 
@@ -62,6 +66,8 @@ def test_gpt_review_packet_writes_no_key_prompt(tmp_path):
     assert '"slug": "sunna"' in text
     assert '"slug": "nom"' in text
     assert '"recommended_stage": "0+0"' in text
+    assert '"stage_confidence": "medium"' in text
+    assert '"mechanism_notes"' in text
     assert "新角色没有历史队伍记录只能标记为未实测" in text
 
 
@@ -76,6 +82,34 @@ def test_review_packet_cli_writes_packet(tmp_path):
 
     assert result == 0
     assert "GPT Pull Reviewer Packet" in output.read_text(encoding="utf-8")
+
+
+def test_pull_value_cli_writes_current_and_next_reports_by_default(tmp_path):
+    out = _write_pull_fixture(tmp_path)
+    box = _write_box(tmp_path)
+    plan = _write_plan(tmp_path)
+    _write_mechanism_notes(tmp_path)
+
+    result = main(["pull-value", "--box", str(box), "--out", str(out), "--plan", str(plan)])
+
+    assert result == 0
+    assert (out / "current_pull_value_report.md").exists()
+    assert (out / "next_pull_value_report.md").exists()
+    assert not (out / "pull_value_report.md").exists()
+
+
+def test_review_packet_cli_writes_current_and_next_packets_by_default(tmp_path):
+    out = _write_pull_fixture(tmp_path)
+    box = _write_box(tmp_path)
+    plan = _write_plan(tmp_path)
+    _write_mechanism_notes(tmp_path)
+
+    result = main(["review-packet", "--box", str(box), "--out", str(out), "--plan", str(plan)])
+
+    assert result == 0
+    assert (out / "current_gpt_pull_reviewer_packet.md").exists()
+    assert (out / "next_gpt_pull_reviewer_packet.md").exists()
+    assert not (out / "gpt_pull_reviewer_packet.md").exists()
 
 
 def _write_pull_fixture(tmp_path):
@@ -157,6 +191,12 @@ def _write_plan(tmp_path):
             {
                 "phases": [
                     {
+                        "status": "current",
+                        "characters": [
+                            {"slug": "sunna", "name_cn": "千夏", "banner_role": "限定 S 级复刻", "analysis_tags": ["复刻", "辅助"]},
+                        ],
+                    },
+                    {
                         "status": "next",
                         "characters": [
                             {"slug": "nom", "name_cn": "诺姆", "banner_role": "限定 S 级 UP", "analysis_tags": ["新角色"], "focus": "机制未知，等实测"},
@@ -182,12 +222,39 @@ signature_value_0_1: 专武可选
 cinema_value_1_0: 影画可选
 combo_value_1_1: 组合非必需
 necessity_2_1: 非必要
-higher_stage_note: 高档只给竞速/真爱
+higher_stage_note: 2+1 以上只在机制/指南/实战证明必要时考虑
 recommended_stage: 0+0
-acceptable_stage: 0+0；可等实测看 0+1
-not_recommended_stage: 1+1、2+1 暂不推荐
-stage_reason: 机制评审支持本体，不支持高档
+acceptable_stage: 0+0
+unresolved_stage: 0+1 / 1+0 / 1+1 / 2+1
+stage_confidence: medium
+not_recommended_stage: 2+1以上仅在机制/指南/实战证明必要时考虑
+stage_reason: 机制评审支持本体，其他档位待实证
 missing_data: 专武对比和影画收益
+source_quality:
+  identity: test
+  historical_usage: high
+  breakpoints: pending
+stage_notes:
+  "0+0":
+    value_type: 本体完整度
+    evidence: 本体完整
+    missing_data: 无
+  "0+1":
+    value_type: 专武价值
+    evidence: 专武可选
+    missing_data: 专武对比
+  "1+0":
+    value_type: 影画断点
+    evidence: 影画可选
+    missing_data: 影画收益
+  "1+1":
+    value_type: 组合价值
+    evidence: 待组合收益
+    missing_data: 组合实测
+  "2+1":
+    value_type: 高档位必要性
+    evidence: 未证明必要
+    missing_data: 2+1 实测
 key_teammates: [miyabi, lucy]
 archetypes: [辅助]
 risks_and_counterevidence: target coverage 不能单独定性

@@ -5,6 +5,7 @@ param(
     [string]$ZzzBox = ".miho\zzz_box_state.json",
     [string]$ZzzPlan = "configs\zzz_banner_plan.json",
     [string]$ZzzPlanStatus = "next",
+    [string]$ZzzPullPlanStatus = "current,next",
     [int]$Days = 183,
     [switch]$SkipHsr,
     [switch]$SkipZzz
@@ -46,14 +47,14 @@ if (-not $SkipZzz) {
         "--box", $ZzzBox,
         "--out", $ZzzOut,
         "--plan", $ZzzPlan,
-        "--plan-status", $ZzzPlanStatus
+        "--plan-status", $ZzzPullPlanStatus
     )
     Invoke-Step "Build ZZZ pull value report" @(
         "python", "-m", "zzz_endgame_exporter", "pull-value",
         "--box", $ZzzBox,
         "--out", $ZzzOut,
         "--plan", $ZzzPlan,
-        "--plan-status", $ZzzPlanStatus
+        "--plan-status", $ZzzPullPlanStatus
     )
     Invoke-Step "Build ZZZ GPT reviewer packet" @(
         "python", "-m", "zzz_endgame_exporter", "review-packet",
