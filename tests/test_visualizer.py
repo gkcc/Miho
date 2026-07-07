@@ -116,9 +116,16 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "hsr_endgame_box_v1" in app_text
     assert "phaseName(row)" in app_text
     assert "T1及以下提醒" in app_text
+    assert "当前模式T1及以下提醒" in app_text
+    assert "tierSummaryFor" in app_text
+    assert "Prydwen 按模式分档" in app_text
     assert "投入谨慎" in app_text
     assert 'id="buildEditor"' in index_text
+    assert 'id="buildEidolonSelect"' in index_text
+    assert 'id="buildSignatureSelect"' in index_text
     assert "builds" in app_text
+    assert "BUILD_EIDOLONS" in app_text
+    assert "buildConfigLabel" in app_text
     assert "练度未录入" in app_text
     assert "ownedBuildScore" in app_text
     assert data["trendRows"][0]["icon_url"] == "https://example.com/icon.webp"

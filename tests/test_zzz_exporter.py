@@ -3,7 +3,7 @@ import json
 from zzz_endgame_exporter.official_names import official_name_map
 from zzz_endgame_exporter.parsers import make_phase_row, parse_team_rows, scope_label
 from zzz_endgame_exporter.prydwen import _date_from_prydwen_date, build_tier_rows
-from zzz_endgame_exporter.visualizer import write_visualizer_app
+from zzz_endgame_exporter.visualizer import _avatar_crop_box, write_visualizer_app
 
 
 def test_zzz_scope_label_matches_processed_files():
@@ -72,6 +72,12 @@ def test_zzz_prydwen_full_month_date_and_aliases():
         ]
     )
     assert mapped["billy-starlight"]["character_name_cn"] == "星徽·比利"
+
+
+def test_zzz_avatar_crop_box_accepts_normalized_coordinates():
+    assert _avatar_crop_box([0.25, 0.5, 0.75, 1], 1440, 5112) == (360, 2556, 1080, 5112)
+    assert _avatar_crop_box({"left": 12, "top": 20, "right": 90, "bottom": 120}, 100, 140) == (12, 20, 90, 120)
+    assert _avatar_crop_box("", 100, 100) is None
 
 
 def test_zzz_visualizer_outputs_box_and_keeps_bangboo_out_of_roster(tmp_path):
@@ -173,8 +179,14 @@ def test_zzz_visualizer_outputs_box_and_keeps_bangboo_out_of_roster(tmp_path):
     assert (visualizer_dir / "app.js").exists()
     app_text = (visualizer_dir / "app.js").read_text(encoding="utf-8")
     data = json.loads((visualizer_dir / "data.json").read_text(encoding="utf-8"))
-    assert "zzz_endgame_box_v1" in app_text
+    assert "zzz_endgame_box_v2" in app_text
+    assert "api/zzz/box" in app_text
+    assert "卡池情报" in (visualizer_dir / "index.html").read_text(encoding="utf-8")
     assert "buildEditor" in (visualizer_dir / "index.html").read_text(encoding="utf-8")
+    assert "buildMindscape" in (visualizer_dir / "index.html").read_text(encoding="utf-8")
+    assert "buildSignature" in (visualizer_dir / "index.html").read_text(encoding="utf-8")
+    assert "BUILD_MINDSCAPES" in app_text
+    assert "buildConfigLabel" in app_text
     assert "练度未录入" in app_text
     assert [row["character_slug"] for row in data["rosterRows"]] == ["velina", "miyabi"]
     assert data["teamTemplates"][0]["bangboo_name"] == "阿饭"
