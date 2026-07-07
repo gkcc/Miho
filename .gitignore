@@ -12,6 +12,13 @@ data_quality_report.md
 team_coverage_*.md
 out/hsr_high_difficulty_team_export.*
 start_visualizer.cmd
+codex_*_validation_report.md
+
+# Generated export directories. Keep reusable samples under examples/.
+out/
+out_zzz/
+zzz_endgame_export/
+visualizer/
 
 # Refreshed raw/cache data that should stay local unless explicitly promoted
 out/raw/miyoushe/
