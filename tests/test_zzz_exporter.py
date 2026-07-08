@@ -224,6 +224,19 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
                             }
                         ],
                     }
+                    ,
+                    {
+                        "id": "satellite",
+                        "status": "satellite",
+                        "characters": [
+                            {
+                                "slug": "remiel",
+                                "name_cn": "蕾米埃尔·丹",
+                                "banner_role": "已公开卫星",
+                                "rarity": "S",
+                            }
+                        ],
+                    },
                 ]
             },
             ensure_ascii=False,
@@ -241,6 +254,25 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
     raw_prydwen.mkdir(parents=True)
     (raw_prydwen / "sd.html").write_text(
         '<select><option value="22" selected="">3.0.2 - 06/July/2026 (19,687 users)</option></select>',
+        encoding="utf-8",
+    )
+    (tmp_path / "zzz_endgame_phase_overrides.json").write_text(
+        json.dumps(
+            {
+                "phases": [
+                    {
+                        "mode": "sd",
+                        "phase_ver": "3.0.2",
+                        "collect_date": "2026-07-06",
+                        "start_date": "2026-06-26",
+                        "end_date": "2026-07-10",
+                        "source_label": "manual",
+                        "source_url": "https://example.com/sd",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     usage_rows = [
@@ -325,9 +357,17 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
 
     assert roster["nom"]["character_name_cn"] == "诺姆·霍洛维尔"
     assert roster["nom"]["element_cn"] == "火"
+    assert roster["nom"]["banner_statuses"] == "current"
+    assert roster["remiel"]["banner_statuses"] == "satellite"
     assert data["bannerRows"][0]["phase_status"] == "current"
     assert "banner={phase:'current'" in app_text
+    assert "banner_current" in app_text
+    assert "no-store" in app_text
     assert data["phaseInfoRows"][0]["collect_date"] == "2026-07-06"
+    assert data["phaseInfoRows"][0]["start_date"] == "2026-06-26"
+    assert data["phaseInfoRows"][0]["end_date"] == "2026-07-10"
+    assert data["phaseInfoRows"][0]["mechanic_url"] == "https://example.com/sd"
+    assert "phase_status" in data["phaseInfoRows"][0]
     assert data["phaseInfoRows"][0]["source_limited"] is True
     assert data["teamTemplates"][0]["phase_ver"] == "3.0.2"
     assert data["teamTemplates"][0]["collect_date"] == "2026-07-06"

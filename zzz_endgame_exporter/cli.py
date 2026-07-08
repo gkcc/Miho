@@ -442,6 +442,7 @@ def run_export(args: argparse.Namespace) -> None:
             )
         )
         _backfill_team_collect_dates(team_rows, phase_rows)
+    _apply_phase_overrides(phase_rows, team_rows, _load_phase_overrides(out_dir))
 
     if args.include_prydwen_tier:
         tier_rows, changelog_rows = fetch_and_parse_tier(out_dir / "raw" / "prydwen_tier", warnings)
@@ -654,6 +655,69 @@ def _backfill_team_collect_dates(team_rows: list[dict[str, Any]], phase_rows: li
         collect_date = phase_dates.get((str(row.get("mode") or ""), str(row.get("phase_ver") or "")))
         if collect_date:
             row["collect_date"] = collect_date
+
+
+def _load_phase_overrides(out_dir: Path) -> list[dict[str, Any]]:
+    for path in (
+        out_dir / "zzz_endgame_phase_overrides.json",
+        out_dir.parent / "configs" / "zzz_endgame_phase_overrides.json",
+        Path("configs") / "zzz_endgame_phase_overrides.json",
+    ):
+        if not path.exists():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        rows = value.get("phases") if isinstance(value, dict) else value
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+    return []
+
+
+def _apply_phase_overrides(
+    phase_rows: list[dict[str, Any]],
+    team_rows: list[dict[str, Any]],
+    overrides: list[dict[str, Any]],
+) -> None:
+    if not overrides:
+        return
+    override_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in overrides:
+        mode = str(row.get("mode") or "")
+        phase_ver = str(row.get("phase_ver") or "")
+        if mode and phase_ver:
+            override_by_key[(mode, phase_ver)] = row
+    if not override_by_key:
+        return
+    for row in phase_rows:
+        override = override_by_key.get((str(row.get("mode") or ""), str(row.get("phase_ver") or "")))
+        if not override:
+            continue
+        for source_key, target_key in (
+            ("collect_date", "collect_date"),
+            ("start_date", "start_date"),
+            ("end_date", "end_date"),
+            ("source_label", "source"),
+            ("source_url", "source_path"),
+        ):
+            if override.get(source_key):
+                row[target_key] = override[source_key]
+        if override.get("note"):
+            note = str(row.get("note") or "").strip()
+            suffix = str(override["note"])
+            row["note"] = f"{note}; {suffix}" if note and suffix not in note else suffix
+    phase_dates = {
+        (str(row.get("mode") or ""), str(row.get("phase_ver") or "")): row
+        for row in phase_rows
+    }
+    for row in team_rows:
+        phase = phase_dates.get((str(row.get("mode") or ""), str(row.get("phase_ver") or "")))
+        if not phase:
+            continue
+        for key in ("collect_date", "start_date", "end_date"):
+            if phase.get(key) and not row.get(key):
+                row[key] = phase[key]
 
 
 def _prepare_config(config: dict[str, Any]) -> dict[str, dict[str, Any]]:

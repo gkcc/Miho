@@ -4,6 +4,32 @@ from hsr_endgame_exporter.visualizer import write_visualizer_app
 
 
 def test_write_visualizer_app_outputs_interactive_files(tmp_path):
+    (tmp_path / "hsr_banner_plan.json").write_text(
+        json.dumps(
+            {
+                "phases": [
+                    {
+                        "id": "future",
+                        "status": "next",
+                        "title": "后续跃迁",
+                        "characters": [
+                            {
+                                "slug": "future-unit",
+                                "name_cn": "未来角色",
+                                "name_en": "Future Unit",
+                                "banner_role": "限定 5 星新角色",
+                                "rarity": "5",
+                                "element_cn": "量子",
+                                "path_cn": "智识",
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     trend_rows = [
         {
             "tier_mode": "moc",
@@ -117,6 +143,8 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "phaseName(row)" in app_text
     assert "phaseStatusLabel" in app_text
     assert "banner={phase:'current'" in app_text
+    assert "banner_next" in app_text
+    assert "no-store" in app_text
     assert "T1及以下提醒" in app_text
     assert "当前模式T1及以下提醒" in app_text
     assert "tierSummaryFor" in app_text
@@ -138,4 +166,7 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "phase_status" in data["phaseInfoRows"][0]
     assert data["teamTemplates"][0]["phase_name_cn"] == "值日行动"
     assert "phase_status" in data["teamTemplates"][0]
+    future = {row["character_slug"]: row for row in data["rosterRows"]}["future-unit"]
+    assert future["character_name_cn"] == "未来角色"
+    assert future["banner_statuses"] == "next"
     assert data["rosterRows"][0]["element_cn"] == "火"

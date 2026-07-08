@@ -137,12 +137,13 @@ def write_visualizer_app(
     roster_rows = _localize_roster_avatars(out_dir, visualizer_dir, roster_rows)
     usage_rows = _build_usage_rows(character_usage_rows or [], tier_rows, roster_rows)
     phase_info_rows = _build_phase_info_rows(_read_csv(out_dir / "phase_index.csv"))
+    banner_rows = _load_banner_rows(out_dir, roster_rows)
+    roster_rows = _merge_banner_rows_into_roster(roster_rows, banner_rows)
     team_templates = _build_recommender_rows(
         team_rank_rows if team_rank_rows is not None else _read_csv(out_dir / "team_rank_raw.csv"),
         roster_rows,
         phase_info_rows,
     )
-    banner_rows = _load_banner_rows(out_dir, roster_rows)
     data = {
         "meta": {
             "generatedAt": _latest_value(tier_rows, "fetched_at"),
@@ -851,6 +852,46 @@ def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[
     return rows
 
 
+def _merge_banner_rows_into_roster(roster_rows: list[dict[str, Any]], banner_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_slug = {str(row.get("character_slug") or ""): dict(row) for row in roster_rows}
+    next_order = max((_sort_order(row.get("release_order")) for row in roster_rows), default=0) + 1
+    for banner_row in banner_rows:
+        slug = _canonical_slug(banner_row.get("character_slug"))
+        if not slug:
+            continue
+        phase_status = str(banner_row.get("phase_status") or "")
+        phase_title = str(banner_row.get("phase_title") or "")
+        existing = by_slug.get(slug)
+        if existing is None:
+            by_slug[slug] = {
+                "character_slug": slug,
+                "character_name_en": banner_row.get("character_name_en") or slug,
+                "character_name_cn": banner_row.get("character_name_cn") or "",
+                "element_cn": banner_row.get("element_cn") or "",
+                "element_en": "",
+                "path_cn": banner_row.get("path_cn") or "",
+                "path_en": "",
+                "rarity": banner_row.get("rarity") or "",
+                "icon_url": banner_row.get("icon_url") or "",
+                "release_order": next_order,
+                "role_groups": "unknown",
+                "role_group_cns": banner_row.get("role_group_cns") or "未分类",
+                "alias_slugs": slug,
+                "source": "banner_plan",
+                "banner_statuses": phase_status,
+                "banner_phase_titles": phase_title,
+            }
+            next_order += 1
+            continue
+        existing["banner_statuses"] = _merge_aliases(existing.get("banner_statuses"), phase_status)
+        existing["banner_phase_titles"] = _merge_aliases(existing.get("banner_phase_titles"), phase_title)
+        for key in ("character_name_cn", "character_name_en", "element_cn", "path_cn", "rarity", "icon_url", "role_group_cns"):
+            if not existing.get(key) and banner_row.get(key):
+                existing[key] = banner_row[key]
+        by_slug[slug] = existing
+    return sorted(by_slug.values(), key=lambda row: (_sort_order(row.get("release_order")), str(row.get("character_slug"))))
+
+
 def _build_roster_lookup(roster_rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     lookup: dict[str, dict[str, Any]] = {}
     for row in roster_rows:
@@ -1001,7 +1042,7 @@ _INDEX_HTML = """<!doctype html>
         <div class="control-group"><label>命途</label><div class="segmented" id="boxPathControl"></div></div>
         <div class="control-group"><label>职能</label><div class="segmented" id="boxRoleControl"></div></div>
         <div class="control-group compact"><label>星级</label><select id="boxRaritySelect"><option value="all">全部</option><option value="5">五星</option><option value="4">四星</option></select></div>
-        <div class="control-group compact"><label>状态</label><select id="boxOwnedSelect"><option value="all">全部</option><option value="owned">已拥有</option><option value="missing">未拥有</option></select></div>
+        <div class="control-group compact"><label>状态</label><select id="boxOwnedSelect"><option value="all">全部</option><option value="owned">已拥有</option><option value="missing">未拥有</option><option value="banner_current">当期UP</option><option value="banner_next">后续卡池</option><option value="banner_recent">历史参考</option></select></div>
         <div class="control-group search"><label>搜索</label><input id="boxSearchInput" type="search" placeholder="中文名 / 英文名 / slug" /></div>
         <div class="box-actions">
           <button id="boxExportBtn" type="button">导出Box</button>
@@ -1126,7 +1167,7 @@ function pct(v){const n=number(v);return n==null?'':`${n.toFixed(2)}%`}
 function fmtMetric(v){const n=number(v);if(n==null)return '';return state.metric==='app_rate'?`${n.toFixed(2)}%`:n.toFixed(2)}
 function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 
-fetch('./data.json')
+fetch(`./data.json?v=${Date.now()}`,{cache:'no-store'})
   .then(r=>r.json())
   .then(data=>{DATA=data;loadBox();loadRecSettings();init();render();syncBoxFromServer();})
   .catch(err=>{document.body.innerHTML=`<main class="app-shell"><h1>数据加载失败</h1><p>${esc(err.message)}</p></main>`;});
@@ -1432,9 +1473,12 @@ function boxTime(raw){const t=Date.parse(raw.updatedAt||raw.exportedAt||'');retu
 function syncBoxFromServer(){fetch('/api/hsr/box',{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject(new Error('no api'))).then(server=>{const local=readBoxRaw();server.fromServer=true;const serverWins=Boolean(server.updatedAt)&&boxTime(server)>=boxTime(local);if(serverWins||(hasBoxData(server)&&(!hasBoxData(local)||boxTime(server)>=boxTime(local)))){applyBoxRaw(server);localStorage.setItem(BOX_KEY,JSON.stringify(server));box.saveStatus='本机自动保存';render();}else if(hasBoxData(local)){saveBoxToServer(boxPayload());}else{box.saveStatus='本机自动保存';render();}}).catch(()=>{box.saveStatus='浏览器缓存';if(state.page==='box'||state.page==='banner')render();});}
 function saveBoxToServer(payload){fetch('/api/hsr/box',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.ok?r.json():Promise.reject(new Error('save failed'))).then(()=>{box.saveStatus='本机自动保存';if(state.page==='box'||state.page==='banner')render();}).catch(()=>{box.saveStatus='浏览器缓存';if(state.page==='box'||state.page==='banner')render();});}
 function releaseOrder(row){const n=Number(row.release_order);return Number.isFinite(n)?n:99999}
-function filteredRoster(){const q=box.search;return DATA.rosterRows.filter(r=>(box.element==='all'||r.element_cn===box.element)&&(box.path==='all'||r.path_cn===box.path)&&(box.role==='all'||String(r.role_groups||'').split(';').includes(box.role))&&(box.rarity==='all'||String(r.rarity)===box.rarity)&&(box.status==='all'||(box.status==='owned')===box.owned.has(r.character_slug))&&(!q||[r.character_name_cn,r.character_name_en,r.character_slug,r.element_cn,r.path_cn,r.role_group_cns].some(x=>String(x||'').toLowerCase().includes(q)))).sort((a,b)=>releaseOrder(a)-releaseOrder(b)||String(a.character_name_en).localeCompare(String(b.character_name_en)));}
+function matchesBoxStatus(row){if(box.status==='all')return true;if(box.status==='owned')return box.owned.has(row.character_slug);if(box.status==='missing')return !box.owned.has(row.character_slug);if(box.status.startsWith('banner_'))return String(row.banner_statuses||'').split(';').includes(box.status.replace('banner_',''));return true}
+function boxStatusLabel(){return{all:'全部状态',owned:'已拥有',missing:'未拥有',banner_current:'当期UP',banner_next:'后续卡池',banner_recent:'历史参考'}[box.status]||box.status}
+function boxStatusText(status){return{current:'当期UP',next:'后续卡池',recent:'历史参考',previous:'已结束'}[status]||status}
+function filteredRoster(){const q=box.search;return DATA.rosterRows.filter(r=>(box.element==='all'||r.element_cn===box.element)&&(box.path==='all'||r.path_cn===box.path)&&(box.role==='all'||String(r.role_groups||'').split(';').includes(box.role))&&(box.rarity==='all'||String(r.rarity)===box.rarity)&&matchesBoxStatus(r)&&(!q||[r.character_name_cn,r.character_name_en,r.character_slug,r.element_cn,r.path_cn,r.role_group_cns,r.banner_phase_titles].some(x=>String(x||'').toLowerCase().includes(q)))).sort((a,b)=>releaseOrder(a)-releaseOrder(b)||String(a.character_name_en).localeCompare(String(b.character_name_en)));}
 function toggleOwned(slug){const resolved=canonicalSlug(slug);if(box.owned.has(resolved)){box.owned.delete(resolved);if(box.buildSlug===resolved)box.buildSlug='';}else{box.owned.add(resolved);box.buildSlug=resolved;}saveBox();renderBox();}
-function renderBox(){const rows=filteredRoster();const total=DATA.rosterRows.length;const owned=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)).length;const built=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)&&buildState(buildFor(r.character_slug)).ready).length;renderBuildEditor();$('boxSubtitle').textContent=`展示 ${rows.length}/${total} 个角色，已拥有 ${owned} 个，已成型 ${built} 个。点击卡片切换拥有，点「练度」维护等级/光锥/星魂/专武/行迹/遗器。`;$('boxBadges').innerHTML=[box.saveStatus||'浏览器缓存',box.element==='all'?'全部属性':box.element,box.path==='all'?'全部命途':box.path,box.status==='all'?'全部状态':box.status==='owned'?'已拥有':'未拥有',`成型 ${built}/${owned||0}`].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('boxGrid');grid.innerHTML='';rows.forEach(row=>{const owned=box.owned.has(row.character_slug);const buildText=owned?buildShortLabel(row.character_slug):'未拥有';const card=document.createElement('article');card.tabIndex=0;card.setAttribute('role','button');card.className=`box-card ${owned?'owned':'missing'} ${box.buildSlug===row.character_slug?'selected':''}`;card.dataset.slug=row.character_slug;card.onclick=()=>toggleOwned(row.character_slug);card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleOwned(row.character_slug);}};card.onmouseenter=e=>showBoxTooltip(e,row);card.onmousemove=moveTooltip;card.onmouseleave=()=>{$('boxTooltip').hidden=true;};card.innerHTML=`<button class="build-button" type="button">练度</button><span class="owned-dot"></span><img src="${esc(row.icon_url)}" alt="" loading="lazy" decoding="async"><div class="box-name">${esc(row.character_name_cn||row.character_name_en||row.character_slug)}</div><div class="box-meta">${esc(row.element_cn||'')} · ${esc(row.path_cn||'')}</div><div class="box-meta">${esc(row.role_group_cns||'未分类')}</div><div class="box-meta box-build">${esc(buildText)}</div>`;card.querySelector('.build-button').onclick=e=>{e.stopPropagation();selectBuild(row.character_slug);};grid.appendChild(card);});}
+function renderBox(){const rows=filteredRoster();const total=DATA.rosterRows.length;const owned=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)).length;const built=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)&&buildState(buildFor(r.character_slug)).ready).length;renderBuildEditor();$('boxSubtitle').textContent=`展示 ${rows.length}/${total} 个角色，已拥有 ${owned} 个，已成型 ${built} 个。点击卡片切换拥有，点「练度」维护等级/光锥/星魂/专武/行迹/遗器。`;$('boxBadges').innerHTML=[box.saveStatus||'浏览器缓存',box.element==='all'?'全部属性':box.element,box.path==='all'?'全部命途':box.path,boxStatusLabel(),`成型 ${built}/${owned||0}`].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('boxGrid');grid.innerHTML='';rows.forEach(row=>{const owned=box.owned.has(row.character_slug);const buildText=owned?buildShortLabel(row.character_slug):'未拥有';const bannerTag=String(row.banner_statuses||'').split(';').filter(Boolean)[0];const card=document.createElement('article');card.tabIndex=0;card.setAttribute('role','button');card.className=`box-card ${owned?'owned':'missing'} ${box.buildSlug===row.character_slug?'selected':''}`;card.dataset.slug=row.character_slug;card.onclick=()=>toggleOwned(row.character_slug);card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleOwned(row.character_slug);}};card.onmouseenter=e=>showBoxTooltip(e,row);card.onmousemove=moveTooltip;card.onmouseleave=()=>{$('boxTooltip').hidden=true;};card.innerHTML=`<button class="build-button" type="button">练度</button><span class="owned-dot"></span><img src="${esc(row.icon_url)}" alt="" loading="lazy" decoding="async"><div class="box-name">${esc(row.character_name_cn||row.character_name_en||row.character_slug)}</div><div class="box-meta">${esc(row.element_cn||'')} · ${esc(row.path_cn||'')}${bannerTag?` · ${esc(boxStatusText(bannerTag))}`:''}</div><div class="box-meta">${esc(row.role_group_cns||'未分类')}</div><div class="box-meta box-build">${esc(buildText)}</div>`;card.querySelector('.build-button').onclick=e=>{e.stopPropagation();selectBuild(row.character_slug);};grid.appendChild(card);});}
 function selectBuild(slug){const resolved=canonicalSlug(slug);box.owned.add(resolved);box.buildSlug=resolved;saveBox();renderBox();}
 function renderBuildEditor(){const panel=$('buildEditor');if(!box.buildSlug||!box.owned.has(box.buildSlug)){panel.classList.add('hidden');return;}const row=charInfo(box.buildSlug);const state=buildState(buildFor(box.buildSlug));panel.classList.remove('hidden');$('buildEditorIcon').src=row.icon_url||'';$('buildEditorTitle').textContent=`${charName(box.buildSlug)} · 练度`;$('buildEditorSubtitle').textContent=`${row.element_cn||'未知'} · ${row.path_cn||'未知'} · ${roleCn(row)}`;$('buildLevelSelect').value=String(state.level);$('buildLcSelect').value=String(state.lc);$('buildEidolonSelect').value=String(state.eidolon);$('buildSignatureSelect').value=state.signature;$('buildTraceSelect').value=state.traces;$('buildRelicSelect').value=state.relics;$('buildScoreText').textContent=`${state.label} · ${state.coreRecorded?state.basePercent:0}% · ${state.configLabel}`;}
 function updateBuildField(field,value){if(!box.buildSlug)return;const build=buildFor(box.buildSlug);build[field]=value;box.builds[box.buildSlug]=normalizeBuild(build);box.owned.add(box.buildSlug);saveBox();renderBox();}
@@ -1632,7 +1676,7 @@ function renderPhaseMechanics(template){
   const status=info.phase_status||template.phase_status||'unknown';
   const dates=[phaseStatusLabel(status),info.start_date&&`开始 ${info.start_date}`,info.end_date&&`结束 ${info.end_date}`,info.collect_date&&`采样 ${info.collect_date}`].filter(Boolean).join(' · ');
   $('phaseMechanicsSubtitle').textContent=dates||'期名来自本地 phase_index';
-  const expiredText=status==='expired'?`本地最新 ${modeLabel} 数据已于 ${info.end_date||'上一周期'} 结束；上游尚未提供新周期队伍数据，当前推荐只作历史参考。`:'';
+  const expiredText=status==='expired'?`本地最新 ${modeLabel} 数据已于 ${info.end_date||'上一周期'} 结束；上游尚未提供新周期队伍数据。请和我对话手动更新至少活动范围，再把当前推荐当作正式参考。`:'';
   const mechanicName=expiredText?'源滞后 / 历史模板':(info.mechanic_name||'机制效果待维护');
   const mechanicText=expiredText||info.mechanic_text||'当前本地数据只识别到了期名和采样日期，尚未维护这一期的环境效果。这个状态会明确显示，避免把未知效果误当成已匹配。';
   $('phaseMechanicsText').textContent=`${mechanicName}：${mechanicText}`;

@@ -1,0 +1,46 @@
+{
+  "updated_at": "2026-07-09",
+  "notes": "Manual online overrides for current ZZZ endgame phase windows. Use this only when upstream HF config lacks start/end dates; keep collect_date tied to source data, not local run time.",
+  "sources": [
+    {
+      "label": "Prydwen ZZZ Shiyu Defense Analytics",
+      "url": "https://www.prydwen.gg/zenless/shiyu-defense/"
+    },
+    {
+      "label": "Icy Veins Shiyu Defense Critical Node",
+      "url": "https://www.icy-veins.com/zenless-zone-zero/shiyu-defense-critical-node"
+    },
+    {
+      "label": "Prydwen ZZZ Deadly Assault Analytics",
+      "url": "https://www.prydwen.gg/zenless/deadly-assault/"
+    },
+    {
+      "label": "Icy Veins Deadly Assault",
+      "url": "https://www.icy-veins.com/zenless-zone-zero/deadly-assault"
+    }
+  ],
+  "phases": [
+    {
+      "mode": "sd",
+      "snapshot_id": "3.0.2",
+      "phase_ver": "3.0.2",
+      "collect_date": "2026-07-06",
+      "start_date": "2026-06-26",
+      "end_date": "2026-07-10",
+      "source_label": "Prydwen sample + Icy Veins reset note",
+      "source_url": "https://www.icy-veins.com/zenless-zone-zero/shiyu-defense-critical-node",
+      "note": "HF config missing; Prydwen visible phase sample is 2026-07-06. Icy Veins says the next Shiyu reset is 2026-07-10; start is derived from the two-week reset cadence."
+    },
+    {
+      "mode": "da",
+      "snapshot_id": "3.0.2",
+      "phase_ver": "3.0.2",
+      "collect_date": "2026-07-06",
+      "start_date": "2026-07-02",
+      "end_date": "2026-07-16",
+      "source_label": "Prydwen sample + Icy Veins current window",
+      "source_url": "https://www.icy-veins.com/zenless-zone-zero/deadly-assault",
+      "note": "HF config missing; Prydwen visible phase sample is 2026-07-06. Icy Veins lists the current Deadly Assault stages as 2026-07-02 through 2026-07-16."
+    }
+  ]
+}

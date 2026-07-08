@@ -71,14 +71,16 @@ def read_csv(path: Path) -> list[dict[str, Any]]:
 def _build_phase_info_rows(out_dir: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     prydwen_updates = _load_prydwen_phase_updates(out_dir)
+    overrides = _load_phase_overrides(out_dir)
     for row in read_csv(out_dir / "phase_index.csv"):
         mode = str(row.get("mode") or "")
         mode_cn = str(row.get("mode_cn") or MODE_CN.get(mode, mode))
         phase_ver = str(row.get("phase_ver") or "")
         prydwen_update = prydwen_updates.get((mode, phase_ver), {})
-        collect_date = str(row.get("collect_date") or prydwen_update.get("collect_date") or "")
-        start = str(row.get("start_date") or "")
-        end = str(row.get("end_date") or "")
+        override = overrides.get((mode, phase_ver), {})
+        collect_date = str(row.get("collect_date") or override.get("collect_date") or prydwen_update.get("collect_date") or "")
+        start = str(row.get("start_date") or override.get("start_date") or "")
+        end = str(row.get("end_date") or override.get("end_date") or "")
         source_limited = bool((not row.get("collect_date")) and prydwen_update.get("collect_date"))
         if source_limited and not (start or end):
             mechanic_text = (
@@ -86,6 +88,12 @@ def _build_phase_info_rows(out_dir: Path) -> list[dict[str, Any]]:
                 "Hugging Face config 尚未写入本周期起止日期。推荐只使用同模式、同关卡的当前最新队伍模板，周期边界按源限制处理。"
             )
             mechanic_source = "Prydwen phase selector + ShiyuDataProcessed"
+        elif override:
+            mechanic_text = (
+                f"采样日期 {collect_date or '未知'}；周期 {start or '未知'} 至 {end or '未知'}。"
+                "起止来自手动联网 override，用于弥补上游 config 缺失。"
+            )
+            mechanic_source = override.get("source_label") or "manual online override"
         else:
             mechanic_text = (
                 f"采样日期 {collect_date or '未知'}；周期 {start or '未知'} 至 {end or '未知'}。"
@@ -106,12 +114,36 @@ def _build_phase_info_rows(out_dir: Path) -> list[dict[str, Any]]:
                 "mechanic_name": "当期数据",
                 "mechanic_text": mechanic_text,
                 "mechanic_source": mechanic_source,
-                "mechanic_url": "",
+                "mechanic_url": override.get("source_url", ""),
+                "phase_status": _phase_status({"start_date": start, "end_date": end}),
                 "source_limited": source_limited,
-                "source_note": row.get("note", ""),
+                "source_note": override.get("note") or row.get("note", ""),
             }
         )
     return rows
+
+
+def _phase_status(row: dict[str, Any], *, today: date | None = None) -> str:
+    current = today or date.today()
+    start = _date_or_none(row.get("start_date"))
+    end = _date_or_none(row.get("end_date"))
+    if end and end < current:
+        return "expired"
+    if start and start > current:
+        return "future"
+    if start or end:
+        return "current"
+    return "unknown"
+
+
+def _date_or_none(value: Any) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
 
 
 def _load_prydwen_phase_updates(out_dir: Path) -> dict[tuple[str, str], dict[str, str]]:
@@ -127,6 +159,29 @@ def _load_prydwen_phase_updates(out_dir: Path) -> dict[tuple[str, str], dict[str
         for phase_ver, row in mode_updates.items():
             updates[(mode, phase_ver)] = row
     return updates
+
+
+def _load_phase_overrides(out_dir: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    for path in (
+        out_dir / "zzz_endgame_phase_overrides.json",
+        out_dir.parent / "configs" / "zzz_endgame_phase_overrides.json",
+        Path("configs") / "zzz_endgame_phase_overrides.json",
+    ):
+        if not path.exists():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        rows = value.get("phases") if isinstance(value, dict) else value
+        if not isinstance(rows, list):
+            continue
+        return {
+            (str(row.get("mode") or ""), str(row.get("phase_ver") or "")): row
+            for row in rows
+            if isinstance(row, dict) and row.get("mode") and row.get("phase_ver")
+        }
+    return {}
 
 
 def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -186,6 +241,8 @@ def _merge_banner_rows_into_roster(roster_rows: list[dict[str, Any]], banner_row
         slug = normalize_character_id(banner_row.get("character_slug"))
         if not slug:
             continue
+        phase_status = str(banner_row.get("phase_status") or "")
+        phase_title = str(banner_row.get("phase_title") or "")
         existing = by_slug.get(slug)
         if existing is None:
             role_group = str(banner_row.get("role_group") or "") or _role_from_style_cn(str(banner_row.get("style_cn") or ""))
@@ -206,9 +263,13 @@ def _merge_banner_rows_into_roster(roster_rows: list[dict[str, Any]], banner_row
                 "icon_url": banner_row.get("icon_url") or "",
                 "release_order": next_order,
                 "source": "banner_plan",
+                "banner_statuses": phase_status,
+                "banner_phase_titles": phase_title,
             }
             next_order += 1
             continue
+        existing["banner_statuses"] = _merge_semicolon(existing.get("banner_statuses"), phase_status)
+        existing["banner_phase_titles"] = _merge_semicolon(existing.get("banner_phase_titles"), phase_title)
         for key in (
             "character_name_en",
             "character_name_cn",
@@ -229,6 +290,14 @@ def _merge_banner_rows_into_roster(roster_rows: list[dict[str, Any]], banner_row
             existing["role_group_cn"] = existing.get("role_group_cn") or _role_cn(role_group)
         by_slug[slug] = existing
     return sorted(by_slug.values(), key=lambda r: (_release_order_value(r.get("release_order")), str(r.get("character_slug"))))
+
+
+def _merge_semicolon(existing: Any, value: Any) -> str:
+    values = [item for item in str(existing or "").split(";") if item]
+    text = str(value or "").strip()
+    if text and text not in values:
+        values.append(text)
+    return ";".join(values)
 
 
 def _load_decision_cards(out_dir: Path) -> dict[str, Any]:
@@ -637,7 +706,7 @@ INDEX_HTML = """<!doctype html>
     <section class="controls">
       <label>属性<div id="boxElementControl" class="segmented"></div></label>
       <label>特性<div id="boxStyleControl" class="segmented"></div></label>
-      <label>状态<select id="boxOwnedSelect"><option value="all">全部</option><option value="owned">已拥有</option><option value="missing">未拥有</option></select></label>
+      <label>状态<select id="boxOwnedSelect"><option value="all">全部</option><option value="owned">已拥有</option><option value="missing">未拥有</option><option value="banner_current">当期UP</option><option value="banner_next">下一期</option><option value="banner_satellite">卫星</option></select></label>
       <label>搜索<input id="boxSearchInput" type="search" placeholder="中文名 / 英文名 / slug" /></label>
       <div class="actions"><button id="boxExportBtn">导出Box</button><button id="boxImportBtn">导入</button><button id="boxMarkVisibleBtn">筛选设为已拥有</button><button id="boxBuildVisibleBtn">筛选设为练满</button><button id="boxClearBuildVisibleBtn">清筛选练度</button><input id="boxImportInput" type="file" accept="application/json,.json" hidden /></div>
     </section>
@@ -687,7 +756,7 @@ const BUILD_LEVELS=[0,20,40,50,55,60], BUILD_MINDSCAPES=[['unset','未录入'],[
 const BOX_KEY='zzz_endgame_box_v2', OLD_BOX_KEYS=['zzz_endgame_box_v1'], REC_KEY='zzz_endgame_rec_v1';
 let DATA=null,state={page:'analysis',mode:'sd',role:'all',view:'trend',limit:'16',search:''},box={owned:new Set(),builds:{},buildSlug:'',element:'all',style:'all',status:'all',search:'',saveStatus:'浏览器缓存'},rec={mode:'sd',scope:'',elements:{},gap:'1',riskMode:'warn',limit:'8',search:''},banner={phase:'current',search:''},boxSaveTimer=null;
 const $=id=>document.getElementById(id), num=v=>{const n=Number(v);return Number.isFinite(n)?n:null}, esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])), pct=v=>num(v)==null?'-':`${num(v).toFixed(2)}%`;
-fetch('./data.json').then(r=>r.json()).then(d=>{DATA=d;loadBox();loadRec();init();render();syncBoxFromServer();}).catch(e=>document.body.innerHTML=`<main class="app"><h1>数据加载失败</h1><p>${esc(e.message)}</p></main>`);
+fetch(`./data.json?v=${Date.now()}`,{cache:'no-store'}).then(r=>r.json()).then(d=>{DATA=d;loadBox();loadRec();init();render();syncBoxFromServer();}).catch(e=>document.body.innerHTML=`<main class="app"><h1>数据加载失败</h1><p>${esc(e.message)}</p></main>`);
 function init(){ $('metaLine').textContent=`Prydwen更新：${DATA.meta.tierUpdatedAt||'未知'} · 本地生成：${DATA.meta.generatedAt||'未知'}`; buttons('tabs',[['analysis','趋势分析'],['banner','卡池情报'],['box','我的Box'],['recommender','组队推荐']],state.page,v=>{state.page=v;render();}); buttons('modeControl',MODES,state.mode,v=>{state.mode=v;render();}); buttons('roleControl',ROLES,state.role,v=>{state.role=v;render();}); buttons('viewControl',VIEWS,state.view,v=>{state.view=v;render();}); $('limitSelect').onchange=e=>{state.limit=e.target.value;renderAnalysis();}; $('searchInput').oninput=e=>{state.search=e.target.value.trim().toLowerCase();renderAnalysis();}; initBanner(); initBox(); initRec();}
 function buttons(id,items,current,onClick){const el=$(id); el.innerHTML=''; items.forEach(([v,l])=>{const b=document.createElement('button');b.type='button';b.textContent=l;b.dataset.value=v;b.className=v===current?'active':'';b.onclick=()=>{[...el.children].forEach(x=>x.classList.remove('active'));b.classList.add('active');onClick(v);};el.appendChild(b);});}
 function render(){ $('analysisView').classList.toggle('hidden',state.page!=='analysis');$('bannerView').classList.toggle('hidden',state.page!=='banner');$('boxView').classList.toggle('hidden',state.page!=='box');$('recommenderView').classList.toggle('hidden',state.page!=='recommender');[...$('tabs').children].forEach(b=>b.classList.toggle('active',b.dataset.value===state.page)); if(state.page==='banner')renderBanner();else if(state.page==='box')renderBox();else if(state.page==='recommender')renderRec();else renderAnalysis();}
@@ -739,8 +808,11 @@ function signatureText(v){return BUILD_SIGNATURES.find(x=>x[0]===v)?.[1]||'未�
 function buildState(slug){const b=normBuild(box.builds[slug]||{}),baseScore=(b.level/60)*.25+(b.engine/60)*.2+optScore(BUILD_SKILLS,b.skills)*.25+optScore(BUILD_DISCS,b.discs)*.3,score=Math.min(1,baseScore+(b.mindscape==='unset'?0:Number(b.mindscape)*.008)+(b.signature==='yes'?.035:0)),coreRecorded=buildCoreRecorded(b),recorded=buildRecorded(b),ready=coreRecorded&&baseScore>=.86&&b.level>=55&&b.engine>=50&&optScore(BUILD_SKILLS,b.skills)>=.84&&optScore(BUILD_DISCS,b.discs)>=.84;return{...b,baseScore,score,coreRecorded,recorded,ready,basePercent:Math.round(baseScore*100),percent:Math.round(score*100),configLabel:buildConfigLabel(b),label:ready?'已成型':coreRecorded&&baseScore>=.72?'可用':coreRecorded?'待练':buildConfigRecorded(b)?'仅配置':'练度未录入'};}
 function fullBuild(prev={}){const b=normBuild(prev);return{...b,level:60,engine:60,skills:'max',discs:'great'}}
 function setVisibleBuild(value){filteredRoster().forEach(r=>{if(value){box.owned.add(r.character_slug);box.builds[r.character_slug]=fullBuild(box.builds[r.character_slug]||{});}else delete box.builds[r.character_slug];});saveBox();renderBox();}
-function filteredRoster(){const q=box.search;return DATA.rosterRows.filter(r=>(box.element==='all'||r.element_cn===box.element)&&(box.style==='all'||r.style_cn===box.style)&&(box.status==='all'||(box.status==='owned')===box.owned.has(r.character_slug))&&(!q||[r.character_name_cn,r.character_name_en,r.character_slug,r.element_cn,r.style_cn].some(x=>String(x||'').toLowerCase().includes(q))));}
-function renderBox(){const rows=filteredRoster(),owned=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)).length,built=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)&&buildState(r.character_slug).ready).length;renderBuild();$('boxSubtitle').textContent=`展示 ${rows.length}/${DATA.rosterRows.length} 个代理人，已拥有 ${owned}，已成型 ${built}。点「练度」维护等级/音擎/影画/专武/技能/驱动盘`;$('boxBadges').innerHTML=[box.saveStatus||'浏览器缓存',box.element==='all'?'全部属性':box.element,box.style==='all'?'全部特性':box.style,`成型 ${built}/${owned||0}`].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('boxGrid');grid.innerHTML='';rows.forEach(r=>{const owned=box.owned.has(r.character_slug),bs=buildState(r.character_slug);const card=document.createElement('article');card.className=`box-card ${owned?'owned':'missing'} ${box.buildSlug===r.character_slug?'selected':''}`;card.innerHTML=`<button class="build-btn">练度</button><img src="${esc(r.icon_url)}" alt=""><div class="name">${esc(r.character_name_cn||r.character_name_en)}</div><div class="meta">${esc(r.element_cn)} · ${esc(r.style_cn)}</div><div class="meta">${owned?`${bs.label}${bs.coreRecorded?' '+bs.basePercent+'%':''} · ${bs.configLabel}`:'未拥有'}</div>`;card.onclick=()=>{owned?box.owned.delete(r.character_slug):box.owned.add(r.character_slug);box.buildSlug=r.character_slug;saveBox();renderBox();};card.querySelector('.build-btn').onclick=e=>{e.stopPropagation();box.owned.add(r.character_slug);box.buildSlug=r.character_slug;saveBox();renderBox();};grid.appendChild(card);});}
+function boxStatusLabel(){return{all:'全部状态',owned:'已拥有',missing:'未拥有',banner_current:'当期UP',banner_next:'下一期',banner_satellite:'卫星'}[box.status]||box.status}
+function matchesBoxStatus(r){if(box.status==='all')return true;if(box.status==='owned')return box.owned.has(r.character_slug);if(box.status==='missing')return !box.owned.has(r.character_slug);if(box.status.startsWith('banner_'))return String(r.banner_statuses||'').split(';').includes(box.status.replace('banner_',''));return true}
+function filteredRoster(){const q=box.search;return DATA.rosterRows.filter(r=>(box.element==='all'||r.element_cn===box.element)&&(box.style==='all'||r.style_cn===box.style)&&matchesBoxStatus(r)&&(!q||[r.character_name_cn,r.character_name_en,r.character_slug,r.element_cn,r.style_cn,r.banner_phase_titles].some(x=>String(x||'').toLowerCase().includes(q))));}
+function renderBox(){const rows=filteredRoster(),owned=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)).length,built=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)&&buildState(r.character_slug).ready).length;renderBuild();$('boxSubtitle').textContent=`展示 ${rows.length}/${DATA.rosterRows.length} 个代理人，已拥有 ${owned}，已成型 ${built}。点「练度」维护等级/音擎/影画/专武/技能/驱动盘`;$('boxBadges').innerHTML=[box.saveStatus||'浏览器缓存',box.element==='all'?'全部属性':box.element,box.style==='all'?'全部特性':box.style,boxStatusLabel(),`成型 ${built}/${owned||0}`].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('boxGrid');grid.innerHTML='';rows.forEach(r=>{const owned=box.owned.has(r.character_slug),bs=buildState(r.character_slug);const bannerTag=String(r.banner_statuses||'').split(';').filter(Boolean)[0];const card=document.createElement('article');card.className=`box-card ${owned?'owned':'missing'} ${box.buildSlug===r.character_slug?'selected':''}`;card.innerHTML=`<button class="build-btn">练度</button><img src="${esc(r.icon_url)}" alt=""><div class="name">${esc(r.character_name_cn||r.character_name_en)}</div><div class="meta">${esc(r.element_cn)} · ${esc(r.style_cn)}${bannerTag?` · ${esc(boxStatusText(bannerTag))}`:''}</div><div class="meta">${owned?`${bs.label}${bs.coreRecorded?' '+bs.basePercent+'%':''} · ${bs.configLabel}`:'未拥有'}</div>`;card.onclick=()=>{owned?box.owned.delete(r.character_slug):box.owned.add(r.character_slug);box.buildSlug=r.character_slug;saveBox();renderBox();};card.querySelector('.build-btn').onclick=e=>{e.stopPropagation();box.owned.add(r.character_slug);box.buildSlug=r.character_slug;saveBox();renderBox();};grid.appendChild(card);});}
+function boxStatusText(status){return{current:'当期UP',next:'下一期',satellite:'卫星',previous:'已结束'}[status]||status}
 function renderBuild(){const p=$('buildEditor');if(!box.buildSlug||!box.owned.has(box.buildSlug)){p.classList.add('hidden');return;}const r=charInfo(box.buildSlug),bs=buildState(box.buildSlug),b=normBuild(box.builds[box.buildSlug]||{});p.classList.remove('hidden');$('buildIcon').src=r.icon_url;$('buildTitle').textContent=`${charName(box.buildSlug)} · 练度`;$('buildSubtitle').textContent=`${r.element_cn} · ${r.style_cn}`;$('buildLevel').value=b.level;$('buildEngine').value=b.engine;$('buildMindscape').value=String(b.mindscape);$('buildSignature').value=b.signature;$('buildSkill').value=b.skills;$('buildDisc').value=b.discs;$('buildScore').textContent=`${bs.label} · ${bs.coreRecorded?bs.basePercent:0}% · ${bs.configLabel}`;}
 function buildSet(k,v){if(!box.buildSlug)return;box.builds[box.buildSlug]={...normBuild(box.builds[box.buildSlug]||{}),[k]:v};box.owned.add(box.buildSlug);saveBox();renderBox();}
 function exportBox(){const blob=new Blob([JSON.stringify({...boxPayload(),exportedAt:new Date().toISOString()},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='zzz_box_state.json';a.click();URL.revokeObjectURL(a.href);}
@@ -760,7 +832,8 @@ function rankedFor(mode=rec.mode,scope=rec.scope,used=new Set(),ignoreSearch=fal
 function ranked(){return rankedFor();}
 function templateRecency(t){return String(t.recency_key||t.collect_date||t.phase_ver||'')}
 function phaseInfo(){const templates=DATA.teamTemplates.filter(t=>t.mode===rec.mode&&t.scope_key===rec.scope),latest=templates.slice().sort((a,b)=>templateRecency(b).localeCompare(templateRecency(a)))[0];const rows=DATA.phaseInfoRows||[];return rows.find(r=>r.mode===rec.mode&&r.phase_ver===latest?.phase_ver&&r.collect_date===latest?.collect_date)||rows.find(r=>r.mode===rec.mode&&r.phase_ver===latest?.phase_ver)||rows.filter(r=>r.mode===rec.mode).sort((a,b)=>String(b.phase_ver||b.collect_date).localeCompare(String(a.phase_ver||a.collect_date)))[0]||{};}
-function renderPhaseInfo(){const p=phaseInfo();$('phaseTitle').textContent=`${p.mode_cn||MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode} · ${p.phase_name_cn||p.phase_name||p.phase_ver||'当期数据'}`;const range=(p.start_date||p.end_date)?`${p.start_date||'未知'} 至 ${p.end_date||'未知'}`:'周期源未提供';$('phaseDates').textContent=`${range} · 采样 ${p.collect_date||'未知'}`;$('phaseText').textContent=p.mechanic_text||'推荐限定当前同模式、同关卡数据源。';}
+function phaseStatusLabel(status){return status==='expired'?'已过期':status==='future'?'未开始':status==='current'?'当前周期':'日期未知'}
+function renderPhaseInfo(){const p=phaseInfo();$('phaseTitle').textContent=`${p.mode_cn||MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode} · ${p.phase_name_cn||p.phase_name||p.phase_ver||'当期数据'}`;const range=(p.start_date||p.end_date)?`${p.start_date||'未知'} 至 ${p.end_date||'未知'}`:'周期源未提供',status=p.phase_status||'unknown';$('phaseDates').textContent=`${phaseStatusLabel(status)} · ${range} · 采样 ${p.collect_date||'未知'}`;const expired=status==='expired'?`本地最新 ${p.mode_cn||rec.mode} 数据已于 ${p.end_date||'上一周期'} 结束；请和我对话手动更新至少活动范围，再把当前推荐当作正式参考。`:'';$('phaseText').textContent=expired||p.mechanic_text||'推荐限定当前同模式、同关卡数据源。';}
 function renderRec(){ensureScope();syncRec();renderPhaseInfo();const rows=ranked().slice(0,Number(rec.limit)||8),sel=[...elementSet()],templates=DATA.teamTemplates.filter(t=>t.mode===rec.mode&&t.scope_key===rec.scope);$('recTitle').textContent=`${MODES.find(x=>x[0]===rec.mode)?.[1]} · ${scopes().find(s=>s.key===rec.scope)?.label||rec.scope}`;$('recSubtitle').textContent=`当前同模式同关卡模板 ${templates.length} 队`;const riskLabel=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒';$('recBadges').innerHTML=[sel.length?sel.join(' / '):'未选属性',`缺口 ≤ ${rec.gap}`,riskLabel,rec.riskMode==='off'?'T档不提醒':'T1及以下提醒',`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');const list=$('recList');list.innerHTML='';if(!rows.length){list.innerHTML='<div class="empty">当前筛选没有可展示队伍</div>';renderRecSlate();return;}rows.forEach((item,i)=>list.appendChild(recCard(item,i+1)));renderRecSlate();}
 function recCard(item,i){const t=item.template,card=document.createElement('article');card.className=`rec-card ${item.risks.length&&rec.riskMode!=='off'?'risky':''}`;card.innerHTML=`<div class="rec-head"><div><h3>${i}. ${esc(t.names_cn.join(' / '))}</h3><div class="rec-meta">${esc(t.scope_label)} · Rank ${t.rank??'-'} · ${pct(t.app_rate)} · 邦布 ${esc(bangbooName(t.bangboo,t.bangboo_name))}</div></div><div class="score">${Math.round(item.score)}<br><span>${item.ownedCount}/3</span></div></div><div class="rec-team">${item.members.map(m=>memberHtml(m)).join('')}</div><div class="tags"><span class="${item.missingCount?'warn':''}">${item.missingCount?`缺 ${item.missingCount}`:'可成队'}</span>${item.ownedCount?`<span class="${item.readyCount<item.ownedCount?'warn':''}">练度 ${item.readyCount}/${item.ownedCount}</span>`:''}<span>属性命中 ${item.elementHits}</span>${item.conflictCount?`<span class="warn">多队冲突 ${item.conflictCount}</span>`:''}${item.risks.length&&rec.riskMode!=='off'?`<span class="${item.risks.some(r=>r.severe)?'danger':'warn'}">风险 ${item.risks.length}</span>`:''}</div>${riskHtml(item)}`;return card;}
 function memberHtml(m){const risky=(m.risks.length&&rec.riskMode!=='off')||m.conflict;return `<div class="rec-member ${m.owned?'owned':'missing'} ${risky?'risky':''}"><img src="${esc(m.info.icon_url)}" alt=""><div class="name">${esc(charName(m.slug))}</div><div class="meta">${esc(m.info.element_cn)} · ${esc(m.info.style_cn)}${m.owned?` · ${esc(m.build.label)} · ${esc(m.build.configLabel)}`:''}${m.conflict?' · 冲突':''}</div></div>`;}
