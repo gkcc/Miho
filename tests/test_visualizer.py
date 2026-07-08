@@ -115,6 +115,8 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "renderHeatmap" in app_text
     assert "hsr_endgame_box_v1" in app_text
     assert "phaseName(row)" in app_text
+    assert "phaseStatusLabel" in app_text
+    assert "banner={phase:'current'" in app_text
     assert "T1及以下提醒" in app_text
     assert "当前模式T1及以下提醒" in app_text
     assert "tierSummaryFor" in app_text
@@ -133,5 +135,7 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert data["usageRows"][0]["tier"] == "未分档"
     assert data["usageRows"][0]["phase_name_cn"] == "嗡鸣如笑"
     assert data["phaseInfoRows"][0]["phase_name_cn"] == "值日行动"
+    assert "phase_status" in data["phaseInfoRows"][0]
     assert data["teamTemplates"][0]["phase_name_cn"] == "值日行动"
+    assert "phase_status" in data["teamTemplates"][0]
     assert data["rosterRows"][0]["element_cn"] == "火"

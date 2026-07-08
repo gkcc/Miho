@@ -221,6 +221,28 @@ def extract_teams_from_html(text: str) -> dict[str, list[dict[str, Any]]]:
     return teams
 
 
+def extract_phase_updates_from_html(text: str) -> dict[str, dict[str, str]]:
+    decoded = decode_payload(text)
+    updates: dict[str, dict[str, str]] = {}
+    option_re = re.compile(
+        r"<option[^>]*>\s*"
+        r"(?P<phase>\d+(?:\.\d+)+)\s*-\s*"
+        r"(?P<date>\d{1,2}/[A-Za-z]+/\d{4})"
+        r"(?:\s*\((?P<users>[\d,]+)\s+users\))?",
+        flags=re.IGNORECASE,
+    )
+    for match in option_re.finditer(decoded):
+        phase = match.group("phase")
+        collect_date = _date_from_prydwen_date(match.group("date"))
+        if not phase or not collect_date:
+            continue
+        updates[phase] = {
+            "collect_date": collect_date,
+            "users": (match.group("users") or "").replace(",", ""),
+        }
+    return updates
+
+
 def _json_values_after_key(text: str, key: str) -> list[Any]:
     values: list[Any] = []
     decoder = json.JSONDecoder()

@@ -6,6 +6,7 @@ import json
 import re
 import urllib.error
 import urllib.request
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from hsr_endgame_exporter.normalize import normalize_character_id
 from miho_core.banner_plan import effective_banner_phases
 
 from .constants import ELEMENT_CN, MODE_CN, ROLE_ORDER, STYLE_CN
+from .prydwen import extract_phase_updates_from_html
 
 
 def write_visualizer_app(
@@ -33,13 +35,14 @@ def write_visualizer_app(
     banner_rows = _load_banner_rows(out_dir, roster_rows)
     banner_rows = _localize_avatar_rows(visualizer_dir, banner_rows)
     roster_rows = _merge_banner_rows_into_roster(roster_rows, banner_rows)
-    team_templates = _build_team_templates(team_rows, roster_rows, name_rows)
+    team_templates = _build_team_templates(team_rows, roster_rows, name_rows, phase_info_rows)
     decision_cards = _load_decision_cards(out_dir)
     data = {
         "meta": {
             "game": "绝区零",
             "generatedAt": _latest(tier_rows, "fetched_at"),
             "tierUpdatedAt": _latest(tier_rows, "tier_updated_at"),
+            "localDate": date.today().isoformat(),
             "source": "ShiyuDataProcessed + Prydwen ZZZ + HoYoWiki",
         },
         "usageRows": usage_rows,
@@ -67,16 +70,32 @@ def read_csv(path: Path) -> list[dict[str, Any]]:
 
 def _build_phase_info_rows(out_dir: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    prydwen_updates = _load_prydwen_phase_updates(out_dir)
     for row in read_csv(out_dir / "phase_index.csv"):
         mode = str(row.get("mode") or "")
         mode_cn = str(row.get("mode_cn") or MODE_CN.get(mode, mode))
         phase_ver = str(row.get("phase_ver") or "")
+        prydwen_update = prydwen_updates.get((mode, phase_ver), {})
+        collect_date = str(row.get("collect_date") or prydwen_update.get("collect_date") or "")
         start = str(row.get("start_date") or "")
         end = str(row.get("end_date") or "")
+        source_limited = bool((not row.get("collect_date")) and prydwen_update.get("collect_date"))
+        if source_limited and not (start or end):
+            mechanic_text = (
+                f"采样日期 {collect_date} 来自 Prydwen 可见 phase；"
+                "Hugging Face config 尚未写入本周期起止日期。推荐只使用同模式、同关卡的当前最新队伍模板，周期边界按源限制处理。"
+            )
+            mechanic_source = "Prydwen phase selector + ShiyuDataProcessed"
+        else:
+            mechanic_text = (
+                f"采样日期 {collect_date or '未知'}；周期 {start or '未知'} 至 {end or '未知'}。"
+                "推荐只使用同模式、同关卡的当前最新队伍模板。"
+            )
+            mechanic_source = "ShiyuDataProcessed config.json"
         rows.append(
             {
                 "snapshot_id": row.get("snapshot_id", ""),
-                "collect_date": row.get("collect_date", ""),
+                "collect_date": collect_date,
                 "mode": mode,
                 "mode_cn": mode_cn,
                 "phase_ver": phase_ver,
@@ -85,12 +104,29 @@ def _build_phase_info_rows(out_dir: Path) -> list[dict[str, Any]]:
                 "start_date": start,
                 "end_date": end,
                 "mechanic_name": "当期数据",
-                "mechanic_text": f"采样日期 {row.get('collect_date') or '未知'}；周期 {start or '未知'} 至 {end or '未知'}。推荐只使用同模式、同关卡的当前最新队伍模板。",
-                "mechanic_source": "ShiyuDataProcessed config.json",
+                "mechanic_text": mechanic_text,
+                "mechanic_source": mechanic_source,
                 "mechanic_url": "",
+                "source_limited": source_limited,
+                "source_note": row.get("note", ""),
             }
         )
     return rows
+
+
+def _load_prydwen_phase_updates(out_dir: Path) -> dict[tuple[str, str], dict[str, str]]:
+    updates: dict[tuple[str, str], dict[str, str]] = {}
+    for mode in MODE_CN:
+        page = out_dir / "raw" / "prydwen" / f"{mode}.html"
+        if not page.exists():
+            continue
+        try:
+            mode_updates = extract_phase_updates_from_html(page.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        for phase_ver, row in mode_updates.items():
+            updates[(mode, phase_ver)] = row
+    return updates
 
 
 def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -425,21 +461,28 @@ def _build_team_templates(
     team_rows: list[dict[str, Any]],
     roster_rows: list[dict[str, Any]],
     name_rows: list[dict[str, Any]],
+    phase_info_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     names = {row["character_slug"]: row for row in roster_rows}
     name_map = {normalize_character_id(row.get("character_slug")): row for row in name_rows}
+    phase_collect_dates = {
+        (str(row.get("mode") or ""), str(row.get("phase_ver") or "")): str(row.get("collect_date") or "")
+        for row in phase_info_rows
+        if row.get("collect_date")
+    }
     latest: dict[str, tuple[tuple[int, ...], str]] = {}
     for row in team_rows:
         mode = str(row.get("mode") or "")
-        recency = _team_recency_tuple(row)
+        recency = _team_recency_tuple(row, phase_collect_dates)
         if mode and recency >= latest.get(mode, ((0,), "")):
             latest[mode] = recency
     output: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in team_rows:
         mode = str(row.get("mode") or "")
-        if not mode or _team_recency_tuple(row) != latest.get(mode):
+        if not mode or _team_recency_tuple(row, phase_collect_dates) != latest.get(mode):
             continue
+        collect_date = str(row.get("collect_date") or phase_collect_dates.get((mode, str(row.get("phase_ver") or ""))) or "")
         chars = [normalize_character_id(row.get(f"char_{i}_slug")) for i in range(1, 4)]
         if any(not c for c in chars):
             continue
@@ -453,7 +496,7 @@ def _build_team_templates(
                 "mode_cn": row.get("mode_cn") or MODE_CN.get(mode, mode),
                 "scope_key": row.get("sub_mode") or "all",
                 "scope_label": row.get("sub_mode_cn") or row.get("sub_mode") or "全部",
-                "collect_date": row.get("collect_date", ""),
+                "collect_date": collect_date,
                 "phase_ver": row.get("phase_ver", ""),
                 "phase_name": row.get("phase_name", ""),
                 "rank": _num(row.get("rank")),
@@ -463,7 +506,7 @@ def _build_team_templates(
                 "bangboo_name": row.get("bangboo_name_cn") or name_map.get(normalize_character_id(row.get("bangboo_slug")), {}).get("character_name_cn", ""),
                 "source_kind": row.get("source_kind", ""),
                 "source_file": row.get("source_file", ""),
-                "recency_key": _team_recency_key(row),
+                "recency_key": _team_recency_key(row, phase_collect_dates),
                 "chars": chars,
                 "names_cn": [names.get(char, {}).get("character_name_cn") or names.get(char, {}).get("character_name_en") or char for char in chars],
             }
@@ -471,18 +514,21 @@ def _build_team_templates(
     return sorted(output, key=lambda r: (str(r["mode"]), str(r["scope_key"]), _num(r.get("rank")) or 9999))[:20000]
 
 
-def _team_recency_tuple(row: dict[str, Any]) -> tuple[tuple[int, ...], str]:
+def _team_recency_tuple(row: dict[str, Any], phase_collect_dates: dict[tuple[str, str], str] | None = None) -> tuple[tuple[int, ...], str]:
     version = (
         _version_tuple(row.get("snapshot_id"))
         or _version_tuple(_source_snapshot(row.get("source_file")))
         or _version_tuple(row.get("phase_ver"))
         or (0,)
     )
-    return version, str(row.get("collect_date") or "")
+    collect_date = str(row.get("collect_date") or "")
+    if not collect_date and phase_collect_dates:
+        collect_date = phase_collect_dates.get((str(row.get("mode") or ""), str(row.get("phase_ver") or "")), "")
+    return version, collect_date
 
 
-def _team_recency_key(row: dict[str, Any]) -> str:
-    version, collect_date = _team_recency_tuple(row)
+def _team_recency_key(row: dict[str, Any], phase_collect_dates: dict[tuple[str, str], str] | None = None) -> str:
+    version, collect_date = _team_recency_tuple(row, phase_collect_dates)
     version_text = ".".join(f"{part:04d}" for part in version)
     return f"{version_text}|{collect_date}"
 
@@ -639,7 +685,7 @@ const STYLES=['强攻','异常','击破','支援','防护','命破'];
 const TIER_RANK={'T0':0,'T0.5':.5,'T1':1,'T1.5':1.5,'T2':2,'T3':3,'T4':4,'T5':5,'未分档':9};
 const BUILD_LEVELS=[0,20,40,50,55,60], BUILD_MINDSCAPES=[['unset','未录入'],[0,'0影'],[1,'1影'],[2,'2影'],[3,'3影'],[4,'4影'],[5,'5影'],[6,'6影']], BUILD_SIGNATURES=[['unset','未录入'],['no','无专武'],['yes','有专武']], BUILD_SKILLS=[['unset','未录入',0],['low','低',.35],['mid','中',.6],['high','高',.84],['max','满',1]], BUILD_DISCS=[['unset','未录入',0],['none','未刷',.12],['ok','可用',.58],['good','成型',.84],['great','毕业',1]];
 const BOX_KEY='zzz_endgame_box_v2', OLD_BOX_KEYS=['zzz_endgame_box_v1'], REC_KEY='zzz_endgame_rec_v1';
-let DATA=null,state={page:'analysis',mode:'sd',role:'all',view:'trend',limit:'16',search:''},box={owned:new Set(),builds:{},buildSlug:'',element:'all',style:'all',status:'all',search:'',saveStatus:'浏览器缓存'},rec={mode:'sd',scope:'',elements:{},gap:'1',riskMode:'warn',limit:'8',search:''},banner={phase:'all',search:''},boxSaveTimer=null;
+let DATA=null,state={page:'analysis',mode:'sd',role:'all',view:'trend',limit:'16',search:''},box={owned:new Set(),builds:{},buildSlug:'',element:'all',style:'all',status:'all',search:'',saveStatus:'浏览器缓存'},rec={mode:'sd',scope:'',elements:{},gap:'1',riskMode:'warn',limit:'8',search:''},banner={phase:'current',search:''},boxSaveTimer=null;
 const $=id=>document.getElementById(id), num=v=>{const n=Number(v);return Number.isFinite(n)?n:null}, esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])), pct=v=>num(v)==null?'-':`${num(v).toFixed(2)}%`;
 fetch('./data.json').then(r=>r.json()).then(d=>{DATA=d;loadBox();loadRec();init();render();syncBoxFromServer();}).catch(e=>document.body.innerHTML=`<main class="app"><h1>数据加载失败</h1><p>${esc(e.message)}</p></main>`);
 function init(){ $('metaLine').textContent=`Prydwen更新：${DATA.meta.tierUpdatedAt||'未知'} · 本地生成：${DATA.meta.generatedAt||'未知'}`; buttons('tabs',[['analysis','趋势分析'],['banner','卡池情报'],['box','我的Box'],['recommender','组队推荐']],state.page,v=>{state.page=v;render();}); buttons('modeControl',MODES,state.mode,v=>{state.mode=v;render();}); buttons('roleControl',ROLES,state.role,v=>{state.role=v;render();}); buttons('viewControl',VIEWS,state.view,v=>{state.view=v;render();}); $('limitSelect').onchange=e=>{state.limit=e.target.value;renderAnalysis();}; $('searchInput').oninput=e=>{state.search=e.target.value.trim().toLowerCase();renderAnalysis();}; initBanner(); initBox(); initRec();}
@@ -661,7 +707,7 @@ function showChartTip(evt,row){const tt=$('tooltip');tt.innerHTML=`<div class="t
 function moveTip(evt){const tt=$('tooltip');let x=evt.clientX+16,y=evt.clientY+16;const r=tt.getBoundingClientRect();if(x+r.width+12>innerWidth)x=evt.clientX-r.width-16;if(y+r.height+12>innerHeight)y=evt.clientY-r.height-16;tt.style.left=`${Math.max(12,x)}px`;tt.style.top=`${Math.max(12,y)}px`;}
 function renderCharacterList(series){const boxEl=$('characterList');if(!boxEl)return;boxEl.innerHTML='';if(!series.length){boxEl.innerHTML='<div class="empty">暂无角色数据</div>';return;}series.forEach((s,i)=>{const row=s.latest,info=charInfo(s.slug),card=document.createElement('button');card.type='button';card.className='character-card';card.innerHTML=`<img src="${esc(info.icon_url)}" alt=""><div><div class="name">${esc(charName(s.slug))}</div><div class="meta">${esc(info.tier||'未分档')} · ${esc(info.element_cn||'')} · ${esc(info.style_cn||info.role_group_cn||'')}</div></div><div class="rate">${pct(row.app_rate)}</div>`;card.onclick=()=>{$('searchInput').value=charName(s.slug);state.search=charName(s.slug).toLowerCase();renderAnalysis();};boxEl.appendChild(card);});}
 function renderChangelog(series){const boxEl=$('changelogList');if(!boxEl)return;boxEl.innerHTML='';const slugs=new Set(series.map(s=>s.slug));const related=(DATA.changelogRows||[]).filter(r=>String(r.character_slugs||'').split(';').some(slug=>slugs.has(slug)));const rows=(related.length?related:(DATA.changelogRows||[])).slice(0,8);if(!rows.length){boxEl.innerHTML='<div class="empty">暂无 changelog</div>';return;}rows.forEach(r=>{const item=document.createElement('div');item.className='changelog-item';const text=String(r.text||'');item.innerHTML=`<time>${esc(r.changelog_date||'')}</time><p>${esc(text.slice(0,420))}${text.length>420?'...':''}</p>`;boxEl.appendChild(item);});}
-function initBanner(){buttons('bannerPhaseControl',[['all','全部'],['current','当期UP'],['next','下一期'],['satellite','确定卫星']],banner.phase,v=>{banner.phase=v;renderBanner();});$('bannerSearchInput').oninput=e=>{banner.search=e.target.value.trim().toLowerCase();renderBanner();};}
+function initBanner(){buttons('bannerPhaseControl',[['current','当期UP'],['next','下一期'],['satellite','确定卫星'],['all','全部含已结束']],banner.phase,v=>{banner.phase=v;renderBanner();});$('bannerSearchInput').oninput=e=>{banner.search=e.target.value.trim().toLowerCase();renderBanner();};}
 function bannerRows(){const q=banner.search;return (DATA.bannerRows||[]).filter(r=>(banner.phase==='all'||r.phase_status===banner.phase)&&(!q||[r.character_slug,r.character_name_cn,r.character_name_en,r.banner_role,r.element_cn,r.style_cn,r.role_group_cn,...(r.analysis_tags||[])].some(x=>String(x||'').toLowerCase().includes(q))));}
 function renderBanner(){const rows=bannerRows();$('bannerTitle').textContent='卡池情报';$('bannerSubtitle').textContent='这里只做数据提炼：复刻看历史趋势和组队占用，新角色/卫星只做公开信息与 Box 关系识别。';$('bannerBadges').innerHTML=[`角色 ${rows.length}`,`Box ${box.owned.size}`,box.saveStatus||'浏览器缓存'].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('bannerGrid');grid.innerHTML='';if(!rows.length){grid.innerHTML='<div class="empty">暂无卡池情报；可更新 configs/zzz_banner_plan.json</div>';return;}const phases=[...new Map(rows.map(r=>[r.phase_id,{id:r.phase_id,title:r.phase_title,subtitle:r.phase_subtitle,date:r.date_range,source:r.source_label,url:r.source_url,status:r.phase_status}])).values()];phases.forEach(phase=>{const section=document.createElement('section');section.className='banner-section';section.innerHTML=`<div class="banner-section-head"><div><h3>${esc(phase.title||'卡池')}</h3><p>${esc(phase.subtitle||'')} · ${esc(phase.date||'时间待确认')}</p></div>${phase.url?`<a href="${esc(phase.url)}" target="_blank" rel="noreferrer">${esc(phase.source||'来源')}</a>`:''}</div><div class="banner-card-grid"></div>`;const inner=section.querySelector('.banner-card-grid');rows.filter(r=>r.phase_id===phase.id).forEach(row=>inner.appendChild(bannerCard(row)));grid.appendChild(section);});}
 function bannerCard(row){const slug=row.character_slug,info={...charInfo(slug),...row},ins=bannerInsight(row);const card=document.createElement('article');card.className=`banner-card ${box.owned.has(slug)?'owned':''} ${row.phase_status}`;const tags=(row.analysis_tags||[]).slice(0,5).map(t=>`<span>${esc(t)}</span>`).join('');card.innerHTML=`<div class="banner-art">${info.icon_url?`<img src="${esc(info.icon_url)}" alt="">`:`<div class="avatar-fallback">${esc((info.character_name_cn||slug).slice(0,2))}</div>`}<button class="mini-owned">${box.owned.has(slug)?'已拥有':'加入Box'}</button></div><div class="banner-body"><div class="banner-kicker">${esc(row.banner_role||row.phase_subtitle||'卡池角色')}</div><h3>${esc(info.character_name_cn||info.character_name_en||slug)}</h3><p class="banner-meta">${esc(info.rarity||'-')} · ${esc(info.element_cn||'属性未知')} · ${esc(info.style_cn||info.role_group_cn||'特性未知')} · ${esc(ins.tierText)}</p><svg class="spark" viewBox="0 0 220 54">${sparkline(ins.points)}</svg><div class="tags">${tags}</div><div class="banner-facts">${ins.lines.slice(0,4).map(x=>`<p>${esc(x)}</p>`).join('')}</div><div class="banner-relations">${ins.relations.slice(0,6).map(x=>`<span class="${x.owned?'owned':''}">${esc(x.name)}${x.count?` ×${x.count}`:''}</span>`).join('')||'<span>暂无历史组合</span>'}</div></div>`;card.querySelector('.mini-owned').onclick=e=>{e.stopPropagation();box.owned.has(slug)?box.owned.delete(slug):box.owned.add(slug);box.buildSlug=slug;saveBox();renderBanner();};card.addEventListener('mouseenter',e=>showBannerTip(e,row,ins));card.addEventListener('mousemove',moveBannerTip);card.addEventListener('mouseleave',()=>{$('bannerTooltip').hidden=true;});return card;}
@@ -714,7 +760,7 @@ function rankedFor(mode=rec.mode,scope=rec.scope,used=new Set(),ignoreSearch=fal
 function ranked(){return rankedFor();}
 function templateRecency(t){return String(t.recency_key||t.collect_date||t.phase_ver||'')}
 function phaseInfo(){const templates=DATA.teamTemplates.filter(t=>t.mode===rec.mode&&t.scope_key===rec.scope),latest=templates.slice().sort((a,b)=>templateRecency(b).localeCompare(templateRecency(a)))[0];const rows=DATA.phaseInfoRows||[];return rows.find(r=>r.mode===rec.mode&&r.phase_ver===latest?.phase_ver&&r.collect_date===latest?.collect_date)||rows.find(r=>r.mode===rec.mode&&r.phase_ver===latest?.phase_ver)||rows.filter(r=>r.mode===rec.mode).sort((a,b)=>String(b.phase_ver||b.collect_date).localeCompare(String(a.phase_ver||a.collect_date)))[0]||{};}
-function renderPhaseInfo(){const p=phaseInfo();$('phaseTitle').textContent=`${p.mode_cn||MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode} · ${p.phase_name_cn||p.phase_name||p.phase_ver||'当期数据'}`;$('phaseDates').textContent=`${p.start_date||'未知'} 至 ${p.end_date||'未知'} · 采样 ${p.collect_date||'未知'}`;$('phaseText').textContent=p.mechanic_text||'推荐限定当前同模式、同关卡数据源。';}
+function renderPhaseInfo(){const p=phaseInfo();$('phaseTitle').textContent=`${p.mode_cn||MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode} · ${p.phase_name_cn||p.phase_name||p.phase_ver||'当期数据'}`;const range=(p.start_date||p.end_date)?`${p.start_date||'未知'} 至 ${p.end_date||'未知'}`:'周期源未提供';$('phaseDates').textContent=`${range} · 采样 ${p.collect_date||'未知'}`;$('phaseText').textContent=p.mechanic_text||'推荐限定当前同模式、同关卡数据源。';}
 function renderRec(){ensureScope();syncRec();renderPhaseInfo();const rows=ranked().slice(0,Number(rec.limit)||8),sel=[...elementSet()],templates=DATA.teamTemplates.filter(t=>t.mode===rec.mode&&t.scope_key===rec.scope);$('recTitle').textContent=`${MODES.find(x=>x[0]===rec.mode)?.[1]} · ${scopes().find(s=>s.key===rec.scope)?.label||rec.scope}`;$('recSubtitle').textContent=`当前同模式同关卡模板 ${templates.length} 队`;const riskLabel=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒';$('recBadges').innerHTML=[sel.length?sel.join(' / '):'未选属性',`缺口 ≤ ${rec.gap}`,riskLabel,rec.riskMode==='off'?'T档不提醒':'T1及以下提醒',`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');const list=$('recList');list.innerHTML='';if(!rows.length){list.innerHTML='<div class="empty">当前筛选没有可展示队伍</div>';renderRecSlate();return;}rows.forEach((item,i)=>list.appendChild(recCard(item,i+1)));renderRecSlate();}
 function recCard(item,i){const t=item.template,card=document.createElement('article');card.className=`rec-card ${item.risks.length&&rec.riskMode!=='off'?'risky':''}`;card.innerHTML=`<div class="rec-head"><div><h3>${i}. ${esc(t.names_cn.join(' / '))}</h3><div class="rec-meta">${esc(t.scope_label)} · Rank ${t.rank??'-'} · ${pct(t.app_rate)} · 邦布 ${esc(bangbooName(t.bangboo,t.bangboo_name))}</div></div><div class="score">${Math.round(item.score)}<br><span>${item.ownedCount}/3</span></div></div><div class="rec-team">${item.members.map(m=>memberHtml(m)).join('')}</div><div class="tags"><span class="${item.missingCount?'warn':''}">${item.missingCount?`缺 ${item.missingCount}`:'可成队'}</span>${item.ownedCount?`<span class="${item.readyCount<item.ownedCount?'warn':''}">练度 ${item.readyCount}/${item.ownedCount}</span>`:''}<span>属性命中 ${item.elementHits}</span>${item.conflictCount?`<span class="warn">多队冲突 ${item.conflictCount}</span>`:''}${item.risks.length&&rec.riskMode!=='off'?`<span class="${item.risks.some(r=>r.severe)?'danger':'warn'}">风险 ${item.risks.length}</span>`:''}</div>${riskHtml(item)}`;return card;}
 function memberHtml(m){const risky=(m.risks.length&&rec.riskMode!=='off')||m.conflict;return `<div class="rec-member ${m.owned?'owned':'missing'} ${risky?'risky':''}"><img src="${esc(m.info.icon_url)}" alt=""><div class="name">${esc(charName(m.slug))}</div><div class="meta">${esc(m.info.element_cn)} · ${esc(m.info.style_cn)}${m.owned?` · ${esc(m.build.label)} · ${esc(m.build.configLabel)}`:''}${m.conflict?' · 冲突':''}</div></div>`;}

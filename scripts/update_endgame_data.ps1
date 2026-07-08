@@ -20,6 +20,22 @@ Set-Location -LiteralPath $Root
 $toDate = (Get-Date).ToString("yyyy-MM-dd")
 $fromDate = (Get-Date).AddDays(-1 * $Days).ToString("yyyy-MM-dd")
 
+function Update-DateMarker {
+    param([string]$Path, [string]$Value)
+    $parent = Split-Path -Parent $Path
+    if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent | Out-Null
+    }
+    $current = ""
+    if (Test-Path -LiteralPath $Path) {
+        $current = (Get-Content -LiteralPath $Path -Raw -Encoding UTF8).Trim()
+    }
+    if ($current -ne $Value) {
+        Set-Content -LiteralPath $Path -Value $Value -Encoding UTF8
+    }
+    return $Path
+}
+
 function Invoke-Step {
     param(
         [string]$Name,
@@ -198,6 +214,112 @@ print(json.dumps({
     return ($json | ConvertFrom-Json)
 }
 
+function Get-HsrPrydwenSourceState {
+    $probe = @'
+import datetime as dt
+import hashlib
+import html
+import json
+import re
+import urllib.request
+
+urls = {
+    "tier": "https://www.prydwen.gg/star-rail/tier-list",
+    "moc": "https://www.prydwen.gg/star-rail/memory-of-chaos",
+    "pf": "https://www.prydwen.gg/star-rail/pure-fiction",
+    "as": "https://www.prydwen.gg/star-rail/apocalyptic-shadow",
+    "aa": "https://www.prydwen.gg/star-rail/anomaly-arbitration",
+}
+headers = {
+    "User-Agent": "Mozilla/5.0 miho-endgame-updater/0.1",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.google.com/",
+    "Cache-Control": "no-cache",
+}
+
+def fetch(url):
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return response.read().decode("utf-8", "replace")
+
+def decode(text):
+    decoded = text.replace('\\"', '"').replace("\\/", "/")
+    decoded = decoded.replace("\\u003c", "<").replace("\\u003e", ">").replace("\\u0026", "&")
+    return html.unescape(decoded)
+
+def extract_last_updated(text):
+    decoded = decode(text)
+    match = re.search(r'"lastUpdated":"([^"]+)"', decoded)
+    if match:
+        return match.group(1)
+    match = re.search(r"Last updated:.*?<strong>([^<]+)</strong>", decoded, flags=re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+def date_key(value):
+    text = str(value or "").strip()
+    for fmt in ("%d/%B/%Y", "%d/%b/%Y", "%Y-%m-%d"):
+        try:
+            return dt.datetime.strptime(text, fmt).date().isoformat()
+        except ValueError:
+            pass
+    return text
+
+pages = {}
+errors = {}
+for key, url in urls.items():
+    try:
+        text = fetch(url)
+        pages[key] = {
+            "url": url,
+            "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(),
+            "last_updated": extract_last_updated(text),
+        }
+    except Exception as exc:
+        errors[key] = str(exc)
+
+parts = []
+updated = []
+for key in sorted(pages):
+    page = pages[key]
+    updated_value = date_key(page.get("last_updated"))
+    if updated_value:
+        updated.append(updated_value)
+    parts.append(f"{key}:{page['sha1'][:16]}:{updated_value}")
+for key in sorted(errors):
+    parts.append(f"{key}:error:{hashlib.sha1(errors[key].encode('utf-8')).hexdigest()[:12]}")
+
+print(json.dumps({
+    "source_signature": "prydwen|" + "|".join(parts),
+    "latest_updated_at": max(updated) if updated else "",
+    "tier_updated_at": pages.get("tier", {}).get("last_updated", ""),
+    "pages": pages,
+    "errors": errors,
+}, ensure_ascii=False))
+'@
+    $json = $probe | & python -
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to probe Prydwen HSR source state"
+    }
+    return ($json | ConvertFrom-Json)
+}
+
+function Join-HsrSourceState {
+    param([object]$HfSource, [object]$PrydwenSource)
+    return [pscustomobject]@{
+        repo_id = $HfSource.repo_id
+        source_signature = "$($HfSource.source_signature)|$($PrydwenSource.source_signature)"
+        latest_available_snapshot = $HfSource.latest_available_snapshot
+        latest_collect_snapshot = $HfSource.latest_collect_snapshot
+        latest_collect_date = $HfSource.latest_collect_date
+        source_latest_modified_at = $HfSource.source_latest_modified_at
+        source_sha = $HfSource.source_sha
+        prydwen_signature = $PrydwenSource.source_signature
+        prydwen_latest_updated_at = $PrydwenSource.latest_updated_at
+        prydwen_tier_updated_at = $PrydwenSource.tier_updated_at
+    }
+}
+
 function Join-ZzzSourceState {
     param([object]$HfSource, [object]$PrydwenSource)
     return [pscustomobject]@{
@@ -324,10 +446,13 @@ function Test-OutputsFresh {
 }
 
 $statePath = Join-Path $Root ".miho\update_source_state.json"
+$localDateMarker = Update-DateMarker (Join-Path $Root ".miho\update_local_date.txt") $toDate
 $sourceState = Read-SourceState $statePath
 
 if (-not $SkipHsr) {
-    $hsrSource = Get-HfSourceState $HsrRepoId
+    $hsrHfSource = Get-HfSourceState $HsrRepoId
+    $hsrPrydwenSource = Get-HsrPrydwenSourceState
+    $hsrSource = Join-HsrSourceState $hsrHfSource $hsrPrydwenSource
     $hsrRequired = @(
         (Join-Path $HsrOut "export_report.md"),
         (Join-Path $HsrOut "phase_index.csv"),
@@ -347,6 +472,36 @@ if (-not $SkipHsr) {
         $sourceState = Read-SourceState $statePath
         Set-StateEntry $sourceState "hsr" $hsrSource $statePath
         $sourceState = Read-SourceState $statePath
+    }
+    $hsrVisualizerInputs = @(
+        (Join-Path $HsrOut "phase_index.csv"),
+        (Join-Path $HsrOut "character_usage_long.csv"),
+        (Join-Path $HsrOut "team_rank_raw.csv"),
+        (Join-Path $HsrOut "name_map.csv"),
+        (Join-Path $HsrOut "prydwen_tier_current.csv"),
+        (Join-Path $HsrOut "prydwen_tier_changelog_history.csv"),
+        (Join-Path $HsrOut "prydwen_tier_usage_trend.csv"),
+        "configs\hsr_banner_plan.json",
+        "hsr_endgame_exporter\cli.py",
+        "hsr_endgame_exporter\visualizer.py",
+        "miho_core\banner_plan.py",
+        $localDateMarker
+    )
+    $hsrVisualizerOutputs = @(
+        (Join-Path $HsrOut "visualizer\data.json"),
+        (Join-Path $HsrOut "visualizer\index.html"),
+        (Join-Path $HsrOut "visualizer\app.js"),
+        (Join-Path $HsrOut "visualizer\styles.css")
+    )
+    if (Test-OutputsFresh $hsrVisualizerInputs $hsrVisualizerOutputs) {
+        Write-Host "==> Build HSR visualizer"
+        Write-Host "    skipped: visualizer outputs are fresh"
+    }
+    else {
+        Invoke-Step "Build HSR visualizer" @(
+            "python", "-m", "hsr_endgame_exporter", "visualizer",
+            "--out", $HsrOut
+        )
     }
 }
 
@@ -383,7 +538,11 @@ if (-not $SkipZzz) {
         (Join-Path $ZzzOut "prydwen_tier_current.csv"),
         $ZzzBox,
         $ZzzPlan,
-        "configs\zzz_decision_baseline.json"
+        $localDateMarker,
+        "configs\zzz_decision_baseline.json",
+        "miho_core\evidence.py",
+        "miho_core\pull_value.py",
+        "zzz_endgame_exporter\cli.py"
     )
     $notesDir = "configs\zzz_mechanism_notes"
     if (Test-Path -LiteralPath $notesDir) {
@@ -401,7 +560,11 @@ if (-not $SkipZzz) {
         (Join-Path $ZzzOut "prydwen_tier_current.csv"),
         (Join-Path $ZzzOut "prydwen_tier_changelog_history.csv"),
         (Join-Path $ZzzOut "decision_cards.json"),
-        $ZzzPlan
+        $ZzzPlan,
+        "miho_core\banner_plan.py",
+        "zzz_endgame_exporter\prydwen.py",
+        "zzz_endgame_exporter\visualizer.py",
+        $localDateMarker
     )
     $visualizerOutputs = @(
         (Join-Path $ZzzOut "visualizer\data.json"),

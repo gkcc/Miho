@@ -52,6 +52,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"export failed: {exc}", file=sys.stderr)
             return 1
         return 0
+    if args.command == "visualizer":
+        try:
+            run_visualizer(args)
+        except Exception as exc:  # pragma: no cover - command boundary
+            print(f"visualizer failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
     parser.print_help()
     return 2
 
@@ -92,7 +99,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fill Chinese names from the official HoYoWiki HSR character list.",
     )
     export.add_argument("--repo-id", default=DEFAULT_REPO_ID)
+    visualizer = subparsers.add_parser("visualizer", help="Rebuild HSR visualizer from existing export CSV files")
+    visualizer.add_argument("--out", default="./hsr_endgame_export", help="Existing export directory and output target")
     return parser
+
+
+def read_csv(path: Path) -> list[dict[str, Any]]:
+    import csv
+
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        return list(csv.DictReader(handle))
+
+
+def run_visualizer(args: argparse.Namespace) -> None:
+    out_dir = Path(args.out)
+    write_visualizer_app(
+        out_dir,
+        trend_rows=read_csv(out_dir / "prydwen_tier_usage_trend.csv"),
+        tier_rows=read_csv(out_dir / "prydwen_tier_current.csv"),
+        changelog_rows=read_csv(out_dir / "prydwen_tier_changelog_history.csv"),
+        chart_rows=read_csv(out_dir / "prydwen_tier_charts.csv"),
+        character_usage_rows=read_csv(out_dir / "character_usage_long.csv"),
+        team_rank_rows=read_csv(out_dir / "team_rank_raw.csv"),
+    )
 
 
 def run_export(args: argparse.Namespace) -> None:

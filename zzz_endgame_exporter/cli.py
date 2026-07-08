@@ -38,6 +38,7 @@ from .parsers import (
     parse_team_rows,
 )
 from .prydwen import (
+    extract_phase_updates_from_html,
     fetch_and_parse_tier,
     fetch_prydwen_teams,
     merge_changelog_history,
@@ -440,6 +441,7 @@ def run_export(args: argparse.Namespace) -> None:
                 warnings=warnings,
             )
         )
+        _backfill_team_collect_dates(team_rows, phase_rows)
 
     if args.include_prydwen_tier:
         tier_rows, changelog_rows = fetch_and_parse_tier(out_dir / "raw" / "prydwen_tier", warnings)
@@ -607,6 +609,7 @@ def _process_prydwen_visible(
         if not teams_by_scope:
             warnings.append(f"Prydwen ZZZ {mode} parse warning: no visible teams extracted")
             continue
+        _backfill_phase_from_prydwen_page(phase, raw_prydwen_dir / f"{mode}.html", warnings)
         for scope, rows in teams_by_scope.items():
             output.extend(
                 parse_team_rows(
@@ -619,6 +622,38 @@ def _process_prydwen_visible(
                 )
             )
     return output
+
+
+def _backfill_phase_from_prydwen_page(phase: dict[str, Any], page_path: Path, warnings: list[str]) -> None:
+    if phase.get("collect_date") or not page_path.exists():
+        return
+    try:
+        updates = extract_phase_updates_from_html(page_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        warnings.append(f"Prydwen ZZZ phase date backfill failed for {page_path.name}: {exc}")
+        return
+    phase_ver = str(phase.get("phase_ver") or "")
+    update = updates.get(phase_ver)
+    if not update:
+        return
+    phase["collect_date"] = update.get("collect_date", "")
+    note = str(phase.get("note") or "").strip()
+    suffix = "collect_date backfilled from Prydwen visible phase selector"
+    phase["note"] = f"{note}; {suffix}" if note else suffix
+
+
+def _backfill_team_collect_dates(team_rows: list[dict[str, Any]], phase_rows: list[dict[str, Any]]) -> None:
+    phase_dates = {
+        (str(row.get("mode") or ""), str(row.get("phase_ver") or "")): str(row.get("collect_date") or "")
+        for row in phase_rows
+        if row.get("collect_date")
+    }
+    for row in team_rows:
+        if row.get("collect_date"):
+            continue
+        collect_date = phase_dates.get((str(row.get("mode") or ""), str(row.get("phase_ver") or "")))
+        if collect_date:
+            row["collect_date"] = collect_date
 
 
 def _prepare_config(config: dict[str, Any]) -> dict[str, dict[str, Any]]:

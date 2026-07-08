@@ -230,6 +230,19 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
         ),
         encoding="utf-8",
     )
+    (tmp_path / "phase_index.csv").write_text(
+        (
+            "snapshot_id,collect_date,mode,mode_cn,phase_ver,phase_name,start_date,end_date,source,source_path,has_chars,has_comps,note\n"
+            "3.0.2,,sd,式舆防卫,3.0.2,式舆防卫 3.0.2,,,hf_processed,3.0.2/,1,1,config missing; dates unavailable\n"
+        ),
+        encoding="utf-8",
+    )
+    raw_prydwen = tmp_path / "raw" / "prydwen"
+    raw_prydwen.mkdir(parents=True)
+    (raw_prydwen / "sd.html").write_text(
+        '<select><option value="22" selected="">3.0.2 - 06/July/2026 (19,687 users)</option></select>',
+        encoding="utf-8",
+    )
     usage_rows = [
         {
             "mode": "sd",
@@ -307,10 +320,15 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
     )
 
     data = json.loads((tmp_path / "visualizer" / "data.json").read_text(encoding="utf-8"))
+    app_text = (tmp_path / "visualizer" / "app.js").read_text(encoding="utf-8")
     roster = {row["character_slug"]: row for row in data["rosterRows"]}
 
     assert roster["nom"]["character_name_cn"] == "诺姆·霍洛维尔"
     assert roster["nom"]["element_cn"] == "火"
     assert data["bannerRows"][0]["phase_status"] == "current"
+    assert "banner={phase:'current'" in app_text
+    assert data["phaseInfoRows"][0]["collect_date"] == "2026-07-06"
+    assert data["phaseInfoRows"][0]["source_limited"] is True
     assert data["teamTemplates"][0]["phase_ver"] == "3.0.2"
+    assert data["teamTemplates"][0]["collect_date"] == "2026-07-06"
     assert "nom" in data["teamTemplates"][0]["chars"]

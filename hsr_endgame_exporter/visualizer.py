@@ -6,8 +6,11 @@ import json
 import re
 import urllib.error
 import urllib.request
+from datetime import date
 from pathlib import Path
 from typing import Any
+
+from miho_core.banner_plan import effective_banner_phases
 
 from .constants import MODE_CN
 from .normalize import normalize_character_id
@@ -137,6 +140,7 @@ def write_visualizer_app(
     team_templates = _build_recommender_rows(
         team_rank_rows if team_rank_rows is not None else _read_csv(out_dir / "team_rank_raw.csv"),
         roster_rows,
+        phase_info_rows,
     )
     banner_rows = _load_banner_rows(out_dir, roster_rows)
     data = {
@@ -144,6 +148,7 @@ def write_visualizer_app(
             "generatedAt": _latest_value(tier_rows, "fetched_at"),
             "tierUpdatedAt": _latest_value(tier_rows, "tier_updated_at"),
             "tierUpdatedDate": _latest_value(tier_rows, "tier_updated_date"),
+            "localDate": date.today().isoformat(),
             "source": "Prydwen Tier List + local MocStats processed dataset + HoYoWiki roster",
         },
         "trendRows": trend_rows,
@@ -642,10 +647,12 @@ def _download_static_avatar(url: str, destination: Path) -> bool:
 def _build_recommender_rows(
     team_rows: list[dict[str, Any]],
     roster_rows: list[dict[str, Any]],
+    phase_info_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     if not team_rows:
         return []
     roster_lookup = _build_roster_lookup(roster_rows)
+    phase_lookup = _build_phase_lookup(phase_info_rows)
     latest_collect_dates: dict[str, str] = {}
     for row in team_rows:
         mode = str(row.get("mode") or "")
@@ -664,6 +671,7 @@ def _build_recommender_rows(
             continue
         scope = str(row.get("scope") or "")
         scope_key, scope_label, scope_order = _recommender_scope(mode, scope)
+        phase_info = _lookup_phase_info(phase_lookup, row)
         template = {
             "mode": mode,
             "mode_cn": row.get("mode_cn") or MODE_CN.get(mode, mode),
@@ -676,6 +684,9 @@ def _build_recommender_rows(
             "phase_ver": row.get("phase_ver", ""),
             "phase_name": row.get("phase_name", ""),
             "phase_name_cn": _phase_name_cn(mode, row.get("phase_name", "")),
+            "start_date": row.get("start_date") or phase_info.get("start_date", ""),
+            "end_date": row.get("end_date") or phase_info.get("end_date", ""),
+            "phase_status": row.get("phase_status") or phase_info.get("phase_status") or _phase_status(row),
             "rank": _numeric_value(row.get("rank")),
             "app_rate": _numeric_value(row.get("app_rate")),
             "avg_round": _numeric_value(row.get("avg_round")),
@@ -702,6 +713,37 @@ def _build_recommender_rows(
     return sorted(output, key=lambda row: (str(row.get("mode", "")), int(row.get("scope_order") or 99), _template_sort_key(row)))
 
 
+def _build_phase_lookup(phase_info_rows: list[dict[str, Any]]) -> dict[tuple[str, str, str], dict[str, Any]]:
+    lookup: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in phase_info_rows:
+        mode = str(row.get("mode") or "")
+        phase_ver = str(row.get("phase_ver") or "")
+        phase_name = str(row.get("phase_name") or "")
+        collect_date = str(row.get("collect_date") or "")
+        if not mode or not phase_ver:
+            continue
+        for key in (
+            (mode, phase_ver, phase_name),
+            (mode, phase_ver, collect_date),
+            (mode, phase_ver, ""),
+        ):
+            lookup.setdefault(key, row)
+    return lookup
+
+
+def _lookup_phase_info(lookup: dict[tuple[str, str, str], dict[str, Any]], row: dict[str, Any]) -> dict[str, Any]:
+    mode = str(row.get("mode") or "")
+    phase_ver = str(row.get("phase_ver") or "")
+    phase_name = str(row.get("phase_name") or "")
+    collect_date = str(row.get("collect_date") or "")
+    return (
+        lookup.get((mode, phase_ver, phase_name))
+        or lookup.get((mode, phase_ver, collect_date))
+        or lookup.get((mode, phase_ver, ""))
+        or {}
+    )
+
+
 def _build_phase_info_rows(phase_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     chosen: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in phase_rows:
@@ -725,15 +767,40 @@ def _build_phase_info_rows(phase_rows: list[dict[str, Any]]) -> list[dict[str, A
                 "phase_name_cn": _phase_name_cn(mode, phase_name),
                 "start_date": row.get("start_date", ""),
                 "end_date": row.get("end_date", ""),
+                "phase_status": _phase_status(row),
                 "source": row.get("source", ""),
                 "source_path": row.get("source_path", ""),
                 "mechanic_name": seeded.get("mechanic_name", ""),
                 "mechanic_text": seeded.get("mechanic_text", ""),
                 "mechanic_source": seeded.get("mechanic_source", ""),
                 "mechanic_url": seeded.get("mechanic_url", ""),
+                "source_note": row.get("note", ""),
             }
         )
     return output
+
+
+def _phase_status(row: dict[str, Any], *, today: date | None = None) -> str:
+    current = today or date.today()
+    start = _date_or_none(row.get("start_date"))
+    end = _date_or_none(row.get("end_date"))
+    if end and end < current:
+        return "expired"
+    if start and start > current:
+        return "future"
+    if start or end:
+        return "current"
+    return "unknown"
+
+
+def _date_or_none(value: Any) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
 
 
 def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -748,7 +815,7 @@ def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[
         return []
     roster = {row["character_slug"]: row for row in roster_rows}
     rows: list[dict[str, Any]] = []
-    for phase in config.get("phases") or []:
+    for phase in effective_banner_phases(config):
         if not isinstance(phase, dict):
             continue
         for index, char in enumerate(phase.get("characters") or [], start=1):
@@ -1049,7 +1116,7 @@ let DATA=null;
 let state={page:'analysis',mode:'moc',view:'trend',role:'main_dps',tiers:new Set(TIERS),metric:'app_rate',limit:'12',search:'',avatars:true,focus:null,hover:null};
 let box={owned:new Set(),builds:{},buildSlug:'',element:'all',path:'all',role:'all',rarity:'all',status:'all',search:'',saveStatus:'浏览器缓存'};
 let rec={mode:'moc',scope:'',elements:{},gap:'1',riskMode:'warn',limit:'8',search:''};
-let banner={phase:'all',search:''};
+let banner={phase:'current',search:''};
 let boxSaveTimer=null;
 
 const $=id=>document.getElementById(id);
@@ -1083,7 +1150,7 @@ function init(){
 }
 
 function initBannerControls(){
-  makeButtons('bannerPhaseControl',[['all','全部'],['current','当期UP'],['next','后续卡池'],['recent','历史参考']],banner.phase,v=>{banner.phase=v;renderBanner();});
+  makeButtons('bannerPhaseControl',[['current','当期UP'],['next','后续卡池'],['recent','历史参考'],['all','全部含已结束']],banner.phase,v=>{banner.phase=v;renderBanner();});
   $('bannerSearchInput').oninput=e=>{banner.search=e.target.value.trim().toLowerCase();renderBanner();};
 }
 
@@ -1146,7 +1213,7 @@ function makeButtons(id,items,current,onClick){
 
 function resetCurrentPage(){
   if(state.page==='banner'){
-    banner={phase:'all',search:''};
+    banner={phase:'current',search:''};
     [...$('bannerPhaseControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===banner.phase));
     $('bannerSearchInput').value='';
     renderBanner();return;
@@ -1386,7 +1453,9 @@ function phaseName(row){return row?.phase_name_cn||(row?.phase_name?'中文期�
 function phaseLabel(row){const ver=row?.phase_ver||'';const name=phaseName(row);return `${ver} ${name}`.trim()}
 function roleList(row){return String(row.role_groups||'unknown').split(';').filter(Boolean)}
 function roleCn(row){return row.role_group_cns||roleList(row).join('/')}
-function currentModeTemplates(mode){const rows=(DATA.teamTemplates||[]).filter(t=>t.mode===mode);const latest=rows.reduce((m,t)=>String(t.collect_date||'')>m?String(t.collect_date||''):m,'');return rows.filter(t=>String(t.collect_date||'')===latest);}
+function phaseStatusLabel(status){return status==='expired'?'已过期':status==='future'?'未开始':status==='current'?'当前周期':'日期未知'}
+function templateRecencyKey(t){return `${String(t.collect_date||'')}|${String(t.phase_ver||'')}|${String(t.snapshot_id||'')}`}
+function currentModeTemplates(mode){const rows=(DATA.teamTemplates||[]).filter(t=>t.mode===mode);const usable=rows.filter(t=>!['expired','future'].includes(t.phase_status));const pool=usable.length?usable:rows;const latest=pool.reduce((m,t)=>templateRecencyKey(t)>m?templateRecencyKey(t):m,'');return pool.filter(t=>templateRecencyKey(t)===latest);}
 function scopeTemplates(mode,scope){return currentModeTemplates(mode).filter(t=>t.scope_key===scope);}
 function num(v){const n=Number(v);return Number.isFinite(n)?n:null}
 function canonicalSlug(slug){return charInfo(slug).character_slug||slug}
@@ -1535,7 +1604,9 @@ function renderRecommender(){
   const selected=[...recElementSet()];
   renderPhaseMechanics(latest);
   $('recTitle').textContent=`${modeLabel} · ${scope?.label||rec.scope}`;
-  $('recSubtitle').textContent=`${phaseLabel(latest)} · ${latest.collect_date||''} · 当前同模式同关卡模板 ${templates.length} 队`;
+  const status=latest.phase_status||phaseInfoFor(latest).phase_status||'unknown';
+  const templateLabel=status==='expired'?'历史模板（源滞后）':'当前同模式同关卡模板';
+  $('recSubtitle').textContent=`${phaseLabel(latest)} · ${latest.collect_date||''} · ${phaseStatusLabel(status)} · ${templateLabel} ${templates.length} 队`;
   const riskLabel=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒';
   const tierRiskLabel=rec.riskMode==='off'?'当前模式T档不提醒':'当前模式T1及以下提醒';
   $('recBadges').innerHTML=[selected.length?selected.join(' / '):'未选属性',`缺口 ≤ ${rec.gap}`,riskLabel,tierRiskLabel,`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');
@@ -1558,10 +1629,12 @@ function renderPhaseMechanics(template){
   const modeLabel=MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode;
   const phaseTitle=phaseLabel(info)||phaseLabel(template);
   $('phaseMechanicsTitle').textContent=`${modeLabel} · ${phaseTitle||'未识别期名'}`;
-  const dates=[info.start_date&&`开始 ${info.start_date}`,info.end_date&&`结束 ${info.end_date}`,info.collect_date&&`采样 ${info.collect_date}`].filter(Boolean).join(' · ');
+  const status=info.phase_status||template.phase_status||'unknown';
+  const dates=[phaseStatusLabel(status),info.start_date&&`开始 ${info.start_date}`,info.end_date&&`结束 ${info.end_date}`,info.collect_date&&`采样 ${info.collect_date}`].filter(Boolean).join(' · ');
   $('phaseMechanicsSubtitle').textContent=dates||'期名来自本地 phase_index';
-  const mechanicName=info.mechanic_name||'机制效果待维护';
-  const mechanicText=info.mechanic_text||'当前本地数据只识别到了期名和采样日期，尚未维护这一期的环境效果。这个状态会明确显示，避免把未知效果误当成已匹配。';
+  const expiredText=status==='expired'?`本地最新 ${modeLabel} 数据已于 ${info.end_date||'上一周期'} 结束；上游尚未提供新周期队伍数据，当前推荐只作历史参考。`:'';
+  const mechanicName=expiredText?'源滞后 / 历史模板':(info.mechanic_name||'机制效果待维护');
+  const mechanicText=expiredText||info.mechanic_text||'当前本地数据只识别到了期名和采样日期，尚未维护这一期的环境效果。这个状态会明确显示，避免把未知效果误当成已匹配。';
   $('phaseMechanicsText').textContent=`${mechanicName}：${mechanicText}`;
   const source=$('phaseMechanicsSource');
   if(info.mechanic_url){source.href=info.mechanic_url;source.textContent=info.mechanic_source||'机制来源';source.classList.remove('hidden-link');}
