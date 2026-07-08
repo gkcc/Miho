@@ -65,8 +65,9 @@ def source_date(value):
     return text
 
 quoted_repo = urllib.parse.quote(repo_id, safe="/")
+repo = fetch_json(f"https://huggingface.co/api/datasets/{quoted_repo}")
 config = fetch_json(f"https://huggingface.co/datasets/{quoted_repo}/resolve/main/config.json")
-tree = fetch_json(f"https://huggingface.co/api/datasets/{quoted_repo}/tree/main?recursive=false&expand=false")
+tree = fetch_json(f"https://huggingface.co/api/datasets/{quoted_repo}/tree/main?recursive=false&expand=true")
 available = sorted(
     [
         item.get("path", "")
@@ -83,12 +84,23 @@ collect_rows = [
 collect_rows.sort(key=lambda row: (row["collect_date"], version_key(row["snapshot_id"])))
 latest_collect = collect_rows[-1] if collect_rows else {"snapshot_id": "", "collect_date": ""}
 latest_available = available[-1] if available else ""
-signature = f"{latest_available}|{latest_collect['snapshot_id']}|{latest_collect['collect_date']}|config:{len(config)}|tree:{len(available)}"
+source_times = [str(repo.get("lastModified") or "")]
+source_times.extend(
+    str(((item.get("lastCommit") or {}).get("date") or ""))
+    for item in tree
+    if isinstance(item, dict)
+)
+source_times = [value for value in source_times if value]
+latest_source_time = max(source_times) if source_times else latest_collect["collect_date"]
+repo_sha = str(repo.get("sha") or "")
+signature = f"{latest_available}|{latest_collect['snapshot_id']}|{latest_collect['collect_date']}|sha:{repo_sha}|modified:{latest_source_time}|config:{len(config)}|tree:{len(available)}"
 print(json.dumps({
     "repo_id": repo_id,
     "latest_available_snapshot": latest_available,
     "latest_collect_snapshot": latest_collect["snapshot_id"],
     "latest_collect_date": latest_collect["collect_date"],
+    "source_latest_modified_at": latest_source_time,
+    "source_sha": repo_sha,
     "source_signature": signature,
 }, ensure_ascii=False))
 '@
@@ -97,6 +109,109 @@ print(json.dumps({
         throw "Failed to probe Hugging Face source state for $RepoId"
     }
     return ($json | ConvertFrom-Json)
+}
+
+function Get-ZzzPrydwenSourceState {
+    $probe = @'
+import datetime as dt
+import hashlib
+import html
+import json
+import re
+import urllib.request
+
+urls = {
+    "tier": "https://www.prydwen.gg/zenless/tier-list",
+    "sd": "https://www.prydwen.gg/zenless/shiyu-defense/",
+    "da": "https://www.prydwen.gg/zenless/deadly-assault/",
+}
+headers = {
+    "User-Agent": "Mozilla/5.0 miho-endgame-updater/0.1",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+}
+
+def fetch(url):
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return response.read().decode("utf-8", "replace")
+
+def decode(text):
+    decoded = text.replace('\\"', '"').replace("\\/", "/")
+    decoded = decoded.replace("\\u003c", "<").replace("\\u003e", ">").replace("\\u0026", "&")
+    return html.unescape(decoded)
+
+def extract_last_updated(text):
+    decoded = decode(text)
+    match = re.search(r'"lastUpdated":"([^"]+)"', decoded)
+    if match:
+        return match.group(1)
+    match = re.search(r"Last updated:.*?<strong>([^<]+)</strong>", decoded, flags=re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+def date_key(value):
+    text = str(value or "").strip()
+    for fmt in ("%d/%B/%Y", "%d/%b/%Y", "%Y-%m-%d"):
+        try:
+            return dt.datetime.strptime(text, fmt).date().isoformat()
+        except ValueError:
+            pass
+    return text
+
+pages = {}
+errors = {}
+for key, url in urls.items():
+    try:
+        text = fetch(url)
+        pages[key] = {
+            "url": url,
+            "sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(),
+            "last_updated": extract_last_updated(text),
+        }
+    except Exception as exc:
+        errors[key] = str(exc)
+
+parts = []
+updated = []
+for key in sorted(pages):
+    page = pages[key]
+    updated_value = date_key(page.get("last_updated"))
+    if updated_value:
+        updated.append(updated_value)
+    parts.append(f"{key}:{page['sha1'][:16]}:{updated_value}")
+for key in sorted(errors):
+    parts.append(f"{key}:error:{hashlib.sha1(errors[key].encode('utf-8')).hexdigest()[:12]}")
+
+print(json.dumps({
+    "source_signature": "prydwen|" + "|".join(parts),
+    "latest_updated_at": max(updated) if updated else "",
+    "tier_updated_at": pages.get("tier", {}).get("last_updated", ""),
+    "pages": pages,
+    "errors": errors,
+}, ensure_ascii=False))
+'@
+    $json = $probe | & python -
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to probe Prydwen ZZZ source state"
+    }
+    return ($json | ConvertFrom-Json)
+}
+
+function Join-ZzzSourceState {
+    param([object]$HfSource, [object]$PrydwenSource)
+    return [pscustomobject]@{
+        repo_id = $HfSource.repo_id
+        source_signature = "$($HfSource.source_signature)|$($PrydwenSource.source_signature)"
+        latest_available_snapshot = $HfSource.latest_available_snapshot
+        latest_collect_snapshot = $HfSource.latest_collect_snapshot
+        latest_collect_date = $HfSource.latest_collect_date
+        source_latest_modified_at = $HfSource.source_latest_modified_at
+        source_sha = $HfSource.source_sha
+        prydwen_signature = $PrydwenSource.source_signature
+        prydwen_latest_updated_at = $PrydwenSource.latest_updated_at
+        prydwen_tier_updated_at = $PrydwenSource.tier_updated_at
+    }
 }
 
 function Read-SourceState {
@@ -132,6 +247,11 @@ function Set-StateEntry {
         source_latest_available_snapshot = $SourceState.latest_available_snapshot
         source_latest_collect_snapshot = $SourceState.latest_collect_snapshot
         source_latest_collect_date = $SourceState.latest_collect_date
+    }
+    foreach ($propertyName in @("source_latest_modified_at", "source_sha", "prydwen_signature", "prydwen_latest_updated_at", "prydwen_tier_updated_at")) {
+        if ($SourceState.PSObject.Properties.Name -contains $propertyName) {
+            $output[$Game][$propertyName] = $SourceState.$propertyName
+        }
     }
     $parent = Split-Path -Parent $Path
     if ($parent -and -not (Test-Path -LiteralPath $parent)) {
@@ -231,7 +351,9 @@ if (-not $SkipHsr) {
 }
 
 if (-not $SkipZzz) {
-    $zzzSource = Get-HfSourceState $ZzzRepoId
+    $zzzHfSource = Get-HfSourceState $ZzzRepoId
+    $zzzPrydwenSource = Get-ZzzPrydwenSourceState
+    $zzzSource = Join-ZzzSourceState $zzzHfSource $zzzPrydwenSource
     $zzzRequired = @(
         (Join-Path $ZzzOut "export_report.md"),
         (Join-Path $ZzzOut "phase_index.csv"),
@@ -271,6 +393,33 @@ if (-not $SkipZzz) {
                 Select-Object -ExpandProperty FullName
         )
     }
+    $visualizerInputs = @(
+        (Join-Path $ZzzOut "phase_index.csv"),
+        (Join-Path $ZzzOut "character_usage_long.csv"),
+        (Join-Path $ZzzOut "team_rank_dedup_unordered.csv"),
+        (Join-Path $ZzzOut "name_map.csv"),
+        (Join-Path $ZzzOut "prydwen_tier_current.csv"),
+        (Join-Path $ZzzOut "prydwen_tier_changelog_history.csv"),
+        (Join-Path $ZzzOut "decision_cards.json"),
+        $ZzzPlan
+    )
+    $visualizerOutputs = @(
+        (Join-Path $ZzzOut "visualizer\data.json"),
+        (Join-Path $ZzzOut "visualizer\index.html"),
+        (Join-Path $ZzzOut "visualizer\app.js"),
+        (Join-Path $ZzzOut "visualizer\styles.css")
+    )
+    if (Test-OutputsFresh $visualizerInputs $visualizerOutputs) {
+        Write-Host "==> Build ZZZ visualizer"
+        Write-Host "    skipped: visualizer outputs are fresh"
+    }
+    else {
+        Invoke-Step "Build ZZZ visualizer" @(
+            "python", "-m", "zzz_endgame_exporter", "visualizer",
+            "--out", $ZzzOut
+        )
+    }
+
     $coverageOutputs = @(
         (Join-Path $ZzzOut "current_box_team_coverage.md"),
         (Join-Path $ZzzOut "target_box_team_coverage.md"),

@@ -1,5 +1,7 @@
 import json
+from datetime import datetime
 
+from miho_core.banner_plan import effective_phase_status
 from zzz_endgame_exporter.official_names import official_name_map
 from zzz_endgame_exporter.parsers import make_phase_row, parse_team_rows, scope_label
 from zzz_endgame_exporter.prydwen import _date_from_prydwen_date, build_tier_rows
@@ -80,7 +82,16 @@ def test_zzz_avatar_crop_box_accepts_normalized_coordinates():
     assert _avatar_crop_box("", 100, 100) is None
 
 
+def test_banner_phase_status_advances_from_date_range():
+    phase = {"status": "next", "date_range": "2026-07-08 12:00 至 2026-07-28 14:59"}
+
+    assert effective_phase_status(phase, now=datetime(2026, 7, 8, 11, 59)) == "next"
+    assert effective_phase_status(phase, now=datetime(2026, 7, 9, 9, 30)) == "current"
+    assert effective_phase_status(phase, now=datetime(2026, 7, 28, 15, 0)) == "previous"
+
+
 def test_zzz_visualizer_outputs_box_and_keeps_bangboo_out_of_roster(tmp_path):
+    (tmp_path / "zzz_banner_plan.json").write_text('{"phases":[]}', encoding="utf-8")
     usage_rows = [
         {
             "mode": "sd",
@@ -190,3 +201,116 @@ def test_zzz_visualizer_outputs_box_and_keeps_bangboo_out_of_roster(tmp_path):
     assert "练度未录入" in app_text
     assert [row["character_slug"] for row in data["rosterRows"]] == ["velina", "miyabi"]
     assert data["teamTemplates"][0]["bangboo_name"] == "阿饭"
+
+
+def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_banner_roster(tmp_path):
+    (tmp_path / "zzz_banner_plan.json").write_text(
+        json.dumps(
+            {
+                "phases": [
+                    {
+                        "id": "current",
+                        "status": "current",
+                        "date_range": "2026-07-08 12:00 起",
+                        "characters": [
+                            {
+                                "slug": "nom",
+                                "name_cn": "诺姆·霍洛维尔",
+                                "banner_role": "限定 S 级 UP",
+                                "rarity": "S",
+                                "element_cn": "火",
+                                "style_cn": "击破",
+                                "role_group_cn": "辅助",
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    usage_rows = [
+        {
+            "mode": "sd",
+            "mode_cn": "式舆防卫",
+            "sub_mode": "all",
+            "sub_mode_cn": "全部",
+            "character_slug": "miyabi",
+            "character_name_en": "Miyabi",
+            "collect_date": "2026-06-21",
+            "phase_ver": "2.8.3",
+            "app_rate": 42.0,
+            "avg_score": 33000,
+        }
+    ]
+    tier_rows = [
+        {
+            "character_slug": "miyabi",
+            "character_name_en": "Miyabi",
+            "character_name_cn": "星见 雅",
+            "role_group": "anomaly_dps",
+            "role_group_cn": "异常主C",
+            "tier": "T0.5",
+            "rating": 10,
+            "element": "Ice",
+            "element_cn": "冰",
+            "style": "Anomaly",
+            "style_cn": "异常",
+            "rarity": "S",
+        }
+    ]
+    team_rows = [
+        {
+            "snapshot_id": "3.0.1",
+            "mode": "sd",
+            "mode_cn": "式舆防卫",
+            "sub_mode": "5-1",
+            "sub_mode_cn": "第5防线 1",
+            "collect_date": "2026-06-21",
+            "phase_ver": "2.8.3",
+            "phase_name": "式舆防卫 2.8.3",
+            "rank": 1,
+            "app_rate": 26.39,
+            "char_1_slug": "miyabi",
+            "char_2_slug": "nangong-yu",
+            "char_3_slug": "ukinami-yuzuha",
+        },
+        {
+            "snapshot_id": "3.0.2",
+            "mode": "sd",
+            "mode_cn": "式舆防卫",
+            "sub_mode": "5-1",
+            "sub_mode_cn": "第5防线 1",
+            "collect_date": "",
+            "phase_ver": "3.0.2",
+            "phase_name": "式舆防卫 3.0.2",
+            "rank": 1,
+            "app_rate": 28.0,
+            "char_1_slug": "miyabi",
+            "char_2_slug": "nom",
+            "char_3_slug": "ukinami-yuzuha",
+        },
+    ]
+    name_rows = [
+        {"character_slug": "miyabi", "character_name_en": "Miyabi", "character_name_cn": "星见 雅", "release_order": "10"},
+        {"character_slug": "ukinami-yuzuha", "character_name_en": "Ukinami Yuzuha", "character_name_cn": "浮波柚叶"},
+    ]
+
+    write_visualizer_app(
+        tmp_path,
+        usage_rows=usage_rows,
+        tier_rows=tier_rows,
+        team_rows=team_rows,
+        name_rows=name_rows,
+        changelog_rows=[],
+    )
+
+    data = json.loads((tmp_path / "visualizer" / "data.json").read_text(encoding="utf-8"))
+    roster = {row["character_slug"]: row for row in data["rosterRows"]}
+
+    assert roster["nom"]["character_name_cn"] == "诺姆·霍洛维尔"
+    assert roster["nom"]["element_cn"] == "火"
+    assert data["bannerRows"][0]["phase_status"] == "current"
+    assert data["teamTemplates"][0]["phase_ver"] == "3.0.2"
+    assert "nom" in data["teamTemplates"][0]["chars"]

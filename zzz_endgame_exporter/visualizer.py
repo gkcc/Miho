@@ -3,12 +3,15 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
 
 from hsr_endgame_exporter.normalize import normalize_character_id
+
+from miho_core.banner_plan import effective_banner_phases
 
 from .constants import ELEMENT_CN, MODE_CN, ROLE_ORDER, STYLE_CN
 
@@ -26,10 +29,11 @@ def write_visualizer_app(
     visualizer_dir.mkdir(parents=True, exist_ok=True)
     roster_rows = _build_roster(out_dir, usage_rows, tier_rows, name_rows)
     roster_rows = _localize_avatar_rows(visualizer_dir, roster_rows)
-    team_templates = _build_team_templates(team_rows, roster_rows, name_rows)
     phase_info_rows = _build_phase_info_rows(out_dir)
     banner_rows = _load_banner_rows(out_dir, roster_rows)
     banner_rows = _localize_avatar_rows(visualizer_dir, banner_rows)
+    roster_rows = _merge_banner_rows_into_roster(roster_rows, banner_rows)
+    team_templates = _build_team_templates(team_rows, roster_rows, name_rows)
     decision_cards = _load_decision_cards(out_dir)
     data = {
         "meta": {
@@ -101,9 +105,7 @@ def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[
         return []
     roster = {row["character_slug"]: row for row in roster_rows}
     rows: list[dict[str, Any]] = []
-    for phase in config.get("phases") or []:
-        if not isinstance(phase, dict):
-            continue
+    for phase in effective_banner_phases(config):
         for index, char in enumerate(phase.get("characters") or [], start=1):
             if not isinstance(char, dict):
                 continue
@@ -115,6 +117,7 @@ def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[
                 {
                     "phase_id": phase.get("id", ""),
                     "phase_status": phase.get("status", ""),
+                    "declared_phase_status": phase.get("declared_status", ""),
                     "phase_title": phase.get("title", ""),
                     "phase_subtitle": phase.get("subtitle", ""),
                     "date_range": phase.get("date_range", ""),
@@ -138,6 +141,58 @@ def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[
                 }
             )
     return rows
+
+
+def _merge_banner_rows_into_roster(roster_rows: list[dict[str, Any]], banner_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_slug = {str(row.get("character_slug") or ""): dict(row) for row in roster_rows}
+    next_order = max((_release_order_value(row.get("release_order")) for row in roster_rows), default=0) + 1
+    for banner_row in banner_rows:
+        slug = normalize_character_id(banner_row.get("character_slug"))
+        if not slug:
+            continue
+        existing = by_slug.get(slug)
+        if existing is None:
+            role_group = str(banner_row.get("role_group") or "") or _role_from_style_cn(str(banner_row.get("style_cn") or ""))
+            by_slug[slug] = {
+                "character_slug": slug,
+                "character_name_en": banner_row.get("character_name_en") or slug,
+                "character_name_cn": banner_row.get("character_name_cn") or "",
+                "element_en": banner_row.get("element_en") or "",
+                "element_cn": banner_row.get("element_cn") or "",
+                "style_en": banner_row.get("style_en") or "",
+                "style_cn": banner_row.get("style_cn") or "",
+                "role_group": role_group,
+                "role_group_cn": banner_row.get("role_group_cn") or _role_cn(role_group),
+                "rarity": banner_row.get("rarity") or "",
+                "tier": "未分档",
+                "rating": "",
+                "tags": ";".join(str(item) for item in banner_row.get("analysis_tags") or []),
+                "icon_url": banner_row.get("icon_url") or "",
+                "release_order": next_order,
+                "source": "banner_plan",
+            }
+            next_order += 1
+            continue
+        for key in (
+            "character_name_en",
+            "character_name_cn",
+            "element_en",
+            "element_cn",
+            "style_en",
+            "style_cn",
+            "role_group",
+            "role_group_cn",
+            "rarity",
+            "icon_url",
+        ):
+            if not existing.get(key) and banner_row.get(key):
+                existing[key] = banner_row[key]
+        if not existing.get("role_group") and existing.get("style_cn"):
+            role_group = _role_from_style_cn(str(existing.get("style_cn") or ""))
+            existing["role_group"] = role_group
+            existing["role_group_cn"] = existing.get("role_group_cn") or _role_cn(role_group)
+        by_slug[slug] = existing
+    return sorted(by_slug.values(), key=lambda r: (_release_order_value(r.get("release_order")), str(r.get("character_slug"))))
 
 
 def _load_decision_cards(out_dir: Path) -> dict[str, Any]:
@@ -373,17 +428,17 @@ def _build_team_templates(
 ) -> list[dict[str, Any]]:
     names = {row["character_slug"]: row for row in roster_rows}
     name_map = {normalize_character_id(row.get("character_slug")): row for row in name_rows}
-    latest: dict[str, str] = {}
+    latest: dict[str, tuple[tuple[int, ...], str]] = {}
     for row in team_rows:
         mode = str(row.get("mode") or "")
-        collect_date = str(row.get("collect_date") or "")
-        if mode and collect_date >= latest.get(mode, ""):
-            latest[mode] = collect_date
+        recency = _team_recency_tuple(row)
+        if mode and recency >= latest.get(mode, ((0,), "")):
+            latest[mode] = recency
     output: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in team_rows:
         mode = str(row.get("mode") or "")
-        if not mode or str(row.get("collect_date") or "") != latest.get(mode, ""):
+        if not mode or _team_recency_tuple(row) != latest.get(mode):
             continue
         chars = [normalize_character_id(row.get(f"char_{i}_slug")) for i in range(1, 4)]
         if any(not c for c in chars):
@@ -408,11 +463,38 @@ def _build_team_templates(
                 "bangboo_name": row.get("bangboo_name_cn") or name_map.get(normalize_character_id(row.get("bangboo_slug")), {}).get("character_name_cn", ""),
                 "source_kind": row.get("source_kind", ""),
                 "source_file": row.get("source_file", ""),
+                "recency_key": _team_recency_key(row),
                 "chars": chars,
                 "names_cn": [names.get(char, {}).get("character_name_cn") or names.get(char, {}).get("character_name_en") or char for char in chars],
             }
         )
     return sorted(output, key=lambda r: (str(r["mode"]), str(r["scope_key"]), _num(r.get("rank")) or 9999))[:20000]
+
+
+def _team_recency_tuple(row: dict[str, Any]) -> tuple[tuple[int, ...], str]:
+    version = (
+        _version_tuple(row.get("snapshot_id"))
+        or _version_tuple(_source_snapshot(row.get("source_file")))
+        or _version_tuple(row.get("phase_ver"))
+        or (0,)
+    )
+    return version, str(row.get("collect_date") or "")
+
+
+def _team_recency_key(row: dict[str, Any]) -> str:
+    version, collect_date = _team_recency_tuple(row)
+    version_text = ".".join(f"{part:04d}" for part in version)
+    return f"{version_text}|{collect_date}"
+
+
+def _source_snapshot(value: Any) -> str:
+    text = str(value or "")
+    return text.split("/", 1)[0] if "/" in text else ""
+
+
+def _version_tuple(value: Any) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"\d+", str(value or ""))]
+    return tuple(parts)
 
 
 def _latest(rows: list[dict[str, Any]], key: str) -> str:
@@ -430,6 +512,16 @@ def _role_from_style(style: str) -> str:
     if style == "Anomaly":
         return "anomaly_dps"
     if style in {"Support", "Stun", "Defence", "Defense"}:
+        return "support"
+    return "unknown"
+
+
+def _role_from_style_cn(style: str) -> str:
+    if style in {"强攻", "命破"}:
+        return "crit_dps"
+    if style == "异常":
+        return "anomaly_dps"
+    if style in {"支援", "击破", "防护"}:
         return "support"
     return "unknown"
 
@@ -620,7 +712,8 @@ function memberRisk(m){const risks=[],tier=tierMeta(m.slug),rank=TIER_RANK[tier.
 function scoreTeam(t,used=new Set()){const selected=elementSet();const members=t.chars.map(slug=>{const info=charInfo(slug),bs=buildState(slug),core=['crit_dps','anomaly_dps'].includes(info.role_group);return{slug,info,build:bs,owned:box.owned.has(slug),selected:selected.has(info.element_cn),core,conflict:used.has(slug)};});members.forEach(m=>m.risks=memberRisk(m));const owned=members.filter(m=>m.owned).length,ready=members.filter(m=>m.owned&&m.build.ready).length,miss=3-owned,elementHits=members.filter(m=>m.selected).length,coreHits=members.filter(m=>m.core&&m.selected).length,conflictCount=members.filter(m=>m.conflict&&m.owned).length,risks=members.flatMap(m=>m.risks.map(r=>({...r,name:charName(m.slug)})));if(selected.size&&members.some(m=>m.core)&&coreHits===0)risks.push({text:'主C均未命中推荐属性',penalty:145,severe:true});const penalty=rec.riskMode==='off'?0:risks.reduce((s,r)=>s+(r.penalty||0),0);let score=owned*46+members.filter(m=>m.owned).reduce((s,m)=>s+m.build.score*88,0)-miss*72-conflictCount*160+elementHits*12+coreHits*56+Math.min(num(t.app_rate)||0,35)*2.1-penalty;if(t.rank!=null)score+=Math.max(0,130-t.rank)*.4;if(selected.size&&elementHits===0)score-=35;return{template:t,members,ownedCount:owned,readyCount:ready,missingCount:miss,elementHits,coreHits,conflictCount,risks,score,search:[t.phase_name,t.scope_label,t.bangboo,t.bangboo_name,...t.chars,...t.names_cn,...risks.map(r=>r.text)].join(' ').toLowerCase()};}
 function rankedFor(mode=rec.mode,scope=rec.scope,used=new Set(),ignoreSearch=false){return DATA.teamTemplates.filter(t=>t.mode===mode&&t.scope_key===scope).map(t=>scoreTeam(t,used)).filter(i=>i.missingCount<=Number(rec.gap)&&(rec.riskMode!=='filter'||!i.risks.length)&&(ignoreSearch||!rec.search||i.search.includes(rec.search))).sort((a,b)=>b.score-a.score||a.conflictCount-b.conflictCount||a.missingCount-b.missingCount||(a.template.rank||9999)-(b.template.rank||9999));}
 function ranked(){return rankedFor();}
-function phaseInfo(){const templates=DATA.teamTemplates.filter(t=>t.mode===rec.mode&&t.scope_key===rec.scope),latest=templates.slice().sort((a,b)=>String(b.collect_date).localeCompare(String(a.collect_date)))[0];const rows=DATA.phaseInfoRows||[];return rows.find(r=>r.mode===rec.mode&&r.phase_ver===latest?.phase_ver&&r.collect_date===latest?.collect_date)||rows.filter(r=>r.mode===rec.mode).sort((a,b)=>String(b.collect_date).localeCompare(String(a.collect_date)))[0]||{};}
+function templateRecency(t){return String(t.recency_key||t.collect_date||t.phase_ver||'')}
+function phaseInfo(){const templates=DATA.teamTemplates.filter(t=>t.mode===rec.mode&&t.scope_key===rec.scope),latest=templates.slice().sort((a,b)=>templateRecency(b).localeCompare(templateRecency(a)))[0];const rows=DATA.phaseInfoRows||[];return rows.find(r=>r.mode===rec.mode&&r.phase_ver===latest?.phase_ver&&r.collect_date===latest?.collect_date)||rows.find(r=>r.mode===rec.mode&&r.phase_ver===latest?.phase_ver)||rows.filter(r=>r.mode===rec.mode).sort((a,b)=>String(b.phase_ver||b.collect_date).localeCompare(String(a.phase_ver||a.collect_date)))[0]||{};}
 function renderPhaseInfo(){const p=phaseInfo();$('phaseTitle').textContent=`${p.mode_cn||MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode} · ${p.phase_name_cn||p.phase_name||p.phase_ver||'当期数据'}`;$('phaseDates').textContent=`${p.start_date||'未知'} 至 ${p.end_date||'未知'} · 采样 ${p.collect_date||'未知'}`;$('phaseText').textContent=p.mechanic_text||'推荐限定当前同模式、同关卡数据源。';}
 function renderRec(){ensureScope();syncRec();renderPhaseInfo();const rows=ranked().slice(0,Number(rec.limit)||8),sel=[...elementSet()],templates=DATA.teamTemplates.filter(t=>t.mode===rec.mode&&t.scope_key===rec.scope);$('recTitle').textContent=`${MODES.find(x=>x[0]===rec.mode)?.[1]} · ${scopes().find(s=>s.key===rec.scope)?.label||rec.scope}`;$('recSubtitle').textContent=`当前同模式同关卡模板 ${templates.length} 队`;const riskLabel=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒';$('recBadges').innerHTML=[sel.length?sel.join(' / '):'未选属性',`缺口 ≤ ${rec.gap}`,riskLabel,rec.riskMode==='off'?'T档不提醒':'T1及以下提醒',`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');const list=$('recList');list.innerHTML='';if(!rows.length){list.innerHTML='<div class="empty">当前筛选没有可展示队伍</div>';renderRecSlate();return;}rows.forEach((item,i)=>list.appendChild(recCard(item,i+1)));renderRecSlate();}
 function recCard(item,i){const t=item.template,card=document.createElement('article');card.className=`rec-card ${item.risks.length&&rec.riskMode!=='off'?'risky':''}`;card.innerHTML=`<div class="rec-head"><div><h3>${i}. ${esc(t.names_cn.join(' / '))}</h3><div class="rec-meta">${esc(t.scope_label)} · Rank ${t.rank??'-'} · ${pct(t.app_rate)} · 邦布 ${esc(bangbooName(t.bangboo,t.bangboo_name))}</div></div><div class="score">${Math.round(item.score)}<br><span>${item.ownedCount}/3</span></div></div><div class="rec-team">${item.members.map(m=>memberHtml(m)).join('')}</div><div class="tags"><span class="${item.missingCount?'warn':''}">${item.missingCount?`缺 ${item.missingCount}`:'可成队'}</span>${item.ownedCount?`<span class="${item.readyCount<item.ownedCount?'warn':''}">练度 ${item.readyCount}/${item.ownedCount}</span>`:''}<span>属性命中 ${item.elementHits}</span>${item.conflictCount?`<span class="warn">多队冲突 ${item.conflictCount}</span>`:''}${item.risks.length&&rec.riskMode!=='off'?`<span class="${item.risks.some(r=>r.severe)?'danger':'warn'}">风险 ${item.risks.length}</span>`:''}</div>${riskHtml(item)}`;return card;}

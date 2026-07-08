@@ -10,6 +10,7 @@ from typing import Any, Iterable, Sequence
 
 from hsr_endgame_exporter.normalize import normalize_character_id, parse_percent
 
+from .banner_plan import effective_banner_phases
 from .box import load_config
 from .evidence import (
     CONFIDENCE_ORDER,
@@ -508,9 +509,7 @@ def _load_candidates(plan_path: str | Path, *, statuses: Sequence[str], names: A
     status_set = {str(status).strip().lower() for status in statuses if str(status).strip()}
     global_include_low_rarity = _truthy(data.get("include_low_rarity"))
     output: list[dict[str, Any]] = []
-    for phase in data.get("phases") or []:
-        if not isinstance(phase, dict):
-            continue
+    for phase in effective_banner_phases(data):
         status = str(phase.get("status") or "").strip().lower()
         if status_set and status not in status_set:
             continue

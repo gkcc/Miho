@@ -43,7 +43,7 @@ from .prydwen import (
     merge_changelog_history,
     merge_tier_history,
 )
-from .visualizer import write_visualizer_app
+from .visualizer import read_csv, write_visualizer_app
 
 VERSION_DIR_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -91,6 +91,13 @@ def main(argv: list[str] | None = None) -> int:
             run_review_packet(args)
         except Exception as exc:  # pragma: no cover - command boundary
             print(f"review-packet failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if args.command == "visualizer":
+        try:
+            run_visualizer(args)
+        except Exception as exc:  # pragma: no cover - command boundary
+            print(f"visualizer failed: {exc}", file=sys.stderr)
             return 1
         return 0
     if args.command == "serve":
@@ -211,6 +218,8 @@ def build_parser() -> argparse.ArgumentParser:
     review_packet.add_argument("--mechanism-notes-dir", default="", help="Defaults to <plan dir>/zzz_mechanism_notes.")
     review_packet.add_argument("--decision-baseline", default="./configs/zzz_decision_baseline.json", help="Prior GPT/manual final-stage baseline. Missing file is treated as empty.")
     review_packet.add_argument("--output", default="", help="Explicit single packet path. Default writes <out>/current_gpt_pull_reviewer_packet.md and <out>/next_gpt_pull_reviewer_packet.md.")
+    visualizer = subparsers.add_parser("visualizer", help="Rebuild ZZZ visualizer from existing export CSV files")
+    visualizer.add_argument("--out", default="./zzz_endgame_export", help="Existing export directory and output target")
     serve = subparsers.add_parser("serve", help="Serve visualizer with local Box auto-save API")
     serve.add_argument("--root", default=".")
     serve.add_argument("--host", default="127.0.0.1")
@@ -320,6 +329,19 @@ def run_review_packet(args: argparse.Namespace) -> None:
 def _safe_report_status(status: str) -> str:
     cleaned = normalize_character_id(status)
     return cleaned or "status"
+
+
+def run_visualizer(args: argparse.Namespace) -> None:
+    out_dir = Path(args.out)
+    write_visualizer_app(
+        out_dir,
+        usage_rows=read_csv(out_dir / "character_usage_long.csv"),
+        tier_rows=read_csv(out_dir / "prydwen_tier_current.csv"),
+        team_rows=read_csv(out_dir / "team_rank_dedup_unordered.csv"),
+        name_rows=read_csv(out_dir / "name_map.csv"),
+        changelog_rows=read_csv(out_dir / "prydwen_tier_changelog_history.csv"),
+    )
+    write_visualizer_hub(out_dir.parent, zzz_dir=out_dir.name)
 
 
 def _planned_slugs_from_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
@@ -640,9 +662,20 @@ def _latest_phase_by_mode(phase_rows: list[dict[str, Any]]) -> dict[str, dict[st
     for row in phase_rows:
         mode = str(row.get("mode") or "")
         current = latest.get(mode)
-        if current is None or str(row.get("collect_date", "")) >= str(current.get("collect_date", "")):
+        if current is None or _phase_recency_tuple(row) >= _phase_recency_tuple(current):
             latest[mode] = row
     return latest
+
+
+def _phase_recency_tuple(row: dict[str, Any]) -> tuple[tuple[int, ...], str]:
+    snapshot = str(row.get("snapshot_id") or "")
+    phase_ver = str(row.get("phase_ver") or "")
+    version = _version_tuple(snapshot) or _version_tuple(phase_ver) or (0,)
+    return version, str(row.get("collect_date") or "")
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", value))
 
 
 def _collect_slugs(

@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-05",
+  "updated_at": "2026-07-09",
   "notes": "卡池与卫星信息用于可视化分析输入，不作为自动抽卡结论。若官方后续公告变更，以最新公告为准。",
   "sources": [
     {
@@ -11,6 +11,10 @@
       "url": "https://zzz.mihoyo.com/news/164747"
     },
     {
+      "label": "3.0版本限时频段（下期）",
+      "url": "https://zzz.mihoyo.com/news/165152"
+    },
+    {
       "label": "Prydwen ZZZ Tier List",
       "url": "https://www.prydwen.gg/zenless/tier-list"
     }
@@ -18,9 +22,9 @@
   "phases": [
     {
       "id": "3.0-first-half",
-      "status": "current",
+      "status": "previous",
       "title": "3.0 上半调频",
-      "subtitle": "当期 UP",
+      "subtitle": "已结束",
       "date_range": "2026-06-18 至 2026-07-08 11:59",
       "source_label": "官方调频公告 / 公开汇总",
       "source_url": "https://zzz.mihoyo.com/news/164747",
@@ -53,12 +57,12 @@
     },
     {
       "id": "3.0-second-half",
-      "status": "next",
+      "status": "current",
       "title": "3.0 下半调频",
-      "subtitle": "下一期 UP",
-      "date_range": "2026-07-08 12:00 起",
-      "source_label": "官方前瞻 / 公开汇总",
-      "source_url": "https://zzz.mihoyo.com/news",
+      "subtitle": "当期 UP",
+      "date_range": "2026-07-08 12:00 至 2026-07-28 14:59",
+      "source_label": "3.0版本限时频段（下期）",
+      "source_url": "https://zzz.mihoyo.com/news/165152",
       "characters": [
         {
           "slug": "nom",
@@ -78,9 +82,36 @@
         },
         {
           "slug": "sunna",
+          "name_cn": "千夏",
           "banner_role": "限定 S 级复刻",
+          "element_cn": "物理",
+          "style_cn": "支援",
+          "role_group_cn": "辅助",
+          "rarity": "S",
           "analysis_tags": ["复刻", "物理", "支援", "辅助"],
           "focus": "复刻辅助重点看泛用性、队友覆盖面，以及是否能补你 Box 的主C缺口。"
+        },
+        {
+          "slug": "corin",
+          "name_cn": "可琳·威克斯",
+          "banner_role": "A 级陪跑",
+          "element_cn": "物理",
+          "style_cn": "强攻",
+          "role_group_cn": "直伤主C",
+          "rarity": "A",
+          "analysis_tags": ["A 级", "物理", "强攻"],
+          "focus": "A 级角色仅作为陪跑顺带收益，不驱动抽卡决策。"
+        },
+        {
+          "slug": "pulchra",
+          "name_cn": "波可娜·费雷尼",
+          "banner_role": "A 级陪跑",
+          "element_cn": "物理",
+          "style_cn": "击破",
+          "role_group_cn": "辅助",
+          "rarity": "A",
+          "analysis_tags": ["A 级", "物理", "击破"],
+          "focus": "A 级角色仅作为陪跑顺带收益，不驱动抽卡决策。"
         }
       ]
     },
