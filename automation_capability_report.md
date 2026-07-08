@@ -1,7 +1,7 @@
 # 自更新与本地评判能力报告
 
 - 生成时间：2026-07-06
-- 当前实现：`scripts/update_endgame_data.ps1` 一键刷新；`scripts/install_daily_update_task.ps1` 可注册 Windows 每日任务。
+- 当前实现：`scripts/update_endgame_data.ps1` 一键刷新；`scripts/install_daily_update_task.ps1` 可注册 Windows 每日任务；脚本会先检查 HF 数据源最新 snapshot / collect_date，源数据未变化时跳过重导出。
 
 ## 已经能自动更新的部分
 
@@ -12,7 +12,7 @@
 | ZZZ 队伍覆盖 | 可在刷新后自动重建 `team_signature_aggregates.csv`、`current_box_team_coverage.md`、`target_box_team_coverage.md` | `python -m zzz_endgame_exporter coverage` |
 | ZZZ 抽取价值 | 可在刷新后自动重建 `current_pull_value_report.md` / `next_pull_value_report.md`，并合并 historical_usage / target_coverage / mechanism_review | `python -m zzz_endgame_exporter pull-value` |
 | 无 key GPT 交互评审 | 可在刷新后自动生成 `current_gpt_pull_reviewer_packet.md` / `next_gpt_pull_reviewer_packet.md`，登录后交给 Codex/GPT 做 X+X 评判 | `python -m zzz_endgame_exporter review-packet` |
-| 定时执行 | 可注册 Windows Task Scheduler 每日任务 | `scripts/install_daily_update_task.ps1` |
+| 定时执行 | 可注册 Windows Task Scheduler 每日任务；每天触发但按数据源状态跳过重复导出 | `scripts/install_daily_update_task.ps1` |
 
 ## 还不能完全自动的部分
 
@@ -39,11 +39,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install_daily_update_task.ps1
 
 任务每天会执行：
 
-1. `hsr_endgame_exporter export`
-2. `zzz_endgame_exporter export`
-3. `zzz_endgame_exporter coverage`
-4. `zzz_endgame_exporter pull-value`
-5. `zzz_endgame_exporter review-packet`
+1. 检查 HSR/ZZZ Hugging Face `config.json` 与顶层 snapshot 目录，生成源数据 signature。
+2. 若源数据 signature 与 `.miho/update_source_state.json` 记录一致，并且核心输出存在，则跳过对应游戏的 export。
+3. 若 ZZZ 源数据未变化但 Box、banner plan、mechanism notes 或 baseline 有变化，仍会重建 coverage / pull-value / review-packet。
+4. `.miho/update_source_state.json` 记录的是数据源最新 snapshot / collect_date，不用本地任务触发时间当“最后更新时间”。
+5. 需要强制全量刷新时可加 `-Force`。
 
 ## GPT 本地集成方案
 
