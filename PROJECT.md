@@ -13,7 +13,8 @@
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
 - HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；两游戏在线入口仍保留完整目录总门禁，直到 XLSX 与 visualizer 对比通过，避免过早替代 Python。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 111 项、Python 74 项和 workspace 严格 clippy 通过；前端干净构建因 `allowBuilds.esbuild` 仍是占位字符串而被 pnpm 拒绝，已提升为下一批首要目标。
+- 最近完整回归：Rust workspace 111 项、Python 74 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
+- Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
 - Python 仍作为全部导出语义的对照实现，并负责 Excel、正式 visualizer，以及 evidence、coverage、decision、pull-value、review-packet。
 
 ## 阶段路线
@@ -30,7 +31,7 @@
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 建立可复现的 Tauri/Vite 构建基线 | 待开始 | 前端子智能体、主智能体审查 | pnpm 11.7、Node 24、现有 Tauri/Vite scaffold | 布尔 `allowBuilds.esbuild`；固定 package manager/Node 范围；Vite 1420 strict port；根构建脚本 | 干净 `pnpm install --frozen-lockfile`、esbuild、Vite build、Tauri no-bundle 均通过 | 无 |
+| 建立可复现的 Tauri/Vite 构建基线 | 已完成 | 前端子智能体、主智能体审查 | pnpm 11.7、Node 24、现有 Tauri/Vite scaffold | 布尔 `allowBuilds.esbuild`；固定 package manager/Node 范围；Vite 1420 strict port；根构建脚本 | 干净 frozen install、esbuild 0.25.12、Vite build、desktop 3 项、Tauri no-bundle 通过 | 无 |
 | 固化双游戏 Workbook 语义契约 | 待开始 | 兼容测试子智能体、主智能体定标 | Python 生成器、归档 XLSX、现有 CSV bundle | 小型脱敏 XLSX oracle；sheet/列/值/类型/样式/宽度/公式规范化比较器 | `python -m pytest -q tests/test_workbook_contract.py` | 现有 exporter bundle |
 | 接入共享 Rust Workbook writer | 待开始 | Rust 子智能体移植、主智能体整合 | Workbook 语义契约、`WorkbookPolicy`、最终 ArtifactBundle | HSR 18-sheet 与 ZZZ 12-sheet；显式单元格类型；BestEffort diagnostics、manifest 与原子写出 | Rust workbook 测试、双游戏 XLSX 语义对比、CLI fixture 回归、严格 clippy | Workbook 契约 |
 
@@ -60,7 +61,7 @@
 | Tauri 后台任务、取消和完整 visualizer 尚未迁移 | 高 | 数据与报告默认路径稳定后再接 IPC，前端不复制规则 |
 | 外部数据源随时间变化 | 高 | 归档历史 raw 数据，黄金测试只用固定离线输入 |
 | 子智能体共享工作树冲突 | 中 | 并行任务划定互斥路径；公共类型由主智能体串行整合 |
-| pnpm `allowBuilds.esbuild` 是占位字符串，干净前端构建失败 | 高 | 第十批首目标改为布尔 allowlist、packageManager/Node 固定、1420 strict port 与干净构建验证 |
+| pnpm/esbuild 构建审批或端口再次漂移 | 低（已验证） | 布尔 allowlist、packageManager/Node engines、1420 strict port 与根级复现脚本已固化 |
 | Rust 网络层误重试永久性 4xx | 中 | 按状态码分类，只重试瞬时错误并增加缓存/离线测试 |
 
 ## 三目标复盘
@@ -143,7 +144,7 @@
 - 项目状态：本文件。
 - 兼容规则：`docs/migration-compatibility.md`。
 - Rust workspace：根目录 `Cargo.toml`。
-- 当前完整验证：`cargo test --workspace --no-fail-fast; cargo clippy --workspace --all-targets -- -D warnings; python -m pytest -q`。前端复现命令 `pnpm --dir crates/miho-desktop build` 当前会因 esbuild allowBuilds 占位值失败，这是第十批首目标而非可忽略警告。
+- 当前完整验证：`cargo test --workspace --no-fail-fast; cargo clippy --workspace --all-targets -- -D warnings; python -m pytest -q; pnpm run deps:install; pnpm run build; pnpm run tauri:build:no-bundle`。
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035\manifest.json`。
 - 最危险的未验证假设：从 CSV bundle 反写 XLSX 时能用显式列类型复刻 Python DataFrame 单元格语义；visualizer 的大型 `data.json` 与交互仍未建立 Rust/TypeScript 版本化契约。

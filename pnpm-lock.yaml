@@ -6,6 +6,8 @@ settings:
 
 importers:
 
+  .: {}
+
   crates/miho-desktop:
     dependencies:
       '@tauri-apps/api':
@@ -15,6 +17,9 @@ importers:
       '@tauri-apps/cli':
         specifier: ^2.0.0
         version: 2.11.4
+      esbuild:
+        specifier: 0.25.12
+        version: 0.25.12
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
