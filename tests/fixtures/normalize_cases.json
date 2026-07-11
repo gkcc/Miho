@@ -1,0 +1,26 @@
+{
+  "slugs": [
+    {"input": "", "expected": ""},
+    {"input": "Topaz & Numby", "expected": "topaz-and-numby"},
+    {"input": "topaz-numby", "expected": "topaz-and-numby"},
+    {"input": "A+B", "expected": "a-plus-b"},
+    {"input": "O'Brien", "expected": "obrien"},
+    {"input": "Dan Heng • Imbibitor Lunae", "expected": "dan-heng-imbibitor-lunae"},
+    {"input": "March 7th", "expected": "march-7th"},
+    {"input": "纯中文", "expected": ""}
+  ],
+  "percents": [
+    {"input": "12.5%", "expected": 12.5},
+    {"input": "0.00", "expected": 0.0},
+    {"input": "-", "expected": null},
+    {"input": "--", "expected": null},
+    {"input": "N/A", "expected": null},
+    {"input": "1,234%", "expected": null}
+  ],
+  "dates": [
+    {"input": "2026-07-12", "expected": "2026-07-12"},
+    {"input": "12/07/2026", "expected": "2026-07-12"},
+    {"input": "07/12/2026", "expected": "2026-12-07"},
+    {"input": "unknown", "expected": "unknown"}
+  ]
+}
