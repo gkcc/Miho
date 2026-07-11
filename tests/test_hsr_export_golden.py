@@ -62,3 +62,12 @@ def test_derived_table_headers_and_rows_are_frozen(tmp_path):
             parsed = list(csv.reader(handle))
         assert parsed[0] == columns
     assert len(ordered) == 1 and len(dedup_unordered_teams(ordered)) == 1
+
+
+def test_python_oracle_aggregates_two_slices_without_overwrite():
+    rows = [
+        {"mode": "moc", "sub_mode": "all", "phase_ver": "4.2.1", "character_slug": "topaz", "collect_date": "2026-06-25"},
+        {"mode": "pf", "sub_mode": "all", "phase_ver": "4.2.2", "character_slug": "march-7th", "collect_date": "2026-07-01"},
+    ]
+    latest = latest_character_usage(rows)
+    assert {(row["mode"], row["character_slug"]) for row in latest} == {("moc", "topaz"), ("pf", "march-7th")}

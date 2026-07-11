@@ -163,37 +163,90 @@ pub struct TierRow {
     pub source_url: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct HsrExportSlice {
+    pub phase: PhaseRow,
+    pub characters: Vec<CharacterRow>,
+    pub teams: Vec<TeamRow>,
+    pub tiers: Vec<TierRow>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct HsrExportDataset {
+    pub slices: Vec<HsrExportSlice>,
+}
+
 pub fn build_minimal_export(
     phase: &PhaseRow,
     characters: &[CharacterRow],
     teams: &[TeamRow],
     tiers: &[TierRow],
 ) -> Result<ArtifactBundle> {
+    build_dataset_export(&HsrExportDataset {
+        slices: vec![HsrExportSlice {
+            phase: phase.clone(),
+            characters: characters.to_vec(),
+            teams: teams.to_vec(),
+            tiers: tiers.to_vec(),
+        }],
+    })
+}
+
+pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle> {
+    let phases = dataset
+        .slices
+        .iter()
+        .map(|slice| &slice.phase)
+        .collect::<Vec<_>>();
+    let characters = dataset
+        .slices
+        .iter()
+        .flat_map(|slice| slice.characters.iter().map(move |row| (&slice.phase, row)))
+        .collect::<Vec<_>>();
+    let teams = dataset
+        .slices
+        .iter()
+        .flat_map(|slice| slice.teams.iter().map(move |row| (&slice.phase, row)))
+        .collect::<Vec<_>>();
+    let ordered_teams = unique_teams(&teams, false);
+    let unordered_teams = unique_teams(&teams, true);
+    let tiers = dataset
+        .slices
+        .iter()
+        .flat_map(|slice| slice.tiers.iter())
+        .collect::<Vec<_>>();
+    let report_date = phases
+        .iter()
+        .map(|phase| phase.collect_date.as_str())
+        .max()
+        .unwrap_or("");
     let mut bundle = ArtifactBundle::default();
     bundle.add_csv(
         "phase_index.csv",
         PHASE_HEADERS,
-        [[
-            phase.snapshot_id.clone(),
-            phase.collect_date.clone(),
-            phase.mode.clone(),
-            phase.mode_cn.clone(),
-            phase.phase_ver.clone(),
-            phase.phase_name.clone(),
-            phase.start_date.clone(),
-            phase.end_date.clone(),
-            phase.source.clone(),
-            phase.source_path.clone(),
-            phase.has_chars.to_string(),
-            phase.has_comps.to_string(),
-            phase.has_histograph.to_string(),
-            phase.note.clone(),
-        ]],
+        phases.iter().map(|phase| {
+            vec![
+                phase.snapshot_id.clone(),
+                phase.collect_date.clone(),
+                phase.mode.clone(),
+                phase.mode_cn.clone(),
+                phase.phase_ver.clone(),
+                phase.phase_name.clone(),
+                phase.start_date.clone(),
+                phase.end_date.clone(),
+                phase.source.clone(),
+                phase.source_path.clone(),
+                phase.has_chars.to_string(),
+                phase.has_comps.to_string(),
+                phase.has_histograph.to_string(),
+                phase.note.clone(),
+            ]
+        }),
     )?;
     bundle.add_csv(
         "character_usage_long.csv",
         CHARACTER_HEADERS,
-        characters.iter().map(|row| {
+        characters.iter().map(|(phase, row)| {
             vec![
                 phase.snapshot_id.clone(),
                 phase.collect_date.clone(),
@@ -228,7 +281,7 @@ pub fn build_minimal_export(
     bundle.add_csv(
         "team_rank_raw.csv",
         TEAM_HEADERS,
-        teams.iter().map(|row| {
+        ordered_teams.iter().map(|(phase, row)| {
             vec![
                 phase.snapshot_id.clone(),
                 phase.collect_date.clone(),
@@ -298,7 +351,9 @@ pub fn build_minimal_export(
     bundle.add_csv(
         "character_usage_phase_latest.csv",
         CHARACTER_HEADERS,
-        characters.iter().map(|row| character_values(phase, row)),
+        latest_characters(&characters)
+            .into_iter()
+            .map(|(phase, row)| character_values(phase, row)),
     )?;
 
     let ordered_headers = TEAM_HEADERS
@@ -313,7 +368,7 @@ pub fn build_minimal_export(
     bundle.add_csv(
         "team_rank_dedup_ordered.csv",
         &ordered_headers,
-        teams.iter().map(|row| {
+        unordered_teams.iter().map(|(phase, row)| {
             let (ordered, _) = row.signatures();
             team_values(phase, row)
                 .into_iter()
@@ -329,7 +384,7 @@ pub fn build_minimal_export(
     bundle.add_csv(
         "team_rank_dedup_unordered.csv",
         &unordered_headers,
-        teams.iter().map(|row| {
+        teams.iter().map(|(phase, row)| {
             let (ordered, unordered) = row.signatures();
             team_values(phase, row)
                 .into_iter()
@@ -346,7 +401,7 @@ pub fn build_minimal_export(
     bundle.add_csv(
         "name_map.csv",
         NAME_HEADERS,
-        characters.iter().map(|row| {
+        unique_characters(&characters).into_iter().map(|row| {
             vec![
                 row.character_slug.clone(),
                 row.character_name_en.clone(),
@@ -365,7 +420,7 @@ pub fn build_minimal_export(
     bundle.add_csv(
         "prydwen_tier_history.csv",
         TIER_HEADERS,
-        tiers.iter().map(tier_values),
+        tiers.iter().map(|row| tier_values(row)),
     )?;
     bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(
         "prydwen_tier_changelog.csv",
@@ -409,10 +464,57 @@ pub fn build_minimal_export(
             ],
         ],
     )?;
-    bundle.add_text("export_report.md", format!("# HSR Endgame Export Report\n\n- from_date / to_date: {0} / {0}\n- 成功读取的 snapshot 数: 1\n\n## 表行数\n\n- 角色表行数: {1}\n- 队伍 raw 行数: {2}\n- 队伍有序去重后行数: {2}\n- 队伍无序去重后行数: {2}\n\n## Warning 列表\n\n- 无\n\n## Error 列表\n\n- 无\n", phase.collect_date, characters.len(), teams.len()))?;
+    bundle.add_text("export_report.md", format!("# HSR Endgame Export Report\n\n- from_date / to_date: {0} / {0}\n- 成功读取的 snapshot 数: {3}\n\n## 表行数\n\n- 角色表行数: {1}\n- 队伍 raw 行数: {2}\n- 队伍有序去重后行数: {2}\n- 队伍无序去重后行数: {2}\n\n## Warning 列表\n\n- 无\n\n## Error 列表\n\n- 无\n", report_date, characters.len(), teams.len(), phases.iter().map(|p| &p.snapshot_id).collect::<std::collections::BTreeSet<_>>().len()))?;
     let manifest = bundle.manifest();
     bundle.add_json("artifact_manifest.json", &manifest)?;
     Ok(bundle)
+}
+
+fn latest_characters<'a>(
+    rows: &[(&'a PhaseRow, &'a CharacterRow)],
+) -> Vec<(&'a PhaseRow, &'a CharacterRow)> {
+    let mut latest = std::collections::BTreeMap::new();
+    for &(phase, row) in rows {
+        let key = (
+            phase.mode.clone(),
+            phase.phase_ver.clone(),
+            row.character_slug.clone(),
+        );
+        if latest
+            .get(&key)
+            .is_none_or(|(old, _): &(&PhaseRow, &CharacterRow)| {
+                old.collect_date <= phase.collect_date
+            })
+        {
+            latest.insert(key, (phase, row));
+        }
+    }
+    latest.into_values().collect()
+}
+
+fn unique_characters<'a>(rows: &[(&'a PhaseRow, &'a CharacterRow)]) -> Vec<&'a CharacterRow> {
+    let mut values = std::collections::BTreeMap::new();
+    for &(_, row) in rows {
+        values.entry(row.character_slug.clone()).or_insert(row);
+    }
+    values.into_values().collect()
+}
+
+fn unique_teams<'a>(
+    rows: &[(&'a PhaseRow, &'a TeamRow)],
+    unordered: bool,
+) -> Vec<(&'a PhaseRow, &'a TeamRow)> {
+    let mut values = std::collections::BTreeMap::new();
+    for &(phase, row) in rows {
+        let signatures = row.signatures();
+        let key = if unordered {
+            signatures.1
+        } else {
+            signatures.0
+        };
+        values.entry(key).or_insert((phase, row));
+    }
+    values.into_values().collect()
 }
 
 fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
@@ -610,6 +712,67 @@ mod tests {
             assert!(bytes.starts_with(&[0xef, 0xbb, 0xbf]));
             assert!(bytes.ends_with(b"\r\n"));
         }
+    }
+
+    #[test]
+    fn dataset_keeps_multiple_slices_and_derives_globally() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/hsr_parser_minimal.json"
+        ))
+        .unwrap();
+        let first = make_phase_row(
+            "4.3.2",
+            &fixture["config"],
+            "moc",
+            "4.3.2/",
+            true,
+            true,
+            false,
+            "2026-06-25",
+        );
+        let mut second = first.clone();
+        second.snapshot_id = "4.3.3".into();
+        second.collect_date = "2026-07-01".into();
+        second.mode = "pf".into();
+        second.mode_cn = "虚构叙事".into();
+        let first_chars = parse_builds_character_rows(&fixture["builds"], "moc");
+        let mut second_chars = first_chars.clone();
+        second_chars[0].character_slug = "march-7th".into();
+        second_chars[0].character_name_en = "March 7th".into();
+        let first_teams = parse_team_rows(
+            &fixture["teams"],
+            "moc",
+            "4.2.1",
+            "stage_1_combined.json",
+            Some(2),
+        );
+        let mut second_teams = first_teams.clone();
+        second_teams[0].mode = "pf".into();
+        let dataset = HsrExportDataset {
+            slices: vec![
+                HsrExportSlice {
+                    phase: first,
+                    characters: first_chars,
+                    teams: first_teams,
+                    tiers: vec![],
+                },
+                HsrExportSlice {
+                    phase: second,
+                    characters: second_chars,
+                    teams: second_teams,
+                    tiers: vec![],
+                },
+            ],
+        };
+        let bundle = build_dataset_export(&dataset).unwrap();
+        let phases = std::str::from_utf8(bundle.get("phase_index.csv").unwrap()).unwrap();
+        let characters =
+            std::str::from_utf8(bundle.get("character_usage_phase_latest.csv").unwrap()).unwrap();
+        let teams =
+            std::str::from_utf8(bundle.get("team_rank_dedup_ordered.csv").unwrap()).unwrap();
+        assert!(phases.contains("4.3.2") && phases.contains("4.3.3"));
+        assert!(characters.contains("topaz-and-numby") && characters.contains("march-7th"));
+        assert!(teams.contains("moc|") && teams.contains("pf|"));
     }
 
     fn python_csv_bytes(source: &[u8]) -> Vec<u8> {
