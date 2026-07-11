@@ -4,23 +4,32 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use chrono::NaiveDate;
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
     hf::TreeEntry,
     hsr::{
-        make_phase_row as make_hsr_phase, parse_builds_character_rows as parse_hsr_builds,
-        parse_team_rows as parse_hsr_teams,
+        histograph_fallback_character_rows, make_phase_row as make_hsr_phase,
+        parse_builds_character_rows as parse_hsr_builds,
+        parse_histograph_rows as parse_hsr_histograph, parse_team_rows as parse_hsr_teams,
     },
-    hsr_export::{build_minimal_export as build_hsr_export, TierRow},
+    hsr_export::{
+        build_dataset_export as build_hsr_dataset, build_minimal_export as build_hsr_export,
+        HsrExportDataset, HsrExportSlice, HsrHistographSlice, TierRow,
+    },
     normalize::parse_date,
     output::ArtifactBundle,
+    source::{SnapshotSource, SourceFuture},
     zzz::{
-        make_phase_row as make_zzz_phase, parse_team_rows as parse_zzz_teams, parse_usage,
-        PhaseInput,
+        make_phase_row as make_zzz_phase, parse_bangboo_rows as parse_zzz_bangboo,
+        parse_team_rows as parse_zzz_teams, parse_usage, PhaseInput,
     },
-    zzz_export::{build_minimal_bundle as build_zzz_export, NameRow},
+    zzz_export::{
+        build_dataset_export as build_zzz_dataset, build_minimal_bundle as build_zzz_export,
+        fallback_name_rows, NameRow, ZzzExportDataset, ZzzExportSlice,
+    },
     MihoError, Result,
 };
 
@@ -61,6 +70,18 @@ pub struct PipelineRun {
     pub bundle: ArtifactBundle,
     pub warnings: Vec<String>,
     pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExportRequest {
+    pub game: Game,
+    pub modes: Vec<String>,
+    pub from_date: Option<NaiveDate>,
+    pub to_date: Option<NaiveDate>,
+    pub include_teams: bool,
+    pub include_prydwen_visible: bool,
+    pub include_prydwen_tier: bool,
+    pub official_name_map: bool,
 }
 
 impl OfflineFixture {
@@ -298,6 +319,423 @@ impl OfflineFixture {
     }
 }
 
+impl SnapshotSource for OfflineFixture {
+    fn list_tree<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Vec<TreeEntry>> {
+        Box::pin(async move {
+            if let Some(failure) = self.manifest.list_failures.get(path) {
+                return Err(MihoError::Unsupported(format!(
+                    "offline list failure for {path}: {failure}"
+                )));
+            }
+            if path.is_empty() {
+                Ok(self.manifest.root_tree.clone())
+            } else {
+                Ok(self.manifest.trees.get(path).cloned().unwrap_or_default())
+            }
+        })
+    }
+
+    fn read_json<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Value> {
+        Box::pin(async move { OfflineFixture::read_json(self, path) })
+    }
+
+    fn raw_url(&self, path: &str) -> String {
+        format!(
+            "offline://{}/{}/{}",
+            self.manifest.repo_id, self.manifest.revision, path
+        )
+    }
+}
+
+pub async fn run_source_export<S: SnapshotSource>(
+    source: &S,
+    request: &ExportRequest,
+) -> Result<PipelineRun> {
+    // Python records a failed root-tree request and then fails at the stable
+    // structural boundary below. Preserve that public error instead of
+    // leaking transport-specific details through the CLI contract.
+    let root = source.list_tree("").await.unwrap_or_default();
+    let mut snapshots = root
+        .into_iter()
+        .filter(|entry| entry.kind == "directory" && is_version(&entry.path))
+        .map(|entry| entry.path)
+        .collect::<Vec<_>>();
+    snapshots.sort();
+    if snapshots.is_empty() {
+        return Err(MihoError::Unsupported(
+            "no version directories found in Hugging Face dataset root".into(),
+        ));
+    }
+    let mut warnings = vec![];
+    let mut errors = vec![];
+    let config = match source.read_json("config.json").await {
+        Ok(value) => value,
+        Err(error) => {
+            errors.push(format!("failed to load config.json: {error}"));
+            Value::Object(Default::default())
+        }
+    };
+    snapshots.retain(|snapshot| {
+        let raw = config
+            .get(snapshot)
+            .and_then(|entry| entry.get("collect_date"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let parsed = parse_date(raw);
+        let date = NaiveDate::parse_from_str(&parsed, "%Y-%m-%d").ok();
+        let Some(date) = date else {
+            warnings.push(format!(
+                "{snapshot}: collect_date missing; included without date filtering"
+            ));
+            return true;
+        };
+        request.from_date.is_none_or(|from| date >= from)
+            && request.to_date.is_none_or(|to| date <= to)
+    });
+    if snapshots.is_empty() {
+        warnings.push("no Hugging Face snapshots matched the requested date range".into());
+    }
+    if request.include_prydwen_visible || request.include_prydwen_tier || request.official_name_map
+    {
+        warnings.push("supplemental Prydwen/official sources are not yet connected to the generic export pipeline".into());
+    }
+    let bundle = match request.game {
+        Game::Hsr => {
+            let mut dataset = HsrExportDataset::default();
+            for snapshot in snapshots {
+                let snapshot_tree = match source.list_tree(&snapshot).await {
+                    Ok(value) => value,
+                    Err(error) => {
+                        errors.push(format!("failed to list {snapshot}: {error}"));
+                        Vec::new()
+                    }
+                };
+                let snapshot_paths = snapshot_tree
+                    .iter()
+                    .map(|entry| entry.path.as_str())
+                    .collect::<Vec<_>>();
+                let mut mode_files = BTreeMap::new();
+                for mode in &request.modes {
+                    let chars_path = format!("{snapshot}/{mode}/chars");
+                    let comps_path = format!("{snapshot}/{mode}/comps");
+                    let chars =
+                        list_optional_tree(source, &chars_path, &mut warnings, &mut errors).await;
+                    let comps =
+                        list_optional_tree(source, &comps_path, &mut warnings, &mut errors).await;
+                    mode_files.insert(mode.clone(), (chars, comps));
+                }
+                let builds_path = format!("{snapshot}/builds.json");
+                let builds = if snapshot_paths.contains(&builds_path.as_str()) {
+                    match source.read_json(&builds_path).await {
+                        Ok(value) if value.is_array() => value,
+                        Ok(_) => {
+                            warnings.push(format!(
+                                "{builds_path} was not a list; skipped as character usage source"
+                            ));
+                            Value::Array(vec![])
+                        }
+                        Err(error) => {
+                            errors.push(error.to_string());
+                            Value::Array(vec![])
+                        }
+                    }
+                } else {
+                    Value::Array(vec![])
+                };
+                let histograph_path = format!("{snapshot}/histograph.json");
+                let histograph = if snapshot_paths.contains(&histograph_path.as_str()) {
+                    match source.read_json(&histograph_path).await {
+                        Ok(value) if value.is_array() => value,
+                        Ok(_) => {
+                            warnings.push(format!("{histograph_path} was not a list; skipped"));
+                            Value::Array(vec![])
+                        }
+                        Err(error) => {
+                            errors.push(error.to_string());
+                            warnings.push(format!("{histograph_path} was not a list; skipped"));
+                            Value::Array(vec![])
+                        }
+                    }
+                } else {
+                    Value::Array(vec![])
+                };
+                for mode in &request.modes {
+                    let config_missing = config.get(&snapshot).is_none();
+                    let mut entry = config
+                        .get(&snapshot)
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    prepare_hsr_dates(&mut entry, mode);
+                    let (char_files, comp_files) = mode_files
+                        .get(mode)
+                        .expect("requested HSR mode files should be discovered");
+                    let mut characters = parse_hsr_builds(&builds, mode);
+                    for row in &mut characters {
+                        row.source_file = builds_path.clone();
+                        row.source_url = source.raw_url(&builds_path);
+                    }
+                    if characters.is_empty() {
+                        for file in char_files
+                            .iter()
+                            .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
+                        {
+                            match source.read_json(&file.path).await {
+                                Ok(value) => {
+                                    let mut parsed =
+                                        crate::hsr::parse_chars_file_character_rows(&value, mode);
+                                    for row in &mut parsed {
+                                        row.source_file = file.path.clone();
+                                        row.source_url = source.raw_url(&file.path);
+                                    }
+                                    characters.extend(parsed);
+                                }
+                                Err(error) => errors.push(error.to_string()),
+                            }
+                        }
+                    }
+                    let histograph_rows = parse_hsr_histograph(&histograph, mode, &histograph_path);
+                    if characters.is_empty() && !histograph_rows.is_empty() {
+                        characters = histograph_fallback_character_rows(&histograph_rows);
+                    }
+                    let mut teams = vec![];
+                    if request.include_teams {
+                        for file in comp_files
+                            .iter()
+                            .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
+                        {
+                            match source.read_json(&file.path).await {
+                                Ok(value) => {
+                                    let phase_ver = entry
+                                        .pointer(&format!("/{mode}/ver"))
+                                        .and_then(Value::as_str)
+                                        .unwrap_or(&snapshot);
+                                    let mut parsed =
+                                        parse_hsr_teams(&value, mode, phase_ver, &file.path, None);
+                                    for row in &mut parsed {
+                                        row.source_kind = "hf_comps".into();
+                                        row.source_file = file.path.clone();
+                                        row.source_url = source.raw_url(&file.path);
+                                    }
+                                    teams.extend(parsed);
+                                }
+                                Err(error) => errors.push(error.to_string()),
+                            }
+                        }
+                    }
+                    let collect_date = entry
+                        .get("collect_date")
+                        .and_then(Value::as_str)
+                        .map(parse_date)
+                        .unwrap_or_default();
+                    let mut phase = make_hsr_phase(
+                        &snapshot,
+                        &entry,
+                        mode,
+                        &format!("{snapshot}/"),
+                        !char_files.is_empty(),
+                        !comp_files.is_empty(),
+                        snapshot_paths.contains(&histograph_path.as_str()),
+                        &collect_date,
+                    );
+                    if config_missing {
+                        phase.note = "config missing; dates unavailable".into();
+                    }
+                    dataset.histograph_slices.push(HsrHistographSlice {
+                        phase: phase.clone(),
+                        rows: histograph_rows,
+                    });
+                    dataset.slices.push(HsrExportSlice {
+                        phase,
+                        characters,
+                        teams,
+                        tiers: vec![],
+                    });
+                }
+            }
+            build_hsr_dataset(&dataset)?
+        }
+        Game::Zzz => {
+            let mut dataset = ZzzExportDataset::default();
+            for snapshot in snapshots {
+                let snapshot_tree = match source.list_tree(&snapshot).await {
+                    Ok(value) => value,
+                    Err(error) => {
+                        errors.push(format!("failed to list {snapshot}: {error}"));
+                        Vec::new()
+                    }
+                };
+                let paths = snapshot_tree
+                    .iter()
+                    .map(|entry| entry.path.as_str())
+                    .collect::<Vec<_>>();
+                let builds_path = format!("{snapshot}/builds.json");
+                let builds = if paths.contains(&builds_path.as_str()) {
+                    match source.read_json(&builds_path).await {
+                        Ok(value) if value.is_array() => value,
+                        Ok(_) => {
+                            warnings.push(format!("{builds_path} was not a list; skipped"));
+                            Value::Array(vec![])
+                        }
+                        Err(error) => {
+                            errors.push(error.to_string());
+                            Value::Array(vec![])
+                        }
+                    }
+                } else {
+                    Value::Array(vec![])
+                };
+                for mode in &request.modes {
+                    let chars_tree = format!("{snapshot}/{mode}/chars");
+                    let comps_tree = format!("{snapshot}/{mode}/comps");
+                    let char_files =
+                        list_optional_tree(source, &chars_tree, &mut warnings, &mut errors).await;
+                    let comp_files =
+                        list_optional_tree(source, &comps_tree, &mut warnings, &mut errors).await;
+                    let config_missing = config.get(&snapshot).is_none();
+                    let entry = config.get(&snapshot).cloned().unwrap_or_else(
+                        || serde_json::json!({"collect_date":"", (mode):{"ver":snapshot}}),
+                    );
+                    let Some(mode_config) = entry.get(mode).and_then(Value::as_object) else {
+                        warnings.push(format!("{snapshot}/{mode}: mode config missing; skipped"));
+                        continue;
+                    };
+                    let mut phase = make_zzz_phase(PhaseInput {
+                        snapshot_id: snapshot.clone(),
+                        mode: mode.clone(),
+                        collect_date: entry
+                            .get("collect_date")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .into(),
+                        ver: mode_config
+                            .get("ver")
+                            .and_then(Value::as_str)
+                            .unwrap_or(&snapshot)
+                            .into(),
+                        name: mode_config
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .into(),
+                        start: mode_config
+                            .get("start")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .into(),
+                        end: mode_config
+                            .get("end")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .into(),
+                        source_path: format!("{snapshot}/"),
+                    });
+                    phase.has_chars =
+                        (paths.contains(&builds_path.as_str()) || !char_files.is_empty()) as i32;
+                    phase.has_comps = (!comp_files.is_empty()) as i32;
+                    if config_missing {
+                        phase.note = "config missing; dates unavailable".into();
+                    }
+                    let mut usage = vec![];
+                    for value in builds.as_array().into_iter().flatten() {
+                        let mut parsed = parse_usage(value, mode);
+                        for row in &mut parsed {
+                            row.source_file = builds_path.clone();
+                            row.source_url = source.raw_url(&builds_path);
+                        }
+                        usage.extend(parsed);
+                    }
+                    for file in char_files.iter().filter(|entry| {
+                        entry.kind == "file" && entry.path.ends_with("bangboo_all.json")
+                    }) {
+                        match source.read_json(&file.path).await {
+                            Ok(value) if value.is_array() => usage.extend(parse_zzz_bangboo(
+                                value.as_array().expect("array checked above"),
+                                &file.path,
+                                &source.raw_url(&file.path),
+                            )),
+                            Ok(_) => {}
+                            Err(error) => errors.push(error.to_string()),
+                        }
+                    }
+                    let mut teams = vec![];
+                    if request.include_teams {
+                        for file in comp_files
+                            .iter()
+                            .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
+                        {
+                            match source.read_json(&file.path).await {
+                                Ok(value) if value.is_array() => {
+                                    let mut parsed = parse_zzz_teams(
+                                        value.as_array().unwrap().clone(),
+                                        mode,
+                                        Path::new(&file.path)
+                                            .file_name()
+                                            .and_then(|v| v.to_str())
+                                            .unwrap_or_default(),
+                                    );
+                                    for row in &mut parsed {
+                                        row.source_file = file.path.clone();
+                                        row.source_url = source.raw_url(&file.path);
+                                    }
+                                    teams.extend(parsed);
+                                }
+                                Ok(_) => {}
+                                Err(error) => errors.push(error.to_string()),
+                            }
+                        }
+                    }
+                    dataset.slices.push(ZzzExportSlice {
+                        phase,
+                        names: fallback_name_rows(&usage, &teams),
+                        usage,
+                        teams,
+                    });
+                }
+            }
+            build_zzz_dataset(&dataset)?
+        }
+    };
+    Ok(PipelineRun {
+        bundle,
+        warnings,
+        errors,
+    })
+}
+
+async fn list_optional_tree<S: SnapshotSource>(
+    source: &S,
+    path: &str,
+    warnings: &mut Vec<String>,
+    errors: &mut Vec<String>,
+) -> Vec<TreeEntry> {
+    match source.list_tree(path).await {
+        Ok(files) => files,
+        Err(error) => {
+            record_optional_tree_error(path, error, warnings, errors);
+            Vec::new()
+        }
+    }
+}
+
+fn record_optional_tree_error(
+    path: &str,
+    error: MihoError,
+    warnings: &mut Vec<String>,
+    errors: &mut Vec<String>,
+) {
+    let is_not_found = matches!(
+        &error,
+        MihoError::Network(source)
+            if source.status().is_some_and(|status| status.as_u16() == 404)
+    );
+    let message = format!("optional tree {path} unavailable: {error}");
+    if is_not_found {
+        warnings.push(message);
+    } else {
+        errors.push(message);
+    }
+}
+
 fn prepare_hsr_dates(entry: &mut Value, mode: &str) {
     if let Some(config) = entry.get_mut(mode).and_then(Value::as_object_mut) {
         for (source, target) in [("start", "start_iso"), ("end", "end_iso")] {
@@ -322,6 +760,107 @@ fn is_version(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        hf::HuggingFaceRepo,
+        network::{FetchMode, HttpClient},
+        source::HfSnapshotSource,
+    };
+    use std::{
+        collections::BTreeSet,
+        fs,
+        io::{Read, Write},
+        net::TcpListener,
+        sync::Mutex,
+        thread,
+        time::Duration,
+    };
+
+    #[derive(Default)]
+    struct MemorySource {
+        trees: BTreeMap<String, Vec<TreeEntry>>,
+        json: BTreeMap<String, Value>,
+        list_failures: BTreeSet<String>,
+        json_failures: BTreeSet<String>,
+        listed: Mutex<Vec<String>>,
+        read: Mutex<Vec<String>>,
+    }
+
+    impl SnapshotSource for MemorySource {
+        fn list_tree<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Vec<TreeEntry>> {
+            Box::pin(async move {
+                self.listed.lock().unwrap().push(path.to_owned());
+                if self.list_failures.contains(path) {
+                    Err(MihoError::Unsupported(format!(
+                        "memory list failure for {path}"
+                    )))
+                } else {
+                    Ok(self.trees.get(path).cloned().unwrap_or_default())
+                }
+            })
+        }
+
+        fn read_json<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Value> {
+            Box::pin(async move {
+                self.read.lock().unwrap().push(path.to_owned());
+                if self.json_failures.contains(path) {
+                    Err(MihoError::Unsupported(format!(
+                        "memory download failure for {path}"
+                    )))
+                } else {
+                    self.json.get(path).cloned().ok_or_else(|| {
+                        MihoError::Unsupported(format!("memory JSON missing for {path}"))
+                    })
+                }
+            })
+        }
+
+        fn raw_url(&self, path: &str) -> String {
+            format!("memory://fixture/{path}")
+        }
+    }
+
+    fn tree_entry(path: &str, kind: &str) -> TreeEntry {
+        TreeEntry {
+            path: path.into(),
+            kind: kind.into(),
+            extra: Default::default(),
+        }
+    }
+
+    fn hsr_request() -> ExportRequest {
+        ExportRequest {
+            game: Game::Hsr,
+            modes: vec!["moc".into()],
+            from_date: None,
+            to_date: None,
+            include_teams: false,
+            include_prydwen_visible: false,
+            include_prydwen_tier: false,
+            official_name_map: false,
+        }
+    }
+
+    fn csv_table(bundle: &ArtifactBundle, path: &str) -> (Vec<String>, Vec<Vec<String>>) {
+        let bytes = bundle.get(path).expect("CSV artifact should exist");
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .from_reader(&bytes[3..]);
+        let headers = reader
+            .headers()
+            .unwrap()
+            .iter()
+            .map(str::to_owned)
+            .collect();
+        let rows = reader
+            .records()
+            .map(|record| record.unwrap().iter().map(str::to_owned).collect())
+            .collect();
+        (headers, rows)
+    }
+
+    fn field<'a>(headers: &[String], row: &'a [String], name: &str) -> &'a str {
+        row[headers.iter().position(|header| header == name).unwrap()].as_str()
+    }
 
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -352,5 +891,425 @@ mod tests {
         assert!(run.errors.is_empty());
         assert!(run.bundle.get("character_usage_long.csv").is_some());
         assert!(run.bundle.get("team_rank_raw.csv").is_some());
+    }
+
+    #[tokio::test]
+    async fn generic_source_pipeline_builds_hsr_and_zzz_bundles() {
+        let hsr = OfflineFixture::load(fixture("offline_hsr")).unwrap();
+        let hsr_run = run_source_export(
+            &hsr,
+            &ExportRequest {
+                game: Game::Hsr,
+                modes: vec!["moc".into()],
+                from_date: None,
+                to_date: None,
+                include_teams: true,
+                include_prydwen_visible: false,
+                include_prydwen_tier: false,
+                official_name_map: false,
+            },
+        )
+        .await
+        .unwrap();
+        let hsr_usage =
+            std::str::from_utf8(hsr_run.bundle.get("character_usage_long.csv").unwrap()).unwrap();
+        assert!(hsr_usage.contains("offline://LvlUrArti/MocDataProcessed/main/4.3.2/builds.json"));
+
+        let zzz = OfflineFixture::load(fixture("offline_zzz")).unwrap();
+        let zzz_run = run_source_export(
+            &zzz,
+            &ExportRequest {
+                game: Game::Zzz,
+                modes: vec!["sd".into()],
+                from_date: None,
+                to_date: None,
+                include_teams: true,
+                include_prydwen_visible: false,
+                include_prydwen_tier: false,
+                official_name_map: false,
+            },
+        )
+        .await
+        .unwrap();
+        let zzz_teams =
+            std::str::from_utf8(zzz_run.bundle.get("team_rank_raw.csv").unwrap()).unwrap();
+        assert!(
+            zzz_teams.contains(
+                "offline://LvlUrArti/ShiyuDataProcessed/main/3.0.1/sd/comps/5-1_combined.json"
+            ),
+            "{zzz_teams}"
+        );
+    }
+
+    #[tokio::test]
+    async fn generic_pipeline_filters_closed_dates_but_keeps_unknown_dates() {
+        let mut source = MemorySource::default();
+        source.trees.insert(
+            String::new(),
+            ["1.0.0", "2.0.0", "3.0.0"]
+                .into_iter()
+                .map(|path| tree_entry(path, "directory"))
+                .collect(),
+        );
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({
+                "1.0.0": {"collect_date": "2026-01-01", "moc": {"ver": "1"}},
+                "2.0.0": {"collect_date": "2026-01-31", "moc": {"ver": "2"}},
+                "3.0.0": {"collect_date": "not-a-date", "moc": {"ver": "3"}}
+            }),
+        );
+        let mut request = hsr_request();
+        request.from_date = NaiveDate::from_ymd_opt(2026, 1, 10);
+        request.to_date = NaiveDate::from_ymd_opt(2026, 1, 31);
+
+        let run = run_source_export(&source, &request).await.unwrap();
+        let phases = std::str::from_utf8(run.bundle.get("phase_index.csv").unwrap()).unwrap();
+        assert!(!phases.contains("1.0.0"));
+        assert!(phases.contains("2.0.0") && phases.contains("3.0.0"));
+        assert!(run.warnings.iter().any(|warning| {
+            warning == "3.0.0: collect_date missing; included without date filtering"
+        }));
+        let listed = source.listed.lock().unwrap();
+        assert!(!listed.iter().any(|path| path == "1.0.0"));
+        assert!(listed.iter().any(|path| path.ends_with("/comps")));
+    }
+
+    #[tokio::test]
+    async fn generic_pipeline_writes_fixed_empty_bundle_when_range_matches_nothing() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({
+                "1.0.0": {"collect_date": "2026-01-01", "moc": {"ver": "1"}}
+            }),
+        );
+        let mut request = hsr_request();
+        request.from_date = NaiveDate::from_ymd_opt(2026, 2, 1);
+        request.to_date = NaiveDate::from_ymd_opt(2026, 2, 28);
+
+        let run = run_source_export(&source, &request).await.unwrap();
+        assert!(run.warnings.iter().any(|warning| {
+            warning == "no Hugging Face snapshots matched the requested date range"
+        }));
+        let phases = std::str::from_utf8(run.bundle.get("phase_index.csv").unwrap()).unwrap();
+        assert_eq!(phases.lines().count(), 1);
+        assert!(run.bundle.get("character_usage_long.csv").is_some());
+        assert!(run.bundle.get("team_rank_raw.csv").is_some());
+    }
+
+    #[tokio::test]
+    async fn generic_pipeline_keeps_partial_snapshot_and_recoverable_errors() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.list_failures.insert("1.0.0".into());
+        source.json_failures.insert("config.json".into());
+
+        let run = run_source_export(&source, &hsr_request()).await.unwrap();
+        let phases = std::str::from_utf8(run.bundle.get("phase_index.csv").unwrap()).unwrap();
+        assert!(phases.contains("1.0.0"));
+        assert!(run
+            .errors
+            .iter()
+            .any(|error| error.contains("failed to load config.json")));
+        assert!(run
+            .errors
+            .iter()
+            .any(|error| error.contains("failed to list 1.0.0")));
+        assert!(run.warnings.iter().any(|warning| {
+            warning == "1.0.0: collect_date missing; included without date filtering"
+        }));
+    }
+
+    #[tokio::test]
+    async fn generic_pipeline_normalizes_missing_root_to_version_error() {
+        for source in [
+            MemorySource::default(),
+            MemorySource {
+                list_failures: BTreeSet::from([String::new()]),
+                ..Default::default()
+            },
+        ] {
+            let error = run_source_export(&source, &hsr_request())
+                .await
+                .err()
+                .expect("missing version directories must fail");
+            assert!(error
+                .to_string()
+                .contains("no version directories found in Hugging Face dataset root"));
+        }
+    }
+
+    #[tokio::test]
+    async fn hsr_phase_flags_describe_trees_even_when_team_download_is_disabled() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.trees.insert(
+            "1.0.0".into(),
+            vec![tree_entry("1.0.0/builds.json", "file")],
+        );
+        source.trees.insert(
+            "1.0.0/moc/comps".into(),
+            vec![tree_entry("1.0.0/moc/comps/top.json", "file")],
+        );
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({
+                "1.0.0": {"collect_date": "2026-01-01", "moc": {"ver": "1"}}
+            }),
+        );
+        source.json.insert(
+            "1.0.0/builds.json".into(),
+            serde_json::json!([{"char": "A", "app_rate_moc": 12.5}]),
+        );
+
+        let run = run_source_export(&source, &hsr_request()).await.unwrap();
+        assert!(run.errors.is_empty(), "{:?}", run.errors);
+        let (headers, rows) = csv_table(&run.bundle, "phase_index.csv");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(field(&headers, &rows[0], "has_chars"), "0");
+        assert_eq!(field(&headers, &rows[0], "has_comps"), "1");
+        assert_eq!(csv_table(&run.bundle, "team_rank_raw.csv").1.len(), 0);
+        assert!(!source
+            .read
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|path| path.ends_with("top.json")));
+    }
+
+    #[tokio::test]
+    async fn hsr_missing_config_sets_phase_note_and_histograph_supplies_fallback() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.trees.insert(
+            "1.0.0".into(),
+            vec![tree_entry("1.0.0/histograph.json", "file")],
+        );
+        source
+            .json
+            .insert("config.json".into(), serde_json::json!({}));
+        source.json.insert(
+            "1.0.0/histograph.json".into(),
+            serde_json::json!([{"char": "Topaz & Numby", "moc_usage": "8.25%"}]),
+        );
+
+        let run = run_source_export(&source, &hsr_request()).await.unwrap();
+        let (phase_headers, phases) = csv_table(&run.bundle, "phase_index.csv");
+        assert_eq!(
+            field(&phase_headers, &phases[0], "note"),
+            "config missing; dates unavailable"
+        );
+        assert_eq!(
+            run.warnings
+                .iter()
+                .filter(|warning| warning.contains("1.0.0"))
+                .count(),
+            1
+        );
+        let (_, histograph) = csv_table(&run.bundle, "histograph_usage_long.csv");
+        assert_eq!(histograph.len(), 1);
+        let (usage_headers, usage) = csv_table(&run.bundle, "character_usage_long.csv");
+        assert_eq!(usage.len(), 1);
+        assert_eq!(
+            field(&usage_headers, &usage[0], "source_kind"),
+            "hf_histograph_fallback"
+        );
+        assert_eq!(
+            field(&usage_headers, &usage[0], "source_file"),
+            "1.0.0/histograph.json"
+        );
+    }
+
+    #[tokio::test]
+    async fn zzz_pipeline_combines_builds_and_bangboo_and_preserves_phase_flags() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.trees.insert(
+            "1.0.0".into(),
+            vec![tree_entry("1.0.0/builds.json", "file")],
+        );
+        source.trees.insert(
+            "1.0.0/sd/chars".into(),
+            vec![tree_entry("1.0.0/sd/chars/bangboo_all.json", "file")],
+        );
+        source.trees.insert(
+            "1.0.0/sd/comps".into(),
+            vec![tree_entry("1.0.0/sd/comps/5-1.json", "file")],
+        );
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({
+                "1.0.0": {"collect_date": "2026-01-01", "sd": {"ver": "1"}}
+            }),
+        );
+        source.json.insert(
+            "1.0.0/builds.json".into(),
+            serde_json::json!([{"char": "A", "app_rate_sd": 10}]),
+        );
+        source.json.insert(
+            "1.0.0/sd/chars/bangboo_all.json".into(),
+            serde_json::json!([{"char": "Butler", "app_rate": 5, "avg_round": 2}]),
+        );
+        let mut request = hsr_request();
+        request.game = Game::Zzz;
+        request.modes = vec!["sd".into()];
+
+        let run = run_source_export(&source, &request).await.unwrap();
+        assert!(run.errors.is_empty(), "{:?}", run.errors);
+        let (phase_headers, phases) = csv_table(&run.bundle, "phase_index.csv");
+        assert_eq!(field(&phase_headers, &phases[0], "has_chars"), "1");
+        assert_eq!(field(&phase_headers, &phases[0], "has_comps"), "1");
+        let (usage_headers, usage) = csv_table(&run.bundle, "character_usage_long.csv");
+        assert_eq!(usage.len(), 2);
+        assert!(usage.iter().any(|row| {
+            field(&usage_headers, row, "source_kind") == "hf_bangboo"
+                && field(&usage_headers, row, "source_file") == "1.0.0/sd/chars/bangboo_all.json"
+        }));
+        let (name_headers, names) = csv_table(&run.bundle, "name_map.csv");
+        assert_eq!(names.len(), 2);
+        assert!(names.iter().all(|row| {
+            field(&name_headers, row, "needs_manual_check") == "1"
+                && field(&name_headers, row, "kind") == "unknown"
+        }));
+        assert_eq!(csv_table(&run.bundle, "team_rank_raw.csv").1.len(), 0);
+        assert!(!source
+            .read
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|path| path.ends_with("5-1.json")));
+    }
+
+    #[tokio::test]
+    async fn zzz_missing_config_keeps_phase_with_compatibility_note() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source
+            .json
+            .insert("config.json".into(), serde_json::json!({}));
+        let mut request = hsr_request();
+        request.game = Game::Zzz;
+        request.modes = vec!["sd".into()];
+
+        let run = run_source_export(&source, &request).await.unwrap();
+        let (headers, rows) = csv_table(&run.bundle, "phase_index.csv");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            field(&headers, &rows[0], "note"),
+            "config missing; dates unavailable"
+        );
+    }
+
+    #[tokio::test]
+    async fn generic_pipeline_matches_online_http_and_offline_cache() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let responses = BTreeMap::from([
+            (
+                "/api/datasets/owner/repo/tree/main".to_owned(),
+                r#"[{"type":"directory","path":"1.0.0"}]"#.to_owned(),
+            ),
+            (
+                "/datasets/owner/repo/resolve/main/config.json".to_owned(),
+                r#"{"1.0.0":{"collect_date":"2026-01-01","moc":{"ver":"1"}}}"#.to_owned(),
+            ),
+            (
+                "/api/datasets/owner/repo/tree/main/1.0.0".to_owned(),
+                r#"[{"type":"file","path":"1.0.0/builds.json"}]"#.to_owned(),
+            ),
+            (
+                "/api/datasets/owner/repo/tree/main/1.0.0/moc/chars".to_owned(),
+                "[]".to_owned(),
+            ),
+            (
+                "/api/datasets/owner/repo/tree/main/1.0.0/moc/comps".to_owned(),
+                r#"[{"type":"file","path":"1.0.0/moc/comps/top.json"}]"#.to_owned(),
+            ),
+            (
+                "/datasets/owner/repo/resolve/main/1.0.0/builds.json".to_owned(),
+                r#"[{"char":"A","app_rate_moc":10}]"#.to_owned(),
+            ),
+            (
+                "/datasets/owner/repo/resolve/main/1.0.0/moc/comps/top.json".to_owned(),
+                r#"[{"char_one":"a","char_two":"b","char_three":"c","char_four":"d","rank":1}]"#
+                    .to_owned(),
+            ),
+        ]);
+        let response_count = responses.len();
+        let server = thread::spawn(move || {
+            for _ in 0..response_count {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 4096];
+                let size = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..size]);
+                let target = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap()
+                    .split('?')
+                    .next()
+                    .unwrap();
+                let (status, body) = responses
+                    .get(target)
+                    .map(|body| ("200 OK", body.as_str()))
+                    .unwrap_or(("404 Not Found", "missing fixture response"));
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        let cache =
+            std::env::temp_dir().join(format!("miho-pipeline-http-cache-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&cache);
+        let repo = HuggingFaceRepo::new("owner/repo", "main").with_origin(origin);
+        let online_source = HfSnapshotSource::new(
+            repo.clone(),
+            HttpClient::new(Duration::from_secs(2), 0).unwrap(),
+            &cache,
+            FetchMode::Online,
+        );
+        let mut request = hsr_request();
+        request.include_teams = true;
+        let online = run_source_export(&online_source, &request).await.unwrap();
+        server.join().unwrap();
+        assert!(online.errors.is_empty(), "{:?}", online.errors);
+
+        let offline_source = HfSnapshotSource::new(
+            repo,
+            HttpClient::new(Duration::from_millis(50), 0).unwrap(),
+            &cache,
+            FetchMode::Offline,
+        );
+        let offline = run_source_export(&offline_source, &request).await.unwrap();
+        assert_eq!(online.warnings, offline.warnings);
+        assert_eq!(online.errors, offline.errors);
+        assert_eq!(online.bundle.manifest(), offline.bundle.manifest());
+        for artifact in online.bundle.manifest() {
+            assert_eq!(
+                online.bundle.get(&artifact.path),
+                offline.bundle.get(&artifact.path),
+                "online/offline mismatch: {}",
+                artifact.path
+            );
+        }
+        let _ = fs::remove_dir_all(cache);
     }
 }
