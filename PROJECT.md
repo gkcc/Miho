@@ -8,9 +8,9 @@
 
 - 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
-- Rust 已实现配置加载、Box State v2、Python 等价规范化、并发安全原子写和 HTTP 重试；Tauri 已打通 HSR/ZZZ Box 读写，并采用稳定应用数据目录。
-- Rust CLI 已注册 HSR 2 个、ZZZ 8 个命令，但所有业务命令仍处于迁移门禁，不能替代 Python。
-- 最近验证：Python CLI 契约 15 项、规范化 5 项、`miho-core` 6 项、Tauri 3 项通过。
+- Rust 已实现配置加载、Box State v2、Python 等价规范化、HSR/ZZZ parser 垂直切片、并发安全原子写和 HTTP 重试；Tauri 已打通 HSR/ZZZ Box 读写，并采用稳定应用数据目录。
+- Rust CLI 已按游戏拆分命令树并对齐默认值、布尔双旗标和帮助面；所有业务命令仍处于迁移门禁，不能替代 Python。
+- 最近验证：HSR/ZZZ Python parser oracle 各 1 项、Rust HSR 1 项、Rust ZZZ 2 项、Rust CLI 6 项通过；原子并发测试连续 10 次通过。
 - Python 仍负责全部抓取、解析、证据池、覆盖率、决策、抽取价值、报告和正式导出。
 
 ## 阶段路线
@@ -23,13 +23,13 @@
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
-## 当前三目标（第三批）
+## 当前三目标（第四批）
 
 | 子目标 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- |
-| 移植 HSR parser 最小垂直切片 | 子智能体准备 fixture，主智能体整合 | HSR parser、阶段配置、脱敏 builds/chars/teams | 强类型 HSR 行模型与阶段/队伍解析；锁定 top_n、truthiness、签名语义 | HSR Python fixture 测试与 `cargo test -p miho-core hsr` | 规范化黄金基线 |
-| 移植 ZZZ parser 最小垂直切片 | 独立子智能体 | ZZZ parser、阶段配置、脱敏 usage/team/bangboo | 强类型 ZZZ 行模型；保持缺失值与 rank/scope 兼容 | ZZZ Python fixture 测试与 `cargo test -p miho-core zzz` | 规范化黄金基线 |
-| 对齐 Rust CLI 默认值与门禁 | 主智能体 | Python CLI 契约测试、Rust clap 树 | 所有参数默认值和输出路径一致；未迁移命令继续明确失败 | `cargo test -p miho-cli` 及两套 help 快照 | CLI 契约已固化 |
+| 加固 HTTP、缓存与离线边界 | 主智能体 | `network.rs` 与固定本地响应 | 仅重试瞬时失败；带校验的缓存读取；离线命中与明确 cache-miss 错误 | `cargo test -p miho-core network` | 稳定数据目录与原子写 |
+| 移植 Hugging Face 客户端 | 子智能体 | Python `hf_client.py`、归档 raw fixture | 强类型文件列表/下载接口，revision、URL 编码、缓存路径兼容 | Python/Rust 固定 URL 与响应黄金测试 | 新网络边界 |
+| 移植 Prydwen 与官方名称来源 | 两个互斥子任务，主智能体整合 | 两游戏 scraper/name loader、脱敏 HTML/JSON | 固定输入提取 tier、changelog、可见队伍和名称映射 | 各来源 Python/Rust 黄金测试 | parser 与新网络边界 |
 
 ## 决策记录
 
@@ -69,6 +69,14 @@
 - 失败原因：初始 Rust scaffold 根据通用百分比惯例实现，没有先锁定项目既有语义；原子写设计低估了 Windows 替换差异。
 - 调整：最终目标不变。第三批将 HSR/ZZZ parser 分开移植，并优先对齐 Rust CLI 默认值；暂不启用 exporter。
 - 下一批：HSR parser、ZZZ parser、Rust CLI 默认值与门禁。
+
+### 复盘 3：Parser 与 CLI 边界（2026-07-12）
+
+- 完成：建立 HSR/ZZZ 脱敏 parser fixture 和双语言 oracle；Rust 强类型行模型覆盖阶段、角色使用率、队伍、签名、scope、rank 与 bangboo；Rust CLI 按游戏拆分 help 并对齐动态日期、路径、数据源、top-N 和布尔双旗标。
+- 偏差：原共享 CLI 命令树会向 HSR 泄漏 ZZZ 命令，且 `ArgAction::Set` 不等价 Python BooleanOptionalAction；已重构为独立 HSR/ZZZ 命令树。原子并发测试曾由子智能体观察到一次权限错误，整合后连续 10 次未复现，保留为监测项。
+- 失败原因：初始 scaffold 优先减少类型数量，牺牲了 help 面和游戏特定默认值；现已确认公共实现可共享，但公开命令类型必须分离。
+- 调整：最终目标不变。进入 exporter 前先加固 HTTP/缓存并移植三个外部数据源，避免把不可靠网络语义扩散到导出层。
+- 下一批：网络可靠性、Hugging Face 客户端、Prydwen/官方名称来源。
 
 ## 恢复入口
 
