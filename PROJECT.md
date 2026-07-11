@@ -8,9 +8,9 @@
 
 - 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
-- Rust 已实现配置加载、Box State v2、基础规范化、原子写入雏形和 HTTP 重试；Tauri 已打通 HSR/ZZZ Box 读写。
+- Rust 已实现配置加载、Box State v2、Python 等价规范化、并发安全原子写和 HTTP 重试；Tauri 已打通 HSR/ZZZ Box 读写，并采用稳定应用数据目录。
 - Rust CLI 已注册 HSR 2 个、ZZZ 8 个命令，但所有业务命令仍处于迁移门禁，不能替代 Python。
-- 最近验证：`cargo test --workspace --no-fail-fast`，5 个测试通过。
+- 最近验证：Python CLI 契约 15 项、规范化 5 项、`miho-core` 6 项、Tauri 3 项通过。
 - Python 仍负责全部抓取、解析、证据池、覆盖率、决策、抽取价值、报告和正式导出。
 
 ## 阶段路线
@@ -23,13 +23,13 @@
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
-## 当前三目标（第二批）
+## 当前三目标（第三批）
 
 | 子目标 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- |
-| 固化 Python CLI 契约 | 子智能体审计，主智能体整合 | 两套 `cli.py` 与现有测试 | CLI 快照测试：命令、参数、默认值、布尔双旗标、0/1/2 退出码 | `python -m pytest tests/test_cli_contract.py -q` | 无 |
-| 修复存储与数据目录边界 | 主智能体 | `atomic.rs`、Tauri IPC | 无先删窗口且并发安全的原子写；稳定的应用数据根目录；旧路径兼容测试 | `cargo test -p miho-core && cargo test -p miho-desktop` | 兼容契约中的 Box v2 规则 |
-| 建立规范化双跑基线 | 子智能体提取样本，主智能体实现 | Python normalize/parsers 与脱敏 fixture | Rust 规范化/稳定标识实现、Python/Rust 同输入黄金结果 | 定向 Python 测试与 `cargo test -p miho-core` | CLI 契约中的格式约定 |
+| 移植 HSR parser 最小垂直切片 | 子智能体准备 fixture，主智能体整合 | HSR parser、阶段配置、脱敏 builds/chars/teams | 强类型 HSR 行模型与阶段/队伍解析；锁定 top_n、truthiness、签名语义 | HSR Python fixture 测试与 `cargo test -p miho-core hsr` | 规范化黄金基线 |
+| 移植 ZZZ parser 最小垂直切片 | 独立子智能体 | ZZZ parser、阶段配置、脱敏 usage/team/bangboo | 强类型 ZZZ 行模型；保持缺失值与 rank/scope 兼容 | ZZZ Python fixture 测试与 `cargo test -p miho-core zzz` | 规范化黄金基线 |
+| 对齐 Rust CLI 默认值与门禁 | 主智能体 | Python CLI 契约测试、Rust clap 树 | 所有参数默认值和输出路径一致；未迁移命令继续明确失败 | `cargo test -p miho-cli` 及两套 help 快照 | CLI 契约已固化 |
 
 ## 决策记录
 
@@ -61,6 +61,14 @@
 - 失败原因：早期脚本把字符串前缀等同目录包含关系，并混用了绝对/相对缓存路径。
 - 调整：不改变最终迁移目标；将“可靠存储与稳定数据根目录”提升到第二批，优先于 exporter 移植。
 - 下一批：CLI 契约、存储/数据目录边界、规范化双跑基线。
+
+### 复盘 2：兼容与基础边界（2026-07-12）
+
+- 完成：新增 15 项 Python CLI 契约测试；加固唯一临时文件、同步、并发写和失败回滚；Tauri 改用应用数据目录并支持 `MIHO_DATA_ROOT`；建立 Python/Rust 共用规范化 fixture。
+- 偏差：审计发现 Rust 百分比按比例值解析，和 Python 百分点语义相差 100 倍；已在继续 parser 前修复。Windows 标准库不能直接调用 `ReplaceFile`，当前实现通过备份和失败回滚保证可恢复，但替换时仍有极短路径缺口。
+- 失败原因：初始 Rust scaffold 根据通用百分比惯例实现，没有先锁定项目既有语义；原子写设计低估了 Windows 替换差异。
+- 调整：最终目标不变。第三批将 HSR/ZZZ parser 分开移植，并优先对齐 Rust CLI 默认值；暂不启用 exporter。
+- 下一批：HSR parser、ZZZ parser、Rust CLI 默认值与门禁。
 
 ## 恢复入口
 
