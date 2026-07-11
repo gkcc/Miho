@@ -24,6 +24,10 @@ pub enum MihoError {
     },
     #[error("network request failed: {0}")]
     Network(#[from] reqwest::Error),
+    #[error("offline cache miss for {0}")]
+    CacheMiss(String),
+    #[error("invalid cache key: {0}")]
+    InvalidCacheKey(String),
     #[error("unsupported operation: {0}")]
     Unsupported(String),
 }
