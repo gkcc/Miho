@@ -11,9 +11,9 @@
 - Rust 已实现 HF 在线/离线统一 `SnapshotSource`、日期与部分失败语义、两游戏多 snapshot/mode 聚合，以及 HSR histograph/fallback、动态视图、完整队伍去重和 ZZZ Bangboo/name fallback。
 - Rust CLI 已接通 HSR/ZZZ `export`、原子写出和 0/1/2 退出码；两游戏的 Prydwen visible/tier/changelog、HoYoWiki 官方名称、历史、趋势与 raw 产物均已进入共享 Rust pipeline，补充来源失败只降级为结构化 warning。
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
-- HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；两游戏默认在线入口仍保留完整目录总门禁，直到 XLSX 与 visualizer 对比通过，避免过早替代 Python。
+- HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；两游戏在线入口仍保留完整目录总门禁，直到 XLSX 与 visualizer 对比通过，避免过早替代 Python。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近验证：Rust core 89 项、CLI 19 项、Python ZZZ 20 项定向测试和严格 clippy 通过；上一完整基线为 Rust workspace 60 项、Python 71 项。
+- 最近完整回归：Rust workspace 111 项、Python 74 项和 workspace 严格 clippy 通过；前端干净构建因 `allowBuilds.esbuild` 仍是占位字符串而被 pnpm 拒绝，已提升为下一批首要目标。
 - Python 仍作为全部导出语义的对照实现，并负责 Excel、正式 visualizer，以及 evidence、coverage、decision、pull-value、review-packet。
 
 ## 阶段路线
@@ -26,13 +26,13 @@
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
-## 当前三目标（第九批）
+## 当前三目标（第十批）
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 建立补充来源与导出上下文契约 | 已完成 | 主智能体 | 现有 hsr/zzz source parser、PipelineRun、报告参数 | 游戏隔离的补充资源 trait；版本化 request/receipt/failure；可信 context 与结构化 diagnostics/stats；最终报告和清单 | 契约/报告/pipeline/CLI 共 34 项定向测试；dataset 错配与未知 wire 字段被拒绝 | generic pipeline |
-| 接通 HSR 补充来源 | 已完成（总门禁保留） | 子智能体移植、主智能体整合 | Prydwen visible/tier/changelog、Hoyowiki、name seed、top-N | 完整 team/tier/name/history/trend/chart/raw；seed/官方边界；缓存语义校验；选项门禁解除 | HSR 26 项、Python oracle 12 项；补充源全失败仍导出 HF；XLSX/visualizer 由后续阶段解除总门禁 | 补充来源契约 |
-| 接通 ZZZ 补充来源 | 已完成（总门禁保留） | 独立子智能体移植、主智能体整合 | Prydwen visible/tier/changelog、官方 agent/Bangboo 名称 | 完整 team/tier/name/history/trend/raw；selector/override 与 alias；补充失败降级；top-N 选项门禁解除 | ZZZ 28 项、Python oracle 20 项；补充源全失败仍导出 HF；XLSX/visualizer 由后续阶段解除总门禁 | 补充来源契约 |
+| 建立可复现的 Tauri/Vite 构建基线 | 待开始 | 前端子智能体、主智能体审查 | pnpm 11.7、Node 24、现有 Tauri/Vite scaffold | 布尔 `allowBuilds.esbuild`；固定 package manager/Node 范围；Vite 1420 strict port；根构建脚本 | 干净 `pnpm install --frozen-lockfile`、esbuild、Vite build、Tauri no-bundle 均通过 | 无 |
+| 固化双游戏 Workbook 语义契约 | 待开始 | 兼容测试子智能体、主智能体定标 | Python 生成器、归档 XLSX、现有 CSV bundle | 小型脱敏 XLSX oracle；sheet/列/值/类型/样式/宽度/公式规范化比较器 | `python -m pytest -q tests/test_workbook_contract.py` | 现有 exporter bundle |
+| 接入共享 Rust Workbook writer | 待开始 | Rust 子智能体移植、主智能体整合 | Workbook 语义契约、`WorkbookPolicy`、最终 ArtifactBundle | HSR 18-sheet 与 ZZZ 12-sheet；显式单元格类型；BestEffort diagnostics、manifest 与原子写出 | Rust workbook 测试、双游戏 XLSX 语义对比、CLI fixture 回归、严格 clippy | Workbook 契约 |
 
 ## 决策记录
 
@@ -47,6 +47,7 @@
 | 2026-07-12 | 外部 HTTP 2xx 也必须通过业务 payload 校验后才覆盖 last-good cache | Cloudflare challenge 与 HoYoWiki retcode 错误会回退缓存并保留原因，不污染离线基线 | 来源协议改版或引入新补充站点时 |
 | 2026-07-12 | HSR 补充选项已迁移，但默认在线入口继续受完整目录总门禁保护 | 可用 fixture/核心 API 验收真实 Rust 链路；XLSX/visualizer 未完成时不声称替代 Python | HSR 完整目录仅剩批准差异时 |
 | 2026-07-12 | ZZZ 补充选项已迁移，但在线 CLI（含显式关闭补充源的 HF-only 形式）继续受产品级总门禁保护 | phase/usage/team 分别保留 Python 的日期回填语义；fixture 可验收完整 Rust 链路；XLSX/visualizer 未完成时不声称替代 Python | ZZZ 完整目录仅剩批准差异时 |
+| 2026-07-12 | 决策命令继续排在导出产品完整性之后；第十批先修前端构建并完成 Workbook | 避免让 evidence/decision 依赖仍受 XLSX/visualizer 总门禁保护的目录；visualizer 数据契约紧随 Workbook | 双游戏导出仅剩批准差异时 |
 
 ## 风险登记
 
@@ -54,12 +55,12 @@
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
 | HSR/ZZZ XLSX 与 visualizer 尚未进入 Rust 完整目录 | 高 | 两游戏保留默认在线总门禁；当前只解除已实现的补充来源选项门禁 |
-| Excel 尚未进入统一 outcome | 高 | 历史已在报告前合并并刷新 manifest；后续将 Workbook 纳入同一 outcome 与目录比较 |
+| Workbook 单元格类型和样式可能与 Python 漂移 | 高 | 先建语义比较器；Rust 使用显式列类型，禁止公式注入，不比较 ZIP 时间戳/style ID |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
 | Tauri 后台任务、取消和完整 visualizer 尚未迁移 | 高 | 数据与报告默认路径稳定后再接 IPC，前端不复制规则 |
 | 外部数据源随时间变化 | 高 | 归档历史 raw 数据，黄金测试只用固定离线输入 |
 | 子智能体共享工作树冲突 | 中 | 并行任务划定互斥路径；公共类型由主智能体串行整合 |
-| pnpm/esbuild 安装策略导致前端构建不可复现 | 中 | 固化根锁文件和批准配置，增加干净环境构建验证 |
+| pnpm `allowBuilds.esbuild` 是占位字符串，干净前端构建失败 | 高 | 第十批首目标改为布尔 allowlist、packageManager/Node 固定、1420 strict port 与干净构建验证 |
 | Rust 网络层误重试永久性 4xx | 中 | 按状态码分类，只重试瞬时错误并增加缓存/离线测试 |
 
 ## 三目标复盘
@@ -128,12 +129,21 @@
 - 调整：最终无 Python 目标不变，generic HF 假设已由本地 HTTP 与离线缓存逐产物一致验证。默认 CLI 切换延后；第九批先建立补充来源与 report context，再并行接通 HSR/ZZZ。Excel、visualizer 和决策报告不抢在默认导出完整之前。
 - 下一批：补充来源/导出上下文契约、HSR 补充来源、ZZZ 补充来源。
 
+### 复盘 9：补充来源与完整导出上下文（2026-07-12）
+
+- 完成：建立版本化 request/context/receipt/failure 与结构化 diagnostics/stats；HSR、ZZZ 均接通 Prydwen visible/tier/changelog、HoYoWiki、历史、趋势、raw 和部分失败回退；两游戏补充选项门禁解除，产品级在线总门禁继续保留。
+- 偏差：原估计主要是 adapter 接线，实际还需处理 HTTP 2xx 业务校验、双语任一侧失败、visible scope 保序、版本优先 latest、phase/usage/team 不同日期回填语义、短历史行、空 HF slice 全局名称和完全同分队伍稳定顺序。ZZZ 未因补充源完成而提前放开 HF-only 在线形式。
+- 失败原因：此前最小 bundle 把名称和日期都隐含在 snapshot slice 中，不能表达“无 HF slice 但有 tier/name”或 Python 只回填 phase/team 的行为；外部页面成功状态也不能只用 HTTP 状态码判断。前端回归另暴露 `pnpm-workspace.yaml` 的 esbuild 审批仍是 scaffold 占位值。
+- 验证结果：Rust workspace 111 项、Python 74 项与 workspace 严格 clippy 通过；前端 `pnpm --dir crates/miho-desktop build` 在干净依赖状态因 `ERR_PNPM_IGNORED_BUILDS` 失败，临时生成的 `node_modules` 已清除。
+- 调整：最终无 Python 目标不变，继续保持在线总门禁。第十批先修复可复现 Tauri/Vite 构建，再用语义而非 XLSX 字节比较固化 Workbook，随后由共享 Rust writer 接入两游戏；visualizer 数据契约与等价 UI 排在下一批，决策报告不提前穿插。
+- 下一批：可复现前端构建基线、双游戏 Workbook 语义契约、共享 Rust Workbook writer。
+
 ## 恢复入口
 
 - 项目状态：本文件。
 - 兼容规则：`docs/migration-compatibility.md`。
 - Rust workspace：根目录 `Cargo.toml`。
-- 当前定向验证：`cargo test -p miho-core zzz_ --no-fail-fast; cargo test -p miho-core network::tests; cargo test -p miho-cli; python -m pytest -q tests/test_zzz_sources_golden.py tests/test_zzz_prydwen_golden.py tests/test_zzz_history_golden.py tests/test_zzz_export_golden.py tests/test_zzz_parser_golden.py tests/test_zzz_exporter.py tests/test_prydwen_tier.py tests/test_phase_index.py`；批次完成时仍执行 workspace、clippy 与 Python 全量回归。
+- 当前完整验证：`cargo test --workspace --no-fail-fast; cargo clippy --workspace --all-targets -- -D warnings; python -m pytest -q`。前端复现命令 `pnpm --dir crates/miho-desktop build` 当前会因 esbuild allowBuilds 占位值失败，这是第十批首目标而非可忽略警告。
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035\manifest.json`。
-- 最危险的未验证假设：Rust XLSX 与 visualizer 尚未实现，当前补充来源完整 bundle 仍不能代表两游戏默认完整目录已经只剩批准差异。
+- 最危险的未验证假设：从 CSV bundle 反写 XLSX 时能用显式列类型复刻 Python DataFrame 单元格语义；visualizer 的大型 `data.json` 与交互仍未建立 Rust/TypeScript 版本化契约。
