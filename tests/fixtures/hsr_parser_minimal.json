@@ -8,6 +8,11 @@
     {"character": "March 7th", "app_rate": 7, "app_rate_e0": 0, "app_rate_e1": 3},
     {"character": "Skipped", "app_rate": "-"}
   ],
+  "histograph": [
+    {"char": "Topaz & Numby", "name": "", "moc_usage": "8.25%"},
+    {"char": "No Usage", "moc_usage": "-"},
+    {"char": "", "moc_usage": 1}
+  ],
   "teams": [
     {"char_one": "a", "char_two": "b", "char_three": "", "char_four": "d"},
     {"char_one": "d", "char_two": "b", "char_three": "a", "char_four": "c"},

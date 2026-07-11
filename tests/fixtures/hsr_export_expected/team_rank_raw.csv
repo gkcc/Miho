@@ -1,2 +1,2 @@
 snapshot_id,collect_date,mode,mode_cn,sub_mode,sub_mode_cn,phase_ver,phase_name,scope,rank,comp_name,char_1_slug,char_2_slug,char_3_slug,char_4_slug,char_1_name_cn,char_2_name_cn,char_3_name_cn,char_4_name_cn,app_rate,avg_round,whale_count,app_flat,uses,source_kind,source_file,source_url,raw_index,raw_json
-4.3.2,2026-06-25,moc,混沌回忆,stage_stage_1,stage-1,4.2.1,Example Phase,stage_1,,,d,b,a,c,,,,,,,,,,fixture,teams.json,fixture://teams,2,"{""char_one"":""d"",""char_two"":""b"",""char_three"":""a"",""char_four"":""c""}"
+4.3.2,2026-06-25,moc,混沌回忆,stage_stage_1,stage-1,4.2.1,Example Phase,stage_1,,,d,b,a,c,,,,,,,,,,hf_comps,teams.json,fixture://teams,2,"{""char_one"":""d"",""char_two"":""b"",""char_three"":""a"",""char_four"":""c""}"

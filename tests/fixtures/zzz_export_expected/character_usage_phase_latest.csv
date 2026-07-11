@@ -1,3 +1,3 @@
 snapshot_id,collect_date,mode,mode_cn,sub_mode,sub_mode_cn,phase_ver,phase_name,start_date,end_date,character_slug,character_name_en,character_name_cn,role,rarity,app_rate,avg_score,sample,sample_players,cons_avg,char_level,w_engine_level,core_skill,source_kind,source_file,source_url,quality_flag
-3.0.1,2026-06-21,sd,式舆防卫,all,全部,2.8.3,式舆防卫 2.8.3,2026-06-12,2026-06-26,miyabi,Miyabi,,,,42.0,33000,,,,,,,hf_builds,fixture.json,fixture://local,ok
 3.0.1,2026-06-21,sd,式舆防卫,5-1,第5防线 1,2.8.3,式舆防卫 2.8.3,2026-06-12,2026-06-26,miyabi,Miyabi,,,,26.39,34468,,,,,,,hf_builds,fixture.json,fixture://local,ok
+3.0.1,2026-06-21,sd,式舆防卫,all,全部,2.8.3,式舆防卫 2.8.3,2026-06-12,2026-06-26,miyabi,Miyabi,,,,42.0,33000,,,,,,,hf_builds,fixture.json,fixture://local,ok

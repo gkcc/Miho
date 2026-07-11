@@ -6,6 +6,7 @@ from hsr_endgame_exporter.parsers import (
     make_phase_row,
     parse_builds_character_rows,
     parse_chars_file_character_rows,
+    parse_histograph_rows,
     parse_team_rows,
 )
 
@@ -20,6 +21,9 @@ def test_minimal_hsr_parser_fixture_freezes_python_oracle():
 
     chars = parse_chars_file_character_rows(snapshot_id="4.3.2", phase_row=phase, data=fixture["chars"], source_file="chars.json", source_url="fixture://chars")
     assert [(row["character_slug"], row["app_rate"], row["app_rate_e0"]) for row in chars] == [("march-7th", 7.0, 3.0)]
+
+    histograph = parse_histograph_rows(snapshot_id="4.3.2", phase_rows={"moc": phase}, histograph=fixture["histograph"], source_file="4.3.2/histograph.json")
+    assert [(row["mode"], row["character_slug"], row["character_name_en"], row["usage_value"], row["source_file"], row["note"]) for row in histograph] == [("moc", "topaz-and-numby", "Topaz and Numby", 8.25, "4.3.2/histograph.json", "trend auxiliary; not a full character usage table")]
 
     teams = parse_team_rows(snapshot_id="4.3.2", phase_row=phase, data=fixture["teams"], source_kind="fixture", source_file="teams.json", source_url="fixture://teams", scope_hint="stage_1_combined.json", top_n=2)
     assert len(teams) == 1

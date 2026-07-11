@@ -32,6 +32,9 @@ pub struct PhaseRow {
     pub end_date: String,
     pub source: String,
     pub source_path: String,
+    pub has_chars: i32,
+    pub has_comps: i32,
+    pub note: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,6 +53,8 @@ pub struct TeamInput {
     pub app_rate: Value,
     #[serde(default)]
     pub avg_round: Value,
+    #[serde(default)]
+    pub avg_round_m1: Value,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -64,8 +69,12 @@ pub struct TeamRow {
     pub bangboo_slug: String,
     pub app_rate: Option<f64>,
     pub avg_score: Option<f64>,
+    pub avg_score_m1: Option<f64>,
     pub raw_index: usize,
     pub raw_json: String,
+    pub source_kind: String,
+    pub source_file: String,
+    pub source_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -73,8 +82,21 @@ pub struct UsageRow {
     pub sub_mode: String,
     pub sub_mode_cn: String,
     pub character_slug: String,
+    pub character_name_en: String,
+    pub role: String,
+    pub rarity: String,
     pub app_rate: Option<f64>,
     pub avg_score: Option<f64>,
+    pub sample: Option<f64>,
+    pub sample_players: Option<f64>,
+    pub cons_avg: Option<f64>,
+    pub char_level: Option<f64>,
+    pub w_engine_level: Option<f64>,
+    pub core_skill: Option<f64>,
+    pub source_kind: String,
+    pub source_file: String,
+    pub source_url: String,
+    pub quality_flag: String,
 }
 
 pub fn make_phase_row(input: PhaseInput) -> PhaseRow {
@@ -96,6 +118,9 @@ pub fn make_phase_row(input: PhaseInput) -> PhaseRow {
         end_date: parse_date(&input.end),
         source: "hf_processed".into(),
         source_path: input.source_path,
+        has_chars: 1,
+        has_comps: 1,
+        note: String::new(),
     }
 }
 
@@ -163,8 +188,12 @@ pub fn parse_team_rows(teams: Vec<Value>, mode: &str, scope: &str) -> Vec<TeamRo
                 bangboo_slug: item.bangboo.map(|v| character_slug(&v)).unwrap_or_default(),
                 app_rate: percent(&item.app_rate),
                 avg_score: number(&item.avg_round),
+                avg_score_m1: number(&item.avg_round_m1),
                 raw_index: index,
                 raw_json: serde_json::to_string(&raw).unwrap_or_default(),
+                source_kind: "hf_comps".into(),
+                source_file: "fixture.json".into(),
+                source_url: "fixture://local".into(),
             })
         })
         .collect()
@@ -186,6 +215,40 @@ pub fn parse_usage(item: &Value, mode: &str) -> Vec<UsageRow> {
     rows
 }
 
+pub fn parse_bangboo_rows(rows: &[Value], source_file: &str, source_url: &str) -> Vec<UsageRow> {
+    rows.iter()
+        .filter_map(|item| {
+            let slug = item
+                .get("char")
+                .and_then(Value::as_str)
+                .map(character_slug)?;
+            if slug.is_empty() {
+                return None;
+            }
+            Some(UsageRow {
+                sub_mode: "bangboo".into(),
+                sub_mode_cn: "邦布".into(),
+                character_name_en: slug_name(&slug),
+                character_slug: slug,
+                role: "bangboo".into(),
+                rarity: string_value(item.get("rarity")),
+                app_rate: item.get("app_rate").and_then(percent),
+                avg_score: item.get("avg_round").and_then(number),
+                sample: None,
+                sample_players: None,
+                cons_avg: None,
+                char_level: None,
+                w_engine_level: None,
+                core_skill: None,
+                source_kind: "hf_bangboo".into(),
+                source_file: source_file.into(),
+                source_url: source_url.into(),
+                quality_flag: "ok".into(),
+            })
+        })
+        .collect()
+}
+
 fn usage_row(item: &Value, mode: &str, slug: &str, boss: Option<usize>) -> UsageRow {
     let (sub_mode, sub_mode_cn, suffix) = match boss {
         None => ("all".into(), "全部".into(), String::new()),
@@ -204,12 +267,27 @@ fn usage_row(item: &Value, mode: &str, slug: &str, boss: Option<usize>) -> Usage
         sub_mode,
         sub_mode_cn,
         character_slug: slug.into(),
+        character_name_en: slug_name(slug),
+        role: String::new(),
+        rarity: string_value(item.get("rarity")),
         app_rate: item
             .get(format!("app_rate_{mode}{suffix}"))
             .and_then(percent),
         avg_score: item
             .get(format!("avg_round_{mode}{suffix}"))
             .and_then(number),
+        sample: item.get(format!("sample_{mode}")).and_then(number),
+        sample_players: item
+            .get(format!("sample_size_players_{mode}"))
+            .and_then(number),
+        cons_avg: item.get("cons_avg").and_then(number),
+        char_level: item.get("char_level").and_then(number),
+        w_engine_level: item.get("w_engine_level").and_then(number),
+        core_skill: item.get("core_skill").and_then(number),
+        source_kind: "hf_builds".into(),
+        source_file: "fixture.json".into(),
+        source_url: "fixture://local".into(),
+        quality_flag: "ok".into(),
     }
 }
 
@@ -251,6 +329,28 @@ fn percent(value: &Value) -> Option<f64> {
         .ok()
 }
 
+fn string_value(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::String(value)) => value.clone(),
+        Some(Value::Number(value)) => value.to_string(),
+        Some(Value::Bool(value)) => value.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn slug_name(slug: &str) -> String {
+    slug.split('-')
+        .map(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,6 +371,25 @@ mod tests {
         assert_eq!(
             (phase.collect_date.as_str(), phase.phase_ver.as_str()),
             ("2026-06-21", "2.8.3")
+        );
+        assert_eq!(
+            (phase.has_chars, phase.has_comps, phase.note.as_str()),
+            (1, 1, "")
+        );
+        let bangboo = parse_bangboo_rows(
+            &[json!({"char":"Safety", "rarity":"S", "app_rate":"7.5%", "avg_round":"123"})],
+            "3.0.1/sd/chars/bangboo_all.json",
+            "fixture://bangboo",
+        );
+        assert_eq!(
+            (
+                bangboo[0].sub_mode.as_str(),
+                bangboo[0].role.as_str(),
+                bangboo[0].app_rate,
+                bangboo[0].avg_score,
+                bangboo[0].source_kind.as_str()
+            ),
+            ("bangboo", "bangboo", Some(7.5), Some(123.0), "hf_bangboo")
         );
         let usage = parse_usage(
             &json!({"char":"Miyabi","app_rate_sd":42,"avg_round_sd":33000,"app_rate_sd_boss_1":"26.39%","avg_round_sd_boss_1":34468}),

@@ -2,5 +2,5 @@
   {"path":"character_usage_long.csv","bytes":488,"sha256":"dd87e46c47df89807f27a024581ec92561454bde715c7a33f6076bb099940d9a"},
   {"path":"phase_index.csv","bytes":245,"sha256":"e983d5114f0413897ae178a369a2db60f7cdfe7f1c931f47ccfcb35e55b09a49"},
   {"path":"prydwen_tier_current.csv","bytes":379,"sha256":"679398e15abc13aee14801fa13247cc63af8feabe791915a85f9bdb71d0ae2ac"},
-  {"path":"team_rank_raw.csv","bytes":536,"sha256":"8301a9a9809a4220b42b43c5be872b19ddfaeece8e4b578f9cb98d9e9b51f5ac"}
+  {"path":"team_rank_raw.csv","bytes":537,"sha256":"45fd8427e0a5cd808871c8c0c3912498ce5cf8378fc3167ea61b34a5a7912abd"}
 ]

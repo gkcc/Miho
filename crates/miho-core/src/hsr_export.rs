@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    hsr::{CharacterRow, PhaseRow, TeamRow},
+    hsr::{CharacterRow, HistographRow, PhaseRow, TeamRow},
+    normalize::character_slug_to_english,
     output::{csv_float, ArtifactBundle},
     Result,
 };
@@ -151,6 +152,18 @@ const CHART_HEADERS: &[&str] = &[
     "point_count",
 ];
 const OVERVIEW_HEADERS: &[&str] = &["section", "metric", "value"];
+const HISTOGRAPH_HEADERS: &[&str] = &[
+    "snapshot_id",
+    "collect_date",
+    "mode",
+    "mode_cn",
+    "character_slug",
+    "character_name_en",
+    "character_name_cn",
+    "usage_value",
+    "source_file",
+    "note",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TierRow {
@@ -171,9 +184,16 @@ pub struct HsrExportSlice {
     pub tiers: Vec<TierRow>,
 }
 
+#[derive(Debug, Clone)]
+pub struct HsrHistographSlice {
+    pub phase: PhaseRow,
+    pub rows: Vec<HistographRow>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct HsrExportDataset {
     pub slices: Vec<HsrExportSlice>,
+    pub histograph_slices: Vec<HsrHistographSlice>,
 }
 
 pub fn build_minimal_export(
@@ -189,6 +209,7 @@ pub fn build_minimal_export(
             teams: teams.to_vec(),
             tiers: tiers.to_vec(),
         }],
+        histograph_slices: vec![],
     })
 }
 
@@ -208,13 +229,19 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
         .iter()
         .flat_map(|slice| slice.teams.iter().map(move |row| (&slice.phase, row)))
         .collect::<Vec<_>>();
-    let ordered_teams = unique_teams(&teams, false);
-    let unordered_teams = unique_teams(&teams, true);
+    let histograph = dataset
+        .histograph_slices
+        .iter()
+        .flat_map(|slice| slice.rows.iter().map(move |row| (&slice.phase, row)))
+        .collect::<Vec<_>>();
+    let ordered_teams = dedup_ordered(&teams);
+    let unordered_teams = dedup_unordered(&ordered_teams);
     let tiers = dataset
         .slices
         .iter()
         .flat_map(|slice| slice.tiers.iter())
         .collect::<Vec<_>>();
+    let names = derived_names(&characters, &histograph, &teams, &tiers);
     let report_date = phases
         .iter()
         .map(|phase| phase.collect_date.as_str())
@@ -246,74 +273,14 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
     bundle.add_csv(
         "character_usage_long.csv",
         CHARACTER_HEADERS,
-        characters.iter().map(|(phase, row)| {
-            vec![
-                phase.snapshot_id.clone(),
-                phase.collect_date.clone(),
-                phase.mode.clone(),
-                phase.mode_cn.clone(),
-                "all".into(),
-                "全部".into(),
-                phase.phase_ver.clone(),
-                phase.phase_name.clone(),
-                phase.start_date.clone(),
-                phase.end_date.clone(),
-                row.character_slug.clone(),
-                row.character_name_en.clone(),
-                String::new(),
-                String::new(),
-                String::new(),
-                csv_float(Some(row.app_rate)),
-                csv_float(row.app_rate_e0),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                row.source_kind.clone(),
-                "fixture/builds.json".into(),
-                "fixture://builds".into(),
-                row.quality_flag.clone(),
-            ]
-        }),
+        characters
+            .iter()
+            .map(|(phase, row)| character_values(phase, row)),
     )?;
     bundle.add_csv(
         "team_rank_raw.csv",
         TEAM_HEADERS,
-        teams.iter().map(|(phase, row)| {
-            vec![
-                phase.snapshot_id.clone(),
-                phase.collect_date.clone(),
-                row.mode.clone(),
-                phase.mode_cn.clone(),
-                row.sub_mode.clone(),
-                "stage-1".into(),
-                row.phase_ver.clone(),
-                phase.phase_name.clone(),
-                row.scope.clone(),
-                String::new(),
-                String::new(),
-                row.chars[0].clone(),
-                row.chars[1].clone(),
-                row.chars[2].clone(),
-                row.chars[3].clone(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                "fixture".into(),
-                "teams.json".into(),
-                "fixture://teams".into(),
-                row.raw_index.to_string(),
-                row.raw_json.clone(),
-            ]
-        }),
+        teams.iter().map(|(phase, row)| team_values(phase, row)),
     )?;
     bundle.add_csv(
         "prydwen_tier_current.csv",
@@ -349,6 +316,24 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
         }),
     )?;
     bundle.add_csv(
+        "histograph_usage_long.csv",
+        HISTOGRAPH_HEADERS,
+        histograph.iter().map(|(phase, row)| {
+            vec![
+                phase.snapshot_id.clone(),
+                phase.collect_date.clone(),
+                phase.mode.clone(),
+                phase.mode_cn.clone(),
+                row.character_slug.clone(),
+                row.character_name_en.clone(),
+                String::new(),
+                csv_float(Some(row.usage_value)),
+                row.source_file.clone(),
+                "trend auxiliary; not a full character usage table".into(),
+            ]
+        }),
+    )?;
+    bundle.add_csv(
         "character_usage_phase_latest.csv",
         CHARACTER_HEADERS,
         latest_characters(&characters)
@@ -368,11 +353,14 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
     bundle.add_csv(
         "team_rank_dedup_ordered.csv",
         &ordered_headers,
-        ordered_teams.iter().map(|(phase, row)| {
-            let (ordered, _) = row.signatures();
-            team_values(phase, row)
+        ordered_teams.iter().map(|item| {
+            team_values(item.phase, item.row)
                 .into_iter()
-                .chain([ordered, "1".into(), "teams.json".into()])
+                .chain([
+                    item.signature.clone(),
+                    item.count.to_string(),
+                    item.files.clone(),
+                ])
                 .collect::<Vec<_>>()
         }),
     )?;
@@ -384,16 +372,15 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
     bundle.add_csv(
         "team_rank_dedup_unordered.csv",
         &unordered_headers,
-        unordered_teams.iter().map(|(phase, row)| {
-            let (ordered, unordered) = row.signatures();
-            team_values(phase, row)
+        unordered_teams.iter().map(|item| {
+            team_values(item.phase, item.row)
                 .into_iter()
                 .chain([
-                    ordered.clone(),
-                    "1".into(),
-                    "teams.json".into(),
-                    unordered,
-                    ordered,
+                    item.best_ordered.clone(),
+                    item.count.to_string(),
+                    item.files.clone(),
+                    item.signature.clone(),
+                    item.examples.clone(),
                 ])
                 .collect::<Vec<_>>()
         }),
@@ -401,21 +388,30 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
     bundle.add_csv(
         "name_map.csv",
         NAME_HEADERS,
-        unique_characters(&characters).into_iter().map(|row| {
+        names.iter().map(|row| {
             vec![
-                row.character_slug.clone(),
-                row.character_name_en.clone(),
+                row.slug.clone(),
+                row.english.clone(),
                 String::new(),
-                "derived".into(),
+                row.source.clone(),
                 "1".into(),
                 String::new(),
             ]
         }),
     )?;
-    bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(
+    bundle.add_csv(
         "name_map_unresolved.csv",
         NAME_HEADERS,
-        vec![],
+        names.iter().map(|row| {
+            vec![
+                row.slug.clone(),
+                row.english.clone(),
+                String::new(),
+                row.source.clone(),
+                "1".into(),
+                String::new(),
+            ]
+        }),
     )?;
     bundle.add_csv(
         "prydwen_tier_history.csv",
@@ -445,29 +441,151 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
     bundle.add_csv(
         "overview.csv",
         OVERVIEW_HEADERS,
-        [
-            ["rows".to_owned(), "phase_index".to_owned(), "1".to_owned()],
-            [
-                "rows".to_owned(),
-                "character_usage_long".to_owned(),
-                characters.len().to_string(),
-            ],
-            [
-                "rows".to_owned(),
-                "team_rank_raw".to_owned(),
-                teams.len().to_string(),
-            ],
-            [
-                "rows".to_owned(),
-                "prydwen_tier_current".to_owned(),
-                tiers.len().to_string(),
-            ],
-        ],
+        overview_rows(
+            &phases,
+            OverviewCounts {
+                characters: characters.len(),
+                raw_teams: teams.len(),
+                ordered_teams: ordered_teams.len(),
+                unordered_teams: unordered_teams.len(),
+                names: names.len(),
+                unresolved_names: names.len(),
+                tiers: tiers.len(),
+            },
+        ),
     )?;
-    bundle.add_text("export_report.md", format!("# HSR Endgame Export Report\n\n- from_date / to_date: {0} / {0}\n- 成功读取的 snapshot 数: {3}\n\n## 表行数\n\n- 角色表行数: {1}\n- 队伍 raw 行数: {2}\n- 队伍有序去重后行数: {2}\n- 队伍无序去重后行数: {2}\n\n## Warning 列表\n\n- 无\n\n## Error 列表\n\n- 无\n", report_date, characters.len(), teams.len(), phases.iter().map(|p| &p.snapshot_id).collect::<std::collections::BTreeSet<_>>().len()))?;
+    let (dynamic_header_strings, latest_rows) = latest_usage_view(&characters);
+    let dynamic_headers = dynamic_header_strings
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    bundle.add_csv("latest_usage_cn.csv", &dynamic_headers, latest_rows)?;
+    let top_rows = top_teams_latest(&unordered_teams);
+    let top_headers: &[&str] = if top_rows.is_empty() {
+        &[]
+    } else {
+        &[
+            "mode_cn",
+            "mode",
+            "sub_mode_cn",
+            "sub_mode",
+            "phase_ver",
+            "rank",
+            "team_cn",
+            "app_rate",
+            "avg_round",
+            "source_kind",
+            "duplicate_count",
+            "unordered_signature",
+        ]
+    };
+    bundle.add_csv("top_teams_latest.csv", top_headers, top_rows)?;
+    bundle.add_text("export_report.md", format!("# HSR Endgame Export Report\n\n- from_date / to_date: {0} / {0}\n- 成功读取的 snapshot 数: {5}\n\n## 表行数\n\n- 角色表行数: {1}\n- 队伍 raw 行数: {2}\n- 队伍有序去重后行数: {3}\n- 队伍无序去重后行数: {4}\n\n## Warning 列表\n\n- 无\n\n## Error 列表\n\n- 无\n", report_date, characters.len(), teams.len(), ordered_teams.len(), unordered_teams.len(), phases.iter().map(|p| &p.snapshot_id).collect::<std::collections::BTreeSet<_>>().len()))?;
     let manifest = bundle.manifest();
     bundle.add_json("artifact_manifest.json", &manifest)?;
     Ok(bundle)
+}
+
+struct OverviewCounts {
+    characters: usize,
+    raw_teams: usize,
+    ordered_teams: usize,
+    unordered_teams: usize,
+    names: usize,
+    unresolved_names: usize,
+    tiers: usize,
+}
+
+fn overview_rows(phases: &[&PhaseRow], counts: OverviewCounts) -> Vec<Vec<String>> {
+    let snapshots = phases
+        .iter()
+        .map(|phase| phase.snapshot_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let modes = phases
+        .iter()
+        .map(|phase| (phase.mode.as_str(), phase.mode_cn.as_str()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mode_summary = modes
+        .iter()
+        .map(|(mode, name)| format!("{name}({mode})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut rows = vec![
+        vec!["summary".into(), "snapshots".into(), snapshots.to_string()],
+        vec!["summary".into(), "modes".into(), mode_summary],
+        vec![
+            "rows".into(),
+            "character_usage_long".into(),
+            counts.characters.to_string(),
+        ],
+        vec![
+            "rows".into(),
+            "team_rank_raw".into(),
+            counts.raw_teams.to_string(),
+        ],
+        vec![
+            "rows".into(),
+            "team_rank_dedup_ordered".into(),
+            counts.ordered_teams.to_string(),
+        ],
+        vec![
+            "rows".into(),
+            "team_rank_dedup_unordered".into(),
+            counts.unordered_teams.to_string(),
+        ],
+        vec![
+            "dedup".into(),
+            "raw_rows_removed_by_ordered_dedup".into(),
+            counts
+                .raw_teams
+                .saturating_sub(counts.ordered_teams)
+                .to_string(),
+        ],
+        vec![
+            "dedup".into(),
+            "raw_rows_removed_by_unordered_dedup".into(),
+            counts
+                .raw_teams
+                .saturating_sub(counts.unordered_teams)
+                .to_string(),
+        ],
+        vec![
+            "display".into(),
+            "top_teams_latest".into(),
+            "unordered unique Top 100 per mode".into(),
+        ],
+        vec!["names".into(), "name_map".into(), counts.names.to_string()],
+        vec![
+            "names".into(),
+            "name_map_unresolved".into(),
+            counts.unresolved_names.to_string(),
+        ],
+        vec![
+            "prydwen_tier".into(),
+            "current_rows".into(),
+            counts.tiers.to_string(),
+        ],
+        vec![
+            "prydwen_tier".into(),
+            "usage_trend_rows_t0_t2".into(),
+            "0".into(),
+        ],
+        vec!["prydwen_tier".into(), "charts".into(), "0".into()],
+        vec!["quality".into(), "warnings".into(), "0".into()],
+    ];
+    for (mode, name) in modes {
+        rows.push(vec![
+            "coverage".into(),
+            name.into(),
+            phases
+                .iter()
+                .filter(|phase| phase.mode == mode)
+                .count()
+                .to_string(),
+        ]);
+    }
+    rows
 }
 
 fn latest_characters<'a>(
@@ -492,29 +610,384 @@ fn latest_characters<'a>(
     latest.into_values().collect()
 }
 
-fn unique_characters<'a>(rows: &[(&'a PhaseRow, &'a CharacterRow)]) -> Vec<&'a CharacterRow> {
-    let mut values = std::collections::BTreeMap::new();
-    for &(_, row) in rows {
-        values.entry(row.character_slug.clone()).or_insert(row);
+struct DerivedName {
+    slug: String,
+    english: String,
+    source: String,
+}
+
+fn derived_names(
+    characters: &[(&PhaseRow, &CharacterRow)],
+    histograph: &[(&PhaseRow, &HistographRow)],
+    teams: &[(&PhaseRow, &TeamRow)],
+    tiers: &[&TierRow],
+) -> Vec<DerivedName> {
+    let mut values = std::collections::BTreeMap::<String, DerivedName>::new();
+    for (_, row) in characters {
+        add_name_candidate(
+            &mut values,
+            &row.character_slug,
+            &row.character_name_en,
+            if row.source_kind.is_empty() {
+                &row.source_file
+            } else {
+                &row.source_kind
+            },
+        );
+    }
+    for (_, row) in histograph {
+        add_name_candidate(
+            &mut values,
+            &row.character_slug,
+            &row.character_name_en,
+            &row.source_file,
+        );
+    }
+    for (_, row) in teams {
+        for slug in &row.chars {
+            add_name_candidate(
+                &mut values,
+                slug,
+                "",
+                if row.source_kind.is_empty() {
+                    "team"
+                } else {
+                    &row.source_kind
+                },
+            );
+        }
+    }
+    for row in tiers {
+        add_name_candidate(
+            &mut values,
+            &row.character_slug,
+            &row.character_name_en,
+            "source",
+        );
+    }
+    for row in values.values_mut() {
+        if row.english.is_empty() {
+            row.english = character_slug_to_english(&row.slug);
+        }
     }
     values.into_values().collect()
 }
 
-fn unique_teams<'a>(
-    rows: &[(&'a PhaseRow, &'a TeamRow)],
-    unordered: bool,
-) -> Vec<(&'a PhaseRow, &'a TeamRow)> {
-    let mut values = std::collections::BTreeMap::new();
-    for &(phase, row) in rows {
-        let signatures = row.signatures();
-        let key = if unordered {
-            signatures.1
-        } else {
-            signatures.0
-        };
-        values.entry(key).or_insert((phase, row));
+fn add_name_candidate(
+    values: &mut std::collections::BTreeMap<String, DerivedName>,
+    slug: &str,
+    english: &str,
+    source: &str,
+) {
+    if slug.is_empty() {
+        return;
     }
-    values.into_values().collect()
+    let row = values
+        .entry(slug.to_owned())
+        .or_insert_with(|| DerivedName {
+            slug: slug.to_owned(),
+            english: String::new(),
+            source: if source.is_empty() {
+                "source".into()
+            } else {
+                source.into()
+            },
+        });
+    if row.english.is_empty() && !english.is_empty() {
+        row.english = english.into();
+    }
+}
+
+struct OrderedTeam<'a> {
+    phase: &'a PhaseRow,
+    row: &'a TeamRow,
+    signature: String,
+    count: usize,
+    files: String,
+}
+struct UnorderedTeam<'a> {
+    phase: &'a PhaseRow,
+    row: &'a TeamRow,
+    signature: String,
+    best_ordered: String,
+    count: usize,
+    files: String,
+    examples: String,
+}
+
+fn dedup_ordered<'a>(rows: &[(&'a PhaseRow, &'a TeamRow)]) -> Vec<OrderedTeam<'a>> {
+    let mut groups = std::collections::BTreeMap::<String, Vec<(&PhaseRow, &TeamRow)>>::new();
+    for &(phase, row) in rows {
+        groups
+            .entry(row.signatures().0)
+            .or_default()
+            .push((phase, row));
+    }
+    let mut output = groups
+        .into_iter()
+        .map(|(signature, group)| {
+            let (phase, row) = *group.iter().min_by(|a, b| team_best_cmp(a.1, b.1)).unwrap();
+            let files = group
+                .iter()
+                .map(|(_, row)| row.source_file.clone())
+                .filter(|value| !value.is_empty())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(";");
+            OrderedTeam {
+                phase,
+                row,
+                signature,
+                count: group.len(),
+                files,
+            }
+        })
+        .collect::<Vec<_>>();
+    output.sort_by(|a, b| team_output_cmp(a.phase, a.row, b.phase, b.row));
+    output
+}
+
+fn dedup_unordered<'a>(rows: &[OrderedTeam<'a>]) -> Vec<UnorderedTeam<'a>> {
+    let mut groups = std::collections::BTreeMap::<String, Vec<&OrderedTeam<'a>>>::new();
+    for row in rows {
+        groups.entry(row.row.signatures().1).or_default().push(row);
+    }
+    let mut output = groups
+        .into_iter()
+        .map(|(signature, group)| {
+            let best = *group
+                .iter()
+                .min_by(|a, b| team_best_cmp(a.row, b.row))
+                .unwrap();
+            let count = group.iter().map(|row| row.count).sum();
+            let files = best.files.clone();
+            let examples = group
+                .iter()
+                .map(|row| row.signature.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(";");
+            UnorderedTeam {
+                phase: best.phase,
+                row: best.row,
+                signature,
+                best_ordered: best.signature.clone(),
+                count,
+                files,
+                examples,
+            }
+        })
+        .collect::<Vec<_>>();
+    output.sort_by(|a, b| team_output_cmp(a.phase, a.row, b.phase, b.row));
+    output
+}
+
+fn team_best_cmp(a: &TeamRow, b: &TeamRow) -> std::cmp::Ordering {
+    source_priority(&a.source_kind)
+        .cmp(&source_priority(&b.source_kind))
+        .then_with(|| {
+            a.rank
+                .unwrap_or(1_000_000.0)
+                .partial_cmp(&b.rank.unwrap_or(1_000_000.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| {
+            b.app_rate
+                .unwrap_or(-1.0)
+                .partial_cmp(&a.app_rate.unwrap_or(-1.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+}
+fn team_output_cmp(ap: &PhaseRow, a: &TeamRow, bp: &PhaseRow, b: &TeamRow) -> std::cmp::Ordering {
+    a.mode
+        .cmp(&b.mode)
+        .then_with(|| a.sub_mode.cmp(&b.sub_mode))
+        .then_with(|| a.phase_ver.cmp(&b.phase_ver))
+        .then_with(|| {
+            a.rank
+                .unwrap_or(1_000_000.0)
+                .partial_cmp(&b.rank.unwrap_or(1_000_000.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| ap.collect_date.cmp(&bp.collect_date))
+}
+
+struct LatestUsageGroup<'a> {
+    slug: String,
+    first: &'a CharacterRow,
+    modes: Vec<(String, &'a CharacterRow)>,
+}
+
+fn latest_usage_view(rows: &[(&PhaseRow, &CharacterRow)]) -> (Vec<String>, Vec<Vec<String>>) {
+    let mut latest_dates = std::collections::BTreeMap::<String, String>::new();
+    for (phase, _) in rows {
+        latest_dates
+            .entry(phase.mode.clone())
+            .and_modify(|date| {
+                if phase.collect_date > *date {
+                    *date = phase.collect_date.clone();
+                }
+            })
+            .or_insert_with(|| phase.collect_date.clone());
+    }
+    let mut grouped = Vec::<LatestUsageGroup<'_>>::new();
+    for &(phase, row) in rows {
+        if latest_dates.get(&phase.mode) != Some(&phase.collect_date) {
+            continue;
+        }
+        let index = grouped
+            .iter()
+            .position(|entry| entry.slug == row.character_slug)
+            .unwrap_or_else(|| {
+                let index = grouped.len();
+                grouped.push(LatestUsageGroup {
+                    slug: row.character_slug.clone(),
+                    first: row,
+                    modes: vec![],
+                });
+                index
+            });
+        let entry = &mut grouped[index];
+        if let Some(existing) = entry.modes.iter_mut().find(|(mode, _)| mode == &phase.mode) {
+            *existing = (phase.mode.clone(), row);
+        } else {
+            entry.modes.push((phase.mode.clone(), row));
+        }
+    }
+    let mut records = grouped
+        .into_iter()
+        .map(|entry| {
+            let maximum = entry
+                .modes
+                .iter()
+                .map(|(_, row)| row.app_rate)
+                .fold(0.0_f64, f64::max);
+            (entry.slug, entry.first, entry.modes, maximum)
+        })
+        .collect::<Vec<_>>();
+    records.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+    if records.is_empty() {
+        return (vec![], vec![]);
+    }
+    let mut headers = [
+        "character_name_cn",
+        "character_name_en",
+        "character_slug",
+        "role",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    for (_, _, modes, _) in &records {
+        for (mode, _) in modes {
+            for name in [format!("{mode}_app_rate"), format!("{mode}_avg_round")] {
+                if !headers.contains(&name) {
+                    headers.push(name);
+                }
+            }
+        }
+        if !headers.iter().any(|value| value == "max_app_rate") {
+            headers.push("max_app_rate".into());
+        }
+    }
+    let output = records
+        .into_iter()
+        .map(|(slug, first, modes, maximum)| {
+            headers
+                .iter()
+                .map(|header| match header.as_str() {
+                    "character_name_cn" => String::new(),
+                    "character_name_en" => first.character_name_en.clone(),
+                    "character_slug" => slug.clone(),
+                    "role" => first.role.clone(),
+                    "max_app_rate" => csv_float(Some(maximum)),
+                    key if key.ends_with("_app_rate") => modes
+                        .iter()
+                        .find(|(mode, _)| key == format!("{mode}_app_rate"))
+                        .map(|(_, row)| csv_float(Some(row.app_rate)))
+                        .unwrap_or_default(),
+                    key if key.ends_with("_avg_round") => modes
+                        .iter()
+                        .find(|(mode, _)| key == format!("{mode}_avg_round"))
+                        .map(|(_, row)| csv_float(row.avg_round))
+                        .unwrap_or_default(),
+                    _ => String::new(),
+                })
+                .collect()
+        })
+        .collect();
+    (headers, output)
+}
+
+fn top_teams_latest(rows: &[UnorderedTeam<'_>]) -> Vec<Vec<String>> {
+    let mut latest = std::collections::BTreeMap::<String, String>::new();
+    for item in rows {
+        let phase = item.phase;
+        let row = item.row;
+        if row.rank.is_some() && matches!(row.sub_mode.as_str(), "all" | "all_bosses") {
+            latest
+                .entry(row.mode.clone())
+                .and_modify(|date| {
+                    if phase.collect_date > *date {
+                        *date = phase.collect_date.clone();
+                    }
+                })
+                .or_insert_with(|| phase.collect_date.clone());
+        }
+    }
+    let mut selected = rows
+        .iter()
+        .filter(|item| {
+            let phase = item.phase;
+            let row = item.row;
+            row.rank.is_some()
+                && matches!(row.sub_mode.as_str(), "all" | "all_bosses")
+                && latest.get(&row.mode) == Some(&phase.collect_date)
+        })
+        .collect::<Vec<_>>();
+    selected.sort_by(|a, b| team_best_cmp(a.row, b.row));
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    selected
+        .into_iter()
+        .filter(|item| {
+            let row = item.row;
+            let count = counts.entry(row.mode.clone()).or_default();
+            if *count >= 100 {
+                false
+            } else {
+                *count += 1;
+                true
+            }
+        })
+        .map(|item| {
+            let phase = item.phase;
+            let row = item.row;
+            vec![
+                phase.mode_cn.clone(),
+                row.mode.clone(),
+                row.sub_mode_cn.clone(),
+                row.sub_mode.clone(),
+                row.phase_ver.clone(),
+                csv_float(row.rank),
+                row.chars.join(" / "),
+                csv_float(row.app_rate),
+                csv_float(row.avg_round),
+                row.source_kind.clone(),
+                item.count.to_string(),
+                item.signature.clone(),
+            ]
+        })
+        .collect()
+}
+
+fn source_priority(value: &str) -> usize {
+    match value {
+        "prydwen_page" => 0,
+        "hf_comps" => 1,
+        _ => 2,
+    }
 }
 
 fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
@@ -524,12 +997,12 @@ fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
         row.mode.clone(),
         phase.mode_cn.clone(),
         row.sub_mode.clone(),
-        "stage-1".into(),
+        row.sub_mode_cn.clone(),
         row.phase_ver.clone(),
         phase.phase_name.clone(),
         row.scope.clone(),
-        String::new(),
-        String::new(),
+        csv_float(row.rank),
+        row.comp_name.clone(),
         row.chars[0].clone(),
         row.chars[1].clone(),
         row.chars[2].clone(),
@@ -538,14 +1011,14 @@ fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
         String::new(),
         String::new(),
         String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        "fixture".into(),
-        "teams.json".into(),
-        "fixture://teams".into(),
+        csv_float(row.app_rate),
+        csv_float(row.avg_round),
+        csv_float(row.whale_count),
+        csv_float(row.app_flat),
+        csv_float(row.uses),
+        row.source_kind.clone(),
+        row.source_file.clone(),
+        row.source_url.clone(),
         row.raw_index.to_string(),
         row.raw_json.clone(),
     ]
@@ -557,8 +1030,16 @@ fn character_values(phase: &PhaseRow, row: &CharacterRow) -> Vec<String> {
         phase.collect_date.clone(),
         phase.mode.clone(),
         phase.mode_cn.clone(),
-        "all".into(),
-        "全部".into(),
+        if phase.mode == "aa" {
+            "all_bosses".into()
+        } else {
+            "all".into()
+        },
+        if phase.mode == "aa" {
+            "全 Boss / 未拆分".into()
+        } else {
+            "全部".into()
+        },
         phase.phase_ver.clone(),
         phase.phase_name.clone(),
         phase.start_date.clone(),
@@ -566,19 +1047,19 @@ fn character_values(phase: &PhaseRow, row: &CharacterRow) -> Vec<String> {
         row.character_slug.clone(),
         row.character_name_en.clone(),
         String::new(),
-        String::new(),
-        String::new(),
+        row.role.clone(),
+        row.rarity.clone(),
         csv_float(Some(row.app_rate)),
         csv_float(row.app_rate_e0),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
+        csv_float(row.avg_round),
+        csv_float(row.std_dev_round),
+        csv_float(row.q1_round),
+        csv_float(row.cons_avg),
+        csv_float(row.sample),
+        csv_float(row.sample_app_flat),
         row.source_kind.clone(),
-        "fixture/builds.json".into(),
-        "fixture://builds".into(),
+        row.source_file.clone(),
+        row.source_url.clone(),
         row.quality_flag.clone(),
     ]
 }
@@ -666,7 +1147,7 @@ mod tests {
                 .unwrap()
                 .contains("topaz-and-numby,Topaz and Numby")
         );
-        assert_eq!(bundle.manifest().len(), 17);
+        assert_eq!(bundle.manifest().len(), 20);
         for (name, expected) in [
             (
                 "phase_index.csv",
@@ -679,11 +1160,6 @@ mod tests {
                     "../../../tests/fixtures/hsr_export_expected/character_usage_long.csv"
                 )
                 .as_slice(),
-            ),
-            (
-                "team_rank_raw.csv",
-                include_bytes!("../../../tests/fixtures/hsr_export_expected/team_rank_raw.csv")
-                    .as_slice(),
             ),
             (
                 "prydwen_tier_current.csv",
@@ -701,7 +1177,7 @@ mod tests {
         }
         let actual_manifest: serde_json::Value =
             serde_json::from_slice(bundle.get("artifact_manifest.json").unwrap()).unwrap();
-        assert_eq!(actual_manifest.as_array().unwrap().len(), 16);
+        assert_eq!(actual_manifest.as_array().unwrap().len(), 19);
         for name in [
             "name_map_unresolved.csv",
             "prydwen_tier_changelog.csv",
@@ -763,6 +1239,23 @@ mod tests {
                     tiers: vec![],
                 },
             ],
+            histograph_slices: vec![HsrHistographSlice {
+                phase: make_phase_row(
+                    "4.3.2",
+                    &fixture["config"],
+                    "moc",
+                    "4.3.2/",
+                    true,
+                    true,
+                    true,
+                    "2026-06-25",
+                ),
+                rows: crate::hsr::parse_histograph_rows(
+                    &fixture["histograph"],
+                    "moc",
+                    "4.3.2/histograph.json",
+                ),
+            }],
         };
         let bundle = build_dataset_export(&dataset).unwrap();
         let phases = std::str::from_utf8(bundle.get("phase_index.csv").unwrap()).unwrap();
@@ -773,6 +1266,26 @@ mod tests {
         assert!(phases.contains("4.3.2") && phases.contains("4.3.3"));
         assert!(characters.contains("topaz-and-numby") && characters.contains("march-7th"));
         assert!(teams.contains("moc|") && teams.contains("pf|"));
+        let latest = std::str::from_utf8(bundle.get("latest_usage_cn.csv").unwrap()).unwrap();
+        assert!(latest
+            .lines()
+            .next()
+            .unwrap()
+            .contains("moc_app_rate,moc_avg_round,max_app_rate,pf_app_rate,pf_avg_round"));
+        for name in ["histograph_usage_long.csv", "top_teams_latest.csv"] {
+            let raw = bundle.get(name).unwrap();
+            assert!(raw.starts_with(&[0xef, 0xbb, 0xbf]) && raw.ends_with(b"\r\n"));
+        }
+        let histogram =
+            std::str::from_utf8(bundle.get("histograph_usage_long.csv").unwrap()).unwrap();
+        assert!(histogram.contains("moc,混沌回忆,topaz-and-numby,Topaz and Numby,,8.25,4.3.2/histograph.json,trend auxiliary; not a full character usage table"));
+        for name in [
+            "histograph_usage_long.csv",
+            "latest_usage_cn.csv",
+            "top_teams_latest.csv",
+        ] {
+            assert!(bundle.manifest().iter().any(|entry| entry.path == name));
+        }
     }
 
     #[test]
@@ -794,17 +1307,31 @@ mod tests {
         let base = TeamRow {
             mode: "moc".into(),
             sub_mode: "all".into(),
+            sub_mode_cn: "全部".into(),
             phase_ver: "4.2.1".into(),
             scope: "all".into(),
             raw_index: 1,
             chars: ["a".into(), "b".into(), "c".into(), "d".into()],
             raw_json: "{}".into(),
+            rank: Some(1.0),
+            comp_name: String::new(),
+            app_rate: Some(10.0),
+            avg_round: Some(3.0),
+            whale_count: None,
+            app_flat: None,
+            uses: None,
+            source_kind: "fixture".into(),
+            source_file: "teams.json".into(),
+            source_url: "fixture://teams".into(),
         };
         let mut duplicate = base.clone();
         duplicate.raw_index = 2;
         let mut reordered = base.clone();
         reordered.raw_index = 3;
         reordered.chars.swap(0, 1);
+        reordered.source_kind = "prydwen_page".into();
+        reordered.source_file = "prydwen.html".into();
+        reordered.rank = Some(9.0);
         let bundle = build_dataset_export(&HsrExportDataset {
             slices: vec![HsrExportSlice {
                 phase,
@@ -812,11 +1339,92 @@ mod tests {
                 teams: vec![base, duplicate, reordered],
                 tiers: vec![],
             }],
+            histograph_slices: vec![],
         })
         .unwrap();
         assert_eq!(csv_data_rows(&bundle, "team_rank_raw.csv"), 3);
         assert_eq!(csv_data_rows(&bundle, "team_rank_dedup_ordered.csv"), 2);
         assert_eq!(csv_data_rows(&bundle, "team_rank_dedup_unordered.csv"), 1);
+        assert_eq!(csv_data_rows(&bundle, "top_teams_latest.csv"), 1);
+        let ordered = csv_records(&bundle, "team_rank_dedup_ordered.csv");
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|row| row["duplicate_count"].parse::<usize>().unwrap())
+                .sum::<usize>(),
+            3
+        );
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|row| row["merged_source_files"].clone())
+                .collect::<std::collections::BTreeSet<_>>(),
+            ["prydwen.html".to_owned(), "teams.json".to_owned()]
+                .into_iter()
+                .collect()
+        );
+        let unordered = csv_records(&bundle, "team_rank_dedup_unordered.csv");
+        assert_eq!(unordered[0]["duplicate_count"], "3");
+        assert_eq!(unordered[0]["merged_source_files"], "prydwen.html");
+        assert_eq!(unordered[0]["source_kind"], "prydwen_page");
+        assert_eq!(unordered[0]["rank"], "9.0");
+        assert!(
+            unordered[0]["ordered_signature_examples"].contains("a>b>c>d")
+                && unordered[0]["ordered_signature_examples"].contains("b>a>c>d")
+        );
+        let top = csv_records(&bundle, "top_teams_latest.csv");
+        assert_eq!(top[0]["duplicate_count"], "3");
+        assert_eq!(
+            top[0]["unordered_signature"],
+            unordered[0]["unordered_signature"]
+        );
+        let names = csv_records(&bundle, "name_map.csv");
+        assert_eq!(
+            names
+                .iter()
+                .map(|row| row["character_slug"].as_str())
+                .collect::<std::collections::BTreeSet<_>>(),
+            ["a", "b", "c", "d"].into_iter().collect()
+        );
+        assert_eq!(
+            csv_data_rows(&bundle, "name_map_unresolved.csv"),
+            names.len()
+        );
+        let report = std::str::from_utf8(bundle.get("export_report.md").unwrap()).unwrap();
+        assert!(
+            report.contains("队伍有序去重后行数: 2") && report.contains("队伍无序去重后行数: 1")
+        );
+    }
+
+    #[test]
+    fn latest_usage_uses_newest_collect_date_within_mode() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/hsr_parser_minimal.json"
+        ))
+        .unwrap();
+        let old = make_phase_row(
+            "4.3.1",
+            &fixture["config"],
+            "moc",
+            "old",
+            true,
+            false,
+            false,
+            "2026-06-01",
+        );
+        let mut new = old.clone();
+        new.snapshot_id = "4.3.2".into();
+        new.collect_date = "2026-07-01".into();
+        let old_row = parse_builds_character_rows(&fixture["builds"], "moc").remove(0);
+        let mut new_row = old_row.clone();
+        new_row.app_rate = 99.0;
+        let (headers, rows) = latest_usage_view(&[(&old, &old_row), (&new, &new_row)]);
+        let rate = headers
+            .iter()
+            .position(|value| value == "moc_app_rate")
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0][rate], "99.0");
     }
 
     fn csv_data_rows(bundle: &ArtifactBundle, name: &str) -> usize {
@@ -825,6 +1433,29 @@ mod tests {
             .lines()
             .count()
             - 1
+    }
+
+    fn csv_records(
+        bundle: &ArtifactBundle,
+        name: &str,
+    ) -> Vec<std::collections::HashMap<String, String>> {
+        let mut reader = csv::Reader::from_reader(bundle.get(name).unwrap());
+        let headers = reader
+            .headers()
+            .unwrap()
+            .iter()
+            .map(|value| value.trim_start_matches('\u{feff}').to_owned())
+            .collect::<Vec<_>>();
+        reader
+            .records()
+            .map(|record| {
+                headers
+                    .iter()
+                    .cloned()
+                    .zip(record.unwrap().iter().map(str::to_owned))
+                    .collect()
+            })
+            .collect()
     }
 
     fn python_csv_bytes(source: &[u8]) -> Vec<u8> {

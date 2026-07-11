@@ -7,6 +7,10 @@
     "char": "Miyabi", "app_rate_sd": 42.0, "avg_round_sd": 33000,
     "app_rate_sd_boss_1": "26.39%", "avg_round_sd_boss_1": 34468
   },
+  "bangboo": [
+    {"char": "Safety", "rarity": "S", "app_rate": "7.5%", "avg_round": 123},
+    {"char": "", "app_rate": 1}
+  ],
   "teams": [
     {"char_one":"miyabi","char_two":"nangong-yu","char_three":"ukinami-yuzuha","rank":0,"app_rate":26.39,"avg_round":34468},
     {"char_one":"miyabi","char_two":"nangong-yu","char_three":"ukinami-yuzuha","bangboo":"biggest-fan","rank":2,"app_rate":"12.5%"}

@@ -140,6 +140,33 @@ fn last_order() -> String {
     "9999".into()
 }
 
+pub fn fallback_name_rows(usage: &[UsageRow], teams: &[TeamRow]) -> Vec<NameRow> {
+    let mut slugs = std::collections::BTreeSet::new();
+    slugs.extend(usage.iter().map(|row| row.character_slug.clone()));
+    for row in teams {
+        slugs.extend([
+            row.char_1_slug.clone(),
+            row.char_2_slug.clone(),
+            row.char_3_slug.clone(),
+            row.bangboo_slug.clone(),
+        ]);
+    }
+    slugs
+        .into_iter()
+        .filter(|slug| !slug.is_empty())
+        .map(|slug| NameRow {
+            character_slug: slug,
+            character_name_en: String::new(),
+            character_name_cn: String::new(),
+            source: "Prydwen/HF slug".into(),
+            needs_manual_check: "1".into(),
+            aliases: String::new(),
+            kind: "unknown".into(),
+            release_order: "9999".into(),
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 pub struct ZzzExportSlice {
     pub phase: PhaseRow,
@@ -158,9 +185,7 @@ pub struct ZzzExportDataset {
 /// files produced for earlier snapshots.
 pub fn build_dataset_export(dataset: &ZzzExportDataset) -> Result<ArtifactBundle> {
     let Some(first) = dataset.slices.first() else {
-        return Err(crate::MihoError::Unsupported(
-            "empty ZZZ export dataset".into(),
-        ));
+        return build_empty_dataset_export();
     };
     let mut bundle = build_minimal_bundle(&first.phase, &first.usage, &first.teams, &first.names)?;
     bundle.add_csv(
@@ -197,11 +222,19 @@ pub fn build_dataset_export(dataset: &ZzzExportDataset) -> Result<ArtifactBundle
             latest.insert(key, (*phase, *row));
         }
     }
+    let mut latest = latest.into_values().collect::<Vec<_>>();
+    latest.sort_by(|(a_phase, a_row), (b_phase, b_row)| {
+        a_phase
+            .mode
+            .cmp(&b_phase.mode)
+            .then_with(|| a_row.sub_mode.cmp(&b_row.sub_mode))
+            .then_with(|| a_row.character_slug.cmp(&b_row.character_slug))
+    });
     bundle.add_csv(
         "character_usage_phase_latest.csv",
         USAGE,
         latest
-            .into_values()
+            .into_iter()
             .map(|(phase, row)| usage_values(phase, row)),
     )?;
 
@@ -215,25 +248,12 @@ pub fn build_dataset_export(dataset: &ZzzExportDataset) -> Result<ArtifactBundle
         TEAM,
         teams.iter().map(|(phase, row)| team_values(phase, row)),
     )?;
-    let mut dedup = std::collections::BTreeMap::new();
-    for (phase, row) in &teams {
-        let mut chars = [&row.char_1_slug, &row.char_2_slug, &row.char_3_slug];
-        chars.sort();
-        let key = format!(
-            "{}|{}|{}|{}|{}",
-            phase.mode,
-            row.sub_mode,
-            phase.phase_ver,
-            chars.into_iter().cloned().collect::<Vec<_>>().join(">"),
-            row.bangboo_slug
-        );
-        dedup.entry(key).or_insert((*phase, *row));
-    }
+    let dedup = dedup_teams(&teams);
     bundle.add_csv(
         "team_rank_dedup_unordered.csv",
         TEAM,
         dedup
-            .into_values()
+            .into_iter()
             .map(|(phase, row)| team_values(phase, row)),
     )?;
 
@@ -264,6 +284,93 @@ pub fn build_dataset_export(dataset: &ZzzExportDataset) -> Result<ArtifactBundle
     Ok(bundle)
 }
 
+fn build_empty_dataset_export() -> Result<ArtifactBundle> {
+    let mut bundle = ArtifactBundle::default();
+    for (name, headers) in [
+        ("phase_index.csv", PHASE),
+        ("character_usage_long.csv", USAGE),
+        ("character_usage_phase_latest.csv", USAGE),
+        ("team_rank_raw.csv", TEAM),
+        ("team_rank_dedup_unordered.csv", TEAM),
+        ("name_map.csv", NAMES),
+        ("name_map_unresolved.csv", NAMES),
+        ("prydwen_tier_current.csv", PRYDWEN),
+        ("prydwen_tier_history.csv", PRYDWEN),
+        ("prydwen_tier_changelog.csv", CHANGELOG),
+        ("prydwen_tier_changelog_history.csv", CHANGELOG),
+    ] {
+        bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(name, headers, vec![])?;
+    }
+    let trend = PRYDWEN
+        .iter()
+        .copied()
+        .chain([
+            "collect_date",
+            "phase_ver",
+            "phase_name",
+            "app_rate",
+            "avg_score",
+            "quality_flag",
+        ])
+        .collect::<Vec<_>>();
+    bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(
+        "prydwen_tier_usage_trend.csv",
+        &trend,
+        vec![],
+    )?;
+    bundle.add_text("export_report.md", "# 绝区零高难数据导出报告\n\n- 导出时间：fixture\n- 期数行数：0\n- 角色出场率行数：0\n- 队伍 raw 行数：0\n- 待人工确认名称：0\n- Prydwen 当前 T 榜行数：0\n- Prydwen changelog 行数：0\n\n## Warning 列表\n\n- 无\n\n## Error 列表\n\n- 无\n")?;
+    let manifest = bundle.manifest();
+    bundle.add_json("artifact_manifest.json", &manifest)?;
+    Ok(bundle)
+}
+
+fn dedup_teams<'a>(teams: &[(&'a PhaseRow, &'a TeamRow)]) -> Vec<(&'a PhaseRow, &'a TeamRow)> {
+    let mut groups = std::collections::BTreeMap::<String, Vec<(&PhaseRow, &TeamRow)>>::new();
+    for &(phase, row) in teams {
+        let mut chars = [&row.char_1_slug, &row.char_2_slug, &row.char_3_slug];
+        chars.sort();
+        let signature = format!(
+            "{}|{}|{}|{}|bangboo:{}",
+            phase.mode,
+            row.sub_mode,
+            phase.phase_ver,
+            chars.into_iter().cloned().collect::<Vec<_>>().join(">"),
+            row.bangboo_slug
+        );
+        groups.entry(signature).or_default().push((phase, row));
+    }
+    let mut output = groups
+        .into_values()
+        .map(|group| *group.iter().min_by(|a, b| zzz_team_cmp(a.1, b.1)).unwrap())
+        .collect::<Vec<_>>();
+    output.sort_by(|a, b| {
+        a.0.mode
+            .cmp(&b.0.mode)
+            .then_with(|| a.1.sub_mode.cmp(&b.1.sub_mode))
+            .then_with(|| zzz_team_cmp(a.1, b.1))
+    });
+    output
+}
+
+fn zzz_team_cmp(a: &TeamRow, b: &TeamRow) -> std::cmp::Ordering {
+    a.rank
+        .trunc()
+        .partial_cmp(&b.rank.trunc())
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| {
+            b.app_rate
+                .unwrap_or(0.0)
+                .partial_cmp(&a.app_rate.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| {
+            b.avg_score
+                .unwrap_or(0.0)
+                .partial_cmp(&a.avg_score.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+}
+
 fn phase_values(phase: &PhaseRow) -> Vec<String> {
     vec![
         phase.snapshot_id.clone(),
@@ -276,9 +383,9 @@ fn phase_values(phase: &PhaseRow) -> Vec<String> {
         phase.end_date.clone(),
         phase.source.clone(),
         phase.source_path.clone(),
-        "1".into(),
-        "1".into(),
-        String::new(),
+        phase.has_chars.to_string(),
+        phase.has_comps.to_string(),
+        phase.note.clone(),
     ]
 }
 
@@ -303,9 +410,9 @@ pub fn build_minimal_bundle(
             phase.end_date.clone(),
             phase.source.clone(),
             phase.source_path.clone(),
-            "1".into(),
-            "1".into(),
-            String::new(),
+            phase.has_chars.to_string(),
+            phase.has_comps.to_string(),
+            phase.note.clone(),
         ]],
     )?;
     bundle.add_csv(
@@ -324,29 +431,35 @@ pub fn build_minimal_bundle(
                 phase.start_date.clone(),
                 phase.end_date.clone(),
                 row.character_slug.clone(),
-                slug_name(&row.character_slug),
+                row.character_name_en.clone(),
                 String::new(),
-                String::new(),
-                String::new(),
+                row.role.clone(),
+                row.rarity.clone(),
                 csv_float(row.app_rate),
                 csv_number(row.avg_score),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                "hf_builds".into(),
-                "fixture.json".into(),
-                "fixture://local".into(),
-                "ok".into(),
+                csv_number(row.sample),
+                csv_number(row.sample_players),
+                csv_number(row.cons_avg),
+                csv_number(row.char_level),
+                csv_number(row.w_engine_level),
+                csv_number(row.core_skill),
+                row.source_kind.clone(),
+                row.source_file.clone(),
+                row.source_url.clone(),
+                row.quality_flag.clone(),
             ]
         }),
     )?;
+    let mut latest_usage = usage.iter().collect::<Vec<_>>();
+    latest_usage.sort_by(|a, b| {
+        a.sub_mode
+            .cmp(&b.sub_mode)
+            .then_with(|| a.character_slug.cmp(&b.character_slug))
+    });
     bundle.add_csv(
         "character_usage_phase_latest.csv",
         USAGE,
-        usage.iter().map(|row| usage_values(phase, row)),
+        latest_usage.into_iter().map(|row| usage_values(phase, row)),
     )?;
     bundle.add_csv(
         "team_rank_raw.csv",
@@ -373,36 +486,23 @@ pub fn build_minimal_bundle(
                 String::new(),
                 csv_float(row.app_rate),
                 csv_number(row.avg_score),
-                String::new(),
-                "hf_comps".into(),
-                "fixture.json".into(),
-                "fixture://local".into(),
+                csv_number(row.avg_score_m1),
+                row.source_kind.clone(),
+                row.source_file.clone(),
+                row.source_url.clone(),
                 row.raw_index.to_string(),
                 row.raw_json.clone(),
             ]
         }),
     )?;
-    // The fixed slice has already been normalized to one row per raw record. The
-    // production parser orders rank before app-rate, so stable signature dedup is
-    // deterministic here as well.
-    let mut dedup = std::collections::BTreeMap::new();
-    for row in teams {
-        let mut chars = [&row.char_1_slug, &row.char_2_slug, &row.char_3_slug];
-        chars.sort();
-        let key = format!(
-            "{}|{}|{}|{}|{}",
-            phase.mode,
-            row.sub_mode,
-            phase.phase_ver,
-            chars.into_iter().cloned().collect::<Vec<_>>().join(">"),
-            row.bangboo_slug
-        );
-        dedup.entry(key).or_insert(row);
-    }
+    let team_refs = teams.iter().map(|row| (phase, row)).collect::<Vec<_>>();
+    let dedup = dedup_teams(&team_refs);
     bundle.add_csv(
         "team_rank_dedup_unordered.csv",
         TEAM,
-        dedup.into_values().map(|row| team_values(phase, row)),
+        dedup
+            .into_iter()
+            .map(|(phase, row)| team_values(phase, row)),
     )?;
     bundle.add_csv(
         "name_map.csv",
@@ -473,22 +573,22 @@ fn usage_values(phase: &PhaseRow, row: &UsageRow) -> Vec<String> {
         phase.start_date.clone(),
         phase.end_date.clone(),
         row.character_slug.clone(),
-        slug_name(&row.character_slug),
+        row.character_name_en.clone(),
         String::new(),
-        String::new(),
-        String::new(),
+        row.role.clone(),
+        row.rarity.clone(),
         csv_float(row.app_rate),
         csv_number(row.avg_score),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        "hf_builds".into(),
-        "fixture.json".into(),
-        "fixture://local".into(),
-        "ok".into(),
+        csv_number(row.sample),
+        csv_number(row.sample_players),
+        csv_number(row.cons_avg),
+        csv_number(row.char_level),
+        csv_number(row.w_engine_level),
+        csv_number(row.core_skill),
+        row.source_kind.clone(),
+        row.source_file.clone(),
+        row.source_url.clone(),
+        row.quality_flag.clone(),
     ]
 }
 fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
@@ -513,14 +613,15 @@ fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
         String::new(),
         csv_float(row.app_rate),
         csv_number(row.avg_score),
-        String::new(),
-        "hf_comps".into(),
-        "fixture.json".into(),
-        "fixture://local".into(),
+        csv_number(row.avg_score_m1),
+        row.source_kind.clone(),
+        row.source_file.clone(),
+        row.source_url.clone(),
         row.raw_index.to_string(),
         row.raw_json.clone(),
     ]
 }
+
 fn name_values(row: &NameRow) -> Vec<String> {
     vec![
         row.character_slug.clone(),
@@ -534,23 +635,12 @@ fn name_values(row: &NameRow) -> Vec<String> {
     ]
 }
 
-fn slug_name(slug: &str) -> String {
-    slug.split('-')
-        .map(|v| {
-            let mut chars = v.chars();
-            chars
-                .next()
-                .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
-                .unwrap_or_default()
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::zzz::{make_phase_row, parse_team_rows, parse_usage, PhaseInput};
+    use crate::zzz::{
+        make_phase_row, parse_bangboo_rows, parse_team_rows, parse_usage, PhaseInput,
+    };
 
     #[test]
     fn minimal_bundle_contains_stable_export_set() {
@@ -620,6 +710,105 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(actual_manifest, expected_manifest);
+    }
+
+    #[test]
+    fn empty_dataset_writes_complete_header_only_export_set() {
+        let bundle = build_dataset_export(&ZzzExportDataset::default()).unwrap();
+        assert_eq!(bundle.manifest().len(), 14);
+        for (name, header) in [
+            ("phase_index.csv", "snapshot_id,collect_date"),
+            ("character_usage_long.csv", "snapshot_id,collect_date"),
+            (
+                "character_usage_phase_latest.csv",
+                "snapshot_id,collect_date",
+            ),
+            ("team_rank_raw.csv", "snapshot_id,collect_date"),
+            ("team_rank_dedup_unordered.csv", "snapshot_id,collect_date"),
+            ("name_map.csv", "character_slug,character_name_en"),
+            (
+                "name_map_unresolved.csv",
+                "character_slug,character_name_en",
+            ),
+            ("prydwen_tier_current.csv", "tier_snapshot_id,fetched_at"),
+            ("prydwen_tier_history.csv", "tier_snapshot_id,fetched_at"),
+            ("prydwen_tier_changelog.csv", "changelog_date,source_url"),
+            (
+                "prydwen_tier_changelog_history.csv",
+                "changelog_date,source_url",
+            ),
+            (
+                "prydwen_tier_usage_trend.csv",
+                "tier_snapshot_id,fetched_at",
+            ),
+        ] {
+            let bytes = bundle.get(name).unwrap();
+            assert!(bytes.starts_with(&[0xef, 0xbb, 0xbf]));
+            assert!(bytes.ends_with(b"\r\n"));
+            let text = std::str::from_utf8(&bytes[3..]).unwrap();
+            assert!(text.starts_with(header), "wrong header: {name}");
+            assert_eq!(text.lines().count(), 1, "unexpected data row: {name}");
+        }
+        let manifest: serde_json::Value =
+            serde_json::from_slice(bundle.get("artifact_manifest.json").unwrap()).unwrap();
+        assert_eq!(manifest.as_array().unwrap().len(), 13);
+        assert!(std::str::from_utf8(bundle.get("export_report.md").unwrap())
+            .unwrap()
+            .contains("期数行数：0"));
+    }
+
+    #[test]
+    fn bangboo_usage_preserves_typed_fields_in_export() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/zzz_parser_minimal.json"
+        ))
+        .unwrap();
+        let mut phase =
+            make_phase_row(serde_json::from_value::<PhaseInput>(fixture["phase"].clone()).unwrap());
+        phase.has_chars = 1;
+        phase.has_comps = 0;
+        phase.note = "config missing; dates unavailable".into();
+        let usage = parse_bangboo_rows(
+            fixture["bangboo"].as_array().unwrap(),
+            "3.0.1/sd/chars/bangboo_all.json",
+            "fixture://bangboo",
+        );
+        let bundle = build_minimal_bundle(&phase, &usage, &[], &[]).unwrap();
+        let phase_csv = std::str::from_utf8(bundle.get("phase_index.csv").unwrap()).unwrap();
+        assert!(phase_csv.contains(",1,0,config missing; dates unavailable"));
+        let usage_csv =
+            std::str::from_utf8(bundle.get("character_usage_long.csv").unwrap()).unwrap();
+        assert!(usage_csv.contains(",bangboo,邦布,"));
+        assert!(usage_csv.contains(",safety,Safety,,bangboo,S,7.5,123,"));
+        assert!(
+            usage_csv.contains(",hf_bangboo,3.0.1/sd/chars/bangboo_all.json,fixture://bangboo,ok")
+        );
+    }
+
+    #[test]
+    fn unordered_team_dedup_selects_python_sort_key_best_row() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/zzz_parser_minimal.json"
+        ))
+        .unwrap();
+        let phase =
+            make_phase_row(serde_json::from_value::<PhaseInput>(fixture["phase"].clone()).unwrap());
+        let mut rows = parse_team_rows(
+            fixture["teams"].as_array().unwrap().clone(),
+            "sd",
+            fixture["scope"].as_str().unwrap(),
+        );
+        let mut better = rows.remove(0);
+        better.rank = 2.0;
+        better.app_rate = Some(90.0);
+        better.raw_index = 7;
+        let mut worse = better.clone();
+        worse.rank = 3.0;
+        worse.app_rate = Some(99.0);
+        worse.raw_index = 8;
+        let dedup = dedup_teams(&[(&phase, &worse), (&phase, &better)]);
+        assert_eq!(dedup.len(), 1);
+        assert_eq!(dedup[0].1.raw_index, 7);
     }
 
     #[test]
