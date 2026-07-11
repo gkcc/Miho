@@ -1,0 +1,16 @@
+{
+  "config": {"moc": {"ver": "4.2.1", "name": "Example Phase", "start_iso": "2026-06-01", "end_iso": "2026-06-15"}},
+  "builds": [
+    {"char": "Topaz & Numby", "name": "", "app_rate_moc": "12.5%", "app_rate_moc_e0s1": 0},
+    {"char": "No Usage", "app_rate_moc": "-"}
+  ],
+  "chars": [
+    {"character": "March 7th", "app_rate": 7, "app_rate_e0": 0, "app_rate_e1": 3},
+    {"character": "Skipped", "app_rate": "-"}
+  ],
+  "teams": [
+    {"char_one": "a", "char_two": "b", "char_three": "", "char_four": "d"},
+    {"char_one": "d", "char_two": "b", "char_three": "a", "char_four": "c"},
+    {"char_one": "x", "char_two": "y", "char_three": "z", "char_four": "w"}
+  ]
+}

@@ -1,0 +1,27 @@
+import json
+from pathlib import Path
+
+from hsr_endgame_exporter.parsers import (
+    attach_team_signatures,
+    make_phase_row,
+    parse_builds_character_rows,
+    parse_chars_file_character_rows,
+    parse_team_rows,
+)
+
+
+def test_minimal_hsr_parser_fixture_freezes_python_oracle():
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "hsr_parser_minimal.json").read_text(encoding="utf-8"))
+    phase = make_phase_row(snapshot_id="4.3.2", config_entry=fixture["config"], mode="moc", source_path="4.3.2/", has_chars=True, has_comps=False, has_histograph=True, collect_date="2026-06-25")
+    assert (phase["mode_cn"], phase["phase_ver"], phase["has_chars"], phase["has_comps"]) == ("混沌回忆", "4.2.1", 1, 0)
+
+    builds = parse_builds_character_rows(snapshot_id="4.3.2", phase_row=phase, builds=fixture["builds"], source_file="builds.json", source_url="fixture://builds")
+    assert [(row["character_slug"], row["character_name_en"], row["app_rate"], row["app_rate_e0"]) for row in builds] == [("topaz-and-numby", "Topaz and Numby", 12.5, 0.0)]
+
+    chars = parse_chars_file_character_rows(snapshot_id="4.3.2", phase_row=phase, data=fixture["chars"], source_file="chars.json", source_url="fixture://chars")
+    assert [(row["character_slug"], row["app_rate"], row["app_rate_e0"]) for row in chars] == [("march-7th", 7.0, 3.0)]
+
+    teams = parse_team_rows(snapshot_id="4.3.2", phase_row=phase, data=fixture["teams"], source_kind="fixture", source_file="teams.json", source_url="fixture://teams", scope_hint="stage_1_combined.json", top_n=2)
+    assert len(teams) == 1
+    assert teams[0]["raw_index"] == 2
+    assert attach_team_signatures(teams[0]) == ("moc|stage_stage_1|4.2.1|d>b>a>c", "moc|stage_stage_1|4.2.1|a>b>c>d")
