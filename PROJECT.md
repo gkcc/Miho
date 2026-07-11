@@ -8,10 +8,10 @@
 
 - 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
-- Rust 已实现 Python 等价 parser/source、网络缓存、两游戏多 snapshot/mode 聚合 exporter、offline fixture pipeline，以及统一在线/离线 `SnapshotSource`；Tauri 已打通 HSR/ZZZ Box 读写。
-- Rust CLI 已按游戏拆分命令树并对齐默认值、布尔双旗标和帮助面；所有业务命令仍处于迁移门禁，不能替代 Python。
-- 最近验证：HSR/ZZZ 聚合测试各 2 项、SnapshotSource 本地 HTTP/离线测试 2 项、Python exporter oracle 4 项及 clippy 严格检查通过。
-- Python 仍负责全部抓取、解析、证据池、覆盖率、决策、抽取价值、报告和正式导出。
+- Rust 已实现 HF 在线/离线统一 `SnapshotSource`、日期与部分失败语义、两游戏多 snapshot/mode 聚合，以及 HSR histograph/fallback、动态视图、完整队伍去重和 ZZZ Bangboo/name fallback。
+- Rust CLI 已接通 HSR/ZZZ `export`、原子写出和 0/1/2 退出码；离线 fixture 与显式关闭补充来源后的 HF 核心路径可用。Prydwen/官方名称默认开启时仍主动门禁，尚不能替代 Python 默认导出。
+- 最近验证：`cargo test --workspace --no-fail-fast` 共 60 项通过，`cargo clippy --workspace --all-targets -- -D warnings` 通过，Python `pytest -q` 共 71 项通过；本地 HTTP 在线运行与同缓存离线运行逐产物一致。
+- Python 仍负责 Prydwen/官方名称抓取、历史合并、Excel、正式报告、visualizer，以及 evidence、coverage、decision、pull-value、review-packet。
 
 ## 阶段路线
 
@@ -23,13 +23,13 @@
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
-## 当前三目标（第八批）
+## 当前三目标（第九批）
 
 | 子目标 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- |
-| 让 generic pipeline 消费 SnapshotSource | 主智能体 | source trait、聚合 dataset、日期/mode 规则 | 异步发现全部 snapshot/mode、警告/错误收集、构建单一聚合 bundle | 在线本地 HTTP 与离线多版本同结果 | 聚合模型与 source trait |
-| 补齐 HSR 剩余表格及空目录契约 | 子智能体 | histograph、dynamic summary、完整文件审计 | histograph、latest_usage_cn、top_teams_latest；两游戏空输入完整表集合 | Python/Rust 文件集合与字节测试 | 聚合 dataset |
-| 接通并门禁 Rust CLI export | 独立子智能体准备集成测试，主智能体整合 | generic pipeline、有效 CLI 默认值 | HSR/ZZZ export 写目标目录；成功0、业务失败1、参数失败2；未完成能力明确 warning | CLI 临时目录端到端测试 | 前两目标全部通过 |
+| 建立补充来源与导出上下文契约 | 主智能体 | 现有 hsr/zzz source parser、PipelineRun、报告参数 | 可注入的补充 HTTP/offline fixture 边界；版本化请求；from/to/repo/modes/warnings/errors 可进入报告 | 固定输入双跑；来源失败分类；core 不依赖 CLI/Tauri | generic pipeline |
+| 接通 HSR 补充来源 | 子智能体移植、主智能体整合 | Prydwen visible/tier/changelog、Hoyowiki、name seed、top-N | HSR 默认来源生成真实 team/tier/name/history/trend，移除对应门禁 | 完整目录 Python/Rust 对比，部分来源失败仍可导出 | 补充来源契约 |
+| 接通 ZZZ 补充来源 | 独立子智能体移植、主智能体整合 | Prydwen visible/tier/changelog、官方 agent/Bangboo 名称 | ZZZ 默认来源生成真实 team/tier/name/history/trend，移除对应门禁 | 完整目录 Python/Rust 对比，Bangboo 与 agent 名称覆盖 | 补充来源契约 |
 
 ## 决策记录
 
@@ -39,14 +39,17 @@
 | 2026-07-12 | 业务资产归档到仓库外，缓存直接清除 | 工作区只保留源码、配置、测试和项目文档 | 需要恢复历史数据时使用归档清单 |
 | 2026-07-12 | 每个子目标一个本地提交，每三个子目标复盘 | 提高可回退性；不自动推送远端 | 项目规模或协作方式显著改变 |
 | 2026-07-12 | 首发仅维护 Windows 图标和安装配置 | 删除自动生成的 Android/iOS 图标 | 正式纳入其他平台时 |
+| 2026-07-12 | Rust export 先开放 fixture/HF 核心路径，默认补充来源保持显式门禁 | 避免把缺 Prydwen/官方名称的残缺目录误报为兼容成功 | 两游戏完整目录黄金对比通过 |
 
 ## 风险登记
 
 | 风险 | 当前状态 | 缓解措施 |
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
-| `atomic::write` 先删除目标再改名，存在丢失窗口 | 高 | 第二批改为唯一临时文件和 Windows 安全替换语义 |
-| Tauri 用当前工作目录定位 `.miho`，安装后不稳定 | 高 | 引入稳定应用数据根，并保留显式 workspace/旧路径导入 |
+| 补充来源未接通导致默认导出缺数据 | 高 | CLI 默认门禁；第九批建立 injectable source 并分别接通两游戏 |
+| 报告、历史合并与 Excel 尚未共享 diagnostics/context | 高 | 先版本化导出上下文，再统一 formatter 与可选 Excel 边界 |
+| `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
+| Tauri 后台任务、取消和完整 visualizer 尚未迁移 | 高 | 数据与报告默认路径稳定后再接 IPC，前端不复制规则 |
 | 外部数据源随时间变化 | 高 | 归档历史 raw 数据，黄金测试只用固定离线输入 |
 | 子智能体共享工作树冲突 | 中 | 并行任务划定互斥路径；公共类型由主智能体串行整合 |
 | pnpm/esbuild 安装策略导致前端构建不可复现 | 中 | 固化根锁文件和批准配置，增加干净环境构建验证 |
@@ -110,12 +113,20 @@
 - 调整：接受两套聚合实现、共享 source/output 边界。下一批 generic pipeline 必须真正基于 trait 执行，而非保留当前 OfflineFixture 专用路径；CLI export 仅在完整表集合通过后解锁。
 - 下一批：generic pipeline、剩余 HSR/空目录产物、CLI export 门禁解除。
 
+### 复盘 8：Generic Pipeline 与受控 CLI 接线（2026-07-12）
+
+- 完成：HF generic pipeline 现统一处理在线/离线、闭区间日期、未知日期保留、config/子树部分失败、真实来源元数据和空匹配；HSR 补齐 histograph、fallback、完整角色数值、latest/top 视图、name map 与两级队伍去重；ZZZ 补齐 Bangboo、phase flags、fallback name、latest 与队伍选择；CLI 完成目录写出和 0/1/2 退出边界。
+- 偏差：原估计“补三张 HSR 表”实际暴露角色字段丢失、队伍 best/count/files 语义、动态列顺序、两游戏 phase flag、ZZZ Bangboo 与 name map 等底层缺口；范围扩大后才允许提交。CLI 原方案会把默认开启但未接通的补充来源只记 warning 并退出 0，复审后改为联网前门禁。
+- 失败原因：前几批最小 exporter 只证明文件/表头垂直切片，不能代表完整目录语义；fixture 对成功路径覆盖较多，但对“目录存在却禁用下载”“仅队伍出现的名字”“历史期覆盖”不足。
+- 调整：最终无 Python 目标不变，generic HF 假设已由本地 HTTP 与离线缓存逐产物一致验证。默认 CLI 切换延后；第九批先建立补充来源与 report context，再并行接通 HSR/ZZZ。Excel、visualizer 和决策报告不抢在默认导出完整之前。
+- 下一批：补充来源/导出上下文契约、HSR 补充来源、ZZZ 补充来源。
+
 ## 恢复入口
 
 - 项目状态：本文件。
 - 兼容规则：`docs/migration-compatibility.md`。
 - Rust workspace：根目录 `Cargo.toml`。
-- 当前验证：`$env:Path="$env:USERPROFILE\.cargo\bin;$env:Path"; cargo test --workspace --no-fail-fast`。
+- 当前验证：`$env:Path="$env:USERPROFILE\.cargo\bin;$env:Path"; cargo test --workspace --no-fail-fast; cargo clippy --workspace --all-targets -- -D warnings; python -m pytest -q`。
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035\manifest.json`。
-- 最危险的未验证假设：Rust 能在不改变默认值、排序、缺失数据处理和报告语义的前提下完整复刻 Python 行为。
+- 最危险的未验证假设：变化中的 Prydwen/Hoyowiki 页面与历史文件能通过可注入 Rust 来源边界稳定复刻，并让两游戏默认完整目录只保留批准差异。
