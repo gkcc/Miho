@@ -1,8 +1,15 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration as StdDuration};
 
 use anyhow::bail;
 use chrono::{Duration, Local};
 use clap::{Args, Parser, Subcommand};
+use miho_core::{
+    hf::HuggingFaceRepo,
+    network::{FetchMode, HttpClient},
+    normalize::parse_date,
+    pipeline::{run_source_export, ExportRequest, Game, OfflineFixture},
+    source::HfSnapshotSource,
+};
 
 #[derive(Parser)]
 #[command(name = "miho", version, about = "HSR and ZZZ endgame data exporter")]
@@ -209,6 +216,7 @@ struct EvidenceArgs {
     no_include_missing: bool,
 }
 
+#[cfg(test)]
 impl EvidenceArgs {
     fn effective_include_missing(&self) -> bool {
         self.include_missing && !self.no_include_missing
@@ -269,12 +277,149 @@ struct ServeArgs {
     port: u16,
 }
 
-fn main() -> anyhow::Result<()> {
-    execute(Cli::parse())
+#[tokio::main]
+async fn main() {
+    if let Err(error) = execute(Cli::parse()).await {
+        eprintln!("export failed: {error}");
+        std::process::exit(1);
+    }
 }
 
-fn execute(_cli: Cli) -> anyhow::Result<()> {
-    bail!("this command's Rust implementation is registered but not yet enabled; use the Python compatibility command during staged migration")
+async fn execute(cli: Cli) -> anyhow::Result<()> {
+    let (game, args, unsupported_options) = match cli.game {
+        GameCommand::Hsr { command: HsrCommand::Export(args) } => {
+            let mut unsupported = Vec::new();
+            if args.common.prydwen_top_n.is_some() {
+                unsupported.push("--prydwen-top-n");
+            }
+            if args.name_map_seed.is_some() {
+                unsupported.push("--name-map-seed");
+            }
+            (Game::Hsr, args.effective(), unsupported)
+        }
+        GameCommand::Zzz { command: ZzzCommand::Export(args) } => {
+            let unsupported = args
+                .common
+                .prydwen_top_n
+                .is_some()
+                .then_some("--prydwen-top-n")
+                .into_iter()
+                .collect();
+            (Game::Zzz, args.effective(), unsupported)
+        }
+        _ => bail!("this command's Rust implementation is registered but not yet enabled; use the Python compatibility command during staged migration"),
+    };
+    if !unsupported_options.is_empty() {
+        bail!(
+            "export options are not yet migrated: {}",
+            unsupported_options.join(", ")
+        );
+    }
+    let request = ExportRequest {
+        game,
+        modes: args
+            .modes
+            .split(',')
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        from_date: Some(parse_cli_date(&args.from_date)?),
+        to_date: Some(parse_cli_date(&args.to_date)?),
+        include_teams: args.toggles[0],
+        include_prydwen_visible: args.toggles[1],
+        include_prydwen_tier: args.toggles[2],
+        official_name_map: args.toggles[3],
+    };
+    #[cfg(debug_assertions)]
+    let offline_fixture = std::env::var_os("MIHO_OFFLINE_FIXTURE");
+    #[cfg(not(debug_assertions))]
+    let offline_fixture: Option<std::ffi::OsString> = None;
+
+    let run = if let Some(path) = offline_fixture {
+        let fixture_path = PathBuf::from(path);
+        let fixture = OfflineFixture::load(&fixture_path)?;
+        if fixture.manifest.game != game {
+            bail!("offline fixture game does not match requested game");
+        }
+        let run = run_source_export(&fixture, &request).await?;
+        eprintln!("fixture mode: {}", fixture_path.display());
+        run
+    } else {
+        let supplemental = [
+            (args.toggles[1], "prydwen-visible"),
+            (args.toggles[2], "prydwen-tier"),
+            (args.toggles[3], "official-name-map"),
+        ]
+        .into_iter()
+        .filter_map(|(enabled, name)| enabled.then_some(name))
+        .collect::<Vec<_>>();
+        if !supplemental.is_empty() {
+            bail!(
+                "online supplemental capabilities are not yet migrated: {}; disable them explicitly to use the core Hugging Face export",
+                supplemental.join(", ")
+            );
+        }
+        let revision = "main";
+        let source = HfSnapshotSource::new(
+            HuggingFaceRepo::new(&args.repo_id, revision),
+            HttpClient::new(StdDuration::from_secs(60), 2)?,
+            cache_root(game, &args.repo_id, revision),
+            FetchMode::Online,
+        );
+        run_source_export(&source, &request).await?
+    };
+    for warning in &run.warnings {
+        eprintln!("warning: {warning}");
+    }
+    for error in &run.errors {
+        eprintln!("recoverable error: {error}");
+    }
+    run.bundle.write_to(&args.out)?;
+    Ok(())
+}
+
+fn cache_root(game: Game, repo_id: &str, revision: &str) -> PathBuf {
+    let base = std::env::var_os("MIHO_CACHE_ROOT")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("LOCALAPPDATA").map(|v| PathBuf::from(v).join("miho-endgame/cache"))
+        })
+        .unwrap_or_else(|| PathBuf::from(".miho/cache"));
+    cache_root_from(&base, game, repo_id, revision)
+}
+
+fn cache_root_from(base: &std::path::Path, game: Game, repo_id: &str, revision: &str) -> PathBuf {
+    base.join(match game {
+        Game::Hsr => "hsr",
+        Game::Zzz => "zzz",
+    })
+    .join(safe_cache_component(repo_id))
+    .join(safe_cache_component(revision))
+}
+
+fn safe_cache_component(value: &str) -> String {
+    let value = value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if value.is_empty() || value == "." || value == ".." {
+        "_".into()
+    } else {
+        value
+    }
+}
+
+fn parse_cli_date(value: &str) -> anyhow::Result<chrono::NaiveDate> {
+    let normalized = parse_date(value);
+    chrono::NaiveDate::parse_from_str(&normalized, "%Y-%m-%d")
+        .map_err(|_| anyhow::anyhow!("invalid date: {value}"))
 }
 
 #[cfg(test)]
@@ -383,12 +528,24 @@ mod tests {
         );
     }
 
-    #[test]
-    fn unported_command_keeps_explicit_gate() {
-        let cli = Cli::try_parse_from(["miho", "zzz", "export"]).unwrap();
+    #[tokio::test]
+    async fn unported_command_keeps_explicit_gate() {
+        let cli = Cli::try_parse_from(["miho", "zzz", "visualizer"]).unwrap();
         assert!(execute(cli)
+            .await
             .unwrap_err()
             .to_string()
             .contains("not yet enabled"));
+    }
+
+    #[test]
+    fn cache_path_is_safe_and_isolated_by_repo_and_revision() {
+        let base = PathBuf::from("cache-root");
+        let first = cache_root_from(&base, Game::Hsr, "owner/repo", "feature/test");
+        let second = cache_root_from(&base, Game::Hsr, "owner/other", "main");
+        assert_eq!(first, base.join("hsr/owner_repo/feature_test"));
+        assert_ne!(first, second);
+        assert_eq!(safe_cache_component(".."), "_");
+        assert_eq!(safe_cache_component(""), "_");
     }
 }
