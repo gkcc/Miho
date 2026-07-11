@@ -41,6 +41,7 @@ pub struct TeamRow {
     pub scope: String,
     pub raw_index: usize,
     pub chars: [String; 4],
+    pub raw_json: String,
 }
 
 impl TeamRow {
@@ -249,6 +250,7 @@ pub fn parse_team_rows(
                 },
                 raw_index: index + 1,
                 chars,
+                raw_json: serde_json::to_string(item).unwrap_or_default(),
             })
         })
         .collect()

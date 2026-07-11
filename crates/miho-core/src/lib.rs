@@ -4,6 +4,7 @@ pub mod config;
 pub mod error;
 pub mod hf;
 pub mod hsr;
+pub mod hsr_export;
 pub mod hsr_sources;
 pub mod network;
 pub mod normalize;

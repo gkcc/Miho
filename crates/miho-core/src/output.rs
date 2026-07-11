@@ -106,10 +106,19 @@ pub fn csv_float(value: Option<f64>) -> String {
     };
     let text = format!("{value:.6}");
     let trimmed = text.trim_end_matches('0').trim_end_matches('.');
-    if trimmed == "-0" {
-        "0".to_owned()
+    if trimmed == "-0" || trimmed == "0" {
+        "0.0".to_owned()
+    } else if !trimmed.contains('.') {
+        format!("{trimmed}.0")
     } else {
         trimmed.to_owned()
+    }
+}
+
+pub fn csv_number(value: Option<f64>) -> String {
+    match value {
+        Some(value) if value.fract() == 0.0 => format!("{value:.0}"),
+        _ => csv_float(value),
     }
 }
 
@@ -165,7 +174,9 @@ mod tests {
     fn float_cells_match_python_rounding_contract() {
         assert_eq!(csv_float(None), "");
         assert_eq!(csv_float(Some(12.3456789)), "12.345679");
-        assert_eq!(csv_float(Some(12.0)), "12");
-        assert_eq!(csv_float(Some(-0.0)), "0");
+        assert_eq!(csv_float(Some(12.0)), "12.0");
+        assert_eq!(csv_float(Some(-0.0)), "0.0");
+        assert_eq!(csv_number(Some(12.0)), "12");
+        assert_eq!(csv_number(Some(12.5)), "12.5");
     }
 }

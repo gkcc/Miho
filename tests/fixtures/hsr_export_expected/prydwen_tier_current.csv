@@ -1,0 +1,2 @@
+tier_snapshot_id,fetched_at,tier_updated_at,tier_updated_date,tier_mode,tier_mode_cn,character_slug,character_name_en,character_name_cn,prydwen_category,prydwen_role,role_group,role_group_cn,tier,rating,special_rating,tags,marks,is_new,default_role,element,path,rarity,icon_url,source_url
+2026-06-25,,,,moc,,topaz-and-numby,Topaz and Numby,,,,,,T1,1,,,,,,,,,,fixture://tier

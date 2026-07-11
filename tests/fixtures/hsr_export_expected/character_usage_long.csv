@@ -1,0 +1,2 @@
+snapshot_id,collect_date,mode,mode_cn,sub_mode,sub_mode_cn,phase_ver,phase_name,start_date,end_date,character_slug,character_name_en,character_name_cn,role,rarity,app_rate,app_rate_e0,avg_round,std_dev_round,q1_round,cons_avg,sample,sample_app_flat,source_kind,source_file,source_url,quality_flag
+4.3.2,2026-06-25,moc,混沌回忆,all,全部,4.2.1,Example Phase,2026-06-01,2026-06-15,topaz-and-numby,Topaz and Numby,,,,12.5,0.0,,,,,,,hf_chars,fixture/builds.json,fixture://builds,ok
