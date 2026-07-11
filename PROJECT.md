@@ -8,9 +8,9 @@
 
 - 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
-- Rust 已实现配置加载、Box State v2、Python 等价规范化、HSR/ZZZ parser 垂直切片、并发安全原子写和 HTTP 重试；Tauri 已打通 HSR/ZZZ Box 读写，并采用稳定应用数据目录。
+- Rust 已实现配置加载、Box State v2、Python 等价规范化、HSR/ZZZ parser、Hugging Face/Prydwen/官方名称固定输入解析、缓存与分类重试；Tauri 已打通 HSR/ZZZ Box 读写，并采用稳定应用数据目录。
 - Rust CLI 已按游戏拆分命令树并对齐默认值、布尔双旗标和帮助面；所有业务命令仍处于迁移门禁，不能替代 Python。
-- 最近验证：HSR/ZZZ Python parser oracle 各 1 项、Rust HSR 1 项、Rust ZZZ 2 项、Rust CLI 6 项通过；原子并发测试连续 10 次通过。
+- 最近验证：数据源 Python oracle 4 项、Rust 来源测试 4 项、网络测试 3 项通过；`cargo clippy -p miho-core -- -D warnings` 通过。
 - Python 仍负责全部抓取、解析、证据池、覆盖率、决策、抽取价值、报告和正式导出。
 
 ## 阶段路线
@@ -23,13 +23,13 @@
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
-## 当前三目标（第四批）
+## 当前三目标（第五批）
 
 | 子目标 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- |
-| 加固 HTTP、缓存与离线边界 | 主智能体 | `network.rs` 与固定本地响应 | 仅重试瞬时失败；带校验的缓存读取；离线命中与明确 cache-miss 错误 | `cargo test -p miho-core network` | 稳定数据目录与原子写 |
-| 移植 Hugging Face 客户端 | 子智能体 | Python `hf_client.py`、归档 raw fixture | 强类型文件列表/下载接口，revision、URL 编码、缓存路径兼容 | Python/Rust 固定 URL 与响应黄金测试 | 新网络边界 |
-| 移植 Prydwen 与官方名称来源 | 两个互斥子任务，主智能体整合 | 两游戏 scraper/name loader、脱敏 HTML/JSON | 固定输入提取 tier、changelog、可见队伍和名称映射 | 各来源 Python/Rust 黄金测试 | parser 与新网络边界 |
+| 建立产物与比较器契约 | 主智能体 | Python exporters、现有 CSV/JSON/Markdown 规则 | 原子 CSV/JSON 写入、稳定列序、空值规则、时间戳白名单比较器 | Rust writer 测试与 Python comparator 测试 | parser 强类型模型 |
+| 实现 HSR 离线 exporter 切片 | 子智能体 | HSR fixture、parser/source 行模型 | 从固定 raw 输入生成阶段、角色、队伍和 tier 产物清单 | Python/Rust 目录黄金对比 | 产物契约 |
+| 实现 ZZZ 离线 exporter 切片 | 独立子智能体 | ZZZ fixture、parser/source 行模型 | 从固定 raw 输入生成阶段、usage、队伍、官方名称产物清单 | Python/Rust 目录黄金对比 | 产物契约 |
 
 ## 决策记录
 
@@ -77,6 +77,14 @@
 - 失败原因：初始 scaffold 优先减少类型数量，牺牲了 help 面和游戏特定默认值；现已确认公共实现可共享，但公开命令类型必须分离。
 - 调整：最终目标不变。进入 exporter 前先加固 HTTP/缓存并移植三个外部数据源，避免把不可靠网络语义扩散到导出层。
 - 下一批：网络可靠性、Hugging Face 客户端、Prydwen/官方名称来源。
+
+### 复盘 4：外部数据源边界（2026-07-12）
+
+- 完成：HTTP 仅重试连接、超时、408/425/429/5xx；在线失败回退缓存，离线明确 cache miss；移植 HF URL/树响应、两游戏 Prydwen 固定输入和官方中英文名称映射。
+- 偏差：两个来源模块初次注册后才暴露 HSR lifetime 编译错误，且子智能体只做了格式检查、没有把模块接入 Cargo 测试图；主智能体补充 Rust fixture 测试并用 clippy 严格验收。ZZZ 来源曾复制 slug 逻辑，已改为调用共享 normalize。
+- 失败原因：为避免共享 `lib.rs` 冲突，子任务模块未注册，导致局部格式检查不足以发现类型错误。
+- 调整：后续子智能体仍不直接修改共享入口，但必须提供可独立编译的临时检查方式；主智能体注册后必须补 Rust oracle，不接受只有 Python fixture。进入正式 exporter 前先统一产物写入和比较规则。
+- 下一批：产物比较器、HSR 离线 exporter、ZZZ 离线 exporter。
 
 ## 恢复入口
 
