@@ -206,6 +206,7 @@ pub struct ExportContext {
     pub fetched_at: DateTime<Utc>,
     pub fetch_policy: FetchPolicy,
     pub cache_root: PathBuf,
+    pub output_root: PathBuf,
     pub existing_output_root: Option<PathBuf>,
 }
 
@@ -246,6 +247,11 @@ pub mod diagnostic_code {
     pub const SUPPLEMENTAL_NOT_CONNECTED: &str = "supplemental.not_connected";
     pub const SNAPSHOT_DATE_MISSING: &str = "hugging_face.snapshot_date_missing";
     pub const NO_MATCHING_SNAPSHOTS: &str = "hugging_face.no_matching_snapshots";
+    pub const SUPPLEMENTAL_FETCH_FAILED: &str = "supplemental.fetch_failed";
+    pub const SUPPLEMENTAL_PARSE_EMPTY: &str = "supplemental.parse_empty";
+    pub const SUPPLEMENTAL_CACHE_FALLBACK: &str = "supplemental.cache_fallback";
+    pub const NAME_SEED_FAILED: &str = "name_seed.read_failed";
+    pub const HISTORY_READ_FAILED: &str = "history.read_failed";
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]

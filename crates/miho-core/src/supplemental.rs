@@ -130,6 +130,7 @@ pub struct SupplementalDocument {
     pub source_url: String,
     pub fetched_at: DateTime<Utc>,
     pub origin: SupplementalOrigin,
+    pub fallback_reason: Option<String>,
 }
 
 pub trait HsrSupplementalSource: Send + Sync {

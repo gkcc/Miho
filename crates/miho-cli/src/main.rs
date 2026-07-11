@@ -9,9 +9,10 @@ use miho_core::{
         GameMode, HistoryPolicy, WorkbookPolicy, EXPORT_REQUEST_SCHEMA_VERSION,
     },
     hf::HuggingFaceRepo,
+    hsr_supplemental::{HsrFixtureSupplementalSource, HsrHttpSupplementalSource},
     network::{FetchMode, HttpClient},
     normalize::parse_date,
-    pipeline::{run_export_v1, ExportRequest, Game, OfflineFixture},
+    pipeline::{run_export_v1, run_hsr_export_v1, ExportRequest, Game, OfflineFixture},
     source::HfSnapshotSource,
 };
 
@@ -290,16 +291,10 @@ async fn main() {
 }
 
 async fn execute(cli: Cli) -> anyhow::Result<()> {
-    let (game, args, unsupported_options) = match cli.game {
+    let (game, args, name_map_seed, unsupported_options) = match cli.game {
         GameCommand::Hsr { command: HsrCommand::Export(args) } => {
-            let mut unsupported = Vec::new();
-            if args.common.prydwen_top_n.is_some() {
-                unsupported.push("--prydwen-top-n");
-            }
-            if args.name_map_seed.is_some() {
-                unsupported.push("--name-map-seed");
-            }
-            (Game::Hsr, args.effective(), unsupported)
+            let name_map_seed = args.name_map_seed.clone();
+            (Game::Hsr, args.effective(), name_map_seed, Vec::new())
         }
         GameCommand::Zzz { command: ZzzCommand::Export(args) } => {
             let unsupported = args
@@ -309,7 +304,7 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
                 .then_some("--prydwen-top-n")
                 .into_iter()
                 .collect();
-            (Game::Zzz, args.effective(), unsupported)
+            (Game::Zzz, args.effective(), None, unsupported)
         }
         _ => bail!("this command's Rust implementation is registered but not yet enabled; use the Python compatibility command during staged migration"),
     };
@@ -345,7 +340,7 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             official_names: args.toggles[3],
         },
         prydwen_top_n: args.prydwen_top_n,
-        name_map_seed: None,
+        name_map_seed,
         history: HistoryPolicy::MergeExisting,
         workbook: WorkbookPolicy::Disabled,
     };
@@ -364,9 +359,20 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             fetched_at: Utc::now(),
             fetch_policy: FetchPolicy::Fixture,
             cache_root: fixture_path.clone(),
+            output_root: args.out.clone(),
             existing_output_root: Some(args.out.clone()),
         };
-        let run = run_export_v1(&fixture, &request, &context).await?;
+        let run = match game {
+            Game::Hsr => {
+                let supplemental_root = std::env::var_os("MIHO_HSR_SUPPLEMENTAL_FIXTURE")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| fixture_path.join("supplemental"));
+                let supplemental =
+                    HsrFixtureSupplementalSource::new(supplemental_root, context.fetched_at);
+                run_hsr_export_v1(&fixture, &supplemental, &request, &context).await?
+            }
+            Game::Zzz => run_export_v1(&fixture, &request, &context).await?,
+        };
         eprintln!("fixture mode: {}", fixture_path.display());
         run
     } else {
@@ -378,10 +384,15 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
         .into_iter()
         .filter_map(|(enabled, name)| enabled.then_some(name))
         .collect::<Vec<_>>();
-        if !supplemental.is_empty() {
+        if game == Game::Zzz && !supplemental.is_empty() {
             bail!(
                 "online supplemental capabilities are not yet migrated: {}; disable them explicitly to use the core Hugging Face export",
                 supplemental.join(", ")
+            );
+        }
+        if game == Game::Hsr {
+            bail!(
+                "HSR supplemental sources are migrated, but the default online export remains gated until XLSX and visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command"
             );
         }
         let cache_root = cache_root(game, &args.repo_id, revision);
@@ -394,10 +405,22 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
         let context = ExportContext {
             fetched_at: Utc::now(),
             fetch_policy: FetchPolicy::Online,
-            cache_root,
+            cache_root: cache_root.clone(),
+            output_root: args.out.clone(),
             existing_output_root: Some(args.out.clone()),
         };
-        run_export_v1(&source, &request, &context).await?
+        match game {
+            Game::Hsr => {
+                let supplemental = HsrHttpSupplementalSource::new(
+                    HttpClient::new(StdDuration::from_secs(60), 2)?,
+                    cache_root.join("supplemental"),
+                    FetchMode::Online,
+                    context.fetched_at,
+                );
+                run_hsr_export_v1(&source, &supplemental, &request, &context).await?
+            }
+            Game::Zzz => run_export_v1(&source, &request, &context).await?,
+        }
     };
     for diagnostic in &run.diagnostics {
         match diagnostic.severity {

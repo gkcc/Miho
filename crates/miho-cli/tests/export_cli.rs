@@ -34,6 +34,12 @@ fn export(game: &str, fixture_path: Option<&Path>, out: &Path) -> Output {
     command.args([game, "export", "--out"]).arg(out);
     if let Some(path) = fixture_path {
         command.env("MIHO_OFFLINE_FIXTURE", path);
+        if game == "hsr" {
+            command.env(
+                "MIHO_HSR_SUPPLEMENTAL_FIXTURE",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/hsr_supplemental"),
+            );
+        }
     } else {
         command.env_remove("MIHO_OFFLINE_FIXTURE");
     }
@@ -71,6 +77,9 @@ fn hsr_offline_export_writes_complete_core_set() {
             "team_rank_raw.csv",
             "name_map.csv",
             "prydwen_tier_current.csv",
+            "prydwen_tier_history.csv",
+            "prydwen_tier_changelog_history.csv",
+            "raw/prydwen_tier/tier-list_latest.html",
             "export_report.md",
             "artifact_manifest.json",
         ],
@@ -127,15 +136,26 @@ fn unknown_argument_keeps_clap_exit_two() {
 }
 
 #[test]
-fn default_online_export_is_gated_before_network_for_supplemental_sources() {
+fn zzz_default_online_export_is_gated_before_network_for_supplemental_sources() {
     let out = temp_output("online-gate");
-    let result = export("hsr", None, &out);
+    let result = export("zzz", None, &out);
     assert_eq!(result.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(stderr.starts_with("export failed: "));
     assert!(stderr.contains("prydwen-visible"));
     assert!(stderr.contains("prydwen-tier"));
     assert!(stderr.contains("official-name-map"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn hsr_default_online_export_keeps_the_complete_directory_gate() {
+    let out = temp_output("hsr-online-gate");
+    let result = export("hsr", None, &out);
+    assert_eq!(result.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(stderr.contains("XLSX and visualizer"));
+    assert!(!stderr.contains("supplemental capabilities are not yet migrated"));
     assert!(!out.exists());
 }
 
@@ -156,16 +176,46 @@ fn invalid_date_is_a_business_error() {
 
 #[test]
 fn explicitly_unimplemented_export_options_do_not_succeed_silently() {
-    for game in ["hsr", "zzz"] {
-        let out = temp_output("unsupported-option");
-        let result = Command::new(binary())
-            .args([game, "export", "--prydwen-top-n", "7", "--out"])
-            .arg(&out)
-            .env("MIHO_OFFLINE_FIXTURE", fixture(game))
-            .output()
-            .unwrap();
-        assert_eq!(result.status.code(), Some(1));
-        assert!(String::from_utf8_lossy(&result.stderr).contains("--prydwen-top-n"));
-        assert!(!out.exists());
-    }
+    let out = temp_output("unsupported-option");
+    let result = Command::new(binary())
+        .args(["zzz", "export", "--prydwen-top-n", "7", "--out"])
+        .arg(&out)
+        .env("MIHO_OFFLINE_FIXTURE", fixture("zzz"))
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("--prydwen-top-n"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn hsr_migrated_top_n_and_name_seed_are_accepted() {
+    let out = temp_output("hsr-options");
+    let seed = temp_output("hsr-seed").with_extension("csv");
+    fs::write(
+        &seed,
+        b"character_slug,character_name_en,character_name_cn\ntopaz-and-numby,Topaz and Numby,Topaz CN\n",
+    )
+    .unwrap();
+    let result = Command::new(binary())
+        .args(["hsr", "export", "--prydwen-top-n", "1", "--name-map-seed"])
+        .arg(&seed)
+        .args(["--out"])
+        .arg(&out)
+        .env("MIHO_OFFLINE_FIXTURE", fixture("hsr"))
+        .env(
+            "MIHO_HSR_SUPPLEMENTAL_FIXTURE",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/hsr_supplemental"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let names = fs::read_to_string(out.join("name_map.csv")).unwrap();
+    assert!(names.contains("topaz-and-numby,Topaz and Numby,Topaz CN"));
+    fs::remove_file(seed).unwrap();
+    fs::remove_dir_all(out).unwrap();
 }

@@ -1,11 +1,16 @@
-use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 use crate::{
     hsr::{CharacterRow, HistographRow, PhaseRow, TeamRow},
+    hsr_history::{TierUsageChart, TrendRow},
+    hsr_names::{NameResolver, NameRow},
+    hsr_sources::{python_csv_value, ChangelogRow},
     normalize::character_slug_to_english,
     output::{csv_float, ArtifactBundle},
     Result,
 };
+
+pub use crate::hsr_sources::TierRow;
 
 const PHASE_HEADERS: &[&str] = &[
     "snapshot_id",
@@ -165,17 +170,6 @@ const HISTOGRAPH_HEADERS: &[&str] = &[
     "note",
 ];
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TierRow {
-    pub tier_snapshot_id: String,
-    pub tier_mode: String,
-    pub character_slug: String,
-    pub character_name_en: String,
-    pub tier: String,
-    pub rating: String,
-    pub source_url: String,
-}
-
 #[derive(Debug, Clone)]
 pub struct HsrExportSlice {
     pub phase: PhaseRow,
@@ -194,6 +188,15 @@ pub struct HsrHistographSlice {
 pub struct HsrExportDataset {
     pub slices: Vec<HsrExportSlice>,
     pub histograph_slices: Vec<HsrHistographSlice>,
+    pub name_rows: Vec<NameRow>,
+    pub tier_current_rows: Vec<TierRow>,
+    pub tier_history_rows: Vec<TierRow>,
+    pub tier_changelog_rows: Vec<ChangelogRow>,
+    pub tier_changelog_history_rows: Vec<ChangelogRow>,
+    pub tier_usage_trend_rows: Vec<TrendRow>,
+    pub tier_charts: Vec<TierUsageChart>,
+    pub display_output_root: Option<PathBuf>,
+    pub raw_text_artifacts: Vec<(String, String)>,
 }
 
 pub fn build_minimal_export(
@@ -210,6 +213,7 @@ pub fn build_minimal_export(
             tiers: tiers.to_vec(),
         }],
         histograph_slices: vec![],
+        ..Default::default()
     })
 }
 
@@ -236,12 +240,23 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
         .collect::<Vec<_>>();
     let ordered_teams = dedup_ordered(&teams);
     let unordered_teams = dedup_unordered(&ordered_teams);
-    let tiers = dataset
+    let mut tiers = dataset
         .slices
         .iter()
         .flat_map(|slice| slice.tiers.iter())
         .collect::<Vec<_>>();
-    let names = derived_names(&characters, &histograph, &teams, &tiers);
+    tiers.extend(dataset.tier_current_rows.iter());
+    let names = if dataset.name_rows.is_empty() {
+        derived_names(&characters, &histograph, &teams, &tiers)
+    } else {
+        dataset.name_rows.clone()
+    };
+    let name_resolver = NameResolver::new(&names);
+    let tier_history = if dataset.tier_history_rows.is_empty() {
+        tiers.clone()
+    } else {
+        dataset.tier_history_rows.iter().collect()
+    };
     let report_date = phases
         .iter()
         .map(|phase| phase.collect_date.as_str())
@@ -275,45 +290,19 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
         CHARACTER_HEADERS,
         characters
             .iter()
-            .map(|(phase, row)| character_values(phase, row)),
+            .map(|(phase, row)| character_values(phase, row, &name_resolver)),
     )?;
     bundle.add_csv(
         "team_rank_raw.csv",
         TEAM_HEADERS,
-        teams.iter().map(|(phase, row)| team_values(phase, row)),
+        teams
+            .iter()
+            .map(|(phase, row)| team_values(phase, row, &name_resolver)),
     )?;
     bundle.add_csv(
         "prydwen_tier_current.csv",
         TIER_HEADERS,
-        tiers.iter().map(|row| {
-            vec![
-                row.tier_snapshot_id.clone(),
-                String::new(),
-                String::new(),
-                String::new(),
-                row.tier_mode.clone(),
-                String::new(),
-                row.character_slug.clone(),
-                row.character_name_en.clone(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                row.tier.clone(),
-                row.rating.clone(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                row.source_url.clone(),
-            ]
-        }),
+        tiers.iter().map(|row| tier_values(row, &name_resolver)),
     )?;
     bundle.add_csv(
         "histograph_usage_long.csv",
@@ -325,8 +314,8 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
                 phase.mode.clone(),
                 phase.mode_cn.clone(),
                 row.character_slug.clone(),
-                row.character_name_en.clone(),
-                String::new(),
+                resolved_english(&name_resolver, &row.character_slug, &row.character_name_en),
+                name_resolver.chinese(&row.character_slug),
                 csv_float(Some(row.usage_value)),
                 row.source_file.clone(),
                 "trend auxiliary; not a full character usage table".into(),
@@ -338,7 +327,7 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
         CHARACTER_HEADERS,
         latest_characters(&characters)
             .into_iter()
-            .map(|(phase, row)| character_values(phase, row)),
+            .map(|(phase, row)| character_values(phase, row, &name_resolver)),
     )?;
 
     let ordered_headers = TEAM_HEADERS
@@ -354,7 +343,7 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
         "team_rank_dedup_ordered.csv",
         &ordered_headers,
         ordered_teams.iter().map(|item| {
-            team_values(item.phase, item.row)
+            team_values(item.phase, item.row, &name_resolver)
                 .into_iter()
                 .chain([
                     item.signature.clone(),
@@ -373,7 +362,7 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
         "team_rank_dedup_unordered.csv",
         &unordered_headers,
         unordered_teams.iter().map(|item| {
-            team_values(item.phase, item.row)
+            team_values(item.phase, item.row, &name_resolver)
                 .into_iter()
                 .chain([
                     item.best_ordered.clone(),
@@ -390,54 +379,84 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
         NAME_HEADERS,
         names.iter().map(|row| {
             vec![
-                row.slug.clone(),
-                row.english.clone(),
-                String::new(),
+                row.character_slug.clone(),
+                row.character_name_en.clone(),
+                row.character_name_cn.clone(),
                 row.source.clone(),
-                "1".into(),
-                String::new(),
+                row.needs_manual_check.clone(),
+                row.aliases.clone(),
             ]
         }),
     )?;
     bundle.add_csv(
         "name_map_unresolved.csv",
         NAME_HEADERS,
-        names.iter().map(|row| {
-            vec![
-                row.slug.clone(),
-                row.english.clone(),
-                String::new(),
-                row.source.clone(),
-                "1".into(),
-                String::new(),
-            ]
-        }),
+        names
+            .iter()
+            .filter(|row| row.needs_manual_check == "1")
+            .map(|row| {
+                vec![
+                    row.character_slug.clone(),
+                    row.character_name_en.clone(),
+                    row.character_name_cn.clone(),
+                    row.source.clone(),
+                    row.needs_manual_check.clone(),
+                    row.aliases.clone(),
+                ]
+            }),
     )?;
     bundle.add_csv(
         "prydwen_tier_history.csv",
         TIER_HEADERS,
-        tiers.iter().map(|row| tier_values(row)),
+        tier_history
+            .iter()
+            .map(|row| tier_values(row, &name_resolver)),
     )?;
-    bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(
+    bundle.add_csv(
         "prydwen_tier_changelog.csv",
         CHANGELOG_HEADERS,
-        vec![],
+        dataset.tier_changelog_rows.iter().map(changelog_values),
     )?;
-    bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(
+    bundle.add_csv(
         "prydwen_tier_changelog_history.csv",
         CHANGELOG_HEADERS,
-        vec![],
+        dataset
+            .tier_changelog_history_rows
+            .iter()
+            .map(changelog_values),
     )?;
-    bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(
+    bundle.add_csv(
         "prydwen_tier_usage_trend.csv",
         TREND_HEADERS,
-        vec![],
+        dataset
+            .tier_usage_trend_rows
+            .iter()
+            .map(|row| trend_values(row, &name_resolver)),
     )?;
-    bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(
+    bundle.add_csv(
         "prydwen_tier_charts.csv",
         CHART_HEADERS,
-        vec![],
+        dataset.tier_charts.iter().map(|chart| {
+            vec![
+                chart.tier_mode.clone(),
+                chart.tier_mode_cn.clone(),
+                chart.role_group.clone(),
+                chart.role_group_cn.clone(),
+                chart_display_path(dataset, &chart.filename),
+                chart.series_count.to_string(),
+                chart.point_count.to_string(),
+            ]
+        }),
     )?;
+    for chart in &dataset.tier_charts {
+        bundle.add_text(
+            format!("charts/prydwen_tier_usage/{}", chart.filename),
+            &chart.svg,
+        )?;
+    }
+    for (path, text) in &dataset.raw_text_artifacts {
+        bundle.add_text(path, text)?;
+    }
     bundle.add_csv(
         "overview.csv",
         OVERVIEW_HEADERS,
@@ -449,18 +468,21 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
                 ordered_teams: ordered_teams.len(),
                 unordered_teams: unordered_teams.len(),
                 names: names.len(),
-                unresolved_names: names.len(),
+                unresolved_names: names
+                    .iter()
+                    .filter(|row| row.needs_manual_check == "1")
+                    .count(),
                 tiers: tiers.len(),
             },
         ),
     )?;
-    let (dynamic_header_strings, latest_rows) = latest_usage_view(&characters);
+    let (dynamic_header_strings, latest_rows) = latest_usage_view(&characters, &name_resolver);
     let dynamic_headers = dynamic_header_strings
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>();
     bundle.add_csv("latest_usage_cn.csv", &dynamic_headers, latest_rows)?;
-    let top_rows = top_teams_latest(&unordered_teams);
+    let top_rows = top_teams_latest(&unordered_teams, &name_resolver);
     let top_headers: &[&str] = if top_rows.is_empty() {
         &[]
     } else {
@@ -613,6 +635,7 @@ fn latest_characters<'a>(
 struct DerivedName {
     slug: String,
     english: String,
+    chinese: String,
     source: String,
 }
 
@@ -621,13 +644,14 @@ fn derived_names(
     histograph: &[(&PhaseRow, &HistographRow)],
     teams: &[(&PhaseRow, &TeamRow)],
     tiers: &[&TierRow],
-) -> Vec<DerivedName> {
+) -> Vec<NameRow> {
     let mut values = std::collections::BTreeMap::<String, DerivedName>::new();
     for (_, row) in characters {
         add_name_candidate(
             &mut values,
             &row.character_slug,
             &row.character_name_en,
+            "",
             if row.source_kind.is_empty() {
                 &row.source_file
             } else {
@@ -640,6 +664,7 @@ fn derived_names(
             &mut values,
             &row.character_slug,
             &row.character_name_en,
+            "",
             &row.source_file,
         );
     }
@@ -648,6 +673,7 @@ fn derived_names(
             add_name_candidate(
                 &mut values,
                 slug,
+                "",
                 "",
                 if row.source_kind.is_empty() {
                     "team"
@@ -662,6 +688,7 @@ fn derived_names(
             &mut values,
             &row.character_slug,
             &row.character_name_en,
+            &row.character_name_cn,
             "source",
         );
     }
@@ -670,13 +697,24 @@ fn derived_names(
             row.english = character_slug_to_english(&row.slug);
         }
     }
-    values.into_values().collect()
+    values
+        .into_values()
+        .map(|row| NameRow {
+            character_slug: row.slug,
+            character_name_en: row.english,
+            needs_manual_check: if row.chinese.is_empty() { "1" } else { "0" }.into(),
+            character_name_cn: row.chinese,
+            source: row.source,
+            aliases: String::new(),
+        })
+        .collect()
 }
 
 fn add_name_candidate(
     values: &mut std::collections::BTreeMap<String, DerivedName>,
     slug: &str,
     english: &str,
+    chinese: &str,
     source: &str,
 ) {
     if slug.is_empty() {
@@ -687,6 +725,7 @@ fn add_name_candidate(
         .or_insert_with(|| DerivedName {
             slug: slug.to_owned(),
             english: String::new(),
+            chinese: String::new(),
             source: if source.is_empty() {
                 "source".into()
             } else {
@@ -695,6 +734,9 @@ fn add_name_candidate(
         });
     if row.english.is_empty() && !english.is_empty() {
         row.english = english.into();
+    }
+    if row.chinese.is_empty() && !chinese.is_empty() {
+        row.chinese = chinese.into();
     }
 }
 
@@ -820,7 +862,10 @@ struct LatestUsageGroup<'a> {
     modes: Vec<(String, &'a CharacterRow)>,
 }
 
-fn latest_usage_view(rows: &[(&PhaseRow, &CharacterRow)]) -> (Vec<String>, Vec<Vec<String>>) {
+fn latest_usage_view(
+    rows: &[(&PhaseRow, &CharacterRow)],
+    names: &NameResolver,
+) -> (Vec<String>, Vec<Vec<String>>) {
     let mut latest_dates = std::collections::BTreeMap::<String, String>::new();
     for (phase, _) in rows {
         latest_dates
@@ -898,8 +943,8 @@ fn latest_usage_view(rows: &[(&PhaseRow, &CharacterRow)]) -> (Vec<String>, Vec<V
             headers
                 .iter()
                 .map(|header| match header.as_str() {
-                    "character_name_cn" => String::new(),
-                    "character_name_en" => first.character_name_en.clone(),
+                    "character_name_cn" => names.chinese(&slug),
+                    "character_name_en" => resolved_english(names, &slug, &first.character_name_en),
                     "character_slug" => slug.clone(),
                     "role" => first.role.clone(),
                     "max_app_rate" => csv_float(Some(maximum)),
@@ -921,7 +966,7 @@ fn latest_usage_view(rows: &[(&PhaseRow, &CharacterRow)]) -> (Vec<String>, Vec<V
     (headers, output)
 }
 
-fn top_teams_latest(rows: &[UnorderedTeam<'_>]) -> Vec<Vec<String>> {
+fn top_teams_latest(rows: &[UnorderedTeam<'_>], names: &NameResolver) -> Vec<Vec<String>> {
     let mut latest = std::collections::BTreeMap::<String, String>::new();
     for item in rows {
         let phase = item.phase;
@@ -971,7 +1016,18 @@ fn top_teams_latest(rows: &[UnorderedTeam<'_>]) -> Vec<Vec<String>> {
                 row.sub_mode.clone(),
                 row.phase_ver.clone(),
                 csv_float(row.rank),
-                row.chars.join(" / "),
+                row.chars
+                    .iter()
+                    .map(|slug| {
+                        let chinese = names.chinese(slug);
+                        if chinese.is_empty() {
+                            slug.clone()
+                        } else {
+                            chinese
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" / "),
                 csv_float(row.app_rate),
                 csv_float(row.avg_round),
                 row.source_kind.clone(),
@@ -990,7 +1046,15 @@ fn source_priority(value: &str) -> usize {
     }
 }
 
-fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
+fn resolved_english(names: &NameResolver, slug: &str, fallback: &str) -> String {
+    if fallback.is_empty() {
+        names.english(slug, fallback)
+    } else {
+        fallback.to_owned()
+    }
+}
+
+fn team_values(phase: &PhaseRow, row: &TeamRow, names: &NameResolver) -> Vec<String> {
     vec![
         phase.snapshot_id.clone(),
         phase.collect_date.clone(),
@@ -1007,10 +1071,10 @@ fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
         row.chars[1].clone(),
         row.chars[2].clone(),
         row.chars[3].clone(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
+        names.chinese(&row.chars[0]),
+        names.chinese(&row.chars[1]),
+        names.chinese(&row.chars[2]),
+        names.chinese(&row.chars[3]),
         csv_float(row.app_rate),
         csv_float(row.avg_round),
         csv_float(row.whale_count),
@@ -1024,7 +1088,7 @@ fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
     ]
 }
 
-fn character_values(phase: &PhaseRow, row: &CharacterRow) -> Vec<String> {
+fn character_values(phase: &PhaseRow, row: &CharacterRow, names: &NameResolver) -> Vec<String> {
     vec![
         phase.snapshot_id.clone(),
         phase.collect_date.clone(),
@@ -1045,8 +1109,8 @@ fn character_values(phase: &PhaseRow, row: &CharacterRow) -> Vec<String> {
         phase.start_date.clone(),
         phase.end_date.clone(),
         row.character_slug.clone(),
-        row.character_name_en.clone(),
-        String::new(),
+        resolved_english(names, &row.character_slug, &row.character_name_en),
+        names.chinese(&row.character_slug),
         row.role.clone(),
         row.rarity.clone(),
         csv_float(Some(row.app_rate)),
@@ -1064,33 +1128,99 @@ fn character_values(phase: &PhaseRow, row: &CharacterRow) -> Vec<String> {
     ]
 }
 
-fn tier_values(row: &TierRow) -> Vec<String> {
+fn tier_values(row: &TierRow, names: &NameResolver) -> Vec<String> {
     vec![
         row.tier_snapshot_id.clone(),
-        String::new(),
-        String::new(),
-        String::new(),
+        row.fetched_at.clone(),
+        row.tier_updated_at.clone(),
+        row.tier_updated_date.clone(),
         row.tier_mode.clone(),
-        String::new(),
+        row.tier_mode_cn.clone(),
         row.character_slug.clone(),
-        row.character_name_en.clone(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
+        resolved_english(names, &row.character_slug, &row.character_name_en),
+        {
+            let chinese = names.chinese(&row.character_slug);
+            if chinese.is_empty() {
+                row.character_name_cn.clone()
+            } else {
+                chinese
+            }
+        },
+        row.prydwen_category.clone(),
+        row.prydwen_role.clone(),
+        row.role_group.clone(),
+        row.role_group_cn.clone(),
         row.tier.clone(),
-        row.rating.clone(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
+        row.rating
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        python_csv_value(&row.special_rating),
+        python_csv_value(&row.tags),
+        python_csv_value(&row.marks),
+        python_csv_value(&row.is_new),
+        row.default_role.clone(),
+        row.element.clone(),
+        row.path.clone(),
+        row.rarity.clone(),
+        row.icon_url.clone(),
         row.source_url.clone(),
+    ]
+}
+
+fn changelog_values(row: &ChangelogRow) -> Vec<String> {
+    vec![
+        row.changelog_date.clone(),
+        row.source_url.clone(),
+        row.character_slugs.clone(),
+        row.text.clone(),
+    ]
+}
+
+fn chart_display_path(dataset: &HsrExportDataset, filename: &str) -> String {
+    let relative = PathBuf::from("charts")
+        .join("prydwen_tier_usage")
+        .join(filename);
+    dataset
+        .display_output_root
+        .as_ref()
+        .map(|root| root.join(&relative))
+        .unwrap_or(relative)
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn trend_values(row: &TrendRow, names: &NameResolver) -> Vec<String> {
+    vec![
+        row.tier_snapshot_id.clone(),
+        row.tier_updated_date.clone(),
+        row.tier_mode.clone(),
+        row.tier_mode_cn.clone(),
+        row.character_slug.clone(),
+        resolved_english(names, &row.character_slug, &row.character_name_en),
+        {
+            let chinese = names.chinese(&row.character_slug);
+            if chinese.is_empty() {
+                row.character_name_cn.clone()
+            } else {
+                chinese
+            }
+        },
+        row.prydwen_role.clone(),
+        row.role_group.clone(),
+        row.role_group_cn.clone(),
+        row.tier.clone(),
+        row.rating
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        python_csv_value(&row.tags),
+        python_csv_value(&row.marks),
+        row.collect_date.clone(),
+        row.phase_ver.clone(),
+        row.phase_name.clone(),
+        csv_float(Some(row.app_rate)),
+        csv_float(row.avg_round),
+        row.quality_flag.clone(),
+        row.icon_url.clone(),
     ]
 }
 
@@ -1129,8 +1259,9 @@ mod tests {
             character_slug: "topaz-and-numby".into(),
             character_name_en: "Topaz and Numby".into(),
             tier: "T1".into(),
-            rating: "1".into(),
+            rating: Some(1),
             source_url: "fixture://tier".into(),
+            ..Default::default()
         }];
         let bundle = build_minimal_export(&phase, &characters, &teams, &tiers).unwrap();
         for name in [
@@ -1256,6 +1387,7 @@ mod tests {
                     "4.3.2/histograph.json",
                 ),
             }],
+            ..Default::default()
         };
         let bundle = build_dataset_export(&dataset).unwrap();
         let phases = std::str::from_utf8(bundle.get("phase_index.csv").unwrap()).unwrap();
@@ -1340,6 +1472,7 @@ mod tests {
                 tiers: vec![],
             }],
             histograph_slices: vec![],
+            ..Default::default()
         })
         .unwrap();
         assert_eq!(csv_data_rows(&bundle, "team_rank_raw.csv"), 3);
@@ -1418,7 +1551,8 @@ mod tests {
         let old_row = parse_builds_character_rows(&fixture["builds"], "moc").remove(0);
         let mut new_row = old_row.clone();
         new_row.app_rate = 99.0;
-        let (headers, rows) = latest_usage_view(&[(&old, &old_row), (&new, &new_row)]);
+        let names = NameResolver::new(&[]);
+        let (headers, rows) = latest_usage_view(&[(&old, &old_row), (&new, &new_row)], &names);
         let rate = headers
             .iter()
             .position(|value| value == "moc_app_rate")

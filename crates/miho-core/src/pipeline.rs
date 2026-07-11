@@ -21,6 +21,7 @@ use crate::{
         parse_builds_character_rows as parse_hsr_builds,
         parse_histograph_rows as parse_hsr_histograph, parse_team_rows as parse_hsr_teams,
     },
+    hsr_enrichment::enrich_hsr_dataset,
     hsr_export::{
         build_dataset_export as build_hsr_dataset, build_minimal_export as build_hsr_export,
         HsrExportDataset, HsrExportSlice, HsrHistographSlice, TierRow,
@@ -29,6 +30,7 @@ use crate::{
     output::ArtifactBundle,
     report::finalize_export_bundle,
     source::{SnapshotSource, SourceFuture},
+    supplemental::HsrSupplementalSource,
     zzz::{
         make_phase_row as make_zzz_phase, parse_bangboo_rows as parse_zzz_bangboo,
         parse_team_rows as parse_zzz_teams, parse_usage, PhaseInput,
@@ -70,6 +72,13 @@ pub struct PipelineRun {
     pub bundle: ArtifactBundle,
     pub warnings: Vec<String>,
     pub errors: Vec<String>,
+    collected: Option<CollectedDataset>,
+}
+
+enum CollectedDataset {
+    Hsr(Box<HsrExportDataset>),
+    #[allow(dead_code)] // Consumed by the next staged supplemental integration.
+    Zzz(Box<ZzzExportDataset>),
 }
 
 impl OfflineFixture {
@@ -158,6 +167,7 @@ impl OfflineFixture {
             bundle,
             warnings,
             errors,
+            collected: None,
         })
     }
 
@@ -238,6 +248,7 @@ impl OfflineFixture {
             bundle,
             warnings,
             errors,
+            collected: None,
         })
     }
 
@@ -372,11 +383,11 @@ pub async fn run_source_export<S: SnapshotSource>(
     }
     let mut warnings = vec![];
     let mut errors = vec![];
-    let config = match source.read_json("config.json").await {
-        Ok(value) => value,
+    let (config, config_loaded) = match source.read_json("config.json").await {
+        Ok(value) => (value, true),
         Err(error) => {
             errors.push(format!("failed to load config.json: {error}"));
-            Value::Object(Default::default())
+            (Value::Object(Default::default()), false)
         }
     };
     snapshots.retain(|snapshot| {
@@ -398,15 +409,12 @@ pub async fn run_source_export<S: SnapshotSource>(
     if snapshots.is_empty() {
         warnings.push("no Hugging Face snapshots matched the requested date range".into());
     }
-    if request.features.prydwen_visible
-        || request.features.prydwen_tier
-        || request.features.official_names
-    {
-        warnings.push("supplemental Prydwen/official sources are not yet connected to the generic export pipeline".into());
-    }
-    let bundle = match request.game {
+    let (bundle, collected) = match request.game {
         Game::Hsr => {
             let mut dataset = HsrExportDataset::default();
+            if config_loaded {
+                push_hsr_raw_json(&mut dataset, "config.json", &config)?;
+            }
             for snapshot in snapshots {
                 let snapshot_tree = match source.list_tree(&snapshot).await {
                     Ok(value) => value,
@@ -432,12 +440,16 @@ pub async fn run_source_export<S: SnapshotSource>(
                 let builds_path = format!("{snapshot}/builds.json");
                 let builds = if snapshot_paths.contains(&builds_path.as_str()) {
                     match source.read_json(&builds_path).await {
-                        Ok(value) if value.is_array() => value,
-                        Ok(_) => {
-                            warnings.push(format!(
-                                "{builds_path} was not a list; skipped as character usage source"
-                            ));
-                            Value::Array(vec![])
+                        Ok(value) => {
+                            push_hsr_raw_json(&mut dataset, &builds_path, &value)?;
+                            if value.is_array() {
+                                value
+                            } else {
+                                warnings.push(format!(
+                                    "{builds_path} was not a list; skipped as character usage source"
+                                ));
+                                Value::Array(vec![])
+                            }
                         }
                         Err(error) => {
                             errors.push(error.to_string());
@@ -450,10 +462,14 @@ pub async fn run_source_export<S: SnapshotSource>(
                 let histograph_path = format!("{snapshot}/histograph.json");
                 let histograph = if snapshot_paths.contains(&histograph_path.as_str()) {
                     match source.read_json(&histograph_path).await {
-                        Ok(value) if value.is_array() => value,
-                        Ok(_) => {
-                            warnings.push(format!("{histograph_path} was not a list; skipped"));
-                            Value::Array(vec![])
+                        Ok(value) => {
+                            push_hsr_raw_json(&mut dataset, &histograph_path, &value)?;
+                            if value.is_array() {
+                                value
+                            } else {
+                                warnings.push(format!("{histograph_path} was not a list; skipped"));
+                                Value::Array(vec![])
+                            }
                         }
                         Err(error) => {
                             errors.push(error.to_string());
@@ -486,6 +502,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                         {
                             match source.read_json(&file.path).await {
                                 Ok(value) => {
+                                    push_hsr_raw_json(&mut dataset, &file.path, &value)?;
                                     let mut parsed = crate::hsr::parse_chars_file_character_rows(
                                         &value,
                                         mode.code(),
@@ -513,6 +530,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                         {
                             match source.read_json(&file.path).await {
                                 Ok(value) => {
+                                    push_hsr_raw_json(&mut dataset, &file.path, &value)?;
                                     let phase_ver = entry
                                         .pointer(&format!("/{mode}/ver"))
                                         .and_then(Value::as_str)
@@ -565,7 +583,8 @@ pub async fn run_source_export<S: SnapshotSource>(
                     });
                 }
             }
-            build_hsr_dataset(&dataset)?
+            let bundle = build_hsr_dataset(&dataset)?;
+            (bundle, CollectedDataset::Hsr(Box::new(dataset)))
         }
         Game::Zzz => {
             let mut dataset = ZzzExportDataset::default();
@@ -706,13 +725,15 @@ pub async fn run_source_export<S: SnapshotSource>(
                     });
                 }
             }
-            build_zzz_dataset(&dataset)?
+            let bundle = build_zzz_dataset(&dataset)?;
+            (bundle, CollectedDataset::Zzz(Box::new(dataset)))
         }
     };
     Ok(PipelineRun {
         bundle,
         warnings,
         errors,
+        collected: Some(collected),
     })
 }
 
@@ -725,6 +746,7 @@ pub async fn run_export_v1<S: SnapshotSource>(
         mut bundle,
         warnings,
         errors,
+        collected: _,
     } = run_source_export(source, request).await?;
     let mut diagnostics = warnings
         .into_iter()
@@ -733,6 +755,16 @@ pub async fn run_export_v1<S: SnapshotSource>(
     diagnostics.extend(errors.into_iter().map(|message| {
         diagnostic_from_message(request.game, DiagnosticSeverity::RecoverableError, message)
     }));
+    if request.features.prydwen_visible
+        || request.features.prydwen_tier
+        || request.features.official_names
+    {
+        diagnostics.push(diagnostic_from_message(
+            request.game,
+            DiagnosticSeverity::Warning,
+            "supplemental Prydwen/official sources are not yet connected to the generic export pipeline".into(),
+        ));
+    }
     let stats = finalize_export_bundle(&mut bundle, request, context, &diagnostics)?;
     Ok(ExportOutcome {
         request: request.clone(),
@@ -740,6 +772,66 @@ pub async fn run_export_v1<S: SnapshotSource>(
         diagnostics,
         stats,
     })
+}
+
+pub async fn run_hsr_export_v1<S, H>(
+    source: &S,
+    supplemental: &H,
+    request: &ExportRequest,
+    context: &ExportContext,
+) -> Result<ExportOutcome>
+where
+    S: SnapshotSource,
+    H: HsrSupplementalSource + ?Sized,
+{
+    if request.game != Game::Hsr {
+        return Err(MihoError::Unsupported(
+            "HSR export entry point requires game=hsr".into(),
+        ));
+    }
+    let PipelineRun {
+        bundle: _,
+        warnings,
+        errors,
+        collected,
+    } = run_source_export(source, request).await?;
+    let Some(CollectedDataset::Hsr(dataset)) = collected else {
+        return Err(MihoError::Unsupported(
+            "HSR pipeline did not produce an HSR dataset".into(),
+        ));
+    };
+    let mut diagnostics = warnings
+        .into_iter()
+        .map(|message| diagnostic_from_message(request.game, DiagnosticSeverity::Warning, message))
+        .collect::<Vec<_>>();
+    diagnostics.extend(errors.into_iter().map(|message| {
+        diagnostic_from_message(request.game, DiagnosticSeverity::RecoverableError, message)
+    }));
+    let mut dataset = *dataset;
+    diagnostics.extend(enrich_hsr_dataset(&mut dataset, request, context, supplemental).await);
+    let mut bundle = build_hsr_dataset(&dataset)?;
+    let stats = finalize_export_bundle(&mut bundle, request, context, &diagnostics)?;
+    Ok(ExportOutcome {
+        request: request.clone(),
+        bundle,
+        diagnostics,
+        stats,
+    })
+}
+
+fn push_hsr_raw_json(
+    dataset: &mut HsrExportDataset,
+    source_path: &str,
+    value: &Value,
+) -> Result<()> {
+    let text = serde_json::to_string_pretty(value).map_err(|source| MihoError::Json {
+        path: PathBuf::from(source_path),
+        source,
+    })?;
+    dataset
+        .raw_text_artifacts
+        .push((format!("raw/hf/{source_path}"), text));
+    Ok(())
 }
 
 fn diagnostic_from_message(
@@ -834,6 +926,7 @@ mod tests {
             WorkbookPolicy, EXPORT_REQUEST_SCHEMA_VERSION,
         },
         hf::HuggingFaceRepo,
+        hsr_supplemental::HsrFixtureSupplementalSource,
         network::{FetchMode, HttpClient},
         source::HfSnapshotSource,
     };
@@ -1052,6 +1145,7 @@ mod tests {
             fetched_at: Utc.with_ymd_and_hms(2026, 7, 12, 1, 2, 3).unwrap(),
             fetch_policy: FetchPolicy::Fixture,
             cache_root: "cache".into(),
+            output_root: "out".into(),
             existing_output_root: None,
         };
 
@@ -1077,6 +1171,121 @@ mod tests {
             .err()
             .expect("dataset identity mismatch should fail before reading the source");
         assert!(error.to_string().contains("does not match request"));
+    }
+
+    #[tokio::test]
+    async fn hsr_supplemental_fixture_enriches_the_complete_export() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.trees.insert(
+            "1.0.0".into(),
+            vec![tree_entry("1.0.0/builds.json", "file")],
+        );
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({
+                "1.0.0": {"collect_date": "2026-01-06", "moc": {"ver": "1", "name": "fixture"}}
+            }),
+        );
+        source.json.insert(
+            "1.0.0/builds.json".into(),
+            serde_json::json!([{"char": "March 7th", "app_rate_moc": 25, "avg_round_moc": 4}]),
+        );
+        let mut request = hsr_request();
+        request.features = FeatureFlags::default();
+        let seed_path =
+            std::env::temp_dir().join(format!("miho-hsr-name-seed-{}.csv", std::process::id()));
+        fs::write(
+            &seed_path,
+            b"character_slug,character_name_en,character_name_cn\nMarch 7th,Seed March,\n",
+        )
+        .unwrap();
+        request.name_map_seed = Some(seed_path.clone());
+        request.date_range = DateRange {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1),
+            to: NaiveDate::from_ymd_opt(2026, 1, 31),
+        };
+        let context = ExportContext {
+            fetched_at: Utc.with_ymd_and_hms(2026, 7, 12, 1, 2, 3).unwrap(),
+            fetch_policy: FetchPolicy::Fixture,
+            cache_root: "cache".into(),
+            output_root: "hsr-out".into(),
+            existing_output_root: None,
+        };
+        let supplemental =
+            HsrFixtureSupplementalSource::new(fixture("hsr_supplemental"), context.fetched_at);
+
+        let outcome = run_hsr_export_v1(&source, &supplemental, &request, &context)
+            .await
+            .unwrap();
+        assert!(outcome
+            .diagnostics
+            .iter()
+            .all(|item| item.code != diagnostic_code::SUPPLEMENTAL_NOT_CONNECTED));
+        assert_eq!(outcome.stats.tier_rows, 3);
+        assert_eq!(outcome.stats.tier_history_rows, 3);
+        assert_eq!(outcome.stats.changelog_rows, 1);
+        assert_eq!(outcome.stats.trend_rows, 1);
+        assert_eq!(outcome.stats.chart_rows, 1);
+        let (name_headers, names) = csv_table(&outcome.bundle, "name_map.csv");
+        let march = names
+            .iter()
+            .find(|row| field(&name_headers, row, "character_slug") == "march-7th")
+            .unwrap();
+        assert_eq!(field(&name_headers, march, "character_name_cn"), "三月七");
+        assert_eq!(
+            field(&name_headers, march, "character_name_en"),
+            "March 7th"
+        );
+        let (usage_headers, usage) = csv_table(&outcome.bundle, "character_usage_long.csv");
+        assert_eq!(
+            field(&usage_headers, &usage[0], "character_name_cn"),
+            "三月七"
+        );
+        assert_eq!(
+            field(&usage_headers, &usage[0], "character_name_en"),
+            "Seed March"
+        );
+        assert!(outcome
+            .bundle
+            .get("charts/prydwen_tier_usage/moc_sub_dps_t0_t2_usage.svg")
+            .is_some());
+        let (chart_headers, charts) = csv_table(&outcome.bundle, "prydwen_tier_charts.csv");
+        assert_eq!(
+            field(&chart_headers, &charts[0], "chart_file"),
+            PathBuf::from("hsr-out")
+                .join("charts")
+                .join("prydwen_tier_usage")
+                .join("moc_sub_dps_t0_t2_usage.svg")
+                .to_string_lossy()
+        );
+        assert!(outcome
+            .bundle
+            .get("raw/prydwen_tier/tier-list_latest.html")
+            .is_some());
+        assert!(outcome.bundle.get("raw/hf/config.json").is_some());
+        assert!(outcome.bundle.get("raw/hf/1.0.0/builds.json").is_some());
+        let report = std::str::from_utf8(outcome.bundle.get("export_report.md").unwrap()).unwrap();
+        assert!(report.contains("Prydwen 当前 T 榜行数: 3"));
+        assert!(report.contains("T0-T2 趋势图数量: 1"));
+
+        let unavailable = HsrFixtureSupplementalSource::new(
+            fixture("hsr_supplemental_missing"),
+            context.fetched_at,
+        );
+        let partial = run_hsr_export_v1(&source, &unavailable, &request, &context)
+            .await
+            .unwrap();
+        assert_eq!(partial.stats.character_rows, 1);
+        assert_eq!(partial.stats.tier_rows, 0);
+        assert!(partial.diagnostics.iter().any(|item| {
+            item.code == diagnostic_code::SUPPLEMENTAL_FETCH_FAILED
+                && item.severity == DiagnosticSeverity::Warning
+        }));
+        assert!(partial.bundle.get("raw/hf/config.json").is_some());
+        fs::remove_file(seed_path).unwrap();
     }
 
     #[tokio::test]

@@ -9,9 +9,10 @@
 - 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
 - Rust 已实现 HF 在线/离线统一 `SnapshotSource`、日期与部分失败语义、两游戏多 snapshot/mode 聚合，以及 HSR histograph/fallback、动态视图、完整队伍去重和 ZZZ Bangboo/name fallback。
-- Rust CLI 已接通 HSR/ZZZ `export`、原子写出和 0/1/2 退出码；离线 fixture 与显式关闭补充来源后的 HF 核心路径可用。Prydwen/官方名称默认开启时仍主动门禁，尚不能替代 Python 默认导出。
+- Rust CLI 已接通 HSR/ZZZ `export`、原子写出和 0/1/2 退出码；HSR 的 Prydwen visible/tier/changelog、HoYoWiki、name seed、历史、趋势、SVG 与 raw 产物已进入共享 Rust pipeline，补充来源失败只降级为结构化 warning。
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
-- 最近验证：契约 4 项、报告 1 项、pipeline 14 项、CLI 15 项定向测试通过；上一完整基线为 Rust workspace 60 项、Python 71 项和严格 clippy 全部通过。
+- HSR 的 `--prydwen-top-n` 与 `--name-map-seed` 已解除选项门禁；默认在线入口仍保留完整目录总门禁，直到 XLSX 与 visualizer 对比通过，避免过早替代 Python。
+- 最近验证：HSR 26 项、网络 7 项、CLI 17 项、Python HSR 12 项定向测试和严格 clippy 通过；上一完整基线为 Rust workspace 60 项、Python 71 项。
 - Python 仍负责 Prydwen/官方名称抓取、历史合并、Excel、正式报告、visualizer，以及 evidence、coverage、decision、pull-value、review-packet。
 
 ## 阶段路线
@@ -29,7 +30,7 @@
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 建立补充来源与导出上下文契约 | 已完成 | 主智能体 | 现有 hsr/zzz source parser、PipelineRun、报告参数 | 游戏隔离的补充资源 trait；版本化 request/receipt/failure；可信 context 与结构化 diagnostics/stats；最终报告和清单 | 契约/报告/pipeline/CLI 共 34 项定向测试；dataset 错配与未知 wire 字段被拒绝 | generic pipeline |
-| 接通 HSR 补充来源 | 进行中 | 子智能体移植、主智能体整合 | Prydwen visible/tier/changelog、Hoyowiki、name seed、top-N | HSR 默认来源生成真实 team/tier/name/history/trend，移除对应门禁 | 完整目录 Python/Rust 对比，部分来源失败仍可导出 | 补充来源契约 |
+| 接通 HSR 补充来源 | 已完成（总门禁保留） | 子智能体移植、主智能体整合 | Prydwen visible/tier/changelog、Hoyowiki、name seed、top-N | 完整 team/tier/name/history/trend/chart/raw；seed/官方边界；缓存语义校验；选项门禁解除 | HSR 26 项、Python oracle 12 项；补充源全失败仍导出 HF；XLSX/visualizer 由后续阶段解除总门禁 | 补充来源契约 |
 | 接通 ZZZ 补充来源 | 进行中 | 独立子智能体移植、主智能体整合 | Prydwen visible/tier/changelog、官方 agent/Bangboo 名称 | ZZZ 默认来源生成真实 team/tier/name/history/trend，移除对应门禁 | 完整目录 Python/Rust 对比，Bangboo 与 agent 名称覆盖 | 补充来源契约 |
 
 ## 决策记录
@@ -42,13 +43,16 @@
 | 2026-07-12 | 首发仅维护 Windows 图标和安装配置 | 删除自动生成的 Android/iOS 图标 | 正式纳入其他平台时 |
 | 2026-07-12 | Rust export 先开放 fixture/HF 核心路径，默认补充来源保持显式门禁 | 避免把缺 Prydwen/官方名称的残缺目录误报为兼容成功 | 两游戏完整目录黄金对比通过 |
 | 2026-07-12 | V1 wire 请求拒绝未知字段，运行时路径只由 Rust 构造；成功回执和失败回执分离 | 防止 CLI/Tauri 静默忽略能力或由 WebView 注入缓存/历史路径 | IPC schema 升级或新增可信输入来源时 |
+| 2026-07-12 | 外部 HTTP 2xx 也必须通过业务 payload 校验后才覆盖 last-good cache | Cloudflare challenge 与 HoYoWiki retcode 错误会回退缓存并保留原因，不污染离线基线 | 来源协议改版或引入新补充站点时 |
+| 2026-07-12 | HSR 补充选项已迁移，但默认在线入口继续受完整目录总门禁保护 | 可用 fixture/核心 API 验收真实 Rust 链路；XLSX/visualizer 未完成时不声称替代 Python | HSR 完整目录仅剩批准差异时 |
 
 ## 风险登记
 
 | 风险 | 当前状态 | 缓解措施 |
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
-| 补充来源未接通导致默认导出缺数据 | 高 | CLI 默认门禁；第九批建立 injectable source 并分别接通两游戏 |
+| ZZZ 补充来源未接通导致默认导出缺数据 | 高 | ZZZ CLI 默认门禁；完成独立 adapter、历史、名称与完整目录验证后再缩小门禁 |
+| HSR XLSX/visualizer 尚未进入 Rust 完整目录 | 高 | 保留默认在线总门禁；当前只解除已实现的 top-N/name-seed 选项门禁 |
 | 历史合并与 Excel 尚未进入统一 outcome | 高 | 报告已消费 request/context/diagnostics 并在最后刷新 manifest；后续让历史和 Workbook 在报告前完成 |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
 | Tauri 后台任务、取消和完整 visualizer 尚未迁移 | 高 | 数据与报告默认路径稳定后再接 IPC，前端不复制规则 |
@@ -128,7 +132,7 @@
 - 项目状态：本文件。
 - 兼容规则：`docs/migration-compatibility.md`。
 - Rust workspace：根目录 `Cargo.toml`。
-- 当前定向验证：`cargo test -p miho-core contract::tests; cargo test -p miho-core report::tests; cargo test -p miho-core pipeline::tests; cargo test -p miho-cli`；批次完成时仍执行 workspace、clippy 与 Python 全量回归。
+- 当前定向验证：`cargo test -p miho-core hsr_ --no-fail-fast; cargo test -p miho-core network::tests; cargo test -p miho-cli; python -m pytest -q tests/test_hsr_sources_golden.py tests/test_hsr_export_golden.py tests/test_hsr_parser_golden.py tests/test_prydwen_tier.py`；批次完成时仍执行 workspace、clippy 与 Python 全量回归。
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035\manifest.json`。
 - 最危险的未验证假设：变化中的 Prydwen/Hoyowiki 页面与历史文件能通过可注入 Rust 来源边界稳定复刻，并让两游戏默认完整目录只保留批准差异。

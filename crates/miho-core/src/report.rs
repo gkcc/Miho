@@ -45,6 +45,7 @@ impl ExportTables {
             "prydwen_tier_current.csv",
             "prydwen_tier_history.csv",
             "prydwen_tier_changelog.csv",
+            "prydwen_tier_changelog_history.csv",
             "prydwen_tier_usage_trend.csv",
             "prydwen_tier_charts.csv",
         ];
@@ -95,7 +96,14 @@ impl ExportTables {
                 .count(),
             tier_rows: self.table("prydwen_tier_current.csv").len(),
             tier_history_rows: self.table("prydwen_tier_history.csv").len(),
-            changelog_rows: self.table("prydwen_tier_changelog.csv").len(),
+            changelog_rows: {
+                let history = self.table("prydwen_tier_changelog_history.csv");
+                if history.is_empty() {
+                    self.table("prydwen_tier_changelog.csv").len()
+                } else {
+                    history.len()
+                }
+            },
             trend_rows: self.table("prydwen_tier_usage_trend.csv").len(),
             chart_rows: self.table("prydwen_tier_charts.csv").len(),
             aa_split: characters.iter().any(|row| {
@@ -353,6 +361,7 @@ mod tests {
             fetched_at: Utc.with_ymd_and_hms(2026, 7, 12, 1, 2, 3).unwrap(),
             fetch_policy: FetchPolicy::Fixture,
             cache_root: "cache".into(),
+            output_root: "out".into(),
             existing_output_root: None,
         };
         let diagnostic = Diagnostic {
