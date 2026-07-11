@@ -52,6 +52,7 @@ impl TeamRow {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn make_phase_row(
     snapshot_id: &str,
     config: &Value,

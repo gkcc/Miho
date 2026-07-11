@@ -1,0 +1,13 @@
+{
+  "phase_html": "<select><option>3.1 - 7/July/2026 (1,234 users)</option><option>3.2 - 08/Jul/2026</option><option>invalid</option></select>",
+  "agents_en": [
+    {"entry_page_id": 2, "name": "Alice\u00a0Thymefield ", "filter_values": {"agent_stats": {"values": ["Physical"]}, "agent_specialties": {"values": ["Anomaly"]}, "agent_faction": {"values": ["Sample"]}, "agent_rarity": {"values": ["S"]}}, "icon_url": "en.webp"},
+    {"entry_page_id": 9, "name": "", "filter_values": {}}
+  ],
+  "agents_zh": [
+    {"entry_page_id": 99, "name": "占位"},
+    {"entry_page_id": 2, "name": "爱丽丝", "filter_values": {"agent_stats": {"values": ["物理"]}, "agent_specialties": {"values": ["异常"]}, "agent_faction": {"values": ["测试阵营"]}}, "icon_url": "zh.webp"}
+  ],
+  "bangboo_en": [{"entry_page_id": "b2", "name": "Ultra Jake"}],
+  "bangboo_zh": [{"entry_page_id": "b1", "name": "占位邦布"}, {"entry_page_id": "b2", "name": "超极杰克"}]
+}
