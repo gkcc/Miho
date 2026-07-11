@@ -4,9 +4,23 @@ use std::{
 };
 
 use miho_core::box_state::BoxState;
-use tauri::State;
+use tauri::{Manager, State};
 
 struct WorkspaceRoot(Mutex<PathBuf>);
+
+fn select_data_root(
+    app_data: PathBuf,
+    cwd: Option<PathBuf>,
+    override_root: Option<PathBuf>,
+) -> PathBuf {
+    if let Some(root) = override_root {
+        return root;
+    }
+    if let Some(root) = cwd.filter(|path| path.join(".miho").is_dir()) {
+        return root;
+    }
+    app_data
+}
 
 fn state_path(root: &Path, game: &str) -> Result<PathBuf, String> {
     let filename = match game {
@@ -40,9 +54,15 @@ fn save_box_state(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     tauri::Builder::default()
-        .manage(WorkspaceRoot(Mutex::new(root)))
+        .setup(|app| {
+            let app_data = app.path().app_data_dir()?;
+            let cwd = std::env::current_dir().ok();
+            let override_root = std::env::var_os("MIHO_DATA_ROOT").map(PathBuf::from);
+            let root = select_data_root(app_data, cwd, override_root);
+            app.manage(WorkspaceRoot(Mutex::new(root)));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![load_box_state, save_box_state])
         .run(tauri::generate_context!())
         .expect("error while running Miho desktop");
@@ -58,5 +78,21 @@ mod tests {
             Path::new("root/.miho/zzz_box_state.json")
         );
         assert!(state_path(Path::new("root"), "other").is_err());
+    }
+
+    #[test]
+    fn explicit_data_root_wins() {
+        let root = select_data_root(
+            PathBuf::from("app-data"),
+            Some(PathBuf::from("cwd")),
+            Some(PathBuf::from("override")),
+        );
+        assert_eq!(root, PathBuf::from("override"));
+    }
+
+    #[test]
+    fn app_data_is_the_stable_default() {
+        let root = select_data_root(PathBuf::from("app-data"), None, None);
+        assert_eq!(root, PathBuf::from("app-data"));
     }
 }
