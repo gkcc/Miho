@@ -10,6 +10,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+chrono.workspace = true
 miho-core = { path = "../miho-core" }
 tokio.workspace = true
-

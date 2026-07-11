@@ -1,26 +1,37 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use anyhow::bail;
+use chrono::{Duration, Local};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "miho", version, about = "HSR and ZZZ endgame data exporter")]
 struct Cli {
-    #[arg(value_enum)]
-    game: Game,
     #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Clone, ValueEnum)]
-enum Game {
-    Hsr,
-    Zzz,
+    game: GameCommand,
 }
 
 #[derive(Subcommand)]
-enum Command {
-    Export(ExportArgs),
+enum GameCommand {
+    Hsr {
+        #[command(subcommand)]
+        command: HsrCommand,
+    },
+    Zzz {
+        #[command(subcommand)]
+        command: ZzzCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum HsrCommand {
+    Export(HsrExportArgs),
     Visualizer(VisualizerArgs),
+}
+
+#[derive(Subcommand)]
+enum ZzzCommand {
+    Export(ZzzExportArgs),
     Decision(DecisionArgs),
     Evidence(EvidenceArgs),
     Coverage(CoverageArgs),
@@ -28,55 +39,157 @@ enum Command {
     PullValue(PullValueArgs),
     #[command(name = "review-packet")]
     ReviewPacket(PullValueArgs),
+    Visualizer(VisualizerArgs),
     Serve(ServeArgs),
 }
 
-#[derive(Args)]
-struct ExportArgs {
-    #[arg(long)]
-    from_date: Option<String>,
-    #[arg(long)]
-    to_date: Option<String>,
-    #[arg(long, default_value = "out")]
-    out: PathBuf,
-    #[arg(long)]
-    modes: Option<String>,
-    #[arg(long)]
-    repo_id: Option<String>,
-    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+#[derive(Args, Default)]
+struct ExportToggles {
+    #[arg(long, action = clap::ArgAction::SetTrue, conflicts_with = "no_include_teams")]
     include_teams: bool,
-    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    #[arg(long = "no-include-teams", action = clap::ArgAction::SetTrue)]
+    no_include_teams: bool,
+    #[arg(long, action = clap::ArgAction::SetTrue, conflicts_with = "no_include_prydwen_visible")]
     include_prydwen_visible: bool,
-    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    #[arg(long = "no-include-prydwen-visible", action = clap::ArgAction::SetTrue)]
+    no_include_prydwen_visible: bool,
+    #[arg(long, action = clap::ArgAction::SetTrue, conflicts_with = "no_include_prydwen_tier")]
     include_prydwen_tier: bool,
-    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    #[arg(long = "no-include-prydwen-tier", action = clap::ArgAction::SetTrue)]
+    no_include_prydwen_tier: bool,
+    #[arg(long, action = clap::ArgAction::SetTrue, conflicts_with = "no_official_name_map")]
     official_name_map: bool,
-    #[arg(long, default_value_t = 20)]
-    prydwen_top_n: usize,
+    #[arg(long = "no-official-name-map", action = clap::ArgAction::SetTrue)]
+    no_official_name_map: bool,
+}
+
+impl ExportToggles {
+    fn values(&self) -> [bool; 4] {
+        [
+            !self.no_include_teams,
+            !self.no_include_prydwen_visible,
+            !self.no_include_prydwen_tier,
+            !self.no_official_name_map,
+        ]
+    }
+}
+
+#[derive(Args)]
+struct HsrExportArgs {
+    #[command(flatten)]
+    common: ExportCommon,
+    #[command(flatten)]
+    toggles: ExportToggles,
     #[arg(long)]
     name_map_seed: Option<PathBuf>,
 }
 
 #[derive(Args)]
-struct VisualizerArgs {
-    #[arg(long, default_value = "out")]
-    out: PathBuf,
+struct ZzzExportArgs {
+    #[command(flatten)]
+    common: ExportCommon,
+    #[command(flatten)]
+    toggles: ExportToggles,
 }
+
+#[derive(Args)]
+struct ExportCommon {
+    #[arg(long)]
+    from_date: Option<String>,
+    #[arg(long)]
+    to_date: Option<String>,
+    #[arg(long)]
+    out: Option<PathBuf>,
+    #[arg(long)]
+    modes: Option<String>,
+    #[arg(long)]
+    repo_id: Option<String>,
+    #[arg(long)]
+    prydwen_top_n: Option<usize>,
+}
+
+#[derive(Debug, PartialEq)]
+struct EffectiveExport {
+    from_date: String,
+    to_date: String,
+    out: PathBuf,
+    modes: String,
+    repo_id: String,
+    prydwen_top_n: usize,
+    toggles: [bool; 4],
+}
+
+impl ExportCommon {
+    fn effective(&self, defaults: (&str, &str, &str), toggles: &ExportToggles) -> EffectiveExport {
+        let today = Local::now().date_naive();
+        EffectiveExport {
+            from_date: self
+                .from_date
+                .clone()
+                .unwrap_or_else(|| (today - Duration::days(183)).to_string()),
+            to_date: self.to_date.clone().unwrap_or_else(|| today.to_string()),
+            out: self
+                .out
+                .clone()
+                .unwrap_or_else(|| PathBuf::from(defaults.0)),
+            modes: self.modes.clone().unwrap_or_else(|| defaults.1.to_owned()),
+            repo_id: self
+                .repo_id
+                .clone()
+                .unwrap_or_else(|| defaults.2.to_owned()),
+            prydwen_top_n: self.prydwen_top_n.unwrap_or(100),
+            toggles: toggles.values(),
+        }
+    }
+}
+
+impl HsrExportArgs {
+    fn effective(&self) -> EffectiveExport {
+        self.common.effective(
+            (
+                "./hsr_endgame_export",
+                "moc,pf,as,aa",
+                "LvlUrArti/MocDataProcessed",
+            ),
+            &self.toggles,
+        )
+    }
+}
+
+impl ZzzExportArgs {
+    fn effective(&self) -> EffectiveExport {
+        self.common.effective(
+            (
+                "./zzz_endgame_export",
+                "sd,da",
+                "LvlUrArti/ShiyuDataProcessed",
+            ),
+            &self.toggles,
+        )
+    }
+}
+
+#[derive(Args)]
+struct VisualizerArgs {
+    #[arg(long)]
+    out: Option<PathBuf>,
+}
+
 #[derive(Args)]
 struct DecisionArgs {
     #[arg(long = "box")]
     box_path: PathBuf,
-    #[arg(long, default_value = "out_zzz")]
+    #[arg(long, default_value = "./zzz_endgame_export")]
     out: PathBuf,
-    #[arg(long)]
-    rules: Option<PathBuf>,
+    #[arg(long, default_value = "./configs/zzz_decision_rules.yaml")]
+    rules: PathBuf,
 }
 
 #[derive(Args)]
 struct EvidenceArgs {
     #[arg(long = "box")]
     box_path: PathBuf,
-    #[arg(long, default_value = "out_zzz")]
+    #[arg(long, default_value = "./zzz_endgame_export")]
     out: PathBuf,
     #[arg(long)]
     planned_slugs: Option<String>,
@@ -88,17 +201,25 @@ struct EvidenceArgs {
     output: Option<PathBuf>,
     #[arg(long, default_value_t = 0)]
     limit: usize,
-    #[arg(long)]
-    min_a_app_rate: Option<String>,
-    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    #[arg(long, default_value = "10.0")]
+    min_a_app_rate: String,
+    #[arg(long, action = clap::ArgAction::SetTrue, conflicts_with = "no_include_missing")]
     include_missing: bool,
+    #[arg(long = "no-include-missing", action = clap::ArgAction::SetTrue)]
+    no_include_missing: bool,
+}
+
+impl EvidenceArgs {
+    fn effective_include_missing(&self) -> bool {
+        self.include_missing && !self.no_include_missing
+    }
 }
 
 #[derive(Args)]
 struct CoverageArgs {
     #[arg(long = "box")]
     box_path: PathBuf,
-    #[arg(long, default_value = "out_zzz")]
+    #[arg(long, default_value = "./zzz_endgame_export")]
     out: PathBuf,
     #[arg(long)]
     planned_slugs: Option<String>,
@@ -108,8 +229,8 @@ struct CoverageArgs {
     plan_status: String,
     #[arg(long, default_value_t = 0)]
     limit: usize,
-    #[arg(long)]
-    min_a_app_rate: Option<String>,
+    #[arg(long, default_value = "10.0")]
+    min_a_app_rate: String,
     #[arg(long)]
     aggregate_output: Option<PathBuf>,
     #[arg(long)]
@@ -122,18 +243,18 @@ struct CoverageArgs {
 struct PullValueArgs {
     #[arg(long = "box")]
     box_path: PathBuf,
-    #[arg(long, default_value = "out_zzz")]
+    #[arg(long, default_value = "./zzz_endgame_export")]
     out: PathBuf,
-    #[arg(long)]
-    plan: Option<PathBuf>,
-    #[arg(long, default_value = "next")]
+    #[arg(long, default_value = "./configs/zzz_banner_plan.json")]
+    plan: PathBuf,
+    #[arg(long, default_value = "current,next")]
     plan_status: String,
     #[arg(long)]
     planned_slugs: Option<String>,
     #[arg(long)]
     mechanism_notes_dir: Option<PathBuf>,
-    #[arg(long)]
-    decision_baseline: Option<PathBuf>,
+    #[arg(long, default_value = "./configs/zzz_decision_baseline.json")]
+    decision_baseline: PathBuf,
     #[arg(long)]
     output: Option<PathBuf>,
 }
@@ -149,33 +270,125 @@ struct ServeArgs {
 }
 
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-    validate_command(&cli)?;
-    anyhow::bail!("this command's Rust implementation is registered but not yet enabled; use the Python compatibility command during staged migration")
+    execute(Cli::parse())
 }
 
-fn validate_command(cli: &Cli) -> anyhow::Result<()> {
-    let zzz_only = matches!(
-        cli.command,
-        Command::Decision(_)
-            | Command::Evidence(_)
-            | Command::Coverage(_)
-            | Command::PullValue(_)
-            | Command::ReviewPacket(_)
-            | Command::Serve(_)
-    );
-    if zzz_only && !matches!(cli.game, Game::Zzz) {
-        anyhow::bail!("command is only available for zzz");
-    }
-    Ok(())
+fn execute(_cli: Cli) -> anyhow::Result<()> {
+    bail!("this command's Rust implementation is registered but not yet enabled; use the Python compatibility command during staged migration")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
     #[test]
     fn command_tree_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn game_help_exposes_only_valid_commands() {
+        let mut command = Cli::command();
+        let hsr = command.find_subcommand_mut("hsr").unwrap();
+        let hsr_names = hsr
+            .get_subcommands()
+            .map(|v| v.get_name())
+            .collect::<Vec<_>>();
+        assert_eq!(hsr_names, ["export", "visualizer"]);
+        let zzz = Cli::command();
+        let zzz_names = zzz
+            .find_subcommand("zzz")
+            .unwrap()
+            .get_subcommands()
+            .map(|v| v.get_name())
+            .collect::<Vec<_>>();
+        assert!(zzz_names.contains(&"decision") && zzz_names.contains(&"serve"));
+    }
+
+    #[test]
+    fn export_defaults_match_python_contract() {
+        let hsr = Cli::try_parse_from(["miho", "hsr", "export"]).unwrap();
+        let GameCommand::Hsr {
+            command: HsrCommand::Export(args),
+        } = hsr.game
+        else {
+            panic!("expected HSR export")
+        };
+        let effective = args.effective();
+        assert_eq!(effective.out, PathBuf::from("./hsr_endgame_export"));
+        assert_eq!(effective.modes, "moc,pf,as,aa");
+        assert_eq!(effective.repo_id, "LvlUrArti/MocDataProcessed");
+        assert_eq!(effective.prydwen_top_n, 100);
+        assert_eq!(effective.toggles, [true; 4]);
+
+        let zzz = Cli::try_parse_from(["miho", "zzz", "export"]).unwrap();
+        let GameCommand::Zzz {
+            command: ZzzCommand::Export(args),
+        } = zzz.game
+        else {
+            panic!("expected ZZZ export")
+        };
+        let effective = args.effective();
+        assert_eq!(effective.out, PathBuf::from("./zzz_endgame_export"));
+        assert_eq!(effective.modes, "sd,da");
+        assert_eq!(effective.repo_id, "LvlUrArti/ShiyuDataProcessed");
+        assert_eq!(effective.prydwen_top_n, 100);
+    }
+
+    #[test]
+    fn python_style_boolean_pairs_are_supported_and_conflict() {
+        let cli = Cli::try_parse_from(["miho", "zzz", "export", "--no-include-teams"]).unwrap();
+        let GameCommand::Zzz {
+            command: ZzzCommand::Export(args),
+        } = cli.game
+        else {
+            panic!("expected export")
+        };
+        assert!(!args.effective().toggles[0]);
+        assert!(Cli::try_parse_from([
+            "miho",
+            "zzz",
+            "export",
+            "--include-teams",
+            "--no-include-teams"
+        ])
+        .is_err());
+
+        let cli = Cli::try_parse_from(["miho", "zzz", "evidence", "--box", "box.json"]).unwrap();
+        let GameCommand::Zzz {
+            command: ZzzCommand::Evidence(args),
+        } = cli.game
+        else {
+            panic!("expected evidence")
+        };
+        assert!(!args.effective_include_missing());
+    }
+
+    #[test]
+    fn zzz_report_defaults_match_python_contract() {
+        let cli = Cli::try_parse_from(["miho", "zzz", "pull-value", "--box", "box.json"]).unwrap();
+        let GameCommand::Zzz {
+            command: ZzzCommand::PullValue(args),
+        } = cli.game
+        else {
+            panic!("expected pull-value")
+        };
+        assert_eq!(args.out, PathBuf::from("./zzz_endgame_export"));
+        assert_eq!(args.plan, PathBuf::from("./configs/zzz_banner_plan.json"));
+        assert_eq!(args.plan_status, "current,next");
+        assert_eq!(
+            args.decision_baseline,
+            PathBuf::from("./configs/zzz_decision_baseline.json")
+        );
+    }
+
+    #[test]
+    fn unported_command_keeps_explicit_gate() {
+        let cli = Cli::try_parse_from(["miho", "zzz", "export"]).unwrap();
+        assert!(execute(cli)
+            .unwrap_err()
+            .to_string()
+            .contains("not yet enabled"));
     }
 }
