@@ -9,6 +9,7 @@ pub mod hsr_sources;
 pub mod network;
 pub mod normalize;
 pub mod output;
+pub mod pipeline;
 pub mod zzz;
 pub mod zzz_export;
 pub mod zzz_sources;

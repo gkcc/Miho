@@ -1,0 +1,1 @@
+{"schema_version":1,"game":"hsr","repo_id":"LvlUrArti/MocDataProcessed","revision":"main","root_tree":[{"type":"directory","path":"4.3.2"}],"trees":{"4.3.2":[{"type":"file","path":"4.3.2/builds.json"}],"4.3.2/moc/comps":[{"type":"file","path":"4.3.2/moc/comps/stage_1_combined.json"}]},"list_failures":{},"download_failures":{}}
