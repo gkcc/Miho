@@ -35,7 +35,7 @@ impl ArtifactBundle {
         let path = validate_relative(path.as_ref())?;
         let mut writer = csv::WriterBuilder::new()
             .terminator(csv::Terminator::CRLF)
-            .from_writer(vec![]);
+            .from_writer(vec![0xEF, 0xBB, 0xBF]);
         writer.write_record(headers)?;
         for row in rows {
             let values = row
@@ -100,6 +100,19 @@ impl ArtifactBundle {
     }
 }
 
+pub fn csv_float(value: Option<f64>) -> String {
+    let Some(value) = value else {
+        return String::new();
+    };
+    let text = format!("{value:.6}");
+    let trimmed = text.trim_end_matches('0').trim_end_matches('.');
+    if trimmed == "-0" {
+        "0".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
 fn validate_relative(path: &Path) -> Result<PathBuf> {
     if path.as_os_str().is_empty()
         || path.is_absolute()
@@ -122,10 +135,13 @@ mod tests {
         bundle
             .add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>("tables/empty.csv", &["a", "b"], vec![])
             .unwrap();
-        assert_eq!(bundle.get("tables/empty.csv"), Some(&b"a,b\r\n"[..]));
+        assert_eq!(
+            bundle.get("tables/empty.csv"),
+            Some(&b"\xEF\xBB\xBFa,b\r\n"[..])
+        );
         let manifest = bundle.manifest();
         assert_eq!(manifest[0].path, "tables/empty.csv");
-        assert_eq!(manifest[0].bytes, 5);
+        assert_eq!(manifest[0].bytes, 8);
         assert_eq!(manifest[0].sha256.len(), 64);
     }
 
@@ -143,5 +159,13 @@ mod tests {
                 actual: 1
             })
         ));
+    }
+
+    #[test]
+    fn float_cells_match_python_rounding_contract() {
+        assert_eq!(csv_float(None), "");
+        assert_eq!(csv_float(Some(12.3456789)), "12.345679");
+        assert_eq!(csv_float(Some(12.0)), "12");
+        assert_eq!(csv_float(Some(-0.0)), "0");
     }
 }
