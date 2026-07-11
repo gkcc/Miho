@@ -8,9 +8,9 @@
 
 - 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
-- Rust 已实现配置加载、Python 等价 parser/source、缓存与分类重试、两游戏核心及主要派生表，并可从显式 offline manifest/raw 构建单 snapshot/mode bundle；Tauri 已打通 HSR/ZZZ Box 读写。
+- Rust 已实现 Python 等价 parser/source、网络缓存、两游戏多 snapshot/mode 聚合 exporter、offline fixture pipeline，以及统一在线/离线 `SnapshotSource`；Tauri 已打通 HSR/ZZZ Box 读写。
 - Rust CLI 已按游戏拆分命令树并对齐默认值、布尔双旗标和帮助面；所有业务命令仍处于迁移门禁，不能替代 Python。
-- 最近验证：第六批 HSR/ZZZ exporter Python 3 项、Rust exporter 2 项、offline pipeline 2 项及 clippy 严格检查通过。
+- 最近验证：HSR/ZZZ 聚合测试各 2 项、SnapshotSource 本地 HTTP/离线测试 2 项、Python exporter oracle 4 项及 clippy 严格检查通过。
 - Python 仍负责全部抓取、解析、证据池、覆盖率、决策、抽取价值、报告和正式导出。
 
 ## 阶段路线
@@ -23,13 +23,13 @@
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
-## 当前三目标（第七批）
+## 当前三目标（第八批）
 
 | 子目标 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- |
-| 重构多 snapshot/mode 聚合模型 | 主智能体 | 单切片 parser/exporter | 两游戏 `ExportDataset` 聚合阶段、usage、team、tier/name 后一次性生成 bundle | 两版本、多模式离线黄金测试 | 当前单切片 bundle |
-| 实现在线 HF 数据源适配器 | 子智能体 | CachedHttpClient、HuggingFaceRepo、offline source 接口 | tree/list/download/cache 共用 trait；在线与离线使用同一 pipeline | 本地 HTTP 端到端测试 | 网络与 HF 客户端 |
-| 补齐剩余产物及 Excel 可选边界 | 独立子智能体 | Python 全文件清单、聚合 dataset | HSR histograph/latest/top teams；Excel 缺依赖时明确可选结果；两游戏空集合全表输出 | 完整文件清单测试 | 聚合模型 |
+| 让 generic pipeline 消费 SnapshotSource | 主智能体 | source trait、聚合 dataset、日期/mode 规则 | 异步发现全部 snapshot/mode、警告/错误收集、构建单一聚合 bundle | 在线本地 HTTP 与离线多版本同结果 | 聚合模型与 source trait |
+| 补齐 HSR 剩余表格及空目录契约 | 子智能体 | histograph、dynamic summary、完整文件审计 | histograph、latest_usage_cn、top_teams_latest；两游戏空输入完整表集合 | Python/Rust 文件集合与字节测试 | 聚合 dataset |
+| 接通并门禁 Rust CLI export | 独立子智能体准备集成测试，主智能体整合 | generic pipeline、有效 CLI 默认值 | HSR/ZZZ export 写目标目录；成功0、业务失败1、参数失败2；未完成能力明确 warning | CLI 临时目录端到端测试 | 前两目标全部通过 |
 
 ## 决策记录
 
@@ -101,6 +101,14 @@
 - 失败原因：最初的 `build_minimal_*` API 以验证垂直切片为目标，继续叠加会导致每个 mode 单独创建并覆盖相同文件。
 - 调整：保持 CLI 门禁。第七批先引入聚合 dataset 和通用 source trait，再补全剩余文件；只有完整目录测试通过才启用 export。
 - 下一批：多 snapshot/mode 聚合、在线 HF adapter、剩余产物与 Excel 可选边界。
+
+### 复盘 7：聚合模型与统一数据源（2026-07-12）
+
+- 完成：HSR/ZZZ exporter 新增 dataset/slice API，跨 snapshot/mode 统一计算 latest、team dedup、name 与 tier；旧单切片 API 保留包装。新增 `SnapshotSource`，在线 HF 与离线缓存共用 tree/raw 接口，并以本地 HTTP 验证缓存落盘。
+- 偏差：原计划一个“聚合模型”目标实际需要分别重构两套 exporter，形成两个独立子目标，因此剩余文件与 Excel 没有在本批实现。
+- 失败原因：HSR/ZZZ 的列、队伍签名和派生规则不同，强行放在一个共享实现会重演早期命令树泄漏问题。
+- 调整：接受两套聚合实现、共享 source/output 边界。下一批 generic pipeline 必须真正基于 trait 执行，而非保留当前 OfflineFixture 专用路径；CLI export 仅在完整表集合通过后解锁。
+- 下一批：generic pipeline、剩余 HSR/空目录产物、CLI export 门禁解除。
 
 ## 恢复入口
 
