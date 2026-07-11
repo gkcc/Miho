@@ -8,9 +8,9 @@
 
 - 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
-- Rust 已实现配置加载、Box State v2、Python 等价 parser/source、缓存与分类重试，以及 HSR/ZZZ 四张核心表的离线黄金 bundle；Tauri 已打通 HSR/ZZZ Box 读写，并采用稳定应用数据目录。
+- Rust 已实现配置加载、Python 等价 parser/source、缓存与分类重试、两游戏核心及主要派生表，并可从显式 offline manifest/raw 构建单 snapshot/mode bundle；Tauri 已打通 HSR/ZZZ Box 读写。
 - Rust CLI 已按游戏拆分命令树并对齐默认值、布尔双旗标和帮助面；所有业务命令仍处于迁移门禁，不能替代 Python。
-- 最近验证：workspace 30 项 Rust 测试全部通过；本批 Python oracle 8 项通过；格式检查通过。
+- 最近验证：第六批 HSR/ZZZ exporter Python 3 项、Rust exporter 2 项、offline pipeline 2 项及 clippy 严格检查通过。
 - Python 仍负责全部抓取、解析、证据池、覆盖率、决策、抽取价值、报告和正式导出。
 
 ## 阶段路线
@@ -23,13 +23,13 @@
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
-## 当前三目标（第六批）
+## 当前三目标（第七批）
 
 | 子目标 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- |
-| 完成 HSR 派生表与报告 | 子智能体 | Python exporter/report、HSR bundle | latest、ordered/unordered team、name map、tier history/trend、overview/report | Python/Rust 目录黄金对比 | HSR 核心四表 |
-| 完成 ZZZ 派生表与报告 | 独立子智能体 | Python exporter、ZZZ bundle | latest、dedup、name unresolved、tier history/trend、report | Python/Rust 目录黄金对比 | ZZZ 核心四表 |
-| 建立缓存快照到 bundle 的离线编排 | 主智能体 | HF tree/cache、两游戏 parser/source/exporter | 发现固定 snapshot、读取 raw、构建完整 bundle、缺文件警告与失败边界 | 临时目录端到端测试 | 两游戏完整产物集合 |
+| 重构多 snapshot/mode 聚合模型 | 主智能体 | 单切片 parser/exporter | 两游戏 `ExportDataset` 聚合阶段、usage、team、tier/name 后一次性生成 bundle | 两版本、多模式离线黄金测试 | 当前单切片 bundle |
+| 实现在线 HF 数据源适配器 | 子智能体 | CachedHttpClient、HuggingFaceRepo、offline source 接口 | tree/list/download/cache 共用 trait；在线与离线使用同一 pipeline | 本地 HTTP 端到端测试 | 网络与 HF 客户端 |
+| 补齐剩余产物及 Excel 可选边界 | 独立子智能体 | Python 全文件清单、聚合 dataset | HSR histograph/latest/top teams；Excel 缺依赖时明确可选结果；两游戏空集合全表输出 | 完整文件清单测试 | 聚合模型 |
 
 ## 决策记录
 
@@ -93,6 +93,14 @@
 - 失败原因：把“数值相等”误当作“CSV 表示兼容”，且子智能体的 ZZZ fixture 只验证列名，没有真正调用 Python exporter 生成值。
 - 调整：坚持字节级固定输入比较，不再接受只检查文件存在或表头。当前仍是最小 bundle，不解除 CLI export 门禁；第六批补齐派生表和目录编排。
 - 下一批：HSR 派生表、ZZZ 派生表、缓存快照到完整 bundle 的离线编排。
+
+### 复盘 6：派生表与离线编排（2026-07-12）
+
+- 完成：HSR 增加 latest、两类 team dedup、name map、tier 派生、overview/report；ZZZ 增加 latest、dedup、unresolved、tier 空表/report；引入带 schema、tree、failure 模拟和安全 raw 路径的 offline pipeline。
+- 偏差：HSR 派生表当前只对 Python 冻结了表头/行数，并非所有文件都有字节 fixture；offline pipeline 目前一次只构建单 snapshot/mode，不能直接承载正式 CLI 的多版本合并。
+- 失败原因：最初的 `build_minimal_*` API 以验证垂直切片为目标，继续叠加会导致每个 mode 单独创建并覆盖相同文件。
+- 调整：保持 CLI 门禁。第七批先引入聚合 dataset 和通用 source trait，再补全剩余文件；只有完整目录测试通过才启用 export。
+- 下一批：多 snapshot/mode 聚合、在线 HF adapter、剩余产物与 Excel 可选边界。
 
 ## 恢复入口
 
