@@ -65,6 +65,7 @@ pub struct TeamRow {
     pub app_rate: Option<f64>,
     pub avg_score: Option<f64>,
     pub raw_index: usize,
+    pub raw_json: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -136,12 +137,13 @@ pub fn scope_label(mode: &str, scope: &str) -> (String, String) {
     (normalized.clone(), normalized)
 }
 
-pub fn parse_team_rows(teams: Vec<TeamInput>, mode: &str, scope: &str) -> Vec<TeamRow> {
+pub fn parse_team_rows(teams: Vec<Value>, mode: &str, scope: &str) -> Vec<TeamRow> {
     let (sub_mode, sub_mode_cn) = scope_label(mode, scope);
     teams
         .into_iter()
         .enumerate()
-        .filter_map(|(offset, item)| {
+        .filter_map(|(offset, raw)| {
+            let item: TeamInput = serde_json::from_value(raw.clone()).ok()?;
             let chars = [item.char_1?, item.char_2?, item.char_3?].map(|v| character_slug(&v));
             if chars.iter().any(|v| v.is_empty() || v == "-") {
                 return None;
@@ -162,6 +164,7 @@ pub fn parse_team_rows(teams: Vec<TeamInput>, mode: &str, scope: &str) -> Vec<Te
                 app_rate: percent(&item.app_rate),
                 avg_score: number(&item.avg_round),
                 raw_index: index,
+                raw_json: serde_json::to_string(&raw).unwrap_or_default(),
             })
         })
         .collect()

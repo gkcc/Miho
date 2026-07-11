@@ -10,6 +10,7 @@ pub mod network;
 pub mod normalize;
 pub mod output;
 pub mod zzz;
+pub mod zzz_export;
 pub mod zzz_sources;
 
 pub use error::{MihoError, Result};
