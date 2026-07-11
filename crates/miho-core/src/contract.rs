@@ -208,6 +208,7 @@ pub struct ExportContext {
     pub cache_root: PathBuf,
     pub output_root: PathBuf,
     pub existing_output_root: Option<PathBuf>,
+    pub zzz_phase_overrides: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]

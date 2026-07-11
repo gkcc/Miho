@@ -19,7 +19,11 @@ pub mod report;
 pub mod source;
 pub mod supplemental;
 pub mod zzz;
+pub mod zzz_enrichment;
 pub mod zzz_export;
+pub mod zzz_history;
+pub mod zzz_prydwen;
 pub mod zzz_sources;
+pub mod zzz_supplemental;
 
 pub use error::{MihoError, Result};

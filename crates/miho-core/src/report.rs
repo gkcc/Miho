@@ -363,6 +363,7 @@ mod tests {
             cache_root: "cache".into(),
             output_root: "out".into(),
             existing_output_root: None,
+            zzz_phase_overrides: None,
         };
         let diagnostic = Diagnostic {
             severity: DiagnosticSeverity::Warning,

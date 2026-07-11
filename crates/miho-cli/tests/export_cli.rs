@@ -39,6 +39,12 @@ fn export(game: &str, fixture_path: Option<&Path>, out: &Path) -> Output {
                 "MIHO_HSR_SUPPLEMENTAL_FIXTURE",
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/hsr_supplemental"),
             );
+        } else if game == "zzz" {
+            command.env(
+                "MIHO_ZZZ_SUPPLEMENTAL_FIXTURE",
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../tests/fixtures/zzz_supplemental_source"),
+            );
         }
     } else {
         command.env_remove("MIHO_OFFLINE_FIXTURE");
@@ -99,6 +105,14 @@ fn zzz_offline_export_writes_complete_core_set() {
             "name_map.csv",
             "name_map_unresolved.csv",
             "prydwen_tier_current.csv",
+            "prydwen_tier_history.csv",
+            "prydwen_tier_changelog.csv",
+            "prydwen_tier_changelog_history.csv",
+            "prydwen_tier_usage_trend.csv",
+            "raw/prydwen/sd.html",
+            "raw/prydwen_tier/tier-list_latest.html",
+            "raw/hoyowiki/zzz_agents_zh-cn.json",
+            "raw/hoyowiki/zzz_bangboo_en-us.json",
             "export_report.md",
             "artifact_manifest.json",
         ],
@@ -136,15 +150,36 @@ fn unknown_argument_keeps_clap_exit_two() {
 }
 
 #[test]
-fn zzz_default_online_export_is_gated_before_network_for_supplemental_sources() {
+fn zzz_default_online_export_keeps_the_complete_directory_gate() {
     let out = temp_output("online-gate");
     let result = export("zzz", None, &out);
     assert_eq!(result.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(stderr.starts_with("export failed: "));
-    assert!(stderr.contains("prydwen-visible"));
-    assert!(stderr.contains("prydwen-tier"));
-    assert!(stderr.contains("official-name-map"));
+    assert!(stderr.contains("XLSX and visualizer"));
+    assert!(!stderr.contains("not yet migrated"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn zzz_hf_only_online_export_also_keeps_the_product_level_gate() {
+    let out = temp_output("zzz-hf-only-online-gate");
+    let result = Command::new(binary())
+        .args([
+            "zzz",
+            "export",
+            "--no-include-prydwen-visible",
+            "--no-include-prydwen-tier",
+            "--no-official-name-map",
+            "--out",
+        ])
+        .arg(&out)
+        .env_remove("MIHO_OFFLINE_FIXTURE")
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(stderr.contains("XLSX and visualizer"));
     assert!(!out.exists());
 }
 
@@ -175,17 +210,26 @@ fn invalid_date_is_a_business_error() {
 }
 
 #[test]
-fn explicitly_unimplemented_export_options_do_not_succeed_silently() {
-    let out = temp_output("unsupported-option");
+fn zzz_migrated_top_n_is_accepted() {
+    let out = temp_output("zzz-top-n");
     let result = Command::new(binary())
         .args(["zzz", "export", "--prydwen-top-n", "7", "--out"])
         .arg(&out)
         .env("MIHO_OFFLINE_FIXTURE", fixture("zzz"))
+        .env(
+            "MIHO_ZZZ_SUPPLEMENTAL_FIXTURE",
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/zzz_supplemental_source"),
+        )
         .output()
         .unwrap();
-    assert_eq!(result.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&result.stderr).contains("--prydwen-top-n"));
-    assert!(!out.exists());
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(out.join("raw/prydwen/sd.html").is_file());
+    fs::remove_dir_all(out).unwrap();
 }
 
 #[test]

@@ -1,0 +1,133 @@
+{
+  "existing_tier": [
+    {
+      "tier_snapshot_id": "1",
+      "fetched_at": "2026-07-11T00:00:00",
+      "tier_updated_at": "01/January/2026",
+      "tier_updated_date": "2026-01-01",
+      "tier_mode": "sd",
+      "tier_mode_cn": "式舆防卫",
+      "character_slug": "alice",
+      "character_name_en": "Alice",
+      "character_name_cn": "",
+      "prydwen_category": "CritDPS",
+      "prydwen_role": "直伤主C",
+      "role_group": "crit_dps",
+      "role_group_cn": "直伤主C",
+      "tier": "T1",
+      "rating": "9",
+      "tags": "old",
+      "marks": "",
+      "is_new": "",
+      "element": "Physical",
+      "element_cn": "物理",
+      "style": "Attack",
+      "style_cn": "强攻",
+      "faction": "Sample",
+      "rarity": "S",
+      "icon_url": "old.webp",
+      "source_url": "https://example.com/tier"
+    }
+  ],
+  "current_tier": [
+    {
+      "tier_snapshot_id": "1",
+      "fetched_at": "2026-07-12T00:00:00",
+      "tier_updated_at": "01/January/2026",
+      "tier_updated_date": "2026-01-01",
+      "tier_mode": "sd",
+      "tier_mode_cn": "式舆防卫",
+      "character_slug": "alice",
+      "character_name_en": "Alice",
+      "character_name_cn": "爱丽丝",
+      "prydwen_category": "CritDPS",
+      "prydwen_role": "直伤主C",
+      "role_group": "crit_dps",
+      "role_group_cn": "直伤主C",
+      "tier": "T0.5",
+      "rating": "10",
+      "tags": "buffed",
+      "marks": "up",
+      "is_new": "",
+      "element": "Physical",
+      "element_cn": "物理",
+      "style": "Attack",
+      "style_cn": "强攻",
+      "faction": "Sample",
+      "rarity": "S",
+      "icon_url": "new.webp",
+      "source_url": "https://example.com/tier"
+    },
+    {
+      "tier_snapshot_id": "1",
+      "fetched_at": "2026-07-12T00:00:00",
+      "tier_updated_at": "01/January/2026",
+      "tier_updated_date": "2026-01-01",
+      "tier_mode": "sd",
+      "tier_mode_cn": "式舆防卫",
+      "character_slug": "alice",
+      "character_name_en": "Alice",
+      "character_name_cn": "爱丽丝",
+      "prydwen_category": "Support",
+      "prydwen_role": "辅助",
+      "role_group": "support",
+      "role_group_cn": "辅助",
+      "tier": "T1",
+      "rating": "9",
+      "tags": "utility",
+      "marks": "",
+      "is_new": "",
+      "element": "Physical",
+      "element_cn": "物理",
+      "style": "Attack",
+      "style_cn": "强攻",
+      "faction": "Sample",
+      "rarity": "S",
+      "icon_url": "new.webp",
+      "source_url": "https://example.com/tier"
+    }
+  ],
+  "changelog": [
+    {
+      "changelog_date": "2026-01-02",
+      "source_url": "x",
+      "character_slugs": "alice",
+      "text": "buff"
+    }
+  ],
+  "usage": [
+    {
+      "mode": "sd",
+      "sub_mode": "all",
+      "character_slug": "alice",
+      "collect_date": "2026-02-01",
+      "phase_ver": "2",
+      "phase_name": "phase 2",
+      "app_rate": "20",
+      "avg_score": "200",
+      "quality_flag": "ok"
+    },
+    {
+      "mode": "sd",
+      "sub_mode": "all",
+      "character_slug": "alice",
+      "collect_date": "2026-01-01",
+      "phase_ver": "1",
+      "phase_name": "phase 1",
+      "app_rate": "10",
+      "avg_score": "100",
+      "quality_flag": "ok"
+    },
+    {
+      "mode": "sd",
+      "sub_mode": "5-1",
+      "character_slug": "alice",
+      "collect_date": "2026-01-01",
+      "phase_ver": "1",
+      "phase_name": "ignored boss",
+      "app_rate": "99",
+      "avg_score": "999",
+      "quality_flag": "ok"
+    }
+  ]
+}

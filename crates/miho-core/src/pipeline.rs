@@ -30,11 +30,12 @@ use crate::{
     output::ArtifactBundle,
     report::finalize_export_bundle,
     source::{SnapshotSource, SourceFuture},
-    supplemental::HsrSupplementalSource,
+    supplemental::{HsrSupplementalSource, ZzzSupplementalSource},
     zzz::{
         make_phase_row as make_zzz_phase, parse_bangboo_rows as parse_zzz_bangboo,
         parse_team_rows as parse_zzz_teams, parse_usage, PhaseInput,
     },
+    zzz_enrichment::enrich_zzz_dataset,
     zzz_export::{
         build_dataset_export as build_zzz_dataset, build_minimal_bundle as build_zzz_export,
         fallback_name_rows, NameRow, ZzzExportDataset, ZzzExportSlice,
@@ -77,7 +78,6 @@ pub struct PipelineRun {
 
 enum CollectedDataset {
     Hsr(Box<HsrExportDataset>),
-    #[allow(dead_code)] // Consumed by the next staged supplemental integration.
     Zzz(Box<ZzzExportDataset>),
 }
 
@@ -588,6 +588,9 @@ pub async fn run_source_export<S: SnapshotSource>(
         }
         Game::Zzz => {
             let mut dataset = ZzzExportDataset::default();
+            if config_loaded {
+                push_zzz_raw_json(&mut dataset, "config.json", &config)?;
+            }
             for snapshot in snapshots {
                 let snapshot_tree = match source.list_tree(&snapshot).await {
                     Ok(value) => value,
@@ -603,10 +606,14 @@ pub async fn run_source_export<S: SnapshotSource>(
                 let builds_path = format!("{snapshot}/builds.json");
                 let builds = if paths.contains(&builds_path.as_str()) {
                     match source.read_json(&builds_path).await {
-                        Ok(value) if value.is_array() => value,
-                        Ok(_) => {
-                            warnings.push(format!("{builds_path} was not a list; skipped"));
-                            Value::Array(vec![])
+                        Ok(value) => {
+                            push_zzz_raw_json(&mut dataset, &builds_path, &value)?;
+                            if value.is_array() {
+                                value
+                            } else {
+                                warnings.push(format!("{builds_path} was not a list; skipped"));
+                                Value::Array(vec![])
+                            }
                         }
                         Err(error) => {
                             errors.push(error.to_string());
@@ -681,12 +688,16 @@ pub async fn run_source_export<S: SnapshotSource>(
                         entry.kind == "file" && entry.path.ends_with("bangboo_all.json")
                     }) {
                         match source.read_json(&file.path).await {
-                            Ok(value) if value.is_array() => usage.extend(parse_zzz_bangboo(
-                                value.as_array().expect("array checked above"),
-                                &file.path,
-                                &source.raw_url(&file.path),
-                            )),
-                            Ok(_) => {}
+                            Ok(value) => {
+                                push_zzz_raw_json(&mut dataset, &file.path, &value)?;
+                                if let Some(rows) = value.as_array() {
+                                    usage.extend(parse_zzz_bangboo(
+                                        rows,
+                                        &file.path,
+                                        &source.raw_url(&file.path),
+                                    ));
+                                }
+                            }
                             Err(error) => errors.push(error.to_string()),
                         }
                     }
@@ -697,28 +708,32 @@ pub async fn run_source_export<S: SnapshotSource>(
                             .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
                         {
                             match source.read_json(&file.path).await {
-                                Ok(value) if value.is_array() => {
-                                    let mut parsed = parse_zzz_teams(
-                                        value.as_array().unwrap().clone(),
-                                        mode.code(),
-                                        Path::new(&file.path)
-                                            .file_name()
-                                            .and_then(|v| v.to_str())
-                                            .unwrap_or_default(),
-                                    );
-                                    for row in &mut parsed {
-                                        row.source_file = file.path.clone();
-                                        row.source_url = source.raw_url(&file.path);
+                                Ok(value) => {
+                                    push_zzz_raw_json(&mut dataset, &file.path, &value)?;
+                                    if let Some(rows) = value.as_array() {
+                                        let mut parsed = parse_zzz_teams(
+                                            rows.clone(),
+                                            mode.code(),
+                                            Path::new(&file.path)
+                                                .file_name()
+                                                .and_then(|v| v.to_str())
+                                                .unwrap_or_default(),
+                                        );
+                                        for row in &mut parsed {
+                                            row.source_file = file.path.clone();
+                                            row.source_url = source.raw_url(&file.path);
+                                        }
+                                        teams.extend(parsed);
                                     }
-                                    teams.extend(parsed);
                                 }
-                                Ok(_) => {}
                                 Err(error) => errors.push(error.to_string()),
                             }
                         }
                     }
                     dataset.slices.push(ZzzExportSlice {
                         phase,
+                        usage_phase: None,
+                        team_phase: None,
                         names: fallback_name_rows(&usage, &teams),
                         usage,
                         teams,
@@ -819,8 +834,68 @@ where
     })
 }
 
+pub async fn run_zzz_export_v1<S, Z>(
+    source: &S,
+    supplemental: &Z,
+    request: &ExportRequest,
+    context: &ExportContext,
+) -> Result<ExportOutcome>
+where
+    S: SnapshotSource,
+    Z: ZzzSupplementalSource + ?Sized,
+{
+    if request.game != Game::Zzz {
+        return Err(MihoError::Unsupported(
+            "ZZZ export entry point requires game=zzz".into(),
+        ));
+    }
+    let PipelineRun {
+        bundle: _,
+        warnings,
+        errors,
+        collected,
+    } = run_source_export(source, request).await?;
+    let Some(CollectedDataset::Zzz(dataset)) = collected else {
+        return Err(MihoError::Unsupported(
+            "ZZZ pipeline did not produce a ZZZ dataset".into(),
+        ));
+    };
+    let mut diagnostics = warnings
+        .into_iter()
+        .map(|message| diagnostic_from_message(request.game, DiagnosticSeverity::Warning, message))
+        .collect::<Vec<_>>();
+    diagnostics.extend(errors.into_iter().map(|message| {
+        diagnostic_from_message(request.game, DiagnosticSeverity::RecoverableError, message)
+    }));
+    let mut dataset = *dataset;
+    diagnostics.extend(enrich_zzz_dataset(&mut dataset, request, context, supplemental).await);
+    let mut bundle = build_zzz_dataset(&dataset)?;
+    let stats = finalize_export_bundle(&mut bundle, request, context, &diagnostics)?;
+    Ok(ExportOutcome {
+        request: request.clone(),
+        bundle,
+        diagnostics,
+        stats,
+    })
+}
+
 fn push_hsr_raw_json(
     dataset: &mut HsrExportDataset,
+    source_path: &str,
+    value: &Value,
+) -> Result<()> {
+    let text = serde_json::to_string_pretty(value).map_err(|source| MihoError::Json {
+        path: PathBuf::from(source_path),
+        source,
+    })?;
+    dataset
+        .raw_text_artifacts
+        .push((format!("raw/hf/{source_path}"), text));
+    Ok(())
+}
+
+fn push_zzz_raw_json(
+    dataset: &mut ZzzExportDataset,
     source_path: &str,
     value: &Value,
 ) -> Result<()> {
@@ -929,6 +1004,7 @@ mod tests {
         hsr_supplemental::HsrFixtureSupplementalSource,
         network::{FetchMode, HttpClient},
         source::HfSnapshotSource,
+        zzz_supplemental::ZzzFixtureSupplementalSource,
     };
     use chrono::{TimeZone, Utc};
     use std::{
@@ -1016,6 +1092,15 @@ mod tests {
             name_map_seed: None,
             history: HistoryPolicy::MergeExisting,
             workbook: WorkbookPolicy::Disabled,
+        }
+    }
+
+    fn zzz_request() -> ExportRequest {
+        ExportRequest {
+            game: Game::Zzz,
+            modes: vec![GameMode::ZzzSd, GameMode::ZzzDa],
+            features: FeatureFlags::default(),
+            ..hsr_request()
         }
     }
 
@@ -1147,6 +1232,7 @@ mod tests {
             cache_root: "cache".into(),
             output_root: "out".into(),
             existing_output_root: None,
+            zzz_phase_overrides: None,
         };
 
         let outcome = run_export_v1(&source, &request, &context).await.unwrap();
@@ -1213,6 +1299,7 @@ mod tests {
             cache_root: "cache".into(),
             output_root: "hsr-out".into(),
             existing_output_root: None,
+            zzz_phase_overrides: None,
         };
         let supplemental =
             HsrFixtureSupplementalSource::new(fixture("hsr_supplemental"), context.fetched_at);
@@ -1286,6 +1373,339 @@ mod tests {
         }));
         assert!(partial.bundle.get("raw/hf/config.json").is_some());
         fs::remove_file(seed_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn zzz_supplemental_fixture_enriches_complete_export_and_preserves_phase_semantics() {
+        let mut source = MemorySource::default();
+        source.trees.insert(
+            String::new(),
+            vec![
+                tree_entry("1.0.0", "directory"),
+                tree_entry("2.0.0", "directory"),
+            ],
+        );
+        source.trees.insert("1.0.0".into(), vec![]);
+        source.trees.insert(
+            "2.0.0".into(),
+            vec![tree_entry("2.0.0/builds.json", "file")],
+        );
+        source.trees.insert(
+            "2.0.0/sd/chars".into(),
+            vec![tree_entry("2.0.0/sd/chars/bangboo_all.json", "file")],
+        );
+        source.trees.insert(
+            "2.0.0/sd/comps".into(),
+            vec![tree_entry("2.0.0/sd/comps/fixture.json", "file")],
+        );
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({
+                "1.0.0": {
+                    "collect_date": "31/12/2026",
+                    "sd": {"ver": "3.0"},
+                    "da": {"ver": "1.7"}
+                },
+                "2.0.0": {
+                    "collect_date": "",
+                    "sd": {"ver": "3.1"},
+                    "da": {"ver": "1.8"}
+                }
+            }),
+        );
+        source.json.insert(
+            "2.0.0/builds.json".into(),
+            serde_json::json!([
+                {
+                    "char": "Alice Thymefield",
+                    "app_rate_sd": 20,
+                    "avg_round_sd": 30000,
+                    "app_rate_da": 10,
+                    "avg_round_da": 2000
+                },
+                {"char": "Alice", "app_rate_sd": 5, "avg_round_sd": 25000}
+            ]),
+        );
+        source.json.insert(
+            "2.0.0/sd/chars/bangboo_all.json".into(),
+            serde_json::json!([{"char": "Officer Cui", "app_rate": 4, "avg_round": 123}]),
+        );
+        source.json.insert(
+            "2.0.0/sd/comps/fixture.json".into(),
+            serde_json::json!([{
+                "char_one": "alice",
+                "char_two": "astra-yao",
+                "char_three": "nicole-demara",
+                "bangboo": "officer-cui",
+                "rank": 2,
+                "app_rate": 3.5,
+                "avg_round": 28000
+            }]),
+        );
+
+        let override_path = std::env::temp_dir().join(format!(
+            "miho-zzz-phase-overrides-{}.json",
+            std::process::id()
+        ));
+        fs::write(
+            &override_path,
+            r#"{"phases":[{"mode":"sd","phase_ver":"3.1","collect_date":"2026-07-09","start_date":"2026-07-01","note":"manual fixture override"}]}"#,
+        )
+        .unwrap();
+        let context = ExportContext {
+            fetched_at: Utc.with_ymd_and_hms(2026, 7, 12, 1, 2, 3).unwrap(),
+            fetch_policy: FetchPolicy::Fixture,
+            cache_root: "cache".into(),
+            output_root: "zzz-out".into(),
+            existing_output_root: None,
+            zzz_phase_overrides: Some(override_path.clone()),
+        };
+        let supplemental = ZzzFixtureSupplementalSource::new(
+            fixture("zzz_supplemental_source"),
+            context.fetched_at,
+        );
+        let request = zzz_request();
+
+        let outcome = run_zzz_export_v1(&source, &supplemental, &request, &context)
+            .await
+            .unwrap();
+        assert!(outcome
+            .diagnostics
+            .iter()
+            .all(|item| item.code != diagnostic_code::SUPPLEMENTAL_NOT_CONNECTED));
+        assert_eq!(outcome.stats.snapshots, 2);
+        assert_eq!(outcome.stats.tier_rows, 2);
+        assert_eq!(outcome.stats.tier_history_rows, 2);
+        assert_eq!(outcome.stats.changelog_rows, 1);
+        assert_eq!(outcome.stats.trend_rows, 2);
+
+        let (phase_headers, phases) = csv_table(&outcome.bundle, "phase_index.csv");
+        let sd_latest = phases
+            .iter()
+            .find(|row| {
+                field(&phase_headers, row, "snapshot_id") == "2.0.0"
+                    && field(&phase_headers, row, "mode") == "sd"
+            })
+            .unwrap();
+        assert_eq!(
+            field(&phase_headers, sd_latest, "collect_date"),
+            "2026-07-09"
+        );
+        assert!(field(&phase_headers, sd_latest, "note")
+            .contains("collect_date backfilled from Prydwen visible phase selector"));
+        assert!(field(&phase_headers, sd_latest, "note").contains("manual fixture override"));
+        let da_latest = phases
+            .iter()
+            .find(|row| {
+                field(&phase_headers, row, "snapshot_id") == "2.0.0"
+                    && field(&phase_headers, row, "mode") == "da"
+            })
+            .unwrap();
+        assert_eq!(
+            field(&phase_headers, da_latest, "collect_date"),
+            "2026-07-08"
+        );
+
+        let (usage_headers, usage) = csv_table(&outcome.bundle, "character_usage_long.csv");
+        let alice_usage = usage
+            .iter()
+            .find(|row| {
+                field(&usage_headers, row, "snapshot_id") == "2.0.0"
+                    && field(&usage_headers, row, "mode") == "sd"
+                    && field(&usage_headers, row, "character_slug") == "alice-thymefield"
+            })
+            .unwrap();
+        assert_eq!(field(&usage_headers, alice_usage, "collect_date"), "");
+        assert_eq!(
+            field(&usage_headers, alice_usage, "character_name_cn"),
+            "爱丽丝·泰姆菲尔德"
+        );
+
+        let (team_headers, teams) = csv_table(&outcome.bundle, "team_rank_raw.csv");
+        let prydwen_sd = teams
+            .iter()
+            .find(|row| {
+                field(&team_headers, row, "mode") == "sd"
+                    && field(&team_headers, row, "source_kind") == "prydwen_page"
+            })
+            .unwrap();
+        assert_eq!(field(&team_headers, prydwen_sd, "snapshot_id"), "2.0.0");
+        assert_eq!(
+            field(&team_headers, prydwen_sd, "collect_date"),
+            "2026-07-07"
+        );
+        assert_eq!(
+            field(&team_headers, prydwen_sd, "source_file"),
+            "raw/prydwen/sd.html"
+        );
+        assert_eq!(
+            field(&team_headers, prydwen_sd, "source_url"),
+            "https://www.prydwen.gg/zenless/shiyu-defense/"
+        );
+        assert_eq!(
+            field(&team_headers, prydwen_sd, "char_1_name_cn"),
+            "爱丽丝·泰姆菲尔德"
+        );
+        assert_eq!(
+            field(&team_headers, prydwen_sd, "bangboo_name_cn"),
+            "阿崔巡查"
+        );
+
+        let (name_headers, names) = csv_table(&outcome.bundle, "name_map.csv");
+        for (slug, chinese) in [
+            ("alice", "爱丽丝·泰姆菲尔德"),
+            ("alice-thymefield", "爱丽丝·泰姆菲尔德"),
+            ("officer-cui", "阿崔巡查"),
+        ] {
+            let row = names
+                .iter()
+                .find(|row| field(&name_headers, row, "character_slug") == slug)
+                .unwrap();
+            assert_eq!(field(&name_headers, row, "character_name_cn"), chinese);
+        }
+
+        let (trend_headers, trends) = csv_table(&outcome.bundle, "prydwen_tier_usage_trend.csv");
+        assert_eq!(trends.len(), 2);
+        assert!(trends
+            .iter()
+            .all(|row| field(&trend_headers, row, "collect_date").is_empty()));
+        for path in [
+            "raw/hf/config.json",
+            "raw/hf/2.0.0/builds.json",
+            "raw/hf/2.0.0/sd/chars/bangboo_all.json",
+            "raw/hf/2.0.0/sd/comps/fixture.json",
+            "raw/prydwen/sd.html",
+            "raw/prydwen/da.html",
+            "raw/prydwen_tier/tier-list_latest.html",
+            "raw/hoyowiki/zzz_agents_zh-cn.json",
+            "raw/hoyowiki/zzz_agents_en-us.json",
+            "raw/hoyowiki/zzz_bangboo_zh-cn.json",
+            "raw/hoyowiki/zzz_bangboo_en-us.json",
+        ] {
+            assert!(outcome.bundle.get(path).is_some(), "missing {path}");
+        }
+        let report = std::str::from_utf8(outcome.bundle.get("export_report.md").unwrap()).unwrap();
+        assert!(report.contains("Prydwen 当前 T 榜行数：2"));
+        assert!(outcome
+            .receipt()
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.path == "artifact_manifest.json"));
+
+        let unavailable = ZzzFixtureSupplementalSource::new(
+            fixture("zzz_supplemental_missing"),
+            context.fetched_at,
+        );
+        let partial = run_zzz_export_v1(&source, &unavailable, &request, &context)
+            .await
+            .unwrap();
+        assert!(partial.stats.character_rows > 0);
+        assert_eq!(partial.stats.tier_rows, 0);
+        assert!(partial.diagnostics.iter().any(|item| {
+            item.code == diagnostic_code::SUPPLEMENTAL_FETCH_FAILED
+                && item.severity == DiagnosticSeverity::Warning
+        }));
+        assert!(partial.bundle.get("raw/hf/config.json").is_some());
+        fs::remove_file(override_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn zzz_builtin_official_names_remain_when_network_feature_is_disabled() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.trees.insert(
+            "1.0.0".into(),
+            vec![tree_entry("1.0.0/builds.json", "file")],
+        );
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({"1.0.0": {"collect_date": "2026-01-01", "sd": {"ver": "1"}}}),
+        );
+        source.json.insert(
+            "1.0.0/builds.json".into(),
+            serde_json::json!([{"char": "Velina", "app_rate_sd": 1}]),
+        );
+        let mut request = zzz_request();
+        request.modes = vec![GameMode::ZzzSd];
+        request.features = FeatureFlags {
+            hf_teams: false,
+            prydwen_visible: false,
+            prydwen_tier: false,
+            official_names: false,
+        };
+        let context = ExportContext {
+            fetched_at: Utc.with_ymd_and_hms(2026, 7, 12, 1, 2, 3).unwrap(),
+            fetch_policy: FetchPolicy::Fixture,
+            cache_root: "cache".into(),
+            output_root: "zzz-out".into(),
+            existing_output_root: None,
+            zzz_phase_overrides: None,
+        };
+        let supplemental = ZzzFixtureSupplementalSource::new(
+            fixture("zzz_supplemental_missing"),
+            context.fetched_at,
+        );
+
+        let outcome = run_zzz_export_v1(&source, &supplemental, &request, &context)
+            .await
+            .unwrap();
+        assert!(outcome.diagnostics.is_empty(), "{:?}", outcome.diagnostics);
+        let (headers, rows) = csv_table(&outcome.bundle, "name_map.csv");
+        let velina = rows
+            .iter()
+            .find(|row| field(&headers, row, "character_slug") == "velina")
+            .unwrap();
+        assert_eq!(
+            field(&headers, velina, "character_name_cn"),
+            "维琳娜·艾嘉德"
+        );
+    }
+
+    #[tokio::test]
+    async fn zzz_tier_names_survive_when_date_range_matches_no_hf_slice() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({"1.0.0": {"collect_date": "2025-01-01", "sd": {"ver": "1"}}}),
+        );
+        let mut request = zzz_request();
+        request.modes = vec![GameMode::ZzzSd];
+        request.date_range = DateRange {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1),
+            to: NaiveDate::from_ymd_opt(2026, 1, 31),
+        };
+        let context = ExportContext {
+            fetched_at: Utc.with_ymd_and_hms(2026, 7, 12, 1, 2, 3).unwrap(),
+            fetch_policy: FetchPolicy::Fixture,
+            cache_root: "cache".into(),
+            output_root: "zzz-out".into(),
+            existing_output_root: None,
+            zzz_phase_overrides: None,
+        };
+        let supplemental = ZzzFixtureSupplementalSource::new(
+            fixture("zzz_supplemental_source"),
+            context.fetched_at,
+        );
+
+        let outcome = run_zzz_export_v1(&source, &supplemental, &request, &context)
+            .await
+            .unwrap();
+        assert_eq!(outcome.stats.phases, 0);
+        assert_eq!(outcome.stats.tier_rows, 2);
+        let (headers, rows) = csv_table(&outcome.bundle, "name_map.csv");
+        let alice = rows
+            .iter()
+            .find(|row| field(&headers, row, "character_slug") == "alice-thymefield")
+            .expect("tier/official names must not depend on an HF slice");
+        assert_eq!(
+            field(&headers, alice, "character_name_cn"),
+            "爱丽丝·泰姆菲尔德"
+        );
     }
 
     #[tokio::test]

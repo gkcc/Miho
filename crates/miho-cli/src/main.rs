@@ -12,8 +12,10 @@ use miho_core::{
     hsr_supplemental::{HsrFixtureSupplementalSource, HsrHttpSupplementalSource},
     network::{FetchMode, HttpClient},
     normalize::parse_date,
-    pipeline::{run_export_v1, run_hsr_export_v1, ExportRequest, Game, OfflineFixture},
+    pipeline::{run_hsr_export_v1, run_zzz_export_v1, ExportRequest, Game, OfflineFixture},
     source::HfSnapshotSource,
+    zzz_enrichment::first_valid_phase_override_path,
+    zzz_supplemental::{ZzzFixtureSupplementalSource, ZzzHttpSupplementalSource},
 };
 
 #[derive(Parser)]
@@ -291,29 +293,16 @@ async fn main() {
 }
 
 async fn execute(cli: Cli) -> anyhow::Result<()> {
-    let (game, args, name_map_seed, unsupported_options) = match cli.game {
+    let (game, args, name_map_seed) = match cli.game {
         GameCommand::Hsr { command: HsrCommand::Export(args) } => {
             let name_map_seed = args.name_map_seed.clone();
-            (Game::Hsr, args.effective(), name_map_seed, Vec::new())
+            (Game::Hsr, args.effective(), name_map_seed)
         }
         GameCommand::Zzz { command: ZzzCommand::Export(args) } => {
-            let unsupported = args
-                .common
-                .prydwen_top_n
-                .is_some()
-                .then_some("--prydwen-top-n")
-                .into_iter()
-                .collect();
-            (Game::Zzz, args.effective(), None, unsupported)
+            (Game::Zzz, args.effective(), None)
         }
         _ => bail!("this command's Rust implementation is registered but not yet enabled; use the Python compatibility command during staged migration"),
     };
-    if !unsupported_options.is_empty() {
-        bail!(
-            "export options are not yet migrated: {}",
-            unsupported_options.join(", ")
-        );
-    }
     let revision = "main";
     let request = ExportRequest {
         schema_version: EXPORT_REQUEST_SCHEMA_VERSION,
@@ -361,6 +350,7 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             cache_root: fixture_path.clone(),
             output_root: args.out.clone(),
             existing_output_root: Some(args.out.clone()),
+            zzz_phase_overrides: zzz_phase_override_path(game, &args.out),
         };
         let run = match game {
             Game::Hsr => {
@@ -371,23 +361,21 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
                     HsrFixtureSupplementalSource::new(supplemental_root, context.fetched_at);
                 run_hsr_export_v1(&fixture, &supplemental, &request, &context).await?
             }
-            Game::Zzz => run_export_v1(&fixture, &request, &context).await?,
+            Game::Zzz => {
+                let supplemental_root = std::env::var_os("MIHO_ZZZ_SUPPLEMENTAL_FIXTURE")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| fixture_path.join("supplemental"));
+                let supplemental =
+                    ZzzFixtureSupplementalSource::new(supplemental_root, context.fetched_at);
+                run_zzz_export_v1(&fixture, &supplemental, &request, &context).await?
+            }
         };
         eprintln!("fixture mode: {}", fixture_path.display());
         run
     } else {
-        let supplemental = [
-            (args.toggles[1], "prydwen-visible"),
-            (args.toggles[2], "prydwen-tier"),
-            (args.toggles[3], "official-name-map"),
-        ]
-        .into_iter()
-        .filter_map(|(enabled, name)| enabled.then_some(name))
-        .collect::<Vec<_>>();
-        if game == Game::Zzz && !supplemental.is_empty() {
+        if game == Game::Zzz {
             bail!(
-                "online supplemental capabilities are not yet migrated: {}; disable them explicitly to use the core Hugging Face export",
-                supplemental.join(", ")
+                "ZZZ supplemental sources are migrated, but online export remains gated until XLSX and visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command"
             );
         }
         if game == Game::Hsr {
@@ -408,6 +396,7 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             cache_root: cache_root.clone(),
             output_root: args.out.clone(),
             existing_output_root: Some(args.out.clone()),
+            zzz_phase_overrides: zzz_phase_override_path(game, &args.out),
         };
         match game {
             Game::Hsr => {
@@ -419,7 +408,15 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
                 );
                 run_hsr_export_v1(&source, &supplemental, &request, &context).await?
             }
-            Game::Zzz => run_export_v1(&source, &request, &context).await?,
+            Game::Zzz => {
+                let supplemental = ZzzHttpSupplementalSource::new(
+                    HttpClient::new(StdDuration::from_secs(60), 2)?,
+                    cache_root.join("supplemental"),
+                    FetchMode::Online,
+                    context.fetched_at,
+                );
+                run_zzz_export_v1(&source, &supplemental, &request, &context).await?
+            }
         }
     };
     for diagnostic in &run.diagnostics {
@@ -442,6 +439,20 @@ fn cache_root(game: Game, repo_id: &str, revision: &str) -> PathBuf {
         })
         .unwrap_or_else(|| PathBuf::from(".miho/cache"));
     cache_root_from(&base, game, repo_id, revision)
+}
+
+fn zzz_phase_override_path(game: Game, output_root: &std::path::Path) -> Option<PathBuf> {
+    if game != Game::Zzz {
+        return None;
+    }
+    let mut candidates = vec![output_root.join("zzz_endgame_phase_overrides.json")];
+    if let Some(parent) = output_root.parent() {
+        candidates.push(parent.join("configs/zzz_endgame_phase_overrides.json"));
+    }
+    if let Ok(current) = std::env::current_dir() {
+        candidates.push(current.join("configs/zzz_endgame_phase_overrides.json"));
+    }
+    first_valid_phase_override_path(candidates)
 }
 
 fn cache_root_from(base: &std::path::Path, game: Game, repo_id: &str, revision: &str) -> PathBuf {
@@ -602,5 +613,21 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(safe_cache_component(".."), "_");
         assert_eq!(safe_cache_component(""), "_");
+    }
+
+    #[test]
+    fn zzz_phase_override_skips_a_broken_higher_priority_candidate() {
+        let root =
+            std::env::temp_dir().join(format!("miho-cli-phase-override-{}", std::process::id()));
+        let out = root.join("out");
+        let fallback = root.join("configs/zzz_endgame_phase_overrides.json");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::create_dir_all(fallback.parent().unwrap()).unwrap();
+        std::fs::write(out.join("zzz_endgame_phase_overrides.json"), "{broken").unwrap();
+        std::fs::write(&fallback, r#"{"phases":[]}"#).unwrap();
+
+        assert_eq!(zzz_phase_override_path(Game::Zzz, &out), Some(fallback));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
