@@ -281,7 +281,7 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
     bundle.add_csv(
         "team_rank_raw.csv",
         TEAM_HEADERS,
-        ordered_teams.iter().map(|(phase, row)| {
+        teams.iter().map(|(phase, row)| {
             vec![
                 phase.snapshot_id.clone(),
                 phase.collect_date.clone(),
@@ -368,7 +368,7 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
     bundle.add_csv(
         "team_rank_dedup_ordered.csv",
         &ordered_headers,
-        unordered_teams.iter().map(|(phase, row)| {
+        ordered_teams.iter().map(|(phase, row)| {
             let (ordered, _) = row.signatures();
             team_values(phase, row)
                 .into_iter()
@@ -384,7 +384,7 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
     bundle.add_csv(
         "team_rank_dedup_unordered.csv",
         &unordered_headers,
-        teams.iter().map(|(phase, row)| {
+        unordered_teams.iter().map(|(phase, row)| {
             let (ordered, unordered) = row.signatures();
             team_values(phase, row)
                 .into_iter()
@@ -773,6 +773,58 @@ mod tests {
         assert!(phases.contains("4.3.2") && phases.contains("4.3.3"));
         assert!(characters.contains("topaz-and-numby") && characters.contains("march-7th"));
         assert!(teams.contains("moc|") && teams.contains("pf|"));
+    }
+
+    #[test]
+    fn raw_ordered_and_unordered_team_sets_do_not_cross_wires() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/hsr_parser_minimal.json"
+        ))
+        .unwrap();
+        let phase = make_phase_row(
+            "4.3.2",
+            &fixture["config"],
+            "moc",
+            "4.3.2/",
+            true,
+            true,
+            false,
+            "2026-06-25",
+        );
+        let base = TeamRow {
+            mode: "moc".into(),
+            sub_mode: "all".into(),
+            phase_ver: "4.2.1".into(),
+            scope: "all".into(),
+            raw_index: 1,
+            chars: ["a".into(), "b".into(), "c".into(), "d".into()],
+            raw_json: "{}".into(),
+        };
+        let mut duplicate = base.clone();
+        duplicate.raw_index = 2;
+        let mut reordered = base.clone();
+        reordered.raw_index = 3;
+        reordered.chars.swap(0, 1);
+        let bundle = build_dataset_export(&HsrExportDataset {
+            slices: vec![HsrExportSlice {
+                phase,
+                characters: vec![],
+                teams: vec![base, duplicate, reordered],
+                tiers: vec![],
+            }],
+        })
+        .unwrap();
+        assert_eq!(csv_data_rows(&bundle, "team_rank_raw.csv"), 3);
+        assert_eq!(csv_data_rows(&bundle, "team_rank_dedup_ordered.csv"), 2);
+        assert_eq!(csv_data_rows(&bundle, "team_rank_dedup_unordered.csv"), 1);
+    }
+
+    fn csv_data_rows(bundle: &ArtifactBundle, name: &str) -> usize {
+        std::str::from_utf8(bundle.get(name).unwrap())
+            .unwrap()
+            .lines()
+            .count()
+            - 1
     }
 
     fn python_csv_bytes(source: &[u8]) -> Vec<u8> {
