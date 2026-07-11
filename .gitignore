@@ -1,32 +1,32 @@
+# Python caches and packaging
 __pycache__/
 *.py[cod]
 .pytest_cache/
 *.egg-info/
-.codex_work/
-out_zzz_probe/
-.miho/
 
-# Local one-off reports and exports
+# Rust build state
+.cargo/
+target/
+
+# Node and Tauri build state
+node_modules/
+crates/miho-desktop/node_modules/
+crates/miho-desktop/dist/
+
+# Local application and agent state
+.miho/
+.codex_work/
+
+# Generated exports and visualizers
+out/
+out_zzz/
+out_zzz_probe/
+zzz_endgame_export/
+visualizer/
+start_visualizer.cmd
+
+# Local one-off reports; reusable samples belong under examples/
 cultivation_priority_*.md
 data_quality_report.md
 team_coverage_*.md
-out/hsr_high_difficulty_team_export.*
-start_visualizer.cmd
 codex_*_validation_report.md
-
-# Generated export directories. Keep reusable samples under examples/.
-out/
-out_zzz/
-zzz_endgame_export/
-visualizer/
-
-# Refreshed raw/cache data that should stay local unless explicitly promoted
-out/raw/miyoushe/
-out_zzz/raw/hf/*/
-out_zzz/decision_cards.json
-out_zzz/decision_report.md
-out_zzz/visualizer/assets/
-
-# Pull-value reports are regenerated locally; committed samples live under examples/
-out_zzz/*pull_value_report.md
-out_zzz/*gpt_pull_reviewer_packet.md
