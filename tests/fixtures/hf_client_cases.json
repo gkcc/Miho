@@ -1,0 +1,29 @@
+{
+  "urls": [
+    {
+      "repo_id": "LvlUrArti/MocDataProcessed",
+      "revision": "main",
+      "path": "",
+      "recursive": false,
+      "tree_url": "https://huggingface.co/api/datasets/LvlUrArti/MocDataProcessed/tree/main?recursive=false&expand=false",
+      "raw_url": "https://huggingface.co/datasets/LvlUrArti/MocDataProcessed/resolve/main/"
+    },
+    {
+      "repo_id": "owner/repo-name",
+      "revision": "refs/convert/parquet",
+      "path": "/4.3.2/混沌 data/file+name.json/",
+      "recursive": true,
+      "tree_url": "https://huggingface.co/api/datasets/owner/repo-name/tree/refs/convert/parquet/4.3.2/%E6%B7%B7%E6%B2%8C%20data/file%2Bname.json?recursive=true&expand=false",
+      "raw_url": "https://huggingface.co/datasets/owner/repo-name/resolve/refs/convert/parquet//4.3.2/%E6%B7%B7%E6%B2%8C%20data/file%2Bname.json/"
+    }
+  ],
+  "tree_response": [
+    {"type": "file", "path": "4.3.2/builds.json", "size": 42, "oid": "abc"},
+    {"type": "directory", "path": "4.3.2/moc"}
+  ],
+  "cache": {
+    "raw_dir": "raw/hf",
+    "source_path": "4.3.2/moc/chars/a.json",
+    "relative_parts": ["4.3.2", "moc", "chars", "a.json"]
+  }
+}
