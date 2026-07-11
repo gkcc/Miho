@@ -8,6 +8,7 @@ const HUGGING_FACE_ORIGIN: &str = "https://huggingface.co";
 pub struct HuggingFaceRepo {
     pub repo_id: String,
     pub revision: String,
+    origin: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -25,13 +26,19 @@ impl HuggingFaceRepo {
         Self {
             repo_id: repo_id.into(),
             revision: revision.into(),
+            origin: HUGGING_FACE_ORIGIN.into(),
         }
+    }
+
+    pub fn with_origin(mut self, origin: impl Into<String>) -> Self {
+        self.origin = origin.into().trim_end_matches('/').to_owned();
+        self
     }
 
     pub fn tree_url(&self, path: &str, recursive: bool) -> String {
         let mut url = format!(
-            "{HUGGING_FACE_ORIGIN}/api/datasets/{}/tree/{}",
-            self.repo_id, self.revision
+            "{}/api/datasets/{}/tree/{}",
+            self.origin, self.repo_id, self.revision
         );
         let path = path.trim_matches('/');
         if !path.is_empty() {
@@ -48,7 +55,8 @@ impl HuggingFaceRepo {
 
     pub fn raw_url(&self, path: &str) -> String {
         format!(
-            "{HUGGING_FACE_ORIGIN}/datasets/{}/resolve/{}/{}",
+            "{}/datasets/{}/resolve/{}/{}",
+            self.origin,
             self.repo_id,
             self.revision,
             quote_path(path)

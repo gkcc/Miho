@@ -10,6 +10,7 @@ pub mod network;
 pub mod normalize;
 pub mod output;
 pub mod pipeline;
+pub mod source;
 pub mod zzz;
 pub mod zzz_export;
 pub mod zzz_sources;
