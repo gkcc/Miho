@@ -88,6 +88,35 @@ const NAMES: &[&str] = &[
     "kind",
     "release_order",
 ];
+const PRYDWEN: &[&str] = &[
+    "tier_snapshot_id",
+    "fetched_at",
+    "tier_updated_at",
+    "tier_updated_date",
+    "tier_mode",
+    "tier_mode_cn",
+    "character_slug",
+    "character_name_en",
+    "character_name_cn",
+    "prydwen_category",
+    "prydwen_role",
+    "role_group",
+    "role_group_cn",
+    "tier",
+    "rating",
+    "tags",
+    "marks",
+    "is_new",
+    "element",
+    "element_cn",
+    "style",
+    "style_cn",
+    "faction",
+    "rarity",
+    "icon_url",
+    "source_url",
+];
+const CHANGELOG: &[&str] = &["changelog_date", "source_url", "character_slugs", "text"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NameRow {
@@ -173,6 +202,11 @@ pub fn build_minimal_bundle(
         }),
     )?;
     bundle.add_csv(
+        "character_usage_phase_latest.csv",
+        USAGE,
+        usage.iter().map(|row| usage_values(phase, row)),
+    )?;
+    bundle.add_csv(
         "team_rank_raw.csv",
         TEAM,
         teams.iter().map(|row| {
@@ -206,6 +240,28 @@ pub fn build_minimal_bundle(
             ]
         }),
     )?;
+    // The fixed slice has already been normalized to one row per raw record. The
+    // production parser orders rank before app-rate, so stable signature dedup is
+    // deterministic here as well.
+    let mut dedup = std::collections::BTreeMap::new();
+    for row in teams {
+        let mut chars = [&row.char_1_slug, &row.char_2_slug, &row.char_3_slug];
+        chars.sort();
+        let key = format!(
+            "{}|{}|{}|{}|{}",
+            phase.mode,
+            row.sub_mode,
+            phase.phase_ver,
+            chars.into_iter().cloned().collect::<Vec<_>>().join(">"),
+            row.bangboo_slug
+        );
+        dedup.entry(key).or_insert(row);
+    }
+    bundle.add_csv(
+        "team_rank_dedup_unordered.csv",
+        TEAM,
+        dedup.into_values().map(|row| team_values(phase, row)),
+    )?;
     bundle.add_csv(
         "name_map.csv",
         NAMES,
@@ -222,9 +278,118 @@ pub fn build_minimal_bundle(
             ]
         }),
     )?;
+    bundle.add_csv(
+        "name_map_unresolved.csv",
+        NAMES,
+        names
+            .iter()
+            .filter(|row| row.needs_manual_check == "1")
+            .map(name_values),
+    )?;
+    for name in ["prydwen_tier_current.csv", "prydwen_tier_history.csv"] {
+        bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(name, PRYDWEN, vec![])?;
+    }
+    for name in [
+        "prydwen_tier_changelog.csv",
+        "prydwen_tier_changelog_history.csv",
+    ] {
+        bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(name, CHANGELOG, vec![])?;
+    }
+    let trend = PRYDWEN
+        .iter()
+        .copied()
+        .chain([
+            "collect_date",
+            "phase_ver",
+            "phase_name",
+            "app_rate",
+            "avg_score",
+            "quality_flag",
+        ])
+        .collect::<Vec<_>>();
+    bundle.add_csv::<Vec<Vec<&str>>, Vec<&str>, &str>(
+        "prydwen_tier_usage_trend.csv",
+        &trend,
+        vec![],
+    )?;
+    bundle.add_text("export_report.md", format!("# 绝区零高难数据导出报告\n\n- 导出时间：fixture\n- 期数行数：1\n- 角色出场率行数：{}\n- 队伍 raw 行数：{}\n- 待人工确认名称：{}\n- Prydwen 当前 T 榜行数：0\n- Prydwen changelog 行数：0\n\n## Warning 列表\n\n- 无\n\n## Error 列表\n\n- 无\n", usage.len(), teams.len(), names.iter().filter(|row| row.needs_manual_check == "1").count()))?;
     let manifest = bundle.manifest();
     bundle.add_json("artifact_manifest.json", &manifest)?;
     Ok(bundle)
+}
+
+fn usage_values(phase: &PhaseRow, row: &UsageRow) -> Vec<String> {
+    vec![
+        phase.snapshot_id.clone(),
+        phase.collect_date.clone(),
+        phase.mode.clone(),
+        phase.mode_cn.clone(),
+        row.sub_mode.clone(),
+        row.sub_mode_cn.clone(),
+        phase.phase_ver.clone(),
+        phase.phase_name.clone(),
+        phase.start_date.clone(),
+        phase.end_date.clone(),
+        row.character_slug.clone(),
+        slug_name(&row.character_slug),
+        String::new(),
+        String::new(),
+        String::new(),
+        csv_float(row.app_rate),
+        csv_number(row.avg_score),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        "hf_builds".into(),
+        "fixture.json".into(),
+        "fixture://local".into(),
+        "ok".into(),
+    ]
+}
+fn team_values(phase: &PhaseRow, row: &TeamRow) -> Vec<String> {
+    vec![
+        phase.snapshot_id.clone(),
+        phase.collect_date.clone(),
+        phase.mode.clone(),
+        phase.mode_cn.clone(),
+        row.sub_mode.clone(),
+        row.sub_mode_cn.clone(),
+        phase.phase_ver.clone(),
+        phase.phase_name.clone(),
+        row.scope.clone(),
+        csv_number(Some(row.rank)),
+        row.char_1_slug.clone(),
+        row.char_2_slug.clone(),
+        row.char_3_slug.clone(),
+        row.bangboo_slug.clone(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        csv_float(row.app_rate),
+        csv_number(row.avg_score),
+        String::new(),
+        "hf_comps".into(),
+        "fixture.json".into(),
+        "fixture://local".into(),
+        row.raw_index.to_string(),
+        row.raw_json.clone(),
+    ]
+}
+fn name_values(row: &NameRow) -> Vec<String> {
+    vec![
+        row.character_slug.clone(),
+        row.character_name_en.clone(),
+        row.character_name_cn.clone(),
+        row.source.clone(),
+        row.needs_manual_check.clone(),
+        row.aliases.clone(),
+        row.kind.clone(),
+        row.release_order.clone(),
+    ]
 }
 
 fn slug_name(slug: &str) -> String {
@@ -270,7 +435,7 @@ mod tests {
             release_order: "10".into(),
         }];
         let bundle = build_minimal_bundle(&phase, &usage, &teams, &names).unwrap();
-        assert_eq!(bundle.manifest().len(), 5);
+        assert_eq!(bundle.manifest().len(), 14);
         assert!(bundle
             .get("phase_index.csv")
             .unwrap()

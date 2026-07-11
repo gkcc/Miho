@@ -1,6 +1,15 @@
 [
-  {"path":"character_usage_long.csv","bytes":645,"sha256":"994677608d50f27a0b94e48b07405b21d94e60553c09f70d72f66be0ca97ef78"},
-  {"path":"name_map.csv","bytes":154,"sha256":"bcc8023cecd577e230e6f6d03076c2e3ed8695277a9ec5d688146ccb24f2d086"},
-  {"path":"phase_index.csv","bytes":233,"sha256":"561738908662e0698611986cbaf4f81b1012e7b96cb0a0ecd65740ce2f8c51fd"},
-  {"path":"team_rank_raw.csv","bytes":948,"sha256":"826c0dc434bbc67cbbc3486f98042c911d8307d103e9888319d566883637c662"}
+{"path":"character_usage_long.csv","bytes":645,"sha256":"994677608d50f27a0b94e48b07405b21d94e60553c09f70d72f66be0ca97ef78"},
+{"path":"character_usage_phase_latest.csv","bytes":645,"sha256":"994677608d50f27a0b94e48b07405b21d94e60553c09f70d72f66be0ca97ef78"},
+{"path":"export_report.md","bytes":275,"sha256":"b765dec3e6a52e7bfea10ae0cdb43093b356efeaa375f5cfd0b8096e3394fcb2"},
+{"path":"name_map.csv","bytes":154,"sha256":"bcc8023cecd577e230e6f6d03076c2e3ed8695277a9ec5d688146ccb24f2d086"},
+{"path":"name_map_unresolved.csv","bytes":108,"sha256":"0f08660da9a286f69972959144e4cf22caec8970c727d6ba41acfdc00bf3e13a"},
+{"path":"phase_index.csv","bytes":233,"sha256":"561738908662e0698611986cbaf4f81b1012e7b96cb0a0ecd65740ce2f8c51fd"},
+{"path":"prydwen_tier_changelog.csv","bytes":51,"sha256":"bfc824dc81040333306556ecc1704e9423be76c2d43a12cf82f90ea80e68bee6"},
+{"path":"prydwen_tier_changelog_history.csv","bytes":51,"sha256":"bfc824dc81040333306556ecc1704e9423be76c2d43a12cf82f90ea80e68bee6"},
+{"path":"prydwen_tier_current.csv","bytes":294,"sha256":"dba4734639af652d08518b8dbad075feb199b9a450f3b4c42724140806980333"},
+{"path":"prydwen_tier_history.csv","bytes":294,"sha256":"dba4734639af652d08518b8dbad075feb199b9a450f3b4c42724140806980333"},
+{"path":"prydwen_tier_usage_trend.csv","bytes":360,"sha256":"e9bf388b0e2bcedc77b717b2d576a317006c4287f3674dd93df6a937c6b623ba"},
+{"path":"team_rank_dedup_unordered.csv","bytes":948,"sha256":"826c0dc434bbc67cbbc3486f98042c911d8307d103e9888319d566883637c662"},
+{"path":"team_rank_raw.csv","bytes":948,"sha256":"826c0dc434bbc67cbbc3486f98042c911d8307d103e9888319d566883637c662"}
 ]
