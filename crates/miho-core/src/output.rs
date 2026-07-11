@@ -3,12 +3,12 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{atomic, MihoError, Result};
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ArtifactManifestEntry {
     pub path: String,
     pub bytes: usize,
@@ -98,6 +98,13 @@ impl ArtifactBundle {
     pub fn get(&self, path: impl AsRef<Path>) -> Option<&[u8]> {
         self.files.get(path.as_ref()).map(Vec::as_slice)
     }
+
+    pub fn refresh_manifest(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        let path = validate_relative(path.as_ref())?;
+        self.files.remove(&path);
+        let manifest = self.manifest();
+        self.add_json(path, &manifest)
+    }
 }
 
 pub fn csv_float(value: Option<f64>) -> String {
@@ -168,6 +175,22 @@ mod tests {
                 actual: 1
             })
         ));
+    }
+
+    #[test]
+    fn refreshed_manifest_hashes_the_final_artifacts_but_not_itself() {
+        let mut bundle = ArtifactBundle::default();
+        bundle.add_text("report.md", "first").unwrap();
+        bundle.refresh_manifest("artifact_manifest.json").unwrap();
+        bundle.add_text("report.md", "final").unwrap();
+        bundle.refresh_manifest("artifact_manifest.json").unwrap();
+
+        let manifest: Vec<ArtifactManifestEntry> =
+            serde_json::from_slice(bundle.get("artifact_manifest.json").unwrap()).unwrap();
+        assert_eq!(manifest.len(), 1);
+        assert_eq!(manifest[0].path, "report.md");
+        assert_eq!(manifest[0].bytes, 5);
+        assert_eq!(bundle.manifest().len(), 2);
     }
 
     #[test]

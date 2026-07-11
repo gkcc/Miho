@@ -1,13 +1,17 @@
 use std::{path::PathBuf, time::Duration as StdDuration};
 
 use anyhow::bail;
-use chrono::{Duration, Local};
+use chrono::{Duration, Local, Utc};
 use clap::{Args, Parser, Subcommand};
 use miho_core::{
+    contract::{
+        DatasetRef, DateRange, DiagnosticSeverity, ExportContext, FeatureFlags, FetchPolicy,
+        GameMode, HistoryPolicy, WorkbookPolicy, EXPORT_REQUEST_SCHEMA_VERSION,
+    },
     hf::HuggingFaceRepo,
     network::{FetchMode, HttpClient},
     normalize::parse_date,
-    pipeline::{run_source_export, ExportRequest, Game, OfflineFixture},
+    pipeline::{run_export_v1, ExportRequest, Game, OfflineFixture},
     source::HfSnapshotSource,
 };
 
@@ -315,21 +319,35 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             unsupported_options.join(", ")
         );
     }
+    let revision = "main";
     let request = ExportRequest {
+        schema_version: EXPORT_REQUEST_SCHEMA_VERSION,
         game,
         modes: args
             .modes
             .split(',')
             .map(str::trim)
             .filter(|v| !v.is_empty())
-            .map(str::to_owned)
-            .collect(),
-        from_date: Some(parse_cli_date(&args.from_date)?),
-        to_date: Some(parse_cli_date(&args.to_date)?),
-        include_teams: args.toggles[0],
-        include_prydwen_visible: args.toggles[1],
-        include_prydwen_tier: args.toggles[2],
-        official_name_map: args.toggles[3],
+            .map(|value| GameMode::parse(game, value))
+            .collect::<miho_core::Result<Vec<_>>>()?,
+        date_range: DateRange {
+            from: Some(parse_cli_date(&args.from_date)?),
+            to: Some(parse_cli_date(&args.to_date)?),
+        },
+        dataset: DatasetRef {
+            repo_id: args.repo_id.clone(),
+            revision: revision.into(),
+        },
+        features: FeatureFlags {
+            hf_teams: args.toggles[0],
+            prydwen_visible: args.toggles[1],
+            prydwen_tier: args.toggles[2],
+            official_names: args.toggles[3],
+        },
+        prydwen_top_n: args.prydwen_top_n,
+        name_map_seed: None,
+        history: HistoryPolicy::MergeExisting,
+        workbook: WorkbookPolicy::Disabled,
     };
     #[cfg(debug_assertions)]
     let offline_fixture = std::env::var_os("MIHO_OFFLINE_FIXTURE");
@@ -342,7 +360,13 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
         if fixture.manifest.game != game {
             bail!("offline fixture game does not match requested game");
         }
-        let run = run_source_export(&fixture, &request).await?;
+        let context = ExportContext {
+            fetched_at: Utc::now(),
+            fetch_policy: FetchPolicy::Fixture,
+            cache_root: fixture_path.clone(),
+            existing_output_root: Some(args.out.clone()),
+        };
+        let run = run_export_v1(&fixture, &request, &context).await?;
         eprintln!("fixture mode: {}", fixture_path.display());
         run
     } else {
@@ -360,20 +384,28 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
                 supplemental.join(", ")
             );
         }
-        let revision = "main";
+        let cache_root = cache_root(game, &args.repo_id, revision);
         let source = HfSnapshotSource::new(
             HuggingFaceRepo::new(&args.repo_id, revision),
             HttpClient::new(StdDuration::from_secs(60), 2)?,
-            cache_root(game, &args.repo_id, revision),
+            &cache_root,
             FetchMode::Online,
         );
-        run_source_export(&source, &request).await?
+        let context = ExportContext {
+            fetched_at: Utc::now(),
+            fetch_policy: FetchPolicy::Online,
+            cache_root,
+            existing_output_root: Some(args.out.clone()),
+        };
+        run_export_v1(&source, &request, &context).await?
     };
-    for warning in &run.warnings {
-        eprintln!("warning: {warning}");
-    }
-    for error in &run.errors {
-        eprintln!("recoverable error: {error}");
+    for diagnostic in &run.diagnostics {
+        match diagnostic.severity {
+            DiagnosticSeverity::Warning => eprintln!("warning: {}", diagnostic.message),
+            DiagnosticSeverity::RecoverableError => {
+                eprintln!("recoverable error: {}", diagnostic.message)
+            }
+        }
     }
     run.bundle.write_to(&args.out)?;
     Ok(())

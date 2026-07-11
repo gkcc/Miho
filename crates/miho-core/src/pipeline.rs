@@ -8,7 +8,13 @@ use chrono::NaiveDate;
 use serde::Deserialize;
 use serde_json::Value;
 
+pub use crate::contract::{ExportRequestV1 as ExportRequest, Game};
+
 use crate::{
+    contract::{
+        diagnostic_code, Diagnostic, DiagnosticSeverity, DiagnosticSource, ExportContext,
+        ExportOutcome,
+    },
     hf::TreeEntry,
     hsr::{
         histograph_fallback_character_rows, make_phase_row as make_hsr_phase,
@@ -21,6 +27,7 @@ use crate::{
     },
     normalize::parse_date,
     output::ArtifactBundle,
+    report::finalize_export_bundle,
     source::{SnapshotSource, SourceFuture},
     zzz::{
         make_phase_row as make_zzz_phase, parse_bangboo_rows as parse_zzz_bangboo,
@@ -32,13 +39,6 @@ use crate::{
     },
     MihoError, Result,
 };
-
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Game {
-    Hsr,
-    Zzz,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct OfflineManifest {
@@ -70,18 +70,6 @@ pub struct PipelineRun {
     pub bundle: ArtifactBundle,
     pub warnings: Vec<String>,
     pub errors: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ExportRequest {
-    pub game: Game,
-    pub modes: Vec<String>,
-    pub from_date: Option<NaiveDate>,
-    pub to_date: Option<NaiveDate>,
-    pub include_teams: bool,
-    pub include_prydwen_visible: bool,
-    pub include_prydwen_tier: bool,
-    pub official_name_map: bool,
 }
 
 impl OfflineFixture {
@@ -345,12 +333,28 @@ impl SnapshotSource for OfflineFixture {
             self.manifest.repo_id, self.manifest.revision, path
         )
     }
+
+    fn dataset_ref(&self) -> Option<crate::contract::DatasetRef> {
+        Some(crate::contract::DatasetRef {
+            repo_id: self.manifest.repo_id.clone(),
+            revision: self.manifest.revision.clone(),
+        })
+    }
 }
 
 pub async fn run_source_export<S: SnapshotSource>(
     source: &S,
     request: &ExportRequest,
 ) -> Result<PipelineRun> {
+    request.validate()?;
+    if let Some(actual) = source.dataset_ref() {
+        if actual != request.dataset {
+            return Err(MihoError::Unsupported(format!(
+                "snapshot source dataset {}/{} does not match request {}/{}",
+                actual.repo_id, actual.revision, request.dataset.repo_id, request.dataset.revision
+            )));
+        }
+    }
     // Python records a failed root-tree request and then fails at the stable
     // structural boundary below. Preserve that public error instead of
     // leaking transport-specific details through the CLI contract.
@@ -389,13 +393,14 @@ pub async fn run_source_export<S: SnapshotSource>(
             ));
             return true;
         };
-        request.from_date.is_none_or(|from| date >= from)
-            && request.to_date.is_none_or(|to| date <= to)
+        request.date_range.contains(date)
     });
     if snapshots.is_empty() {
         warnings.push("no Hugging Face snapshots matched the requested date range".into());
     }
-    if request.include_prydwen_visible || request.include_prydwen_tier || request.official_name_map
+    if request.features.prydwen_visible
+        || request.features.prydwen_tier
+        || request.features.official_names
     {
         warnings.push("supplemental Prydwen/official sources are not yet connected to the generic export pipeline".into());
     }
@@ -422,7 +427,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                         list_optional_tree(source, &chars_path, &mut warnings, &mut errors).await;
                     let comps =
                         list_optional_tree(source, &comps_path, &mut warnings, &mut errors).await;
-                    mode_files.insert(mode.clone(), (chars, comps));
+                    mode_files.insert(*mode, (chars, comps));
                 }
                 let builds_path = format!("{snapshot}/builds.json");
                 let builds = if snapshot_paths.contains(&builds_path.as_str()) {
@@ -465,11 +470,11 @@ pub async fn run_source_export<S: SnapshotSource>(
                         .get(&snapshot)
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!({}));
-                    prepare_hsr_dates(&mut entry, mode);
+                    prepare_hsr_dates(&mut entry, mode.code());
                     let (char_files, comp_files) = mode_files
                         .get(mode)
                         .expect("requested HSR mode files should be discovered");
-                    let mut characters = parse_hsr_builds(&builds, mode);
+                    let mut characters = parse_hsr_builds(&builds, mode.code());
                     for row in &mut characters {
                         row.source_file = builds_path.clone();
                         row.source_url = source.raw_url(&builds_path);
@@ -481,8 +486,10 @@ pub async fn run_source_export<S: SnapshotSource>(
                         {
                             match source.read_json(&file.path).await {
                                 Ok(value) => {
-                                    let mut parsed =
-                                        crate::hsr::parse_chars_file_character_rows(&value, mode);
+                                    let mut parsed = crate::hsr::parse_chars_file_character_rows(
+                                        &value,
+                                        mode.code(),
+                                    );
                                     for row in &mut parsed {
                                         row.source_file = file.path.clone();
                                         row.source_url = source.raw_url(&file.path);
@@ -493,12 +500,13 @@ pub async fn run_source_export<S: SnapshotSource>(
                             }
                         }
                     }
-                    let histograph_rows = parse_hsr_histograph(&histograph, mode, &histograph_path);
+                    let histograph_rows =
+                        parse_hsr_histograph(&histograph, mode.code(), &histograph_path);
                     if characters.is_empty() && !histograph_rows.is_empty() {
                         characters = histograph_fallback_character_rows(&histograph_rows);
                     }
                     let mut teams = vec![];
-                    if request.include_teams {
+                    if request.features.hf_teams {
                         for file in comp_files
                             .iter()
                             .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
@@ -509,8 +517,13 @@ pub async fn run_source_export<S: SnapshotSource>(
                                         .pointer(&format!("/{mode}/ver"))
                                         .and_then(Value::as_str)
                                         .unwrap_or(&snapshot);
-                                    let mut parsed =
-                                        parse_hsr_teams(&value, mode, phase_ver, &file.path, None);
+                                    let mut parsed = parse_hsr_teams(
+                                        &value,
+                                        mode.code(),
+                                        phase_ver,
+                                        &file.path,
+                                        None,
+                                    );
                                     for row in &mut parsed {
                                         row.source_kind = "hf_comps".into();
                                         row.source_file = file.path.clone();
@@ -530,7 +543,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                     let mut phase = make_hsr_phase(
                         &snapshot,
                         &entry,
-                        mode,
+                        mode.code(),
                         &format!("{snapshot}/"),
                         !char_files.is_empty(),
                         !comp_files.is_empty(),
@@ -593,15 +606,16 @@ pub async fn run_source_export<S: SnapshotSource>(
                         list_optional_tree(source, &comps_tree, &mut warnings, &mut errors).await;
                     let config_missing = config.get(&snapshot).is_none();
                     let entry = config.get(&snapshot).cloned().unwrap_or_else(
-                        || serde_json::json!({"collect_date":"", (mode):{"ver":snapshot}}),
+                        || serde_json::json!({"collect_date":"", (mode.code()):{"ver":snapshot}}),
                     );
-                    let Some(mode_config) = entry.get(mode).and_then(Value::as_object) else {
+                    let Some(mode_config) = entry.get(mode.code()).and_then(Value::as_object)
+                    else {
                         warnings.push(format!("{snapshot}/{mode}: mode config missing; skipped"));
                         continue;
                     };
                     let mut phase = make_zzz_phase(PhaseInput {
                         snapshot_id: snapshot.clone(),
-                        mode: mode.clone(),
+                        mode: mode.code().into(),
                         collect_date: entry
                             .get("collect_date")
                             .and_then(Value::as_str)
@@ -637,7 +651,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                     }
                     let mut usage = vec![];
                     for value in builds.as_array().into_iter().flatten() {
-                        let mut parsed = parse_usage(value, mode);
+                        let mut parsed = parse_usage(value, mode.code());
                         for row in &mut parsed {
                             row.source_file = builds_path.clone();
                             row.source_url = source.raw_url(&builds_path);
@@ -658,7 +672,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                         }
                     }
                     let mut teams = vec![];
-                    if request.include_teams {
+                    if request.features.hf_teams {
                         for file in comp_files
                             .iter()
                             .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
@@ -667,7 +681,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                                 Ok(value) if value.is_array() => {
                                     let mut parsed = parse_zzz_teams(
                                         value.as_array().unwrap().clone(),
-                                        mode,
+                                        mode.code(),
                                         Path::new(&file.path)
                                             .file_name()
                                             .and_then(|v| v.to_str())
@@ -700,6 +714,60 @@ pub async fn run_source_export<S: SnapshotSource>(
         warnings,
         errors,
     })
+}
+
+pub async fn run_export_v1<S: SnapshotSource>(
+    source: &S,
+    request: &ExportRequest,
+    context: &ExportContext,
+) -> Result<ExportOutcome> {
+    let PipelineRun {
+        mut bundle,
+        warnings,
+        errors,
+    } = run_source_export(source, request).await?;
+    let mut diagnostics = warnings
+        .into_iter()
+        .map(|message| diagnostic_from_message(request.game, DiagnosticSeverity::Warning, message))
+        .collect::<Vec<_>>();
+    diagnostics.extend(errors.into_iter().map(|message| {
+        diagnostic_from_message(request.game, DiagnosticSeverity::RecoverableError, message)
+    }));
+    let stats = finalize_export_bundle(&mut bundle, request, context, &diagnostics)?;
+    Ok(ExportOutcome {
+        request: request.clone(),
+        bundle,
+        diagnostics,
+        stats,
+    })
+}
+
+fn diagnostic_from_message(
+    game: Game,
+    severity: DiagnosticSeverity,
+    message: String,
+) -> Diagnostic {
+    let code = if message.contains("supplemental Prydwen/official sources") {
+        diagnostic_code::SUPPLEMENTAL_NOT_CONNECTED
+    } else if message.contains("collect_date missing") {
+        diagnostic_code::SNAPSHOT_DATE_MISSING
+    } else if message == "no Hugging Face snapshots matched the requested date range" {
+        diagnostic_code::NO_MATCHING_SNAPSHOTS
+    } else if severity == DiagnosticSeverity::Warning {
+        diagnostic_code::PIPELINE_WARNING
+    } else {
+        diagnostic_code::PIPELINE_RECOVERABLE
+    };
+    Diagnostic {
+        severity,
+        code: code.into(),
+        source: DiagnosticSource::Pipeline,
+        game,
+        snapshot: None,
+        mode: None,
+        path: None,
+        message,
+    }
 }
 
 async fn list_optional_tree<S: SnapshotSource>(
@@ -761,10 +829,15 @@ fn is_version(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::{
+        contract::{
+            DatasetRef, DateRange, FeatureFlags, FetchPolicy, GameMode, HistoryPolicy,
+            WorkbookPolicy, EXPORT_REQUEST_SCHEMA_VERSION,
+        },
         hf::HuggingFaceRepo,
         network::{FetchMode, HttpClient},
         source::HfSnapshotSource,
     };
+    use chrono::{TimeZone, Utc};
     use std::{
         collections::BTreeSet,
         fs,
@@ -829,14 +902,27 @@ mod tests {
 
     fn hsr_request() -> ExportRequest {
         ExportRequest {
+            schema_version: EXPORT_REQUEST_SCHEMA_VERSION,
             game: Game::Hsr,
-            modes: vec!["moc".into()],
-            from_date: None,
-            to_date: None,
-            include_teams: false,
-            include_prydwen_visible: false,
-            include_prydwen_tier: false,
-            official_name_map: false,
+            modes: vec![GameMode::HsrMoc],
+            date_range: DateRange {
+                from: None,
+                to: None,
+            },
+            dataset: DatasetRef {
+                repo_id: "owner/repo".into(),
+                revision: "main".into(),
+            },
+            features: FeatureFlags {
+                hf_teams: false,
+                prydwen_visible: false,
+                prydwen_tier: false,
+                official_names: false,
+            },
+            prydwen_top_n: 100,
+            name_map_seed: None,
+            history: HistoryPolicy::MergeExisting,
+            workbook: WorkbookPolicy::Disabled,
         }
     }
 
@@ -899,14 +985,15 @@ mod tests {
         let hsr_run = run_source_export(
             &hsr,
             &ExportRequest {
-                game: Game::Hsr,
-                modes: vec!["moc".into()],
-                from_date: None,
-                to_date: None,
-                include_teams: true,
-                include_prydwen_visible: false,
-                include_prydwen_tier: false,
-                official_name_map: false,
+                dataset: DatasetRef {
+                    repo_id: hsr.manifest.repo_id.clone(),
+                    revision: hsr.manifest.revision.clone(),
+                },
+                features: FeatureFlags {
+                    hf_teams: true,
+                    ..hsr_request().features
+                },
+                ..hsr_request()
             },
         )
         .await
@@ -920,13 +1007,16 @@ mod tests {
             &zzz,
             &ExportRequest {
                 game: Game::Zzz,
-                modes: vec!["sd".into()],
-                from_date: None,
-                to_date: None,
-                include_teams: true,
-                include_prydwen_visible: false,
-                include_prydwen_tier: false,
-                official_name_map: false,
+                modes: vec![GameMode::ZzzSd],
+                dataset: DatasetRef {
+                    repo_id: zzz.manifest.repo_id.clone(),
+                    revision: zzz.manifest.revision.clone(),
+                },
+                features: FeatureFlags {
+                    hf_teams: true,
+                    ..hsr_request().features
+                },
+                ..hsr_request()
             },
         )
         .await
@@ -939,6 +1029,54 @@ mod tests {
             ),
             "{zzz_teams}"
         );
+    }
+
+    #[tokio::test]
+    async fn versioned_export_returns_structured_receipt_and_final_report() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({
+                "1.0.0": {"collect_date": "2026-01-01", "moc": {"ver": "1"}}
+            }),
+        );
+        let mut request = hsr_request();
+        request.date_range = DateRange {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1),
+            to: NaiveDate::from_ymd_opt(2026, 1, 31),
+        };
+        let context = ExportContext {
+            fetched_at: Utc.with_ymd_and_hms(2026, 7, 12, 1, 2, 3).unwrap(),
+            fetch_policy: FetchPolicy::Fixture,
+            cache_root: "cache".into(),
+            existing_output_root: None,
+        };
+
+        let outcome = run_export_v1(&source, &request, &context).await.unwrap();
+        assert_eq!(outcome.stats.snapshots, 1);
+        assert_eq!(outcome.stats.phases_by_mode[&GameMode::HsrMoc], 1);
+        let report = std::str::from_utf8(outcome.bundle.get("export_report.md").unwrap()).unwrap();
+        assert!(report.contains("2026-01-01 / 2026-01-31"));
+        assert!(report.contains("2026-07-12T01:02:03Z"));
+        let receipt = outcome.receipt();
+        assert_eq!(receipt.game, Game::Hsr);
+        assert!(receipt
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.path == "artifact_manifest.json"));
+    }
+
+    #[tokio::test]
+    async fn versioned_request_rejects_a_mismatched_snapshot_source() {
+        let fixture = OfflineFixture::load(fixture("offline_hsr")).unwrap();
+        let error = run_source_export(&fixture, &hsr_request())
+            .await
+            .err()
+            .expect("dataset identity mismatch should fail before reading the source");
+        assert!(error.to_string().contains("does not match request"));
     }
 
     #[tokio::test]
@@ -960,8 +1098,8 @@ mod tests {
             }),
         );
         let mut request = hsr_request();
-        request.from_date = NaiveDate::from_ymd_opt(2026, 1, 10);
-        request.to_date = NaiveDate::from_ymd_opt(2026, 1, 31);
+        request.date_range.from = NaiveDate::from_ymd_opt(2026, 1, 10);
+        request.date_range.to = NaiveDate::from_ymd_opt(2026, 1, 31);
 
         let run = run_source_export(&source, &request).await.unwrap();
         let phases = std::str::from_utf8(run.bundle.get("phase_index.csv").unwrap()).unwrap();
@@ -988,8 +1126,8 @@ mod tests {
             }),
         );
         let mut request = hsr_request();
-        request.from_date = NaiveDate::from_ymd_opt(2026, 2, 1);
-        request.to_date = NaiveDate::from_ymd_opt(2026, 2, 28);
+        request.date_range.from = NaiveDate::from_ymd_opt(2026, 2, 1);
+        request.date_range.to = NaiveDate::from_ymd_opt(2026, 2, 28);
 
         let run = run_source_export(&source, &request).await.unwrap();
         assert!(run.warnings.iter().any(|warning| {
@@ -1164,7 +1302,7 @@ mod tests {
         );
         let mut request = hsr_request();
         request.game = Game::Zzz;
-        request.modes = vec!["sd".into()];
+        request.modes = vec![GameMode::ZzzSd];
 
         let run = run_source_export(&source, &request).await.unwrap();
         assert!(run.errors.is_empty(), "{:?}", run.errors);
@@ -1203,7 +1341,7 @@ mod tests {
             .insert("config.json".into(), serde_json::json!({}));
         let mut request = hsr_request();
         request.game = Game::Zzz;
-        request.modes = vec!["sd".into()];
+        request.modes = vec![GameMode::ZzzSd];
 
         let run = run_source_export(&source, &request).await.unwrap();
         let (headers, rows) = csv_table(&run.bundle, "phase_index.csv");
@@ -1287,7 +1425,7 @@ mod tests {
             FetchMode::Online,
         );
         let mut request = hsr_request();
-        request.include_teams = true;
+        request.features.hf_teams = true;
         let online = run_source_export(&online_source, &request).await.unwrap();
         server.join().unwrap();
         assert!(online.errors.is_empty(), "{:?}", online.errors);

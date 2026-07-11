@@ -1,6 +1,7 @@
 pub mod atomic;
 pub mod box_state;
 pub mod config;
+pub mod contract;
 pub mod error;
 pub mod hf;
 pub mod hsr;
@@ -10,7 +11,9 @@ pub mod network;
 pub mod normalize;
 pub mod output;
 pub mod pipeline;
+pub mod report;
 pub mod source;
+pub mod supplemental;
 pub mod zzz;
 pub mod zzz_export;
 pub mod zzz_sources;

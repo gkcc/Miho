@@ -7,6 +7,7 @@ use std::{
 use serde_json::Value;
 
 use crate::{
+    contract::DatasetRef,
     hf::{parse_tree_response, HuggingFaceRepo, TreeEntry},
     network::{CachedHttpClient, FetchMode, HttpClient},
     MihoError, Result,
@@ -18,6 +19,9 @@ pub trait SnapshotSource: Send + Sync {
     fn list_tree<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Vec<TreeEntry>>;
     fn read_json<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Value>;
     fn raw_url(&self, path: &str) -> String;
+    fn dataset_ref(&self) -> Option<DatasetRef> {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -90,6 +94,13 @@ impl SnapshotSource for HfSnapshotSource {
 
     fn raw_url(&self, path: &str) -> String {
         self.repo.raw_url(path)
+    }
+
+    fn dataset_ref(&self) -> Option<DatasetRef> {
+        Some(DatasetRef {
+            repo_id: self.repo.repo_id.clone(),
+            revision: self.repo.revision.clone(),
+        })
     }
 }
 
