@@ -7,6 +7,7 @@ pub mod hsr;
 pub mod hsr_sources;
 pub mod network;
 pub mod normalize;
+pub mod output;
 pub mod zzz;
 pub mod zzz_sources;
 

@@ -28,6 +28,12 @@ pub enum MihoError {
     CacheMiss(String),
     #[error("invalid cache key: {0}")]
     InvalidCacheKey(String),
+    #[error("invalid artifact path: {0}")]
+    InvalidArtifactPath(String),
+    #[error("CSV row has {actual} values but {expected} headers were declared")]
+    CsvWidth { expected: usize, actual: usize },
+    #[error("CSV encoding failed: {0}")]
+    Csv(#[from] csv::Error),
     #[error("unsupported operation: {0}")]
     Unsupported(String),
 }
