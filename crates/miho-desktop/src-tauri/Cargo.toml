@@ -1,0 +1,17 @@
+[package]
+name = "miho-desktop"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "miho_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+miho-core = { path = "../../miho-core" }
+serde.workspace = true
+tauri = { version = "2", features = [] }
+

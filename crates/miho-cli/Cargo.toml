@@ -1,0 +1,15 @@
+[package]
+name = "miho-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "miho"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+miho-core = { path = "../miho-core" }
+tokio.workspace = true
+

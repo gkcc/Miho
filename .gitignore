@@ -12,6 +12,7 @@ target/
 node_modules/
 crates/miho-desktop/node_modules/
 crates/miho-desktop/dist/
+crates/miho-desktop/src-tauri/gen/
 
 # Local application and agent state
 .miho/
