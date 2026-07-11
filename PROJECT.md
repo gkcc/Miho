@@ -8,9 +8,9 @@
 
 - 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
-- Rust 已实现配置加载、Box State v2、Python 等价规范化、HSR/ZZZ parser、Hugging Face/Prydwen/官方名称固定输入解析、缓存与分类重试；Tauri 已打通 HSR/ZZZ Box 读写，并采用稳定应用数据目录。
+- Rust 已实现配置加载、Box State v2、Python 等价 parser/source、缓存与分类重试，以及 HSR/ZZZ 四张核心表的离线黄金 bundle；Tauri 已打通 HSR/ZZZ Box 读写，并采用稳定应用数据目录。
 - Rust CLI 已按游戏拆分命令树并对齐默认值、布尔双旗标和帮助面；所有业务命令仍处于迁移门禁，不能替代 Python。
-- 最近验证：数据源 Python oracle 4 项、Rust 来源测试 4 项、网络测试 3 项通过；`cargo clippy -p miho-core -- -D warnings` 通过。
+- 最近验证：workspace 30 项 Rust 测试全部通过；本批 Python oracle 8 项通过；格式检查通过。
 - Python 仍负责全部抓取、解析、证据池、覆盖率、决策、抽取价值、报告和正式导出。
 
 ## 阶段路线
@@ -23,13 +23,13 @@
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
-## 当前三目标（第五批）
+## 当前三目标（第六批）
 
 | 子目标 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- |
-| 建立产物与比较器契约 | 主智能体 | Python exporters、现有 CSV/JSON/Markdown 规则 | 原子 CSV/JSON 写入、稳定列序、空值规则、时间戳白名单比较器 | Rust writer 测试与 Python comparator 测试 | parser 强类型模型 |
-| 实现 HSR 离线 exporter 切片 | 子智能体 | HSR fixture、parser/source 行模型 | 从固定 raw 输入生成阶段、角色、队伍和 tier 产物清单 | Python/Rust 目录黄金对比 | 产物契约 |
-| 实现 ZZZ 离线 exporter 切片 | 独立子智能体 | ZZZ fixture、parser/source 行模型 | 从固定 raw 输入生成阶段、usage、队伍、官方名称产物清单 | Python/Rust 目录黄金对比 | 产物契约 |
+| 完成 HSR 派生表与报告 | 子智能体 | Python exporter/report、HSR bundle | latest、ordered/unordered team、name map、tier history/trend、overview/report | Python/Rust 目录黄金对比 | HSR 核心四表 |
+| 完成 ZZZ 派生表与报告 | 独立子智能体 | Python exporter、ZZZ bundle | latest、dedup、name unresolved、tier history/trend、report | Python/Rust 目录黄金对比 | ZZZ 核心四表 |
+| 建立缓存快照到 bundle 的离线编排 | 主智能体 | HF tree/cache、两游戏 parser/source/exporter | 发现固定 snapshot、读取 raw、构建完整 bundle、缺文件警告与失败边界 | 临时目录端到端测试 | 两游戏完整产物集合 |
 
 ## 决策记录
 
@@ -85,6 +85,14 @@
 - 失败原因：为避免共享 `lib.rs` 冲突，子任务模块未注册，导致局部格式检查不足以发现类型错误。
 - 调整：后续子智能体仍不直接修改共享入口，但必须提供可独立编译的临时检查方式；主智能体注册后必须补 Rust oracle，不接受只有 Python fixture。进入正式 exporter 前先统一产物写入和比较规则。
 - 下一批：产物比较器、HSR 离线 exporter、ZZZ 离线 exporter。
+
+### 复盘 5：核心导出产物（2026-07-12）
+
+- 完成：统一安全相对路径、BOM/CRLF、固定表头、CSV quoting、JSON、SHA-256 manifest 与目录比较器；HSR/ZZZ 均能从固定强类型行生成四张核心表并通过字节级黄金对比。
+- 偏差：初始共享浮点格式去掉 `.0`，不符合 Python float；ZZZ 手写 fixture 未包含第二条 usage 和 `raw_json`，不能作为真实 oracle。严格字节测试暴露后，改为 Python 实际输出、区分 parse_percent 浮点与 parse_number 整数，并启用 serde JSON 输入顺序保持。
+- 失败原因：把“数值相等”误当作“CSV 表示兼容”，且子智能体的 ZZZ fixture 只验证列名，没有真正调用 Python exporter 生成值。
+- 调整：坚持字节级固定输入比较，不再接受只检查文件存在或表头。当前仍是最小 bundle，不解除 CLI export 门禁；第六批补齐派生表和目录编排。
+- 下一批：HSR 派生表、ZZZ 派生表、缓存快照到完整 bundle 的离线编排。
 
 ## 恢复入口
 
