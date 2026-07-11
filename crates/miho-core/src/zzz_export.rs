@@ -140,6 +140,148 @@ fn last_order() -> String {
     "9999".into()
 }
 
+#[derive(Debug, Clone)]
+pub struct ZzzExportSlice {
+    pub phase: PhaseRow,
+    pub usage: Vec<UsageRow>,
+    pub teams: Vec<TeamRow>,
+    pub names: Vec<NameRow>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ZzzExportDataset {
+    pub slices: Vec<ZzzExportSlice>,
+}
+
+/// Aggregate all snapshots before writing. Derivations are therefore computed
+/// across slice boundaries instead of allowing the last snapshot to overwrite
+/// files produced for earlier snapshots.
+pub fn build_dataset_export(dataset: &ZzzExportDataset) -> Result<ArtifactBundle> {
+    let Some(first) = dataset.slices.first() else {
+        return Err(crate::MihoError::Unsupported(
+            "empty ZZZ export dataset".into(),
+        ));
+    };
+    let mut bundle = build_minimal_bundle(&first.phase, &first.usage, &first.teams, &first.names)?;
+    bundle.add_csv(
+        "phase_index.csv",
+        PHASE,
+        dataset
+            .slices
+            .iter()
+            .map(|slice| phase_values(&slice.phase)),
+    )?;
+
+    let usage = dataset
+        .slices
+        .iter()
+        .flat_map(|slice| slice.usage.iter().map(move |row| (&slice.phase, row)))
+        .collect::<Vec<_>>();
+    bundle.add_csv(
+        "character_usage_long.csv",
+        USAGE,
+        usage.iter().map(|(phase, row)| usage_values(phase, row)),
+    )?;
+    let mut latest = std::collections::BTreeMap::new();
+    for (phase, row) in &usage {
+        let key = (
+            phase.mode.clone(),
+            row.sub_mode.clone(),
+            phase.phase_ver.clone(),
+            row.character_slug.clone(),
+        );
+        if latest
+            .get(&key)
+            .is_none_or(|(old, _): &(&PhaseRow, &UsageRow)| phase.collect_date >= old.collect_date)
+        {
+            latest.insert(key, (*phase, *row));
+        }
+    }
+    bundle.add_csv(
+        "character_usage_phase_latest.csv",
+        USAGE,
+        latest
+            .into_values()
+            .map(|(phase, row)| usage_values(phase, row)),
+    )?;
+
+    let teams = dataset
+        .slices
+        .iter()
+        .flat_map(|slice| slice.teams.iter().map(move |row| (&slice.phase, row)))
+        .collect::<Vec<_>>();
+    bundle.add_csv(
+        "team_rank_raw.csv",
+        TEAM,
+        teams.iter().map(|(phase, row)| team_values(phase, row)),
+    )?;
+    let mut dedup = std::collections::BTreeMap::new();
+    for (phase, row) in &teams {
+        let mut chars = [&row.char_1_slug, &row.char_2_slug, &row.char_3_slug];
+        chars.sort();
+        let key = format!(
+            "{}|{}|{}|{}|{}",
+            phase.mode,
+            row.sub_mode,
+            phase.phase_ver,
+            chars.into_iter().cloned().collect::<Vec<_>>().join(">"),
+            row.bangboo_slug
+        );
+        dedup.entry(key).or_insert((*phase, *row));
+    }
+    bundle.add_csv(
+        "team_rank_dedup_unordered.csv",
+        TEAM,
+        dedup
+            .into_values()
+            .map(|(phase, row)| team_values(phase, row)),
+    )?;
+
+    let mut names = std::collections::BTreeMap::new();
+    for row in dataset.slices.iter().flat_map(|slice| slice.names.iter()) {
+        names.insert(row.character_slug.clone(), row);
+    }
+    bundle.add_csv(
+        "name_map.csv",
+        NAMES,
+        names.values().map(|row| name_values(row)),
+    )?;
+    bundle.add_csv(
+        "name_map_unresolved.csv",
+        NAMES,
+        names
+            .values()
+            .filter(|row| row.needs_manual_check == "1")
+            .map(|row| name_values(row)),
+    )?;
+    bundle.add_text("export_report.md",format!("# 绝区零高难数据导出报告\n\n- 导出时间：fixture\n- 期数行数：{}\n- 角色出场率行数：{}\n- 队伍 raw 行数：{}\n- 待人工确认名称：{}\n",dataset.slices.len(),usage.len(),teams.len(),names.values().filter(|row|row.needs_manual_check=="1").count()))?;
+    let manifest = bundle
+        .manifest()
+        .into_iter()
+        .filter(|entry| entry.path != "artifact_manifest.json")
+        .collect::<Vec<_>>();
+    bundle.add_json("artifact_manifest.json", &manifest)?;
+    Ok(bundle)
+}
+
+fn phase_values(phase: &PhaseRow) -> Vec<String> {
+    vec![
+        phase.snapshot_id.clone(),
+        phase.collect_date.clone(),
+        phase.mode.clone(),
+        phase.mode_cn.clone(),
+        phase.phase_ver.clone(),
+        phase.phase_name.clone(),
+        phase.start_date.clone(),
+        phase.end_date.clone(),
+        phase.source.clone(),
+        phase.source_path.clone(),
+        "1".into(),
+        "1".into(),
+        String::new(),
+    ]
+}
+
 pub fn build_minimal_bundle(
     phase: &PhaseRow,
     usage: &[UsageRow],
@@ -478,6 +620,52 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(actual_manifest, expected_manifest);
+    }
+
+    #[test]
+    fn dataset_export_keeps_two_slices_and_derives_globally() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/zzz_parser_minimal.json"
+        ))
+        .unwrap();
+        let first =
+            make_phase_row(serde_json::from_value::<PhaseInput>(fixture["phase"].clone()).unwrap());
+        let mut second = first.clone();
+        second.snapshot_id = "3.0.2".into();
+        second.mode = "da".into();
+        second.mode_cn = "危局强袭".into();
+        second.phase_ver = "3.0.2".into();
+        second.collect_date = "2026-07-01".into();
+        let usage = parse_usage(&fixture["usage"], "sd");
+        let teams = parse_team_rows(
+            fixture["teams"].as_array().unwrap().clone(),
+            "sd",
+            fixture["scope"].as_str().unwrap(),
+        );
+        let dataset = ZzzExportDataset {
+            slices: vec![
+                ZzzExportSlice {
+                    phase: first,
+                    usage: usage.clone(),
+                    teams: teams.clone(),
+                    names: vec![],
+                },
+                ZzzExportSlice {
+                    phase: second,
+                    usage,
+                    teams,
+                    names: vec![],
+                },
+            ],
+        };
+        let bundle = build_dataset_export(&dataset).unwrap();
+        let phases = std::str::from_utf8(bundle.get("phase_index.csv").unwrap()).unwrap();
+        assert!(phases.contains("3.0.1") && phases.contains("3.0.2"));
+        let raw = std::str::from_utf8(bundle.get("team_rank_raw.csv").unwrap()).unwrap();
+        assert_eq!(raw.matches("fixture://local").count(), 4);
+        let latest =
+            std::str::from_utf8(bundle.get("character_usage_phase_latest.csv").unwrap()).unwrap();
+        assert!(latest.contains(",sd,") && latest.contains(",da,"));
     }
 
     fn python_csv_bytes(source: &[u8]) -> Vec<u8> {
