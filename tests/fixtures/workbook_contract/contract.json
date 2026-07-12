@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "generated_with": {
+    "writer": "existing Python HSR/ZZZ exporters",
+    "pandas": "2.2.3",
+    "openpyxl": "3.1.5"
+  },
+  "compared": [
+    "file name",
+    "sheet order",
+    "dimensions",
+    "headers",
+    "cell values",
+    "cell data types",
+    "formula count and coordinates",
+    "freeze panes",
+    "auto filter",
+    "gridline visibility",
+    "header fill, font, and alignment",
+    "column widths",
+    "cell number formats"
+  ],
+  "ignored": [
+    "ZIP member ordering and bytes",
+    "ZIP member timestamps",
+    "openpyxl style_id"
+  ],
+  "oracles": {
+    "hsr": {
+      "file_name": "hsr_endgame_dataset.xlsx",
+      "sheet_order": [
+        "overview",
+        "latest_usage_cn",
+        "top_teams_latest",
+        "phase_index",
+        "character_usage_long",
+        "character_usage_phase_latest",
+        "histograph_usage_long",
+        "team_rank_raw",
+        "team_rank_dedup_ordered",
+        "team_rank_dedup_unordered",
+        "name_map",
+        "name_map_unresolved",
+        "prydwen_tier_current",
+        "prydwen_tier_history",
+        "prydwen_tier_changelog",
+        "prydwen_tier_changelog_history",
+        "prydwen_tier_usage_trend",
+        "prydwen_tier_charts"
+      ],
+      "formula_injection_baseline": {
+        "sheet": "prydwen_tier_changelog",
+        "cell": "D2",
+        "external_text": "=HYPERLINK(\"https://invalid.example\",\"external text\")",
+        "python_data_type": "f",
+        "python_formula_count": 1,
+        "rust_policy": "write as literal text"
+      }
+    },
+    "zzz": {
+      "file_name": "zzz_endgame_dataset.xlsx",
+      "sheet_order": [
+        "phase_index",
+        "character_usage_long",
+        "character_usage_phase_latest",
+        "team_rank_raw",
+        "team_rank_dedup_unordered",
+        "name_map",
+        "name_map_unresolved",
+        "prydwen_tier_current",
+        "prydwen_tier_history",
+        "prydwen_tier_changelog",
+        "prydwen_tier_changelog_history",
+        "prydwen_tier_usage_trend"
+      ],
+      "formula_injection_baseline": {
+        "sheet": "prydwen_tier_changelog",
+        "cell": "D2",
+        "external_text": "=HYPERLINK(\"https://invalid.example\",\"external text\")",
+        "python_data_type": "f",
+        "python_formula_count": 1,
+        "rust_policy": "write as literal text"
+      }
+    }
+  }
+}

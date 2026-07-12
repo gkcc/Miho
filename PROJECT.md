@@ -15,6 +15,7 @@
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
 - 最近完整回归：Rust workspace 111 项、Python 74 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
+- 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；7 项契约测试及 30 张工作表渲染核验通过。
 - Python 仍作为全部导出语义的对照实现，并负责 Excel、正式 visualizer，以及 evidence、coverage、decision、pull-value、review-packet。
 
 ## 阶段路线
@@ -32,7 +33,7 @@
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 建立可复现的 Tauri/Vite 构建基线 | 已完成 | 前端子智能体、主智能体审查 | pnpm 11.7、Node 24、现有 Tauri/Vite scaffold | 布尔 `allowBuilds.esbuild`；固定 package manager/Node 范围；Vite 1420 strict port；根构建脚本 | 干净 frozen install、esbuild 0.25.12、Vite build、desktop 3 项、Tauri no-bundle 通过 | 无 |
-| 固化双游戏 Workbook 语义契约 | 待开始 | 兼容测试子智能体、主智能体定标 | Python 生成器、归档 XLSX、现有 CSV bundle | 小型脱敏 XLSX oracle；sheet/列/值/类型/样式/宽度/公式规范化比较器 | `python -m pytest -q tests/test_workbook_contract.py` | 现有 exporter bundle |
+| 固化双游戏 Workbook 语义契约 | 已完成 | 兼容测试子智能体、主智能体定标 | Python 生成器、归档 XLSX、现有 CSV bundle | HSR 18-sheet、ZZZ 12-sheet 脱敏 XLSX oracle；sheet/列/值/类型/样式/宽度/公式规范化比较器 | 7 项契约测试；Artifact Tool 导入、公式扫描与 30-sheet 渲染核验通过 | 现有 exporter bundle |
 | 接入共享 Rust Workbook writer | 待开始 | Rust 子智能体移植、主智能体整合 | Workbook 语义契约、`WorkbookPolicy`、最终 ArtifactBundle | HSR 18-sheet 与 ZZZ 12-sheet；显式单元格类型；BestEffort diagnostics、manifest 与原子写出 | Rust workbook 测试、双游戏 XLSX 语义对比、CLI fixture 回归、严格 clippy | Workbook 契约 |
 
 ## 决策记录
@@ -56,7 +57,7 @@
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
 | HSR/ZZZ XLSX 与 visualizer 尚未进入 Rust 完整目录 | 高 | 两游戏保留默认在线总门禁；当前只解除已实现的补充来源选项门禁 |
-| Workbook 单元格类型和样式可能与 Python 漂移 | 高 | 先建语义比较器；Rust 使用显式列类型，禁止公式注入，不比较 ZIP 时间戳/style ID |
+| Workbook 单元格类型和样式可能与 Python 漂移 | 高 | 语义比较器与双游戏 oracle 已冻结；Rust 使用显式列类型，禁止公式注入，不比较 ZIP 时间戳/style ID |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
 | Tauri 后台任务、取消和完整 visualizer 尚未迁移 | 高 | 数据与报告默认路径稳定后再接 IPC，前端不复制规则 |
 | 外部数据源随时间变化 | 高 | 归档历史 raw 数据，黄金测试只用固定离线输入 |
@@ -147,4 +148,4 @@
 - 当前完整验证：`cargo test --workspace --no-fail-fast; cargo clippy --workspace --all-targets -- -D warnings; python -m pytest -q; pnpm run deps:install; pnpm run build; pnpm run tauri:build:no-bundle`。
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035\manifest.json`。
-- 最危险的未验证假设：从 CSV bundle 反写 XLSX 时能用显式列类型复刻 Python DataFrame 单元格语义；visualizer 的大型 `data.json` 与交互仍未建立 Rust/TypeScript 版本化契约。
+- 最危险的未验证假设：共享 Rust writer 从最终 CSV bundle 反写 XLSX 时能以显式列类型通过已冻结的 Python 语义契约；visualizer 的大型 `data.json` 与交互仍未建立 Rust/TypeScript 版本化契约。
