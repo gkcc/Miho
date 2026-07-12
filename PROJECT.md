@@ -6,7 +6,9 @@
 
 ## 当前状态
 
-- 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
+- 工作区已安全迁移到 `D:\Projects\终局内容提取`；6,111 个不可再生项目文件与 16,301 个归档文件逐路径 SHA-256 校验均为零差异，迁移回执保存在归档目录。
+- D 盘迁移后重建验证：Rust workspace 118 项通过，frozen pnpm install、Vite build 与 Tauri `--no-bundle` 通过；Python 原有 84 项通过，暂停中的 visualizer 契约半成品仍等待 fixture 与旧断言收口。
+- 工作区治理完成：业务资产已归档到 `D:\Projects\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
 - Rust 已实现 HF 在线/离线统一 `SnapshotSource`、日期与部分失败语义、两游戏多 snapshot/mode 聚合，以及 HSR histograph/fallback、动态视图、完整队伍去重和 ZZZ Bangboo/name fallback。
 - Rust CLI 已接通 HSR/ZZZ `export`、原子写出和 0/1/2 退出码；两游戏的 Prydwen visible/tier/changelog、HoYoWiki 官方名称、历史、趋势、raw 与 Workbook 产物均已进入共享 Rust pipeline，补充来源或 Workbook 失败只降级为结构化 warning。
@@ -42,6 +44,7 @@
 | 日期 | 决策 | 影响 | 复核条件 |
 | --- | --- | --- | --- |
 | 2026-07-12 | 采用纯 Tauri + Rust，GUI 与 CLI 全兼容，分阶段替换 | Python 保留为迁移 oracle，禁止一次性切换 | 全部黄金测试通过 |
+| 2026-07-12 | 工作区采用复制、全量哈希、Git 校验后切换的方式从 C 盘迁移到 D 盘 | `D:\Projects\终局内容提取` 是后续唯一开发入口；C 盘旧源码仅作为短期回滚副本 | 再次迁盘或 D 盘健康状态异常时 |
 | 2026-07-12 | 业务资产归档到仓库外，缓存直接清除 | 工作区只保留源码、配置、测试和项目文档 | 需要恢复历史数据时使用归档清单 |
 | 2026-07-12 | 每个子目标一个本地提交，每三个子目标复盘 | 提高可回退性；不自动推送远端 | 项目规模或协作方式显著改变 |
 | 2026-07-12 | 首发仅维护 Windows 图标和安装配置 | 删除自动生成的 Android/iOS 图标 | 正式纳入其他平台时 |
@@ -154,9 +157,11 @@
 ## 恢复入口
 
 - 项目状态：本文件。
+- 当前工作区：`D:\Projects\终局内容提取`。
 - 兼容规则：`docs/migration-compatibility.md`。
 - Rust workspace：根目录 `Cargo.toml`。
 - 当前完整验证：`cargo test --workspace --no-fail-fast; cargo clippy --workspace --all-targets -- -D warnings; python -m pytest -q; pnpm run deps:install; pnpm run build; pnpm run tauri:build:no-bundle`。
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
-- 业务归档：`C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035\manifest.json`。
+- 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
+- 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
 - 最危险的未验证假设：visualizer 的大型 `data.json`、静态资源和交互仍未建立 Rust/TypeScript 版本化契约；这是解除两游戏在线完整目录门禁前的最后一项导出产品缺口。
