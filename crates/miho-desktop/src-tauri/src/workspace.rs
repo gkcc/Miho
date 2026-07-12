@@ -10,6 +10,7 @@ use std::{
 
 use miho_app::NativeTaskPathsV1;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 const SETTINGS_SCHEMA_V1: &str = "miho-desktop-settings-v1";
 const WORKSPACE_SUMMARY_SCHEMA_V1: &str = "miho-workspace-summary-v1";
@@ -78,6 +79,8 @@ pub enum WorkspaceError {
     StaleWorkspace,
     #[error("selected workspace is not a trusted directory")]
     InvalidSelection,
+    #[error("workspace contains an untrusted linked path")]
+    UntrustedPath,
     #[error("cannot persist workspace selection")]
     Persist,
     #[error("workspace state is unavailable")]
@@ -118,6 +121,11 @@ impl WorkspaceRegistry {
         Ok(self.lock_active()?.summary(self.session_id))
     }
 
+    pub fn active_access(&self) -> Result<(PathBuf, WorkspaceSummaryV1), WorkspaceError> {
+        let active = self.lock_active()?;
+        Ok((active.root.clone(), active.summary(self.session_id)))
+    }
+
     pub fn access(&self, workspace_id: &str) -> Result<PathBuf, WorkspaceError> {
         let active = self.lock_active()?;
         let summary = active.summary(self.session_id);
@@ -127,8 +135,9 @@ impl WorkspaceRegistry {
         Ok(active.root.clone())
     }
 
+    #[cfg(test)]
     pub fn active_root(&self) -> Result<PathBuf, WorkspaceError> {
-        Ok(self.lock_active()?.root.clone())
+        self.active_access().map(|(root, _)| root)
     }
 
     pub fn native_paths(
@@ -137,17 +146,16 @@ impl WorkspaceRegistry {
     ) -> Result<(PathBuf, NativeTaskPathsV1), WorkspaceError> {
         let root = self.access(workspace_id)?;
         let data_dir = preferred_zzz_data_dir(&root);
-        Ok((
-            root.clone(),
-            NativeTaskPathsV1 {
-                data_dir,
-                box_path: root.join(".miho/zzz_box_state.json"),
-                rules_path: root.join("configs/zzz_decision_rules.yaml"),
-                banner_plan_path: root.join("configs/zzz_banner_plan.json"),
-                mechanism_notes_dir: root.join("configs/zzz_mechanism_notes"),
-                decision_baseline_path: root.join("configs/zzz_decision_baseline.json"),
-            },
-        ))
+        let paths = NativeTaskPathsV1 {
+            data_dir,
+            box_path: root.join(".miho/zzz_box_state.json"),
+            rules_path: root.join("configs/zzz_decision_rules.yaml"),
+            banner_plan_path: root.join("configs/zzz_banner_plan.json"),
+            mechanism_notes_dir: root.join("configs/zzz_mechanism_notes"),
+            decision_baseline_path: root.join("configs/zzz_decision_baseline.json"),
+        };
+        validate_native_task_paths(&root, &paths)?;
+        Ok((root, paths))
     }
 
     pub fn select(&self, root: PathBuf) -> Result<WorkspaceSummaryV1, WorkspaceError> {
@@ -250,6 +258,114 @@ fn validate_selected_root(root: &Path) -> Result<(), WorkspaceError> {
     let metadata = fs::symlink_metadata(root).map_err(|_| WorkspaceError::InvalidSelection)?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() || is_reparse(&metadata) {
         return Err(WorkspaceError::InvalidSelection);
+    }
+    Ok(())
+}
+
+pub(crate) fn workspace_storage_scope(root: &Path) -> Result<String, WorkspaceError> {
+    validate_selected_root(root)?;
+    let canonical = fs::canonicalize(root).map_err(|_| WorkspaceError::InvalidSelection)?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"miho-workspace-storage-v1\0");
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        for unit in canonical.as_os_str().encode_wide() {
+            hasher.update(unit.to_le_bytes());
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        hasher.update(canonical.as_os_str().as_bytes());
+    }
+    #[cfg(not(any(windows, unix)))]
+    hasher.update(canonical.to_string_lossy().as_bytes());
+    Ok(format!("storage-{:x}", hasher.finalize()))
+}
+
+/// Validates an authorized workspace descendant without following any existing
+/// symlink or Windows reparse-point component. Missing suffixes are allowed so
+/// the same boundary can protect both report inputs and future Box targets.
+pub(crate) fn validate_workspace_target(root: &Path, target: &Path) -> Result<(), WorkspaceError> {
+    validate_selected_root(root).map_err(|_| WorkspaceError::UntrustedPath)?;
+    let relative = target
+        .strip_prefix(root)
+        .map_err(|_| WorkspaceError::UntrustedPath)?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let std::path::Component::Normal(component) = component else {
+            return Err(WorkspaceError::UntrustedPath);
+        };
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() || is_reparse(&metadata) => {
+                return Err(WorkspaceError::UntrustedPath);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(_) => return Err(WorkspaceError::UntrustedPath),
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn trusted_workspace_file(root: &Path, path: &Path) -> bool {
+    validate_workspace_target(root, path).is_ok()
+        && fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
+}
+
+const REPORT_DATA_INPUTS: &[&str] = &[
+    "team_rank_dedup_unordered.csv",
+    "name_map.csv",
+    "prydwen_tier_current.csv",
+    "prydwen_tier_history.csv",
+    "character_usage_long.csv",
+    "team_rank_raw.csv",
+    "prydwen_tier_changelog_history.csv",
+];
+
+fn validate_native_task_paths(
+    root: &Path,
+    paths: &NativeTaskPathsV1,
+) -> Result<(), WorkspaceError> {
+    for path in [
+        &paths.data_dir,
+        &paths.box_path,
+        &paths.rules_path,
+        &paths.banner_plan_path,
+        &paths.mechanism_notes_dir,
+        &paths.decision_baseline_path,
+    ] {
+        validate_workspace_target(root, path)?;
+    }
+    for name in REPORT_DATA_INPUTS {
+        validate_workspace_target(root, &paths.data_dir.join(name))?;
+    }
+    validate_mechanism_note_entries(root, &paths.mechanism_notes_dir)
+}
+
+fn validate_mechanism_note_entries(root: &Path, notes_dir: &Path) -> Result<(), WorkspaceError> {
+    let metadata = match fs::symlink_metadata(notes_dir) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(WorkspaceError::UntrustedPath),
+    };
+    if !metadata.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(notes_dir).map_err(|_| WorkspaceError::UntrustedPath)? {
+        let path = entry.map_err(|_| WorkspaceError::UntrustedPath)?.path();
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase);
+        if extension
+            .as_deref()
+            .is_some_and(|value| matches!(value, "yaml" | "yml" | "json"))
+        {
+            validate_workspace_target(root, &path)?;
+        }
     }
     Ok(())
 }
@@ -380,6 +496,26 @@ mod tests {
     }
 
     #[test]
+    fn active_access_returns_one_consistent_root_and_summary_revision() {
+        let base = temp_root("active-access");
+        let selected = base.join("selected");
+        fs::create_dir_all(&selected).unwrap();
+        let registry =
+            WorkspaceRegistry::initialize(base.join("app-data"), base.join("config"), None, None);
+        let (_, before) = registry.active_access().unwrap();
+        let selected_summary = registry.select(selected.clone()).unwrap();
+        let (root, after) = registry.active_access().unwrap();
+        assert_eq!(root, selected);
+        assert_eq!(after, selected_summary);
+        assert_ne!(before.workspace_id, after.workspace_id);
+        assert!(matches!(
+            registry.access(&before.workspace_id),
+            Err(WorkspaceError::StaleWorkspace)
+        ));
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn native_paths_never_enter_the_public_summary() {
         let base = temp_root("paths");
         fs::create_dir_all(base.join("out_zzz")).unwrap();
@@ -425,6 +561,24 @@ mod tests {
     }
 
     #[test]
+    fn storage_scope_is_stable_for_one_root_and_distinct_between_roots() {
+        let base = temp_root("storage-scope");
+        let first = base.join("CANARY_SECRET_FIRST");
+        let second = base.join("CANARY_SECRET_SECOND");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        let first_scope = workspace_storage_scope(&first).unwrap();
+        assert_eq!(first_scope, workspace_storage_scope(&first).unwrap());
+        assert_ne!(first_scope, workspace_storage_scope(&second).unwrap());
+        assert!(first_scope.starts_with("storage-"));
+        assert!(first_scope
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'));
+        assert!(!first_scope.contains("CANARY_SECRET"));
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn invalid_persisted_workspace_warns_and_falls_back() {
         let base = temp_root("invalid-persisted");
         let app_data = base.join("app-data");
@@ -445,5 +599,53 @@ mod tests {
         assert_eq!(registry.active_root().unwrap(), app_data);
         assert_eq!(registry.warnings().len(), 1);
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(windows)]
+    fn create_junction(target: &Path, junction: &Path) -> bool {
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(junction)
+            .arg(target)
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_paths_reject_nested_workspace_junctions() {
+        for scenario in ["box", "data", "configs", "notes"] {
+            let base = temp_root(&format!("junction-{scenario}-CANARY_SECRET"));
+            let external = base.join("external");
+            let root = base.join("workspace");
+            fs::create_dir_all(&external).unwrap();
+            fs::create_dir_all(&root).unwrap();
+            let junction = match scenario {
+                "box" => root.join(".miho"),
+                "data" => root.join("out_zzz"),
+                "configs" => root.join("configs"),
+                "notes" => {
+                    fs::create_dir_all(root.join("configs")).unwrap();
+                    root.join("configs/zzz_mechanism_notes")
+                }
+                _ => unreachable!(),
+            };
+            if !create_junction(&external, &junction) {
+                fs::remove_dir_all(base).unwrap();
+                continue;
+            }
+            let registry = WorkspaceRegistry::initialize(
+                root.clone(),
+                base.join("config"),
+                None,
+                Some(root.clone()),
+            );
+            let workspace_id = registry.summary().unwrap().workspace_id;
+            let error = registry.native_paths(&workspace_id).unwrap_err();
+            assert!(matches!(error, WorkspaceError::UntrustedPath));
+            assert!(!error.to_string().contains("CANARY_SECRET"));
+            fs::remove_dir(&junction).unwrap();
+            fs::remove_dir_all(base).unwrap();
+        }
     }
 }

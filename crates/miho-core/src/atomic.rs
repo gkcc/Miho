@@ -246,7 +246,7 @@ fn normalized_absolute(path: &Path) -> Result<PathBuf> {
 
 fn replace(temp: &Path, target: &Path) -> Result<()> {
     if !target.exists() {
-        return fs::rename(temp, target).map_err(|source| MihoError::Write {
+        return install_new(temp, target).map_err(|source| MihoError::Write {
             path: target.into(),
             source,
         });
@@ -263,17 +263,21 @@ fn replace(temp: &Path, target: &Path) -> Result<()> {
         // std::fs::rename cannot replace an existing file on Windows. Keep the
         // old file as a uniquely named sibling so a failed install can restore it.
         let backup = unique_sibling(target, "bak");
-        fs::rename(target, &backup).map_err(|source| MihoError::Write {
+        install_new(target, &backup).map_err(|source| MihoError::Write {
             path: target.into(),
             source,
         })?;
-        match fs::rename(temp, target) {
+        match install_new(temp, target) {
             Ok(()) => {
                 let _ = fs::remove_file(backup);
                 Ok(())
             }
             Err(source) => {
-                let _ = fs::rename(&backup, target);
+                if let Err(rollback) = install_new(&backup, target) {
+                    return Err(MihoError::Unsupported(format!(
+                        "atomic replace failed ({source}); rollback failed ({rollback})"
+                    )));
+                }
                 Err(MihoError::Write {
                     path: target.into(),
                     source,
@@ -281,6 +285,35 @@ fn replace(temp: &Path, target: &Path) -> Result<()> {
             }
         }
     }
+}
+
+fn install_new(temp: &Path, target: &Path) -> std::io::Result<()> {
+    match fs::rename(temp, target) {
+        Ok(()) => Ok(()),
+        Err(source) if source.kind() == std::io::ErrorKind::CrossesDevices => {
+            copy_new_synced(temp, target)
+        }
+        Err(source) => Err(source),
+    }
+}
+
+fn copy_new_synced(temp: &Path, target: &Path) -> std::io::Result<()> {
+    let mut source = fs::File::open(temp)?;
+    let mut target_file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)?;
+    let result = std::io::copy(&mut source, &mut target_file).and_then(|_| target_file.sync_all());
+    drop(target_file);
+    if let Err(error) = result {
+        let _ = fs::remove_file(target);
+        return Err(error);
+    }
+    if let Err(error) = fs::remove_file(temp) {
+        let _ = fs::remove_file(target);
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -302,6 +335,38 @@ mod tests {
         write(&path, b"new").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"new");
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn cross_device_copy_fallback_installs_synced_bytes_and_removes_stage() {
+        let root = test_path("cross-device-copy");
+        fs::create_dir_all(&root).unwrap();
+        let temp = root.join("stage");
+        let target = root.join("target");
+        fs::write(&temp, b"settings").unwrap();
+        copy_new_synced(&temp, &target).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"settings");
+        assert!(!temp.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cross_device_copy_fallback_can_backup_and_replace_existing_bytes() {
+        let root = test_path("cross-device-replace");
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("target");
+        let backup = root.join("backup");
+        let temp = root.join("temp");
+        fs::write(&target, b"old-settings").unwrap();
+        fs::write(&temp, b"new-settings").unwrap();
+
+        copy_new_synced(&target, &backup).unwrap();
+        copy_new_synced(&temp, &target).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"new-settings");
+        assert_eq!(fs::read(&backup).unwrap(), b"old-settings");
+        assert!(!temp.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -12,7 +12,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::workspace::{WorkspaceError, WorkspaceRegistry, WorkspaceSummaryV1};
+use crate::workspace::{
+    trusted_workspace_file, WorkspaceError, WorkspaceRegistry, WorkspaceSummaryV1,
+};
 
 const PUBLIC_COMMAND_FAILURE_SCHEMA_V1: &str = "miho-public-command-failure-v1";
 const DESKTOP_CAPABILITIES_SCHEMA_V1: &str = "miho-desktop-capabilities-v1";
@@ -106,7 +108,7 @@ impl DesktopState {
         }
     }
 
-    fn lock_gate(&self) -> Result<MutexGuard<'_, ()>, PublicCommandFailureV1> {
+    pub(crate) fn lock_gate(&self) -> Result<MutexGuard<'_, ()>, PublicCommandFailureV1> {
         self.workspace_task_gate.lock().map_err(|_| {
             PublicCommandFailureV1::new(
                 "desktop.state_unavailable",
@@ -231,19 +233,19 @@ pub fn cancel_task(task_id: String, state: State<'_, DesktopState>) -> PublicCan
 
 fn capabilities(state: &DesktopState) -> Result<DesktopCapabilitiesV1, PublicCommandFailureV1> {
     let workspace = state.workspaces.summary().map_err(map_workspace_error)?;
-    let (_, paths) = state
+    let (root, paths) = state
         .workspaces
         .native_paths(&workspace.workspace_id)
         .map_err(map_workspace_error)?;
-    let box_state = [(!paths.box_path.is_file()).then_some("box-state")];
+    let box_ready = trusted_workspace_file(&root, &paths.box_path);
+    let team_ready =
+        trusted_workspace_file(&root, &paths.data_dir.join("team_rank_dedup_unordered.csv"));
+    let plan_ready = trusted_workspace_file(&root, &paths.banner_plan_path);
+    let box_state = [(!box_ready).then_some("box-state")];
     let evidence_inputs = [
-        (!paths.box_path.is_file()).then_some("box-state"),
-        (!paths
-            .data_dir
-            .join("team_rank_dedup_unordered.csv")
-            .is_file())
-        .then_some("team-rank-dedup"),
-        (!paths.banner_plan_path.is_file()).then_some("banner-plan"),
+        (!box_ready).then_some("box-state"),
+        (!team_ready).then_some("team-rank-dedup"),
+        (!plan_ready).then_some("banner-plan"),
     ];
     let operations = vec![
         operation_capability(TaskOperationV1::Decision, box_state),
@@ -328,6 +330,11 @@ fn map_workspace_error(error: WorkspaceError) -> PublicCommandFailureV1 {
         WorkspaceError::InvalidSelection => PublicCommandFailureV1::new(
             "workspace.invalid_selection",
             "The selected folder is not a supported local workspace.",
+            false,
+        ),
+        WorkspaceError::UntrustedPath => PublicCommandFailureV1::new(
+            "workspace.untrusted_path",
+            "The workspace contains an untrusted linked path.",
             false,
         ),
         WorkspaceError::Persist => PublicCommandFailureV1::new(
@@ -568,6 +575,54 @@ mod tests {
         assert!(!serde_json::to_string(&public)
             .unwrap()
             .contains("CANARY_RAW_FAILURE"));
+        let unsafe_path = map_workspace_error(WorkspaceError::UntrustedPath);
+        assert_eq!(unsafe_path.code, "workspace.untrusted_path");
+        assert!(!serde_json::to_string(&unsafe_path)
+            .unwrap()
+            .contains("CANARY_SECRET"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn capabilities_and_task_prepare_reject_linked_inputs_before_execution() {
+        let (root, state, workspace_id) = state("linked-input-CANARY_SECRET");
+        let external = root.join("external");
+        fs::create_dir_all(&external).unwrap();
+        fs::write(
+            external.join("team_rank_dedup_unordered.csv"),
+            b"mode,rank\n",
+        )
+        .unwrap();
+        let junction = root.join("out_zzz");
+        let linked = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&external)
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if !linked {
+            fs::remove_dir_all(root).unwrap();
+            return;
+        }
+
+        let capability_error = capabilities(&state).unwrap_err();
+        assert_eq!(capability_error.code, "workspace.untrusted_path");
+        assert!(!serde_json::to_string(&capability_error)
+            .unwrap()
+            .contains("CANARY_SECRET"));
+
+        let intent = serde_json::to_string(&TaskIntentV1::new(TaskIntentSpecV1::Evidence(
+            Default::default(),
+        )))
+        .unwrap();
+        let prepare_error = prepare_task(&state, &workspace_id, &intent).unwrap_err();
+        assert_eq!(prepare_error.code, "workspace.untrusted_path");
+        assert!(!serde_json::to_string(&prepare_error)
+            .unwrap()
+            .contains("CANARY_SECRET"));
+
+        fs::remove_dir(&junction).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

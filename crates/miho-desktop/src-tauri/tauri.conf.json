@@ -5,13 +5,16 @@
   "identifier": "com.miho.endgame",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://127.0.0.1:5173",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "终局数据中心", "width": 1200, "height": 820, "minWidth": 860, "minHeight": 620 }],
-    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost" }
+    "windows": [{ "title": "终局数据中心", "width": 1200, "height": 820, "minWidth": 860, "minHeight": 620, "useHttpsScheme": true }],
+    "security": {
+      "pattern": { "use": "isolation", "options": { "dir": "isolation" } },
+      "csp": "default-src 'self' miho-visualizer: https://miho-visualizer.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost miho-visualizer: https://miho-visualizer.localhost"
+    }
   },
   "bundle": {
     "active": true,
@@ -19,4 +22,3 @@
     "windows": { "nsis": { "installMode": "currentUser" } }
   }
 }
-

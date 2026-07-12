@@ -53,10 +53,12 @@ The process-local `TaskManager` and Tauri backend are now implemented:
 - `public_updates_since(sequence)` reconstructs every transition from the authoritative history, so a polling event adapter can emit contiguous revisions without losing fast states;
 - Tauri `capabilities/select_workspace/start/get/list/cancel` commands accept only opaque workspace IDs and pathless intent JSON;
 - the folder picker is invoked by Rust; the WebView capability does not grant direct dialog access;
-- workspace settings are persisted atomically and Box State follows the active workspace.
+- workspace settings use the shared staged replacement path; Windows virtualized-AppData `CrossesDevices` is handled with synced copy plus normal-error rollback, and Box State follows the active workspace. The fallback does not claim abrupt-kill/power-loss atomicity; those capabilities remain false below.
 
-The following remain explicitly outside this gate: GUI/CLI cross-process locking, graceful manager shutdown/join, task-history persistence, abrupt process termination, power-loss journal/recovery, export tasks and visualizer hosting. Desktop capabilities report abrupt and cross-process recovery as unsupported.
+The safe frontend and visualizer bridge are now implemented. The frontend consumes only strict public schemas and authoritative task queries; event sequence is only a wake-up cursor. The desktop protocol serves compile-time visualizer code plus workspace-scoped data/avatar/Box resources under an opaque token and Tauri isolation. Its route, storage and Windows smoke contract lives in `docs/desktop-visualizer-security.md`.
+
+The following remain explicitly outside this gate: GUI/CLI cross-process locking, graceful manager shutdown/join, task-history persistence, abrupt process termination, power-loss journal/recovery and export tasks. Desktop capabilities report abrupt and cross-process recovery as unsupported.
 
 ## Next gate
 
-The frontend must consume only the public snapshot/update and authoritative query APIs. It must not receive native receipts, paths or dialog capability. The next product gate adds the safe task UI and a constrained visualizer/Box protocol bridge.
+Implement one Rust-native update orchestrator and failure receipt, then switch the installed scheduled task only after the new runner passes. Packaging must carry the CLI and default configuration, and NSIS/portable install, upgrade, uninstall and scheduled-task flows must be verified without Python before retiring the Python runtime.

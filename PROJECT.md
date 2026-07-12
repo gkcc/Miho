@@ -15,13 +15,13 @@
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
 - HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 默认生成 Workbook，两游戏在线 export 均在 visualizer 完整目录验收后解除总门禁。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 244 项、Python 181 项（含共享 app task/TaskManager、Tauri backend、visualizer、Evidence V1、LegacyV0 decision、pull-value V1 与 review-packet V1 契约）、workspace 严格 clippy、Python compileall、Vite build、Tauri release `--no-bundle` 与 diff check 通过。
-- Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
+- 最近完整回归：Rust workspace 268 项、Python 181 项（含共享 app task/TaskManager、Tauri backend、安全 frontend/visualizer protocol、Evidence V1、LegacyV0 decision、pull-value V1 与 review-packet V1 契约）、workspace 严格 clippy、Python compileall、Vite build、Tauri release `--no-bundle` 与 diff check 通过。
+- Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:5173` strict port，根脚本可从干净依赖状态复现；1420 落入本机 Windows 保留端口段，已由真实 dev 启动反例纠正。
 - 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
 - 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
 - 双游戏 visualizer 产物契约已冻结并由 Rust 实现：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
 - `evidence-first-v1-20260712` 已由 Python oracle 与共享 Rust core/CLI 双实现：跨 mode 隔离、A 的 sentinel/稳定性门槛、owned/built 分离、稳定 E-ID、显式时钟、JSON/YAML/BOM、四产物黄金和任意路径整批回滚均已验收；Rust evidence/coverage 门禁已解除。
-- Python 继续作为决策/报告迁移 oracle；Rust `decision` 仅作显式 `legacy-v0` compatibility，`pull-value` 是唯一正式推荐入口，`review-packet` 只序列化同一批 cards/refs/trace。五类报告共用 `miho-app` executor；纯 Rust TaskManager 与 Tauri 的 capabilities/select/start/get/list/cancel 已接通 pathless intent、opaque workspace、合作式取消和连续状态事件。前端任务面板、visualizer 协议桥、export 后台任务仍未接入。
+- Python 继续作为决策/报告迁移 oracle；Rust `decision` 仅作显式 `legacy-v0` compatibility，`pull-value` 是唯一正式推荐入口，`review-packet` 只序列化同一批 cards/refs/trace。五类报告共用 `miho-app` executor；纯 Rust TaskManager、Tauri capabilities/select/start/get/list/cancel、安全任务前端和 workspace-scoped visualizer/data/avatar/Box 协议桥已接通。export 后台任务、自动更新/计划任务、发布与无 Python 退役仍未完成。
 
 ## 阶段路线
 
@@ -59,13 +59,13 @@
 | 迁移 Rust pull-value | 完成 | 主智能体、CLI/fixture 子智能体、两名独立对抗审查子智能体 | Evidence V1 主/风险证据、tier/usage、Banner plan、baseline | typed pull cards、同 mode A/B 支撑的抽取价值报告、Rust CLI | current/next 跨语言黄金；exact dependency、PyYAML/非有限/rounding/事务/0-1-2 对抗；独立 `Blocker=0 / High=0` | Rust decision 边界固定 |
 | 迁移 Rust review-packet | 完成 | 主智能体、两名独立只读/对抗审查子智能体 | pull-value typed bundle、current/next Python packet | 只序列化同一批 pull cards 的 Rust packet/core/CLI | current/next 跨语言 hash、字段顺序/trace、sentinel 不重算、动态 fence、Python JSON 数值、split/combined、单时钟/批事务、0/1/2；独立 `Blocker=0 / High=0` | Rust pull-value 已解门 |
 
-## 当前三目标（第十四批）
+## 第十四批三目标（已完成）
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 共享报告应用层与 V1 intent/receipt/failure | 完成 | 主智能体、应用层实现子智能体、两名独立对抗审查子智能体 | CLI 五类私有报告 adapter、现有 core/黄金/事务契约 | `miho-app`、trusted native request、pathless intent、共享 executor、CLI 薄适配 | app 6 项、真实 CLI 16 项、Rust 223 项；malformed/unknown/schema failure；junction/later-install；独立 `Blocker=0 / High=0` | 第十三批完成 |
 | Rust TaskManager 与 Tauri 薄命令 | 完成 | 主智能体、TaskManager 实现子智能体、Tauri 后端子智能体、独立对抗审查子智能体 | pathless intent、trusted workspace、共享 executor | start/get/list/cancel、capabilities、native workspace 选择、连续状态事件 | 全局单任务；commit 前取消不改输出、commit 后 too-late；A/B/C active 竞态；panic/spawn；opaque/reparse/persist；事件 1..N 补发；独立 `Blocker=0 / High=0` | 共享应用层完成 |
-| 安全前端与 visualizer 协议桥 | 未开始 | 待分配 | Tauri TaskManager、Box State、Rust visualizer 静态资产 | 任务面板、错误/诊断/产物、文件选择、内嵌双游戏 visualizer | 无 innerHTML XSS、Box 双向一致、受限资源路由、Vite/Tauri build 与浏览器冒烟 | TaskManager 完成 |
+| 安全前端与 visualizer 协议桥 | 完成 | 主智能体、协议/契约只读审计子智能体、独立对抗终审子智能体 | Tauri TaskManager、Box State、Rust visualizer 静态资产 | 安全任务面板、错误/诊断/产物、native workspace 选择、内嵌双游戏 visualizer | main UI 无 unsafe HTML sink；isolation + access/storage scope；有界 data/avatar/Box、A→B/Windows AppData 真机；Rust 268、Python 181、Vite/Tauri release；独立 `Blocker=0 / High=0` | TaskManager 完成 |
 
 ## 决策记录
 
@@ -97,6 +97,8 @@
 | 2026-07-13 | Rust `review-packet` 解除 core/CLI 门禁，并固定为 `PullValueBundleV1` 的安全 serializer | 不重新读取输入或重算推荐；split/combined 与 pull-value 共用 adapter、单次时钟和批事务；manifest、visualizer、decision、pull/coverage 产物仍为 unmanaged | pull card/schema、Evidence 方法、JSON renderer、报告 ownership 或 IPC 所有权变化时 |
 | 2026-07-13 | 五类报告路径/时钟/渲染/批事务从 CLI 私有实现迁入共享 `miho-app`；WebView 只接受 pathless `TaskIntentV1` | pathful `TaskRequestV1/WorkspaceLayout` 不实现 serde，仅供可信原生 adapter；malformed/unknown/wrong schema 进入版本化 failure；CLI 只翻译参数并调用唯一 executor | intent/schema、workspace 授权、TaskManager 取消/commit 边界或报告 ownership 变化时 |
 | 2026-07-13 | TaskManager 以锁内 `before_commit` 作为取消/提交线性化点，首版全局单活动；Tauri 仅以 opaque workspace ID 解析 pathless intent | queued/running 可请求取消且 commit 前无写；committing 后返回 too-late；事件按 native history prefix 连续补发，query 始终权威；公开 snapshot 不含路径或 raw error | 放宽并发、增加 export、持久任务历史、跨进程锁/journal、abrupt-kill 恢复或 public schema 变化时 |
+| 2026-07-13 | 桌面 visualizer 使用 Tauri isolation、编译期可信代码和 workspace-scoped custom protocol；静态 artifact 字节不注入桌面逻辑 | 所有 index/app/styles/data/avatar/Box 请求带短期 opaque access token；app 响应动态封装 fetch，并以 canonical workspace SHA-256 scope 隔离/恢复 localStorage；data 响应只改写安全本地头像；stale A→B 统一拒绝 | Tauri/Wry isolation 机制、workspace/access/storage identity grammar、visualizer asset/schema、protocol route 或 Box ownership 变化时 |
+| 2026-07-13 | Windows AppData 同目录 rename 仍可能返回 `CrossesDevices`，设置替换的 backup/install/rollback 均使用 synced copy fallback | 首写和已有 settings 的连续 A→B→A 在正常运行/错误路径可用；source 删除失败会撤销新 target，不假报 move 成功；不声称强杀/掉电原子性 | 更换设置存储位置、Windows 打包身份/虚拟化层、实现 crash journal/recovery 或 atomic storage 时 |
 
 ## 风险登记
 
@@ -106,14 +108,14 @@
 | Legacy decision 与 evidence-first 方法冲突 | 低（兼容迁移已验证，正式方法仍隔离） | `decision --method legacy-v0` 仅作 compatibility；正式推荐只由 pull-value 产生并以 dedup A/B 主证据支撑高优先级 |
 | 双游戏 visualizer 与 Python 语义漂移 | 低（已验证） | 46 项跨语言/真实 CLI 契约、118 项 core、浏览器冒烟与独立对抗反例；sidecar/schema 变化时重新关门复核 |
 | Workbook 单元格类型和样式可能与 Python 漂移 | 低（已验证） | 双游戏 oracle、显式/混合类型、thin border、样式/列宽语义规范化与 Rust 全局零公式断言已固化 |
-| `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
-| Tauri 后端任务/取消已迁移，但前端任务面板和 visualizer 产品集成尚未完成 | 高 | 前端只消费 public snapshot/opaque artifact，不复制规则；先消除 innerHTML XSS，再接任务交互和受限 visualizer 协议 |
+| `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；virtualized AppData 的首写/替换 `CrossesDevices` 真机通过，安装环境仍需压力测试 |
+| Tauri visualizer 子 frame 获得 Wry 初始化脚本或跨 workspace 浏览器状态 | 低（当前门禁已验证） | isolation origin 校验、visualizer CSP、opaque token、动态 localStorage scope、stale 409、A→B 真机与 `docs/desktop-visualizer-security.md`；Tauri/Wry 升级时重新关门 |
 | 已安装每日任务仍指向不存在的 C 盘旧脚本 | 高（外部当前态） | 纯 Rust update runner 可替换前先禁用旧任务；新任务验证成功后再原子切换，不能把 Ready/迁移前 result=0 当健康证据 |
 | PowerShell 自动更新不检查 native `$LASTEXITCODE`，失败后仍可能前移 freshness state | 高 | 不在 PowerShell 重建业务编排；先实现单一 Rust update runner + failure receipt，旧脚本修为非零立即失败且状态只在成功后提交 |
 | NSIS/便携版尚未携带 CLI、默认 configs，也未做无 Python 安装验收 | 高 | TaskManager/UI 完成后打包 `miho.exe` 与资源，执行真实 NSIS/portable/升级/卸载/Task Scheduler/无 Python 矩阵 |
 | 外部数据源随时间变化 | 高 | 归档历史 raw 数据，黄金测试只用固定离线输入 |
 | 子智能体共享工作树冲突 | 中 | 并行任务划定互斥路径；公共类型由主智能体串行整合 |
-| pnpm/esbuild 构建审批或端口再次漂移 | 低（已验证） | 布尔 allowlist、packageManager/Node engines、1420 strict port 与根级复现脚本已固化 |
+| pnpm/esbuild 构建审批或端口再次漂移 | 低（已验证） | 布尔 allowlist、packageManager/Node engines、5173 strict port 与根级复现脚本已固化；端口需避开 Windows excluded range |
 | Rust 网络层误重试永久性 4xx | 中 | 按状态码分类，只重试瞬时错误并增加缓存/离线测试 |
 
 ## 三目标复盘
@@ -338,6 +340,24 @@
 - **明确延期边界**：当前只承诺进程内全局单任务和可查询的内存历史；不承诺 GUI/CLI 跨进程互斥、TaskManager shutdown/join、进程强杀/掉电后的 journal/recovery。capabilities 明确返回 abrupt/cross-process false，底层 atomic 的既有 crash-consistency 风险没有被扩大为已解决。
 - **下一步**：安全重写前端 DOM，接 capabilities/workspace/task query/event/cancel 与正式 pull/review 入口；随后实现受限 visualizer 资源/Box 协议桥。前端和 visualizer 通过后才开始 Rust update runner、计划任务切换与发布验收。
 
+### 第十四批进度：安全前端与 visualizer 协议桥完成（子目标 3/3，2026-07-13）
+
+- **显式提问**：本阶段我最有把握的完成证据是什么？最值得质疑、最可能被现有测试漏掉的点是什么？
+- **主判断—最有把握**：main WebView 的所有动态内容都经过 `createElement/textContent/replaceChildren`，任务事件只唤醒权威 query；公开 task/workspace/artifact/failure schema 不含路径或 raw error。桌面 visualizer 只执行编译期 index/app/styles，workspace 仅提供有界 data/avatar/Box；每个请求先校验短期 opaque access token，localStorage 另用 canonical workspace SHA-256 stable scope。Windows WebView2 已真实渲染双游戏数据/头像、完成 Box 写入、A→B 空 Box 无回灌、B→A、settings revision 2→3→4 和重启 persisted=4。
+- **主判断—最值得质疑**：最危险面不是 UI happy path，而是 Windows Wry 会向子 frame 注入初始化脚本、同源 localStorage 会跨 workspace 延续、异步 Box/任务响应会跨 game/revision 回写，以及 virtualized AppData 即使 sibling rename 也会返回 `CrossesDevices`。真实 DevTools 还要求绕过 self-XSS paste barrier 才能直接执行 iframe `invoke` probe；该保护没有被绕过，因此直接攻击调用不是本批证据。
+- **独立对抗判断**：早期审查把 Wry 子 frame IPC 与固定 localStorage A→B 回灌列为 Blocker，并把 `.miho`/报告输入 junction、跨 workspace 异步响应列为 High；主线程以 Tauri isolation、workspace gate/token/scope 和 generation 复核修复。最终未参与实现的终审又发现三个 High：Box GET 无界及 compact 通过但 pretty 落盘超 1 MiB、data/avatar readiness/GET 无界读取、把会话 access token 当 storage identity 导致重启/重选后 browser-only Box/REC 丢失。修复后终审重放 34 项 desktop、7 项 atomic、strict clippy、Vite 与 diff-check，最终 `Blocker=0 / High=0`。
+- **主线程回应与处理**：接受全部 Blocker/High，不以“用户选择了 workspace”视作任意字节可信。Box 的 GET metadata、深度 32、pretty JSON+LF 1 MiB 由 main/protocol 共用；data 限 64 MiB、avatar 限 8 MiB，readiness 对头像只查安全 metadata。access token 只负责请求授权，stable storage scope 负责同一物理 workspace 的重启恢复。设置首写和已有目标 backup/install/rollback 都支持 synced-copy `CrossesDevices` fallback；source 删除失败会撤销新 target。强杀/掉电中间态仍明确 `abrupt=false`，没有被误报为原子恢复。
+- **最大困难与路线修正**：最大困难是“一个 iframe”实际上横跨主 origin、custom protocol origin、isolation origin、浏览器 storage origin、Rust workspace revision 和 Windows 虚拟文件系统；单独依靠 CSP、sandbox、session token 或单元测试都不能覆盖完整链。主流程由“嵌入静态 visualizer + CSP”修正为“isolation 前置 + 编译期代码/可变数据分层 + 短期 access/stable storage 双 identity + 全 route fail-closed + 有界 allocation + Windows 真机 A/B/restart”。该契约固定在 `docs/desktop-visualizer-security.md`，Tauri/Wry、storage identity 或 visualizer schema 变化时必须重新关门。
+- **最终验收**：`cargo test --workspace --locked --no-fail-fast` 共 268 项、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`python -m pytest -q` 共 181 项、Python compileall、`pnpm run build`、`pnpm -w run tauri:build:no-bundle` 与 `git diff --check` 全绿；release 产出 `target/release/miho-desktop.exe`。真实 DevTools 观察到 main、visualizer、main isolation frame，visualizer 自身 isolation child 被 CSP 阻断；结合 generated Context isolation 测试与上游 origin 校验作为 IPC 证据，未把未执行的 console probe 写成通过。
+- **下一步**：第十四批至此收口。立即进入单一 Rust native update orchestrator + failure receipt，修复旧 PowerShell `$LASTEXITCODE` 假绿后再原子切换计划任务；随后补 NSIS/portable 的 CLI/config 资源，完成无 Python 安装/升级/卸载/计划任务矩阵，最后退役 Python runtime。
+
+### 第十四批三目标复盘（2026-07-13）
+
+- **完成**：共享报告应用层、纯 Rust TaskManager/Tauri 后端、安全任务前端与双游戏 visualizer/Box 产品桥全部完成；每个子目标都在独立 Blocker/High 清零后解除门禁。
+- **最大偏差与困难**：原计划把前端与协议桥视为一个常规 UI 子目标，实际暴露了 Wry 子 frame IPC、浏览器跨 workspace storage、reparse 输入、无界本地资源和 Windows AppData `CrossesDevices` 等系统级边界；真机证据推翻了多项只靠 Rust 单测成立的假设。
+- **路线修正**：Tauri 产品集成今后必须把 isolation、短期授权 identity、稳定 storage identity、allocation limit 和真实 Windows A/B/restart smoke 当作前置。自动化阶段不得继续拼接 Python/PowerShell 业务链，而应先建立一个 Rust update runner 和单一 failure receipt，再迁移外部计划任务。
+- **项目状态**：第十四批完成不等于整个项目完成。export 后台任务、更新 runner、计划任务切换、NSIS/portable 完整打包、无 Python 验收与 Python runtime 退役仍是剩余主线。
+
 ## 恢复入口
 
 - 项目状态：本文件。
@@ -348,4 +368,4 @@
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
-- 最危险的未验证假设：前端与 visualizer 协议桥能否只使用 public/opaque 能力而不重新暴露路径或 XSS，以及后续 GUI/CLI 跨进程自动化、强杀恢复和无 Python 发布能否在真实安装环境复现；进程内 TaskManager 的取消/commit/事件边界现已通过确定性竞态测试。
+- 最危险的未验证假设：单一 Rust update runner、GUI/CLI 跨进程自动化、强杀/掉电恢复和无 Python 发布能否在真实安装环境复现；前端/visualizer 的 public/opaque/path/XSS/A→B/有界资源边界已完成真机与对抗复核，但直接 iframe console `invoke` probe 因 DevTools self-XSS 安全屏障未绕过，继续以 isolation Context、origin 校验和实际 frame/CSP 证据守门。

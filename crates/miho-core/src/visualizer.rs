@@ -21,6 +21,20 @@ const ZZZ_APP_JS: &str = include_str!("../assets/visualizer/zzz/app.js");
 const HUB_STYLES_CSS: &str = include_str!("../assets/visualizer/hub/styles.css");
 const HUB_APP_JS: &str = include_str!("../assets/visualizer/hub/app.js");
 
+/// Returns trusted executable/static visualizer assets embedded at compile time.
+/// Mutable workspace data and avatar files are intentionally not exposed here.
+pub fn visualizer_static_asset(game: &str, name: &str) -> Option<&'static [u8]> {
+    match (game, name) {
+        ("hsr", "index.html") => Some(HSR_INDEX_HTML.as_bytes()),
+        ("hsr", "app.js") => Some(HSR_APP_JS.as_bytes()),
+        ("hsr", "styles.css") => Some(HSR_STYLES_CSS.as_bytes()),
+        ("zzz", "index.html") => Some(ZZZ_INDEX_HTML.as_bytes()),
+        ("zzz", "app.js") => Some(ZZZ_APP_JS.as_bytes()),
+        ("zzz", "styles.css") => Some(ZZZ_STYLES_CSS.as_bytes()),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VisualizerContext {
     pub schema_version: u16,
@@ -915,6 +929,16 @@ mod tests {
         let text = String::from_utf8(bytes.to_vec()).unwrap();
         let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
         format!("{:x}", Sha256::digest(normalized.as_bytes()))
+    }
+
+    #[test]
+    fn trusted_static_asset_api_excludes_mutable_visualizer_data() {
+        assert!(visualizer_static_asset("hsr", "index.html").is_some());
+        assert!(visualizer_static_asset("zzz", "app.js").is_some());
+        assert!(visualizer_static_asset("hsr", "styles.css").is_some());
+        assert!(visualizer_static_asset("hsr", "data.json").is_none());
+        assert!(visualizer_static_asset("hsr", "assets/avatars/a.webp").is_none());
+        assert!(visualizer_static_asset("other", "app.js").is_none());
     }
 
     #[test]
