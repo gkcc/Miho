@@ -7,7 +7,7 @@ name = "hsr-endgame-exporter"
 version = "0.1.0"
 description = "Local exporter for Honkai: Star Rail endgame usage data from MocStats and Prydwen."
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["PyYAML>=6.0.2,<7"]
 
 [project.optional-dependencies]
 excel = ["pandas", "openpyxl"]

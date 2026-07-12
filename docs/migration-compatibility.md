@@ -19,6 +19,16 @@ The Python implementation remains the behavioral oracle until each Rust command 
 
 No calculation, row, column, filename, exit-code or default-path difference is allowed unless added here with a reason and regression fixture.
 
+## Decision and report method corrections
+
+- The report contract and dependency graph live in `docs/decision-report-contract.md`.
+- `evidence-first-v1-20260712` intentionally corrects the old Python evidence method: evidence is mode-scoped (`mode|full_team_signature`), so SD/DA and distinct HSR modes never share a best score or confidence calculation.
+- A source confidence now requires mode-specific repetition/breadth, sufficient non-sentinel results and a known stability component. Account confidence separately requires explicit build readiness; unknown/unbuilt state caps source A/B+ at account B, and ownership or level never implies ready.
+- Non-finite app rates are unusable and non-finite performance values are missing/sentinel. This is an approved safety correction rather than preserving `nan`/`inf` report text.
+- Evidence/coverage use one explicit local datetime and batch rollback. Colliding output paths fail before replacing old artifacts.
+- Pull-value `高/中高` is now constrained by same-mode qualifying A/B evidence. Stable `evidence_ids`/`evidence_keys` and embedded refs contain only A/B+/B main evidence; risk fields contain B-/C context. This method correction is intentional and hash-locked.
+- Current Python `decision` is labeled `legacy-v0`; its cross-mode heuristic, raw-team dependency and alias limitations are not accepted as evidence-first completion. Its Rust gate remains closed pending an explicit legacy/versioned-default decision.
+
 ## Migration gate
 
 A Rust command must not silently produce partial output. Until its golden suite passes, it exits with an explicit staged-migration message and the scheduled task continues to call Python.

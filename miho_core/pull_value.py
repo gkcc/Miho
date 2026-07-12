@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,8 +20,10 @@ from .evidence import (
     build_evidence_pool,
     canonical_slug,
     load_name_index,
+    load_built_slugs,
     load_owned_slugs,
     load_planned_slugs_from_banner_plan,
+    EVIDENCE_METHOD_VERSION,
 )
 
 NEW_EVIDENCE_CATEGORIES = (
@@ -63,6 +66,11 @@ class PullValueCard:
     decision_basis: tuple[str, ...]
     risk_notes: tuple[str, ...]
     evidence_ids: tuple[str, ...]
+    risk_evidence_ids: tuple[str, ...]
+    evidence_keys: tuple[str, ...]
+    risk_evidence_keys: tuple[str, ...]
+    evidence_refs: tuple[dict[str, Any], ...]
+    risk_evidence_refs: tuple[dict[str, Any], ...]
 
 
 def write_pull_value_report(
@@ -75,6 +83,7 @@ def write_pull_value_report(
     mechanism_notes_dir: str | Path | None = None,
     decision_baseline_path: str | Path | None = None,
     output_path: str | Path,
+    local_datetime: datetime | None = None,
 ) -> dict[str, Any]:
     result = build_pull_value_cards(
         data_dir,
@@ -84,6 +93,7 @@ def write_pull_value_report(
         statuses=statuses,
         mechanism_notes_dir=mechanism_notes_dir,
         decision_baseline_path=decision_baseline_path,
+        local_datetime=local_datetime,
     )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -101,6 +111,7 @@ def write_gpt_review_packet(
     mechanism_notes_dir: str | Path | None = None,
     decision_baseline_path: str | Path | None = None,
     output_path: str | Path,
+    local_datetime: datetime | None = None,
 ) -> dict[str, Any]:
     result = build_pull_value_cards(
         data_dir,
@@ -110,6 +121,7 @@ def write_gpt_review_packet(
         statuses=statuses,
         mechanism_notes_dir=mechanism_notes_dir,
         decision_baseline_path=decision_baseline_path,
+        local_datetime=local_datetime,
     )
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -126,18 +138,39 @@ def build_pull_value_cards(
     statuses: Sequence[str] = ("next",),
     mechanism_notes_dir: str | Path | None = None,
     decision_baseline_path: str | Path | None = None,
+    local_datetime: datetime | None = None,
 ) -> dict[str, Any]:
     out = Path(data_dir)
+    generated_at = local_datetime or datetime.now()
     names = load_name_index(out)
     owned = load_owned_slugs(box_path, names)
-    candidates = _load_candidates(plan_path, statuses=statuses, names=names) if plan_path else []
+    build_known, built = load_built_slugs(box_path, names)
+    candidates = (
+        _load_candidates(plan_path, statuses=statuses, names=names, local_datetime=generated_at)
+        if plan_path
+        else []
+    )
     explicit_slugs = [canonical_slug(slug, names) for slug in planned_slugs if canonical_slug(slug, names)]
     for slug in explicit_slugs:
         if slug not in {candidate["slug"] for candidate in candidates}:
             candidates.append({"slug": slug, "status": "planned", "analysis_tags": [], "banner_role": "planned"})
     planned = list(dict.fromkeys([candidate["slug"] for candidate in candidates] + explicit_slugs))
-    current_pool = build_evidence_pool(out, owned_slugs=owned, planned_slugs=[], scenario="current_box")
-    target_pool = build_evidence_pool(out, owned_slugs=owned, planned_slugs=planned, scenario="target_box")
+    current_pool = build_evidence_pool(
+        out,
+        owned_slugs=owned,
+        planned_slugs=[],
+        scenario="current_box",
+        built_slugs=built,
+        build_state_known=build_known,
+    )
+    target_pool = build_evidence_pool(
+        out,
+        owned_slugs=owned,
+        planned_slugs=planned,
+        scenario="target_box",
+        built_slugs=built,
+        build_state_known=build_known,
+    )
     usage_rows = _read_csv(out / "character_usage_long.csv")
     tier_rows = _read_csv(out / "prydwen_tier_current.csv")
     tier_index = _tier_index(tier_rows)
@@ -165,7 +198,8 @@ def build_pull_value_cards(
     cards.sort(key=lambda card: (_value_sort_key(card.pull_value), card.slug))
     return {
         "summary": {
-            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "method_version": EVIDENCE_METHOD_VERSION,
+            "generated_at": generated_at.isoformat(timespec="seconds"),
             "data_dir": str(out),
             "box_path": str(box_path),
             "plan_path": str(plan_path or ""),
@@ -191,6 +225,7 @@ def load_decision_baseline(baseline_path: str | Path | None, *, names: NameIndex
     if not path.exists():
         return {}
     data = load_config(path)
+    _validate_finite_values(data, path=str(path))
     global_change_policy = data.get("change_policy") if isinstance(data.get("change_policy"), dict) else {}
     global_categories = _string_tuple(
         data.get("new_evidence_categories")
@@ -236,6 +271,7 @@ def load_mechanism_notes(notes_dir: str | Path | None, *, candidates: Iterable[s
         if wanted and slug not in wanted:
             continue
         data = load_config(path)
+        _validate_finite_values(data, path=str(path))
         output[slug] = data
     return output
 
@@ -267,13 +303,13 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
         "",
         "## 总览",
         "",
-        "| character | type | pull_value | prior_final_stage | local_rule_stage | final_stage | stage_delta | delta_requires_review | change_allowed_reason | acceptable_stage | unresolved_stage | stage_confidence | not_recommended_stage | missing_data | evidence_ids | key_basis | risk |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| character | type | pull_value | prior_final_stage | local_rule_stage | final_stage | stage_delta | delta_requires_review | change_allowed_reason | acceptable_stage | unresolved_stage | stage_confidence | not_recommended_stage | missing_data | evidence_ids | evidence_keys | risk_evidence_ids | risk_evidence_keys | key_basis | risk |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for card in cards:
         stage = card.stage_recommendation
         lines.append(
-            "| {name} | {type} | {value} | {prior} | {local} | {final} | {delta} | {requires} | {change_reason} | {acceptable} | {unresolved} | {confidence} | {not_recommended} | {missing} | {evidence} | {basis} | {risk} |".format(
+            "| {name} | {type} | {value} | {prior} | {local} | {final} | {delta} | {requires} | {change_reason} | {acceptable} | {unresolved} | {confidence} | {not_recommended} | {missing} | {evidence} | {evidence_keys} | {risk_evidence} | {risk_evidence_keys} | {basis} | {risk} |".format(
                 name=_md(f"{card.name_cn} `{card.slug}`"),
                 type=_md(card.candidate_type),
                 value=_md(card.pull_value),
@@ -289,6 +325,9 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
                 not_recommended=_md(stage.get("not_recommended_stage", "-")),
                 missing=_md(stage.get("missing_data", "-")),
                 evidence=_md(", ".join(card.evidence_ids) or "-"),
+                evidence_keys=_md(", ".join(card.evidence_keys) or "-"),
+                risk_evidence=_md(", ".join(card.risk_evidence_ids) or "-"),
+                risk_evidence_keys=_md(", ".join(card.risk_evidence_keys) or "-"),
                 basis=_md("；".join(card.decision_basis[:3]) or "-"),
                 risk=_md("；".join(card.risk_notes[:3]) or "无"),
             )
@@ -344,6 +383,11 @@ def format_gpt_review_packet(result: dict[str, Any]) -> str:
                 "decision_basis": list(card.decision_basis),
                 "risk_notes": list(card.risk_notes),
                 "evidence_ids": list(card.evidence_ids),
+                "risk_evidence_ids": list(card.risk_evidence_ids),
+                "evidence_keys": list(card.evidence_keys),
+                "risk_evidence_keys": list(card.risk_evidence_keys),
+                "evidence_refs": list(card.evidence_refs),
+                "risk_evidence_refs": list(card.risk_evidence_refs),
             }
             for card in cards
         ],
@@ -374,7 +418,7 @@ def format_gpt_review_packet(result: dict[str, Any]) -> str:
         "## Evidence Payload",
         "",
         "```json",
-        json.dumps(payload, ensure_ascii=False, indent=2),
+        json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False),
         "```",
         "",
         "## 相关文件",
@@ -408,7 +452,16 @@ def _build_card(
     current_records = _records_for_slug(current_pool, slug)
     target_records = _records_for_slug(target_pool, slug)
     dependent_records = [record for record in target_records if slug in record.plan_dependency]
-    evidence_ids = tuple(record.evidence_id for record in _top_records(dependent_records or target_records))
+    qualifying_dependent = [record for record in dependent_records if record.confidence in {"A", "B+", "B"}]
+    qualifying_target = [record for record in target_records if record.confidence in {"A", "B+", "B"}]
+    primary_records = qualifying_dependent or qualifying_target
+    risk_records = [record for record in dependent_records or target_records if record.confidence in {"B-", "C"}]
+    evidence_ids = tuple(record.evidence_id for record in _top_records(primary_records))
+    risk_evidence_ids = tuple(record.evidence_id for record in _top_records(risk_records))
+    evidence_keys = tuple(record.evidence_key for record in _top_records(primary_records))
+    risk_evidence_keys = tuple(record.evidence_key for record in _top_records(risk_records))
+    evidence_refs = tuple(_evidence_ref(record) for record in _top_records(primary_records))
+    risk_evidence_refs = tuple(_evidence_ref(record) for record in _top_records(risk_records))
     coverage_summary = _coverage_text(current_records, target_records, dependent_records)
     if candidate_type == "new":
         pull_value = "等实测"
@@ -423,7 +476,17 @@ def _build_card(
             "替代风险无法从当前历史数据判断",
         ]
     else:
-        pull_value, stage, basis, risks = _rerun_value(candidate, usage, tier, current_records, target_records, dependent_records, slug in owned, mechanism)
+        pull_value, stage, basis, risks = _rerun_value(
+            candidate,
+            usage,
+            tier,
+            current_records,
+            target_records,
+            dependent_records,
+            primary_records,
+            slug in owned,
+            mechanism,
+        )
     baseline = _stage_baseline_fields(slug, stage, decision_baseline)
     return PullValueCard(
         slug=slug,
@@ -454,6 +517,11 @@ def _build_card(
         decision_basis=tuple(basis),
         risk_notes=tuple(risks),
         evidence_ids=evidence_ids,
+        risk_evidence_ids=risk_evidence_ids,
+        evidence_keys=evidence_keys,
+        risk_evidence_keys=risk_evidence_keys,
+        evidence_refs=evidence_refs,
+        risk_evidence_refs=risk_evidence_refs,
     )
 
 
@@ -464,6 +532,7 @@ def _rerun_value(
     current_records: list[Any],
     target_records: list[Any],
     dependent_records: list[Any],
+    primary_records: list[Any],
     owned: bool,
     mechanism: dict[str, Any],
 ) -> tuple[str, dict[str, str], list[str], list[str]]:
@@ -486,17 +555,42 @@ def _rerun_value(
         risks.append("目标 Box 暂无可组历史队伍证据")
     if current_records:
         basis.append(f"当前 Box 已有相关队伍 {len(current_records)} 条")
-    if best_rating >= 11 and avg_last3 >= 30 and usage_points >= 6:
+    mode_results: list[tuple[str, str]] = []
+    for mode in sorted({str(record.mode or "") for record in primary_records if str(record.mode or "")}):
+        records = [record for record in primary_records if record.mode == mode]
+        mode_usage = (usage.get("modes") or {}).get(mode) or {}
+        mode_tier = (tier.get("by_mode") or {}).get(mode) or {}
+        mode_rating = _float(mode_tier.get("best_rating"))
+        mode_avg = _float(mode_usage.get("avg_last3"))
+        mode_points = int(mode_usage.get("points") or 0)
+        has_a = any(record.confidence == "A" for record in records)
+        has_b_plus = any(record.confidence == "B+" for record in records)
+        b_count = sum(1 for record in records if record.confidence == "B")
+        if mode_rating >= 11 and mode_avg >= 30 and mode_points >= 6 and has_a:
+            mode_results.append(("高", mode))
+        elif mode_rating >= 10 and mode_avg >= 10 and (has_a or has_b_plus or b_count >= 2):
+            mode_results.append(("中高", mode))
+        elif mode_points > 0:
+            mode_results.append(("中", mode))
+    if any(value == "高" for value, _ in mode_results):
         pull_value = "高"
-    elif best_rating >= 10 and avg_last3 >= 10:
+    elif any(value == "中高" for value, _ in mode_results):
         pull_value = "中高"
     elif usage_points > 0:
         pull_value = "中"
+        if not primary_records:
+            risks.append("有 tier/usage 历史强度，但缺目标账号 A/B 真实成队主证据")
+        elif not mode_results:
+            risks.append("tier、usage 与 A/B 证据未在同一 mode 对齐，不给中高/高优先级")
+        else:
+            risks.append("同 mode 主证据仅支持中优先级")
     else:
         pull_value = "等实测"
         risks.append("复刻角色在本地历史样本不足")
     stage = _stage_from_mechanism("rerun", mechanism, role=str(tier.get("role_group_cn") or candidate.get("role_group_cn") or ""))
     basis.append("mechanism_review：" + _mechanism_review_text(mechanism))
+    for value, mode in mode_results:
+        basis.append(f"同模式判定 {mode}: {value}")
     if owned:
         risks.append("已拥有时优先比较补档收益，而不是重新按未拥有抽取价值排序")
     if dependent_records and not current_records:
@@ -504,12 +598,18 @@ def _rerun_value(
     return pull_value, stage, basis, risks
 
 
-def _load_candidates(plan_path: str | Path, *, statuses: Sequence[str], names: Any) -> list[dict[str, Any]]:
+def _load_candidates(
+    plan_path: str | Path,
+    *,
+    statuses: Sequence[str],
+    names: Any,
+    local_datetime: datetime | None = None,
+) -> list[dict[str, Any]]:
     data = load_config(plan_path)
     status_set = {str(status).strip().lower() for status in statuses if str(status).strip()}
     global_include_low_rarity = _truthy(data.get("include_low_rarity"))
     output: list[dict[str, Any]] = []
-    for phase in effective_banner_phases(data):
+    for phase in effective_banner_phases(data, now=local_datetime):
         status = str(phase.get("status") or "").strip().lower()
         if status_set and status not in status_set:
             continue
@@ -583,7 +683,7 @@ def _usage_summary(slug: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     by_mode: dict[str, list[tuple[str, float]]] = defaultdict(list)
     for row in matched:
         app = parse_percent(row.get("app_rate"))
-        if app is None:
+        if app is None or not math.isfinite(float(app)):
             continue
         by_mode[str(row.get("mode") or "")].append((str(row.get("collect_date") or ""), app))
     modes = {}
@@ -617,11 +717,17 @@ def _tier_index(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     output: dict[str, dict[str, Any]] = {}
     for slug, items in grouped.items():
         best = sorted(items, key=lambda row: _float(row.get("rating")), reverse=True)[0]
+        by_mode: dict[str, dict[str, Any]] = {}
+        for mode in sorted({str(row.get("tier_mode") or "") for row in items if row.get("tier_mode")}):
+            mode_items = [row for row in items if str(row.get("tier_mode") or "") == mode]
+            mode_best = sorted(mode_items, key=lambda row: _float(row.get("rating")), reverse=True)[0]
+            by_mode[mode] = {**mode_best, "best_rating": _float(mode_best.get("rating"))}
         output[slug] = {
             **best,
             "best_rating": _float(best.get("rating")),
             "best_tier": best.get("tier", ""),
             "modes": ", ".join(sorted({str(row.get("tier_mode") or "") for row in items if row.get("tier_mode")})),
+            "by_mode": by_mode,
         }
     return output
 
@@ -633,6 +739,21 @@ def _records_for_slug(pool: EvidencePool, slug: str) -> list[Any]:
 
 def _top_records(records: list[Any], limit: int = 5) -> list[Any]:
     return records[:limit]
+
+
+def _evidence_ref(record: Any) -> dict[str, Any]:
+    return {
+        "evidence_id": record.evidence_id,
+        "evidence_key": record.evidence_key,
+        "confidence": record.confidence,
+        "source_confidence": record.source_confidence,
+        "mode": record.mode,
+        "team_slugs": list(record.team_slugs),
+        "plan_dependency": list(record.plan_dependency),
+        "phase_versions": list(record.phase_versions),
+        "scopes": list(record.scopes),
+        "observation_keys": list(record.observation_keys),
+    }
 
 
 def _coverage_text(current_records: list[Any], target_records: list[Any], dependent_records: list[Any]) -> str:
@@ -805,6 +926,9 @@ def _card_lines(card: PullValueCard) -> list[str]:
         f"- 机制/拼图：{card.mechanism_summary}",
         f"- 替代风险：{card.replacement_risk}",
         f"- 证据：{', '.join(card.evidence_ids) if card.evidence_ids else '-'}",
+        f"- 稳定证据键：{', '.join(card.evidence_keys) if card.evidence_keys else '-'}",
+        f"- 风险证据（B-/C）：{', '.join(card.risk_evidence_ids) if card.risk_evidence_ids else '-'}",
+        f"- 风险证据键：{', '.join(card.risk_evidence_keys) if card.risk_evidence_keys else '-'}",
         f"- 依据：{'；'.join(card.decision_basis) if card.decision_basis else '-'}",
         f"- 风险：{'；'.join(card.risk_notes) if card.risk_notes else '无'}",
         "",
@@ -825,14 +949,16 @@ def _value_sort_key(value: str) -> int:
 
 def _float(value: Any) -> float:
     try:
-        return float(value)
+        number = float(value)
+        return number if math.isfinite(number) else 0.0
     except (TypeError, ValueError):
         return 0.0
 
 
 def _number_text(value: Any) -> str:
     try:
-        return f"{float(value):g}"
+        number = float(value)
+        return f"{number:g}" if math.isfinite(number) else "-"
     except (TypeError, ValueError):
         return "-"
 
@@ -989,3 +1115,14 @@ def _stage_missing_data_text(mechanism: dict[str, Any]) -> str:
         if isinstance(note, dict) and note.get("missing_data"):
             missing.append(f"{stage}: {note.get('missing_data')}")
     return "；".join(missing)
+
+
+def _validate_finite_values(value: Any, *, path: str) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"non-finite number in {path}")
+    if isinstance(value, dict):
+        for item in value.values():
+            _validate_finite_values(item, path=path)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _validate_finite_values(item, path=path)

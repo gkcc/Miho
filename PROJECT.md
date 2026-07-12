@@ -15,12 +15,13 @@
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
 - HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 默认生成 Workbook，两游戏在线 export 均在 visualizer 完整目录验收后解除总门禁。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 154 项、Python 130 项、visualizer 契约 46 项和 workspace 严格 clippy 通过；前端 Vite build 与 Tauri `--no-bundle` 均已通过。
+- 最近完整回归：Rust workspace 154 项、Python 159 项（含 visualizer 契约 46 项）和 workspace 严格 clippy 通过；前端 Vite build 与 Tauri `--no-bundle` 仍沿用第十一批已通过基线。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
 - 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
 - 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
 - 双游戏 visualizer 产物契约已冻结并由 Rust 实现：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
-- Python 继续作为迁移 oracle，并暂时负责 evidence、coverage、decision、pull-value、review-packet；双游戏正式 visualizer 的 core、独立 CLI、export 接线与 Hub 均已由 Rust 接管。
+- Python `evidence-first-v1-20260712` 已修正跨 mode 分数/置信度混算、A 的 sentinel/稳定性门槛、owned/built 混同和高优先级无 A/B 主证据；报告使用显式时钟与整批回滚，159 项 Python 回归通过。Rust evidence/coverage 门禁仍保持。
+- Python 继续作为决策/报告迁移 oracle；当前 `decision` 明确标记为 `legacy-v0`，不将其跨模式 heuristic、raw team 依赖和 alias 缺口宣称为 evidence-first 完成。
 
 ## 阶段路线
 
@@ -42,13 +43,13 @@
 4. **主线程回应**：逐项接受、反驳或补证；Blocker/High 未清零不得提交，也不得解除门禁。
 5. **关键留痕**：把提问、双方判断、最终处理和路线微调写回本文件对应阶段，并在提交信息中保持阶段边界清晰。
 
-## 当前三目标（第十一批）
+## 当前三目标（第十二批）
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 固化双游戏 visualizer 产物契约 | 完成 | 兼容测试子智能体、主智能体定标 | 两套 Python visualizer、最终 CSV、版本化 Banner/Decision sidecar、本地头像种子 | 脱敏 `data.json` oracle；HTML/CSS/JS/本地头像/Hub 精确文件集合；单动态字段白名单与版本化比较器 | 当前 46 项契约测试；Hub/HSR/ZZZ 浏览器加载、切换、Box 与 XSS 冒烟 | 最终 CSV 与 Workbook 已稳定 |
-| 迁移 HSR visualizer bundle | 完成 | HSR Rust 子智能体、CLI 子智能体、契约子智能体、主智能体整合 | HSR visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；离线头像回退；export/visualizer CLI 共用核心实现 | 致密 Rust/Python JSON、目录与 hash 零差异；真实 CLI 整目录零差异；浏览器 Banner/Box/XSS/console 冒烟；线上门禁解除 | visualizer 契约 |
-| 迁移 ZZZ visualizer bundle | 完成 | ZZZ Rust 子智能体、CLI/契约子智能体、独立对抗审查子智能体、主智能体整合 | ZZZ visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；代理人/邦布/卡池/Decision；export/visualizer CLI 共用核心实现并更新 Hub | 致密 JSON、真实 CLI 与 Hub 零差异；浏览器 Banner/Box/Decision/XSS/console；118 core、33 CLI、46 契约；严格 clippy | visualizer 契约；版本化显式 local datetime |
+| 盘点五类决策/报告契约 | 完成 | 三个互斥只读审计子智能体、主智能体 | Python evidence/coverage/decision/pull-value/review-packet、CLI、config、tests | 依赖图、LegacyV0/V1 分界、bundle smoke hash、对抗 fixture 矩阵 | `docs/decision-report-contract.md`；10 个输出规范化 hash；审计明确 decision/pull 未解门条件 | 双游戏最终 CSV 已稳定 |
+| 定标 Evidence V1 Python oracle | 完成 | 主智能体、独立对抗审查子智能体 | 完整 dedup team、name/tier、Box/builds、plan、显式 local datetime | mode-scoped evidence key、A/B/C、observation trace、current/target/aggregate、pull 主/风险证据分离 | 159 项 Python；跨 mode、sentinel/stability/build、alias、schema、clock、路径冲突和回滚反例；独立 `Blocker=0 / High=0` | 契约盘点 |
+| 迁移 Rust evidence/coverage | 未开始 | 待分配 | EvidenceInputs/Request/Context V1、Python oracle | 共享 Rust evidence core、两命令 CLI、事务安装 | 跨语言结构/文本/CSV、真实 CLI 0/1/2、独立对抗门槛 | Evidence V1 复核清零 Blocker/High |
 
 ## 决策记录
 
@@ -72,12 +73,14 @@
 | 2026-07-12 | 每个阶段提交前增加显式信心/质疑提问与独立对抗复核 | 测试通过不再自动等于阶段完成；Blocker/High 必须修复并复验，双方判断与路线调整写回 PROJECT.md | 项目转为单人一次性原型或用户明确撤销该门槛时 |
 | 2026-07-12 | ZZZ visualizer 通过致密跨语言、真实 CLI/Hub、浏览器与独立对抗复核后解除在线 export 总门禁 | 两游戏默认在线路径均由 Rust 生成 CSV、Workbook、visualizer、manifest；Python visualizer 降为 oracle | 完整目录出现未批准差异、来源协议变化或 sidecar schema 升级时 |
 | 2026-07-12 | legacy 无 manifest 输出只从游戏正式命名空间恢复 ownership；未知文件保留但不进入新 manifest | `raw/hf/**` 因动态 source path 被保留为 export-owned 命名空间，用户私有文件不得放入其中 | 正式 artifact schema/manifest 增加显式 ownership metadata 时 |
+| 2026-07-12 | 决策/报告以 `evidence-first-v1-20260712` 为正式方法；旧 decision 标记 `legacy-v0` | 同队不跨 mode 合并分数/置信度；A 需有效表现与稳定组件；高/中高抽取必须引用 A/B 主证据；LegacyV0 精确兼容不等于方法完成 | 证据策略/schema 升级或用户明确要求旧 heuristic 默认化时 |
 
 ## 风险登记
 
 | 风险 | 当前状态 | 缓解措施 |
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
+| Legacy decision 与 evidence-first 方法冲突 | 高 | 保留 `legacy-v0` 兼容边界；正式默认必须版本化、不跨 mode、只以 dedup A/B 主证据支撑高优先级 |
 | 双游戏 visualizer 与 Python 语义漂移 | 低（已验证） | 46 项跨语言/真实 CLI 契约、118 项 core、浏览器冒烟与独立对抗反例；sidecar/schema 变化时重新关门复核 |
 | Workbook 单元格类型和样式可能与 Python 漂移 | 低（已验证） | 双游戏 oracle、显式/混合类型、thin border、样式/列宽语义规范化与 Rust 全局零公式断言已固化 |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
@@ -210,6 +213,16 @@
 - **最大困难与路线修正**：最大困难是“精确黄金已绿”仍可能没有覆盖 Python 的间接模块、Unicode/JSON parser 和长期 re-export 状态。主流程不改变纯 Rust/Tauri 终点，但后续 evidence/coverage/decision/pull-value/review-packet 必须先画出全部文件探测、clock/config 与失败语义，再建立对抗输入；不得只翻译主函数或只比较一个 happy-path Markdown。两游戏 visualizer 在线门禁现已解除，Python 保留为 oracle；第十二批转入决策与报告迁移，完成后再接 Tauri 后台任务/进度/取消。
 - **最终验收**：ZZZ core、独立 CLI、export 与 Hub 共用同一最终磁盘重建边界；在线 gate 已解除。阶段提交前最后执行 `cargo test --workspace --no-fail-fast`、`cargo clippy --workspace --all-targets -- -D warnings`、`python -m pytest -q`、`pnpm run build` 与 `pnpm run tauri:build:no-bundle`。
 - 下一步：盘点并冻结 evidence、coverage、decision、pull-value、review-packet 的输入/输出/排序/Markdown/失败语义，按共享 evidence core → coverage → decision → pull-value/review-packet 分解 Rust 子目标。
+
+### 第十二批进度：Evidence V1 Python oracle 定标（子目标 1/3，2026-07-12）
+
+- **显式提问**：本阶段我最有把握的完成证据是什么？最值得质疑、最可能被现有测试漏掉的点是什么？
+- **主判断—最有把握**：`evidence-first-v1-20260712` 已把同一 composition 按 mode 拆成稳定 `evidence_key`与内容 hash ID，并在单 mode 内计算 metric/app-rate/confidence。A 同时要求 mode policy、有效表现比例与游戏特定稳定组件；source/account confidence 分离，build 未知或未完成会降为 B。Pull 只能在 tier、usage 和 A/B 主证据同 mode 对齐时给高/中高，packet 内嵌稳定 key 与 trace。完整 159 项 Python、定向 46 项、bundle 的 10 个规范化 hash、`compileall` 和 `git diff --check` 全绿。
+- **主判断—最值得质疑**：最危险的是“旧 Python 就是 oracle，所以只需冻结”。实际它会跨 SD/DA 比分、让未知 build 保持 A、让无 A/B 队伍的角色得到高优先级，且 E-ID 随无关计划改号。只做 happy-path Markdown hash 会把方法缺陷永久迁入 Rust。此外 stability adapter 与 account build 降档是保守方法政策，后续真实数据定标可能需要版本升级，但不允许无版本放宽。
+- **独立对抗判断**：未参与实现的审查子智能体先后复现了 alias last-row-wins、NaN/Infinity usage 与 packet、PyYAML 静默 fallback、E-ID 随 plan 改号、build 未知仍 A、pull 跨 mode 拼接、Markdown 表列错位、缺 mode/部分队伍/未声明 mode policy、falsey built 被当真以及 HSR/ZZZ stability marker 串用等 High。最终重放所有反例后给出 `Blocker=0 / High=0`，并确认 159 项 Python、定向契约、`compileall` 与 diff check 通过。
+- **主线程回应与处理**：上述 High 全部接受并以代码+反例清零，没有用兼容豁免代替修复。非有限值现在过滤或严格失败；alias 冲突和损坏 schema 不再生成“零 coverage”；coverage 预渲染、路径冲突预检并整批回滚。Rust evidence/coverage、decision、pull/review 门禁都没有因 Python oracle 完成而解除。
+- **最大困难与路线修正**：最大困难是兼容迁移与方法正确性在此处直接冲突；“精确复制 Python”会违反项目已采用的 evidence-first 硬规则。主流程因此微调为先版本化区分 `legacy-v0` 与正式 Evidence V1，先修 oracle 再冻结 Rust 契约；不改变纯 Rust/Tauri 终点，也不删除旧兼容边界。
+- **下一步**：以 `EvidenceInputsV1 + EvidenceRequestV1 + EvidenceContextV1` 实现共享 Rust evidence core，先对齐规范结构与排序，再接 evidence/coverage CLI 的命令级 stderr、0/1/2 和整批安装；完整跨语言与真实 CLI 契约通过前不解门。
 
 ## 恢复入口
 

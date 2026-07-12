@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 import urllib.error
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -230,6 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run_evidence(args: argparse.Namespace) -> None:
     out_dir = Path(args.out)
+    local_datetime = datetime.now()
     names = load_name_index(out_dir)
     planned = split_slugs(args.planned_slugs)
     if args.plan:
@@ -238,6 +240,7 @@ def run_evidence(args: argparse.Namespace) -> None:
                 args.plan,
                 statuses=split_slugs(args.plan_status),
                 names=names,
+                local_datetime=local_datetime,
             )
         )
     planned = list(dict.fromkeys(planned))
@@ -251,12 +254,14 @@ def run_evidence(args: argparse.Namespace) -> None:
         include_missing=args.include_missing,
         limit=args.limit,
         min_a_app_rate=_parse_threshold_arg(args.min_a_app_rate),
+        local_datetime=local_datetime,
     )
 
 
 def run_coverage(args: argparse.Namespace) -> None:
     out_dir = Path(args.out)
-    planned = _planned_slugs_from_args(args, out_dir)
+    local_datetime = datetime.now()
+    planned = _planned_slugs_from_args(args, out_dir, local_datetime=local_datetime)
     write_coverage_reports(
         out_dir,
         box_path=args.box,
@@ -266,11 +271,13 @@ def run_coverage(args: argparse.Namespace) -> None:
         aggregate_output_path=Path(args.aggregate_output) if args.aggregate_output else out_dir / "team_signature_aggregates.csv",
         limit=args.limit,
         min_a_app_rate=_parse_threshold_arg(args.min_a_app_rate),
+        local_datetime=local_datetime,
     )
 
 
 def run_pull_value(args: argparse.Namespace) -> None:
     out_dir = Path(args.out)
+    local_datetime = datetime.now()
     planned = split_slugs(args.planned_slugs)
     statuses = split_slugs(args.plan_status) or ["current", "next"]
     if args.output:
@@ -283,6 +290,7 @@ def run_pull_value(args: argparse.Namespace) -> None:
             mechanism_notes_dir=args.mechanism_notes_dir or None,
             decision_baseline_path=args.decision_baseline or None,
             output_path=Path(args.output),
+            local_datetime=local_datetime,
         )
         return
     for status in statuses:
@@ -295,11 +303,13 @@ def run_pull_value(args: argparse.Namespace) -> None:
             mechanism_notes_dir=args.mechanism_notes_dir or None,
             decision_baseline_path=args.decision_baseline or None,
             output_path=out_dir / f"{_safe_report_status(status)}_pull_value_report.md",
+            local_datetime=local_datetime,
         )
 
 
 def run_review_packet(args: argparse.Namespace) -> None:
     out_dir = Path(args.out)
+    local_datetime = datetime.now()
     planned = split_slugs(args.planned_slugs)
     statuses = split_slugs(args.plan_status) or ["current", "next"]
     if args.output:
@@ -312,6 +322,7 @@ def run_review_packet(args: argparse.Namespace) -> None:
             mechanism_notes_dir=args.mechanism_notes_dir or None,
             decision_baseline_path=args.decision_baseline or None,
             output_path=Path(args.output),
+            local_datetime=local_datetime,
         )
         return
     for status in statuses:
@@ -324,6 +335,7 @@ def run_review_packet(args: argparse.Namespace) -> None:
             mechanism_notes_dir=args.mechanism_notes_dir or None,
             decision_baseline_path=args.decision_baseline or None,
             output_path=out_dir / f"{_safe_report_status(status)}_gpt_pull_reviewer_packet.md",
+            local_datetime=local_datetime,
         )
 
 
@@ -355,7 +367,12 @@ def _write_final_outputs_and_visualizer(out_dir: Path, **output_rows: Any) -> No
     rebuild_visualizer_from_outputs(out_dir)
 
 
-def _planned_slugs_from_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
+def _planned_slugs_from_args(
+    args: argparse.Namespace,
+    out_dir: Path,
+    *,
+    local_datetime: datetime | None = None,
+) -> list[str]:
     names = load_name_index(out_dir)
     planned = split_slugs(getattr(args, "planned_slugs", ""))
     if getattr(args, "plan", ""):
@@ -364,6 +381,7 @@ def _planned_slugs_from_args(args: argparse.Namespace, out_dir: Path) -> list[st
                 args.plan,
                 statuses=split_slugs(getattr(args, "plan_status", "next")),
                 names=names,
+                local_datetime=local_datetime,
             )
         )
     return list(dict.fromkeys(planned))
@@ -374,7 +392,10 @@ def _parse_threshold_arg(value: Any) -> float | dict[str, float]:
     if not text:
         return 10.0
     if "=" not in text:
-        return float(text)
+        number = float(text)
+        if not math.isfinite(number) or number < 0:
+            raise ValueError(f"invalid threshold: {text}")
+        return number
     output: dict[str, float] = {}
     for part in re.split(r"[;,]", text):
         item = part.strip()
@@ -386,7 +407,10 @@ def _parse_threshold_arg(value: Any) -> float | dict[str, float]:
         mode = normalize_character_id(key)
         if not mode:
             raise ValueError(f"invalid threshold mode: {item}")
-        output[mode] = float(raw_number)
+        number = float(raw_number)
+        if not math.isfinite(number) or number < 0:
+            raise ValueError(f"invalid threshold item: {item}")
+        output[mode] = number
     return output or 10.0
 
 

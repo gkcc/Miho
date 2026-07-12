@@ -88,8 +88,8 @@ def load_config(path: str | Path) -> dict[str, Any]:
 def _load_yaml(text: str) -> Any:
     try:
         import yaml  # type: ignore
-    except ImportError:
-        return _load_simple_yaml(text)
+    except ImportError as error:
+        raise RuntimeError("PyYAML is required to read YAML configuration") from error
     return yaml.safe_load(text) or {}
 
 

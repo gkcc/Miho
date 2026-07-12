@@ -1,8 +1,18 @@
 import csv
 import json
+from types import SimpleNamespace
+
+import pytest
 
 from miho_core.evidence import build_evidence_pool
-from miho_core.pull_value import build_pull_value_cards, write_gpt_review_packet, write_pull_value_report
+from miho_core.pull_value import (
+    _rerun_value,
+    _usage_summary,
+    build_pull_value_cards,
+    load_mechanism_notes,
+    write_gpt_review_packet,
+    write_pull_value_report,
+)
 from zzz_endgame_exporter.cli import main
 
 
@@ -16,7 +26,7 @@ def test_pull_value_distinguishes_rerun_and_new_character(tmp_path):
     cards = {card.slug: card for card in result["cards"]}
 
     assert cards["sunna"].candidate_type == "rerun"
-    assert cards["sunna"].pull_value in {"高", "中高"}
+    assert cards["sunna"].pull_value == "中"
     assert "历史出场点" in "；".join(cards["sunna"].decision_basis)
     assert "mechanism_review" in "；".join(cards["sunna"].decision_basis)
     assert "target coverage 定性" in "；".join(cards["sunna"].risk_notes)
@@ -25,10 +35,105 @@ def test_pull_value_distinguishes_rerun_and_new_character(tmp_path):
     assert cards["sunna"].stage_recommendation["stage_confidence"] == "medium"
     assert "未判定" in cards["sunna"].stage_recommendation["not_recommended_stage"]
     assert cards["sunna"].evidence_ids
+    assert cards["sunna"].evidence_keys
+    assert cards["sunna"].evidence_refs[0]["evidence_key"] == cards["sunna"].evidence_keys[0]
+    assert isinstance(cards["sunna"].risk_evidence_ids, tuple)
     assert cards["nom"].candidate_type == "new"
     assert cards["nom"].pull_value == "等实测"
     assert "没有历史队伍记录属于正常未实测状态" in "；".join(cards["nom"].decision_basis)
     assert cards["nom"].stage_recommendation["recommended_stage"] == "等技能/影画/专武/首轮数据"
+
+
+@pytest.mark.parametrize(
+    ("confidences", "expected"),
+    [
+        (["A"], "高"),
+        (["B+"], "中高"),
+        (["B", "B"], "中高"),
+        (["B"], "中"),
+        ([], "中"),
+    ],
+)
+def test_rerun_priority_is_capped_by_qualifying_evidence(confidences, expected):
+    primary = [SimpleNamespace(confidence=value, mode="sd") for value in confidences]
+
+    value, _, _, risks = _rerun_value(
+        {},
+        {
+            "best_avg_last3": 40,
+            "points": 6,
+            "modes": {"sd": {"avg_last3": 40, "points": 6}},
+        },
+        {
+            "best_rating": 11,
+            "best_tier": "T0",
+            "by_mode": {"sd": {"best_rating": 11}},
+        },
+        [],
+        primary,
+        primary,
+        primary,
+        False,
+        {},
+    )
+
+    assert value == expected
+    if expected == "中":
+        assert any("A/B" in risk or "同 mode" in risk for risk in risks)
+
+
+def test_pull_priority_does_not_join_tier_usage_and_evidence_across_modes():
+    primary = [SimpleNamespace(confidence="A", mode="sd")]
+
+    value, _, _, risks = _rerun_value(
+        {},
+        {
+            "best_avg_last3": 40,
+            "points": 6,
+            "modes": {"da": {"avg_last3": 40, "points": 6}},
+        },
+        {
+            "best_rating": 11,
+            "best_tier": "T0",
+            "by_mode": {"sd": {"best_rating": 11}},
+        },
+        [],
+        primary,
+        primary,
+        primary,
+        False,
+        {},
+    )
+
+    assert value == "中"
+    assert any("同一 mode" in risk for risk in risks)
+
+
+def test_non_finite_usage_is_not_counted_as_history():
+    usage = _usage_summary(
+        "agent-a",
+        [
+            {
+                "character_slug": "agent-a",
+                "sub_mode": "all",
+                "mode": "sd",
+                "collect_date": "2026-07-12",
+                "app_rate": "NaN",
+            }
+        ],
+    )
+
+    assert usage["points"] == 0
+    assert usage["modes"] == {}
+
+
+def test_non_finite_mechanism_note_is_rejected(tmp_path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "agent-a.yaml").write_text("stage_confidence: .nan\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="non-finite number"):
+        load_mechanism_notes(notes)
 
 
 def test_pull_value_cli_writes_report(tmp_path):
@@ -69,6 +174,8 @@ def test_gpt_review_packet_writes_no_key_prompt(tmp_path):
     assert '"recommended_stage": "0+0"' in text
     assert '"stage_confidence": "medium"' in text
     assert '"mechanism_notes"' in text
+    assert '"risk_evidence_ids"' in text
+    assert '"evidence_refs"' in text
     assert '"final_stage"' in text
     assert '"local_rule_stage"' in text
     assert "新角色没有历史队伍记录只能标记为未实测" in text
@@ -179,7 +286,7 @@ def test_pull_value_report_shows_baseline_final_stage_and_delta(tmp_path):
 
     text = output.read_text(encoding="utf-8")
     assert "prior_final_stage | local_rule_stage | final_stage | stage_delta | delta_requires_review | change_allowed_reason" in text
-    assert "叶瞬光 `ye-shunguang` | rerun | 中高 | 1+1 | 0+0 | 1+1 | 0+0 -> 1+1 | yes | only_with_new_evidence" in text
+    assert "叶瞬光 `ye-shunguang` | rerun | 中 | 1+1 | 0+0 | 1+1 | 0+0 -> 1+1 | yes | only_with_new_evidence" in text
     assert "维琳娜 `velina` | new | 等实测 | 0+1 | 等实测 | 0+1 | 等实测 -> 0+1 | yes | only_with_new_evidence" in text
     assert "派派 `piper`" not in text
     assert "妮可 `nicole-demara`" not in text
@@ -208,6 +315,7 @@ def test_review_packet_includes_baseline_delta_fields(tmp_path):
     assert '"local_rule_stage": "0+0"' in text
     assert '"final_stage": "1+1"' in text
     assert '"delta_requires_review": true' in text
+    assert '"risk_evidence_ids"' in text
     assert '"slug": "piper"' not in text
 
 
