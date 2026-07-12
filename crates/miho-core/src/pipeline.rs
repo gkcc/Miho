@@ -23,14 +23,17 @@ use crate::{
     },
     hsr_enrichment::enrich_hsr_dataset,
     hsr_export::{
-        build_dataset_export as build_hsr_dataset, build_minimal_export as build_hsr_export,
-        HsrExportDataset, HsrExportSlice, HsrHistographSlice, TierRow,
+        build_dataset_export as build_hsr_dataset,
+        build_dataset_export_with_warnings as build_hsr_dataset_with_warnings,
+        build_minimal_export as build_hsr_export, HsrExportDataset, HsrExportSlice,
+        HsrHistographSlice, TierRow,
     },
     normalize::parse_date,
     output::ArtifactBundle,
     report::finalize_export_bundle,
     source::{SnapshotSource, SourceFuture},
     supplemental::{HsrSupplementalSource, ZzzSupplementalSource},
+    workbook::apply_workbook_policy,
     zzz::{
         make_phase_row as make_zzz_phase, parse_bangboo_rows as parse_zzz_bangboo,
         parse_team_rows as parse_zzz_teams, parse_usage, PhaseInput,
@@ -761,7 +764,7 @@ pub async fn run_export_v1<S: SnapshotSource>(
         mut bundle,
         warnings,
         errors,
-        collected: _,
+        collected,
     } = run_source_export(source, request).await?;
     let mut diagnostics = warnings
         .into_iter()
@@ -780,6 +783,20 @@ pub async fn run_export_v1<S: SnapshotSource>(
             "supplemental Prydwen/official sources are not yet connected to the generic export pipeline".into(),
         ));
     }
+    if let Some(CollectedDataset::Hsr(dataset)) = collected {
+        let warning_messages = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Warning)
+            .map(|diagnostic| diagnostic.message.clone())
+            .collect::<Vec<_>>();
+        bundle = build_hsr_dataset_with_warnings(&dataset, &warning_messages)?;
+    }
+    apply_workbook_policy(
+        &mut bundle,
+        request.game,
+        request.workbook,
+        &mut diagnostics,
+    );
     let stats = finalize_export_bundle(&mut bundle, request, context, &diagnostics)?;
     Ok(ExportOutcome {
         request: request.clone(),
@@ -824,7 +841,18 @@ where
     }));
     let mut dataset = *dataset;
     diagnostics.extend(enrich_hsr_dataset(&mut dataset, request, context, supplemental).await);
-    let mut bundle = build_hsr_dataset(&dataset)?;
+    let warning_messages = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Warning)
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect::<Vec<_>>();
+    let mut bundle = build_hsr_dataset_with_warnings(&dataset, &warning_messages)?;
+    apply_workbook_policy(
+        &mut bundle,
+        request.game,
+        request.workbook,
+        &mut diagnostics,
+    );
     let stats = finalize_export_bundle(&mut bundle, request, context, &diagnostics)?;
     Ok(ExportOutcome {
         request: request.clone(),
@@ -870,6 +898,12 @@ where
     let mut dataset = *dataset;
     diagnostics.extend(enrich_zzz_dataset(&mut dataset, request, context, supplemental).await);
     let mut bundle = build_zzz_dataset(&dataset)?;
+    apply_workbook_policy(
+        &mut bundle,
+        request.game,
+        request.workbook,
+        &mut diagnostics,
+    );
     let stats = finalize_export_bundle(&mut bundle, request, context, &diagnostics)?;
     Ok(ExportOutcome {
         request: request.clone(),
@@ -1250,6 +1284,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn best_effort_workbook_precedes_report_manifest_and_receipt() {
+        let mut source = MemorySource::default();
+        source
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        source.json.insert(
+            "config.json".into(),
+            serde_json::json!({
+                "1.0.0": {"collect_date": "2026-01-01", "moc": {"ver": "1"}}
+            }),
+        );
+        let mut request = hsr_request();
+        request.workbook = WorkbookPolicy::BestEffort;
+        let context = ExportContext {
+            fetched_at: Utc.with_ymd_and_hms(2026, 7, 12, 1, 2, 3).unwrap(),
+            fetch_policy: FetchPolicy::Fixture,
+            cache_root: "cache".into(),
+            output_root: "out".into(),
+            existing_output_root: None,
+            zzz_phase_overrides: None,
+        };
+
+        let outcome = run_export_v1(&source, &request, &context).await.unwrap();
+        let workbook = outcome
+            .bundle
+            .get("hsr_endgame_dataset.xlsx")
+            .expect("BestEffort should produce the workbook for a complete CSV bundle");
+        assert!(workbook.starts_with(&[0x50, 0x4b, 0x03, 0x04]));
+        assert!(outcome
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.source != DiagnosticSource::Workbook));
+
+        let manifest: Vec<crate::output::ArtifactManifestEntry> =
+            serde_json::from_slice(outcome.bundle.get("artifact_manifest.json").unwrap()).unwrap();
+        assert!(manifest
+            .iter()
+            .any(|artifact| artifact.path == "hsr_endgame_dataset.xlsx"));
+        assert!(outcome
+            .receipt()
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.path == "hsr_endgame_dataset.xlsx"));
+    }
+
+    #[tokio::test]
     async fn versioned_request_rejects_a_mismatched_snapshot_source() {
         let fixture = OfflineFixture::load(fixture("offline_hsr")).unwrap();
         let error = run_source_export(&fixture, &hsr_request())
@@ -1316,6 +1396,29 @@ mod tests {
         assert_eq!(outcome.stats.changelog_rows, 1);
         assert_eq!(outcome.stats.trend_rows, 1);
         assert_eq!(outcome.stats.chart_rows, 1);
+        let warning_count = outcome
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Warning)
+            .count();
+        let (overview_headers, overview) = csv_table(&outcome.bundle, "overview.csv");
+        let overview_value = |metric: &str| {
+            let row = overview
+                .iter()
+                .find(|row| field(&overview_headers, row, "metric") == metric)
+                .unwrap();
+            field(&overview_headers, row, "value").to_owned()
+        };
+        assert_eq!(overview_value("usage_trend_rows_t0_t2"), "1");
+        assert_eq!(overview_value("charts"), "1");
+        assert_eq!(overview_value("warnings"), warning_count.to_string());
+        assert_eq!(
+            overview
+                .iter()
+                .filter(|row| field(&overview_headers, row, "section") == "warning")
+                .count(),
+            warning_count.min(8)
+        );
         let (name_headers, names) = csv_table(&outcome.bundle, "name_map.csv");
         let march = names
             .iter()

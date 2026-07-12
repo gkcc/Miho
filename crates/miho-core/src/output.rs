@@ -21,6 +21,12 @@ pub struct ArtifactBundle {
 }
 
 impl ArtifactBundle {
+    pub fn add_bytes(&mut self, path: impl AsRef<Path>, value: impl Into<Vec<u8>>) -> Result<()> {
+        self.files
+            .insert(validate_relative(path.as_ref())?, value.into());
+        Ok(())
+    }
+
     pub fn add_csv<I, R, V>(
         &mut self,
         path: impl AsRef<Path>,
@@ -174,6 +180,23 @@ mod tests {
                 expected: 2,
                 actual: 1
             })
+        ));
+    }
+
+    #[test]
+    fn binary_artifacts_are_validated_and_hashed() {
+        let mut bundle = ArtifactBundle::default();
+        bundle
+            .add_bytes("dataset.xlsx", vec![0x50, 0x4b, 0x03, 0x04])
+            .unwrap();
+        assert_eq!(
+            bundle.get("dataset.xlsx"),
+            Some(&[0x50, 0x4b, 0x03, 0x04][..])
+        );
+        assert_eq!(bundle.manifest()[0].bytes, 4);
+        assert!(matches!(
+            bundle.add_bytes("../dataset.xlsx", Vec::new()),
+            Err(MihoError::InvalidArtifactPath(_))
         ));
     }
 

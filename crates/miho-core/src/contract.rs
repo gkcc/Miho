@@ -253,6 +253,7 @@ pub mod diagnostic_code {
     pub const SUPPLEMENTAL_CACHE_FALLBACK: &str = "supplemental.cache_fallback";
     pub const NAME_SEED_FAILED: &str = "name_seed.read_failed";
     pub const HISTORY_READ_FAILED: &str = "history.read_failed";
+    pub const WORKBOOK_GENERATION_FAILED: &str = "workbook.generation_failed";
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -350,6 +351,7 @@ impl ExportFailureV1 {
             MihoError::InvalidArtifactPath(_) => "artifact.invalid_path",
             MihoError::CsvWidth { .. } => "format.csv_width",
             MihoError::Csv(_) => "format.csv_failed",
+            MihoError::Workbook(_) => "workbook.generation_failed",
             MihoError::Unsupported(_) => "request.unsupported",
         };
         Self::pipeline(code, error.to_string())

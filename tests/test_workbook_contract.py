@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -78,6 +80,88 @@ def test_python_writer_matches_semantic_oracle(
     assert_workbooks_equal(expected, actual)
 
 
+@pytest.mark.parametrize(
+    ("game", "writer"),
+    [("hsr", lambda root: _write_hsr_oracle(root)), ("zzz", lambda root: _write_zzz_oracle(root))],
+)
+def test_rust_writer_matches_semantic_oracle_without_formulas(
+    tmp_path: Path,
+    game: str,
+    writer: object,
+) -> None:
+    csv_root = tmp_path / f"{game}-csv"
+    writer(csv_root)  # type: ignore[operator]
+    actual = tmp_path / "rust" / _oracle_path(game).name
+    _run_rust_writer(game, csv_root, actual)
+
+    assert_workbooks_equal(
+        _oracle_path(game),
+        actual,
+        formula_policy=FormulaPolicy.EXTERNAL_TEXT,
+    )
+    actual_semantics = workbook_semantics(actual)
+    assert sum(sheet["formula_count"] for sheet in actual_semantics["sheets"]) == 0
+
+
+def test_rust_writer_keeps_blank_formats_and_mixed_explicit_types(tmp_path: Path) -> None:
+    hsr_root = tmp_path / "hsr-csv"
+    for sheet in HSR_SHEETS:
+        _write_csv(hsr_root / f"{sheet}.csv", ["text"], [])
+    _write_csv(
+        hsr_root / "character_usage_long.csv",
+        ["phase_ver", "app_rate", "sample"],
+        [["1.0", "", ""]],
+    )
+    _write_csv(
+        hsr_root / "prydwen_tier_current.csv",
+        ["special_rating"],
+        [["8.5"], ["E6"]],
+    )
+    hsr_output = tmp_path / "hsr" / "hsr_endgame_dataset.xlsx"
+    _run_rust_writer("hsr", hsr_root, hsr_output)
+    hsr = load_workbook(hsr_output)
+    try:
+        sheet = hsr["character_usage_long"]
+        assert (sheet["A2"].value, sheet["A2"].data_type) == ("1.0", "s")
+        assert (sheet["B2"].value, sheet["B2"].data_type, sheet["B2"].number_format) == (
+            None,
+            "n",
+            "0.00",
+        )
+        assert (sheet["C2"].value, sheet["C2"].data_type, sheet["C2"].number_format) == (
+            None,
+            "n",
+            "0.00",
+        )
+        tier = hsr["prydwen_tier_current"]
+        assert (tier["A2"].value, tier["A2"].data_type) == (8.5, "n")
+        assert (tier["A3"].value, tier["A3"].data_type) == ("E6", "s")
+    finally:
+        hsr.close()
+
+    zzz_root = tmp_path / "zzz-csv"
+    for sheet in ZZZ_SHEETS:
+        _write_csv(zzz_root / f"{sheet}.csv", ["text"], [])
+    _write_csv(zzz_root / "character_usage_long.csv", ["rarity"], [["5"], ["S"]])
+    _write_csv(
+        zzz_root / "name_map.csv",
+        ["release_order", "needs_manual_check"],
+        [["10", "1"]],
+    )
+    zzz_output = tmp_path / "zzz" / "zzz_endgame_dataset.xlsx"
+    _run_rust_writer("zzz", zzz_root, zzz_output)
+    zzz = load_workbook(zzz_output)
+    try:
+        usage = zzz["character_usage_long"]
+        assert (usage["A2"].value, usage["A2"].data_type) == (5, "n")
+        assert (usage["A3"].value, usage["A3"].data_type) == ("S", "s")
+        names = zzz["name_map"]
+        assert (names["A2"].value, names["A2"].data_type) == ("10", "s")
+        assert (names["B2"].value, names["B2"].data_type) == ("1", "s")
+    finally:
+        zzz.close()
+
+
 def test_oracle_sheet_order_and_layout_contract() -> None:
     hsr = workbook_semantics(_oracle_path("hsr"))
     zzz = workbook_semantics(_oracle_path("zzz"))
@@ -113,17 +197,28 @@ def test_hsr_and_zzz_formatting_policies_are_frozen() -> None:
     for title in ("overview", "latest_usage_cn", "top_teams_latest"):
         for style in hsr_sheets[title]["header_styles"]:
             assert style["fill"]["fill_type"] == "solid"
-            assert style["fill"]["foreground"]["value"] == "00E8F3F1"
+            assert style["fill"]["foreground"]["value"] == "E8F3F1"
             assert style["font"]["bold"] is True
-            assert style["font"]["color"]["value"] == "001F2933"
+            assert style["font"]["color"]["value"] == "1F2933"
             assert style["alignment"]["horizontal"] == "center"
             assert style["alignment"]["vertical"] == "center"
 
     for style in hsr_sheets["phase_index"]["header_styles"]:
         assert style["fill"]["fill_type"] == "solid"
-        assert style["fill"]["foreground"]["value"] == "00263238"
+        assert style["fill"]["foreground"]["value"] == "263238"
         assert style["font"]["bold"] is True
-        assert style["font"]["color"]["value"] == "00FFFFFF"
+        assert style["font"]["color"]["value"] == "FFFFFF"
+
+    for sheet in [*hsr["sheets"], *zzz["sheets"]]:
+        for style in sheet["header_styles"]:
+            assert style["border"] == {
+                "left": "thin",
+                "right": "thin",
+                "top": "thin",
+                "bottom": "thin",
+                "diagonal_up": False,
+                "diagonal_down": False,
+            }
 
     usage_cells = {cell["coordinate"]: cell for cell in hsr_sheets["character_usage_long"]["cells"]}
     team_cells = {cell["coordinate"]: cell for cell in hsr_sheets["team_rank_raw"]["cells"]}
@@ -196,6 +291,13 @@ def test_fixture_manifest_documents_comparison_boundary() -> None:
         "ZIP member timestamps",
         "openpyxl style_id",
     ]
+    assert manifest["normalized"] == [
+        "RGB alpha channel",
+        "inherited Calibri 11 font metadata",
+        "unused solid-fill background",
+        "default header border color",
+        "grouped column dimension ranges",
+    ]
     for game, sheets in (("hsr", HSR_SHEETS), ("zzz", ZZZ_SHEETS)):
         entry = manifest["oracles"][game]
         assert entry["file_name"] == _oracle_path(game).name
@@ -212,6 +314,35 @@ def test_fixture_manifest_documents_comparison_boundary() -> None:
 
 def _oracle_path(game: str) -> Path:
     return FIXTURES / game / f"{game}_endgame_dataset.xlsx"
+
+
+def _write_csv(path: Path, headers: list[str], rows: list[list[str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\r\n")
+        writer.writerow(headers)
+        writer.writerows(rows)
+
+
+def _run_rust_writer(game: str, csv_root: Path, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--quiet",
+            "-p",
+            "miho-core",
+            "--example",
+            "workbook_contract",
+            "--",
+            game,
+            str(csv_root),
+            str(output),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
 
 
 def _write_hsr_oracle(out_dir: Path) -> Path:

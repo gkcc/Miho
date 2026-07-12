@@ -151,7 +151,18 @@ def _freeze_panes(value: Any) -> str | None:
 
 def _column_width(worksheet: Any, index: int) -> float | None:
     dimension = worksheet.column_dimensions.get(get_column_letter(index))
-    return None if dimension is None else dimension.width
+    if dimension is not None:
+        return dimension.width
+    # OOXML can encode adjacent equal-width columns as one min/max range.
+    # openpyxl indexes only the first column of that range.
+    for candidate in worksheet.column_dimensions.values():
+        if (
+            candidate.min is not None
+            and candidate.max is not None
+            and candidate.min <= index <= candidate.max
+        ):
+            return candidate.width
+    return None
 
 
 def _header_style(cell: Any) -> dict[str, Any]:
@@ -160,6 +171,7 @@ def _header_style(cell: Any) -> dict[str, Any]:
         "fill": _fill(cell.fill),
         "font": _font(cell.font),
         "alignment": _alignment(cell.alignment),
+        "border": _border(cell.border),
     }
 
 
@@ -167,22 +179,40 @@ def _fill(fill: PatternFill) -> dict[str, Any]:
     return {
         "fill_type": fill.fill_type,
         "foreground": _color(fill.fgColor),
-        "background": _color(fill.bgColor),
+        # A solid fill only renders its foreground. openpyxl and
+        # rust_xlsxwriter encode the unused background differently.
+        "background": None if fill.fill_type == "solid" else _color(fill.bgColor),
     }
 
 
 def _font(font: Font) -> dict[str, Any]:
+    color = _color(font.color)
+    if color is not None and color["type"] == "theme" and color["value"] == 1:
+        color = None
     return {
-        "name": font.name,
-        "size": font.sz,
+        # Python's custom Font omits inherited defaults while rust_xlsxwriter
+        # writes them explicitly. Normalize both to this workbook's defaults.
+        "name": font.name or "Calibri",
+        "size": font.sz if font.sz is not None else 11.0,
         "bold": font.b,
         "italic": font.i,
         "underline": font.u,
         "strike": font.strike,
-        "color": _color(font.color),
+        "color": color,
         "vertical_alignment": font.vertAlign,
-        "family": font.family,
-        "scheme": font.scheme,
+        "family": font.family if font.family is not None else 2.0,
+        "scheme": font.scheme or "minor",
+    }
+
+
+def _border(border: Any) -> dict[str, Any]:
+    return {
+        "left": border.left.style,
+        "right": border.right.style,
+        "top": border.top.style,
+        "bottom": border.bottom.style,
+        "diagonal_up": border.diagonalUp,
+        "diagonal_down": border.diagonalDown,
     }
 
 
@@ -202,7 +232,7 @@ def _color(color: Color | None) -> dict[str, Any] | None:
         return None
     value: str | int | None
     if color.type == "rgb":
-        value = color.rgb
+        value = color.rgb[-6:] if color.rgb is not None else None
     elif color.type == "indexed":
         value = color.indexed
     elif color.type == "theme":

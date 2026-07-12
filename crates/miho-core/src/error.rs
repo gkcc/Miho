@@ -34,6 +34,8 @@ pub enum MihoError {
     CsvWidth { expected: usize, actual: usize },
     #[error("CSV encoding failed: {0}")]
     Csv(#[from] csv::Error),
+    #[error("workbook generation failed: {0}")]
+    Workbook(String),
     #[error("unsupported operation: {0}")]
     Unsupported(String),
 }

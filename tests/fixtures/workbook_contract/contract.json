@@ -8,6 +8,7 @@
   "compared": [
     "file name",
     "sheet order",
+    "active sheet",
     "dimensions",
     "headers",
     "cell values",
@@ -17,6 +18,7 @@
     "auto filter",
     "gridline visibility",
     "header fill, font, and alignment",
+    "header border styles",
     "column widths",
     "cell number formats"
   ],
@@ -24,6 +26,13 @@
     "ZIP member ordering and bytes",
     "ZIP member timestamps",
     "openpyxl style_id"
+  ],
+  "normalized": [
+    "RGB alpha channel",
+    "inherited Calibri 11 font metadata",
+    "unused solid-fill background",
+    "default header border color",
+    "grouped column dimension ranges"
   ],
   "oracles": {
     "hsr": {

@@ -331,7 +331,7 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
         prydwen_top_n: args.prydwen_top_n,
         name_map_seed,
         history: HistoryPolicy::MergeExisting,
-        workbook: WorkbookPolicy::Disabled,
+        workbook: WorkbookPolicy::BestEffort,
     };
     #[cfg(debug_assertions)]
     let offline_fixture = std::env::var_os("MIHO_OFFLINE_FIXTURE");
@@ -375,12 +375,12 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
     } else {
         if game == Game::Zzz {
             bail!(
-                "ZZZ supplemental sources are migrated, but online export remains gated until XLSX and visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command"
+                "ZZZ supplemental sources are migrated and Workbook export now passes compatibility checks, but online export remains gated until visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command"
             );
         }
         if game == Game::Hsr {
             bail!(
-                "HSR supplemental sources are migrated, but the default online export remains gated until XLSX and visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command"
+                "HSR supplemental sources are migrated and Workbook export now passes compatibility checks, but the default online export remains gated until visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command"
             );
         }
         let cache_root = cache_root(game, &args.repo_id, revision);

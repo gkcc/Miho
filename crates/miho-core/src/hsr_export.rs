@@ -218,6 +218,13 @@ pub fn build_minimal_export(
 }
 
 pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle> {
+    build_dataset_export_with_warnings(dataset, &[])
+}
+
+pub fn build_dataset_export_with_warnings(
+    dataset: &HsrExportDataset,
+    warnings: &[String],
+) -> Result<ArtifactBundle> {
     let phases = dataset
         .slices
         .iter()
@@ -473,7 +480,10 @@ pub fn build_dataset_export(dataset: &HsrExportDataset) -> Result<ArtifactBundle
                     .filter(|row| row.needs_manual_check == "1")
                     .count(),
                 tiers: tiers.len(),
+                trend_rows: dataset.tier_usage_trend_rows.len(),
+                charts: dataset.tier_charts.len(),
             },
+            warnings,
         ),
     )?;
     let (dynamic_header_strings, latest_rows) = latest_usage_view(&characters, &name_resolver);
@@ -516,9 +526,15 @@ struct OverviewCounts {
     names: usize,
     unresolved_names: usize,
     tiers: usize,
+    trend_rows: usize,
+    charts: usize,
 }
 
-fn overview_rows(phases: &[&PhaseRow], counts: OverviewCounts) -> Vec<Vec<String>> {
+fn overview_rows(
+    phases: &[&PhaseRow],
+    counts: OverviewCounts,
+    warnings: &[String],
+) -> Vec<Vec<String>> {
     let snapshots = phases
         .iter()
         .map(|phase| phase.snapshot_id.as_str())
@@ -591,10 +607,18 @@ fn overview_rows(phases: &[&PhaseRow], counts: OverviewCounts) -> Vec<Vec<String
         vec![
             "prydwen_tier".into(),
             "usage_trend_rows_t0_t2".into(),
-            "0".into(),
+            counts.trend_rows.to_string(),
         ],
-        vec!["prydwen_tier".into(), "charts".into(), "0".into()],
-        vec!["quality".into(), "warnings".into(), "0".into()],
+        vec![
+            "prydwen_tier".into(),
+            "charts".into(),
+            counts.charts.to_string(),
+        ],
+        vec![
+            "quality".into(),
+            "warnings".into(),
+            warnings.len().to_string(),
+        ],
     ];
     for (mode, name) in modes {
         rows.push(vec![
@@ -606,6 +630,9 @@ fn overview_rows(phases: &[&PhaseRow], counts: OverviewCounts) -> Vec<Vec<String
                 .count()
                 .to_string(),
         ]);
+    }
+    for warning in warnings.iter().take(8) {
+        rows.push(vec!["warning".into(), String::new(), warning.clone()]);
     }
     rows
 }

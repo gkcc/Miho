@@ -70,6 +70,13 @@ fn assert_core_export(game: &str, files: &[&str]) {
             path.display()
         );
     }
+    let workbook = out.join(format!("{game}_endgame_dataset.xlsx"));
+    assert_eq!(
+        &fs::read(&workbook).unwrap()[..4],
+        &[0x50, 0x4b, 0x03, 0x04]
+    );
+    let manifest = fs::read_to_string(out.join("artifact_manifest.json")).unwrap();
+    assert!(manifest.contains(&format!("\"path\": \"{game}_endgame_dataset.xlsx\"")));
     fs::remove_dir_all(out).unwrap();
 }
 
@@ -88,6 +95,7 @@ fn hsr_offline_export_writes_complete_core_set() {
             "raw/prydwen_tier/tier-list_latest.html",
             "export_report.md",
             "artifact_manifest.json",
+            "hsr_endgame_dataset.xlsx",
         ],
     );
 }
@@ -115,6 +123,7 @@ fn zzz_offline_export_writes_complete_core_set() {
             "raw/hoyowiki/zzz_bangboo_en-us.json",
             "export_report.md",
             "artifact_manifest.json",
+            "zzz_endgame_dataset.xlsx",
         ],
     );
 }
@@ -156,7 +165,9 @@ fn zzz_default_online_export_keeps_the_complete_directory_gate() {
     assert_eq!(result.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(stderr.starts_with("export failed: "));
-    assert!(stderr.contains("XLSX and visualizer"));
+    assert!(stderr.contains("Workbook export now passes compatibility checks"));
+    assert!(stderr.contains("visualizer artifacts"));
+    assert!(!stderr.contains("XLSX and visualizer"));
     assert!(!stderr.contains("not yet migrated"));
     assert!(!out.exists());
 }
@@ -179,7 +190,7 @@ fn zzz_hf_only_online_export_also_keeps_the_product_level_gate() {
         .unwrap();
     assert_eq!(result.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(stderr.contains("XLSX and visualizer"));
+    assert!(stderr.contains("visualizer artifacts"));
     assert!(!out.exists());
 }
 
@@ -189,7 +200,9 @@ fn hsr_default_online_export_keeps_the_complete_directory_gate() {
     let result = export("hsr", None, &out);
     assert_eq!(result.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(stderr.contains("XLSX and visualizer"));
+    assert!(stderr.contains("Workbook export now passes compatibility checks"));
+    assert!(stderr.contains("visualizer artifacts"));
+    assert!(!stderr.contains("XLSX and visualizer"));
     assert!(!stderr.contains("supplemental capabilities are not yet migrated"));
     assert!(!out.exists());
 }

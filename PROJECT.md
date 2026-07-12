@@ -9,14 +9,15 @@
 - 工作区治理完成：业务资产已归档到 `C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
 - Rust 已实现 HF 在线/离线统一 `SnapshotSource`、日期与部分失败语义、两游戏多 snapshot/mode 聚合，以及 HSR histograph/fallback、动态视图、完整队伍去重和 ZZZ Bangboo/name fallback。
-- Rust CLI 已接通 HSR/ZZZ `export`、原子写出和 0/1/2 退出码；两游戏的 Prydwen visible/tier/changelog、HoYoWiki 官方名称、历史、趋势与 raw 产物均已进入共享 Rust pipeline，补充来源失败只降级为结构化 warning。
+- Rust CLI 已接通 HSR/ZZZ `export`、原子写出和 0/1/2 退出码；两游戏的 Prydwen visible/tier/changelog、HoYoWiki 官方名称、历史、趋势、raw 与 Workbook 产物均已进入共享 Rust pipeline，补充来源或 Workbook 失败只降级为结构化 warning。
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
-- HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；两游戏在线入口仍保留完整目录总门禁，直到 XLSX 与 visualizer 对比通过，避免过早替代 Python。
+- HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 已默认生成 Workbook，两游戏在线入口仅继续受 visualizer 完整目录门禁保护。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 111 项、Python 74 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
+- 最近完整回归：Rust workspace 118 项、Python 84 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
-- 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；7 项契约测试及 30 张工作表渲染核验通过。
-- Python 仍作为全部导出语义的对照实现，并负责 Excel、正式 visualizer，以及 evidence、coverage、decision、pull-value、review-packet。
+- 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
+- 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
+- Python 仍作为全部导出语义的对照实现，并负责正式 visualizer，以及 evidence、coverage、decision、pull-value、review-packet。
 
 ## 阶段路线
 
@@ -34,7 +35,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 建立可复现的 Tauri/Vite 构建基线 | 已完成 | 前端子智能体、主智能体审查 | pnpm 11.7、Node 24、现有 Tauri/Vite scaffold | 布尔 `allowBuilds.esbuild`；固定 package manager/Node 范围；Vite 1420 strict port；根构建脚本 | 干净 frozen install、esbuild 0.25.12、Vite build、desktop 3 项、Tauri no-bundle 通过 | 无 |
 | 固化双游戏 Workbook 语义契约 | 已完成 | 兼容测试子智能体、主智能体定标 | Python 生成器、归档 XLSX、现有 CSV bundle | HSR 18-sheet、ZZZ 12-sheet 脱敏 XLSX oracle；sheet/列/值/类型/样式/宽度/公式规范化比较器 | 7 项契约测试；Artifact Tool 导入、公式扫描与 30-sheet 渲染核验通过 | 现有 exporter bundle |
-| 接入共享 Rust Workbook writer | 待开始 | Rust 子智能体移植、主智能体整合 | Workbook 语义契约、`WorkbookPolicy`、最终 ArtifactBundle | HSR 18-sheet 与 ZZZ 12-sheet；显式单元格类型；BestEffort diagnostics、manifest 与原子写出 | Rust workbook 测试、双游戏 XLSX 语义对比、CLI fixture 回归、严格 clippy | Workbook 契约 |
+| 接入共享 Rust Workbook writer | 已完成 | Rust 子智能体审计、主智能体实现整合 | Workbook 语义契约、`WorkbookPolicy`、最终 ArtifactBundle | HSR 18-sheet 与 ZZZ 12-sheet；显式/混合单元格类型；全局零公式；BestEffort diagnostics、manifest/receipt 与 CLI 原子写出 | 双游戏 10 项 XLSX 契约、CLI 11 项、Rust workspace 118 项、Python 84 项、严格 clippy 通过 | Workbook 契约 |
 
 ## 决策记录
 
@@ -50,14 +51,16 @@
 | 2026-07-12 | HSR 补充选项已迁移，但默认在线入口继续受完整目录总门禁保护 | 可用 fixture/核心 API 验收真实 Rust 链路；XLSX/visualizer 未完成时不声称替代 Python | HSR 完整目录仅剩批准差异时 |
 | 2026-07-12 | ZZZ 补充选项已迁移，但在线 CLI（含显式关闭补充源的 HF-only 形式）继续受产品级总门禁保护 | phase/usage/team 分别保留 Python 的日期回填语义；fixture 可验收完整 Rust 链路；XLSX/visualizer 未完成时不声称替代 Python | ZZZ 完整目录仅剩批准差异时 |
 | 2026-07-12 | 决策命令继续排在导出产品完整性之后；第十批先修前端构建并完成 Workbook | 避免让 evidence/decision 依赖仍受 XLSX/visualizer 总门禁保护的目录；visualizer 数据契约紧随 Workbook | 双游戏导出仅剩批准差异时 |
+| 2026-07-12 | Workbook 比较规范化 RGB alpha、继承字体元数据、solid fill 未使用背景和合并列宽区间；实际 Rust 文件另行强制全局零公式 | 保留视觉/数据语义而不追逐库级 OOXML 表示差异；表头 thin border、类型、格式和宽度仍严格比较 | 更换 XLSX 库或主题默认字体时 |
+| 2026-07-12 | CLI 使用 `WorkbookPolicy::BestEffort`；成功产物进入内嵌 manifest/receipt，失败只记结构化 warning 且不留半成品 | 离线双游戏导出已包含 XLSX；在线总门禁缩小为仅等待 visualizer | visualizer 完整目录黄金对比通过时 |
 
 ## 风险登记
 
 | 风险 | 当前状态 | 缓解措施 |
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
-| HSR/ZZZ XLSX 与 visualizer 尚未进入 Rust 完整目录 | 高 | 两游戏保留默认在线总门禁；当前只解除已实现的补充来源选项门禁 |
-| Workbook 单元格类型和样式可能与 Python 漂移 | 高 | 语义比较器与双游戏 oracle 已冻结；Rust 使用显式列类型，禁止公式注入，不比较 ZIP 时间戳/style ID |
+| HSR/ZZZ visualizer 尚未进入 Rust 完整目录 | 高 | Workbook 已通过并进入离线 CLI；两游戏默认在线总门禁仅等待 visualizer 数据与交互契约 |
+| Workbook 单元格类型和样式可能与 Python 漂移 | 低（已验证） | 双游戏 oracle、显式/混合类型、thin border、样式/列宽语义规范化与 Rust 全局零公式断言已固化 |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
 | Tauri 后台任务、取消和完整 visualizer 尚未迁移 | 高 | 数据与报告默认路径稳定后再接 IPC，前端不复制规则 |
 | 外部数据源随时间变化 | 高 | 归档历史 raw 数据，黄金测试只用固定离线输入 |
@@ -148,4 +151,4 @@
 - 当前完整验证：`cargo test --workspace --no-fail-fast; cargo clippy --workspace --all-targets -- -D warnings; python -m pytest -q; pnpm run deps:install; pnpm run build; pnpm run tauri:build:no-bundle`。
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`C:\Users\zy958\Documents\终局内容提取-archive\20260712-005035\manifest.json`。
-- 最危险的未验证假设：共享 Rust writer 从最终 CSV bundle 反写 XLSX 时能以显式列类型通过已冻结的 Python 语义契约；visualizer 的大型 `data.json` 与交互仍未建立 Rust/TypeScript 版本化契约。
+- 最危险的未验证假设：visualizer 的大型 `data.json`、静态资源和交互仍未建立 Rust/TypeScript 版本化契约；这是解除两游戏在线完整目录门禁前的最后一项导出产品缺口。
