@@ -18,6 +18,7 @@ pub mod pipeline;
 pub mod report;
 pub mod source;
 pub mod supplemental;
+pub mod visualizer;
 pub mod workbook;
 pub mod zzz;
 pub mod zzz_enrichment;

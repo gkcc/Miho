@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HSR 高难与本地 Box 可视化</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>HSR 高难与本地 Box</h1>
+        <p id="metaLine">加载数据中...</p>
+      </div>
+      <div class="toolbar-actions">
+        <div class="app-tabs" id="appTabs"></div>
+        <button id="resetBtn" type="button" title="恢复当前页默认筛选">重置</button>
+        <a href="../hsr_endgame_dataset.xlsx" title="打开本次导出的 Excel 数据集">Excel</a>
+      </div>
+    </header>
+
+    <section id="analysisView">
+      <section class="controls" aria-label="趋势筛选控制">
+        <div class="control-group"><label>模式</label><div class="segmented" id="modeControl"></div></div>
+        <div class="control-group"><label>视图</label><div class="segmented" id="viewControl"></div></div>
+        <div class="control-group"><label>职能</label><div class="segmented" id="roleControl"></div></div>
+        <div class="control-group"><label>T档</label><div class="tier-checks" id="tierControl"></div></div>
+        <div class="control-group compact"><label>数量</label><select id="limitSelect" title="按最近一期出场率排序后的展示数量"><option value="8">Top 8</option><option value="12" selected>Top 12</option><option value="20">Top 20</option><option value="all">全部</option></select></div>
+        <div class="control-group compact"><label>指标</label><select id="metricSelect" title="切换纵轴或色块使用的指标"><option value="app_rate">出场率</option><option value="avg_round">平均值</option></select></div>
+        <div class="control-group search"><label>搜索</label><input id="searchInput" type="search" placeholder="中文名 / 英文名 / slug" /></div>
+        <div class="control-group compact"><label>节点</label><label class="checkline" title="关闭后以普通圆点显示趋势节点"><input id="avatarToggle" type="checkbox" checked />头像</label></div>
+      </section>
+
+      <section class="workspace">
+        <section class="chart-panel">
+          <div class="panel-head">
+            <div><h2 id="chartTitle">趋势图</h2><p id="chartSubtitle"></p></div>
+            <div id="summaryBadges" class="summary-badges"></div>
+          </div>
+          <div class="chart-wrap">
+            <svg id="chart" role="img" aria-label="角色出场率可视化图表"></svg>
+            <div id="tooltip" class="tooltip" hidden></div>
+          </div>
+        </section>
+        <aside class="side-panel">
+          <div class="side-section characters"><h3>角色</h3><div id="characterList" class="character-list"></div></div>
+          <div class="side-section changelog"><h3>Changelog</h3><div id="changelogList" class="changelog-list"></div></div>
+        </aside>
+      </section>
+    </section>
+
+    <section id="bannerView" class="hidden">
+      <section class="banner-controls" aria-label="卡池情报筛选控制">
+        <div class="control-group"><label>阶段</label><div class="segmented" id="bannerPhaseControl"></div></div>
+        <div class="control-group search"><label>搜索</label><input id="bannerSearchInput" type="search" placeholder="角色 / 属性 / 命途 / 标签" /></div>
+      </section>
+      <section class="banner-hero">
+        <div><h2 id="bannerTitle">卡池情报</h2><p id="bannerSubtitle"></p></div>
+        <div id="bannerBadges" class="summary-badges"></div>
+      </section>
+      <section id="bannerGrid" class="banner-grid"></section>
+      <div id="bannerTooltip" class="tooltip" hidden></div>
+    </section>
+
+    <section id="boxView" class="hidden">
+      <section class="box-controls" aria-label="Box 筛选控制">
+        <div class="control-group"><label>属性</label><div class="segmented" id="boxElementControl"></div></div>
+        <div class="control-group"><label>命途</label><div class="segmented" id="boxPathControl"></div></div>
+        <div class="control-group"><label>职能</label><div class="segmented" id="boxRoleControl"></div></div>
+        <div class="control-group compact"><label>星级</label><select id="boxRaritySelect"><option value="all">全部</option><option value="5">五星</option><option value="4">四星</option></select></div>
+        <div class="control-group compact"><label>状态</label><select id="boxOwnedSelect"><option value="all">全部</option><option value="owned">已拥有</option><option value="missing">未拥有</option><option value="banner_current">当期UP</option><option value="banner_next">后续卡池</option><option value="banner_recent">历史参考</option></select></div>
+        <div class="control-group search"><label>搜索</label><input id="boxSearchInput" type="search" placeholder="中文名 / 英文名 / slug" /></div>
+        <div class="box-actions">
+          <button id="boxExportBtn" type="button">导出Box</button>
+          <button id="boxImportBtn" type="button">导入</button>
+          <button id="boxMarkVisibleBtn" type="button">筛选设为已拥有</button>
+          <button id="boxClearVisibleBtn" type="button">筛选设为未拥有</button>
+          <button id="boxBuildVisibleBtn" type="button">筛选设为练满</button>
+          <button id="boxClearBuildVisibleBtn" type="button">清筛选练度</button>
+          <input id="boxImportInput" type="file" accept="application/json,.json" hidden />
+        </div>
+      </section>
+      <section class="build-editor hidden" id="buildEditor" aria-label="练度编辑">
+        <div class="build-editor-head">
+          <img id="buildEditorIcon" alt="" />
+          <div><h2 id="buildEditorTitle">练度</h2><p id="buildEditorSubtitle"></p></div>
+        </div>
+        <div class="build-fields">
+          <label>等级<select id="buildLevelSelect"></select></label>
+          <label>光锥<select id="buildLcSelect"></select></label>
+          <label>星魂<select id="buildEidolonSelect"></select></label>
+          <label>专武<select id="buildSignatureSelect"></select></label>
+          <label>行迹<select id="buildTraceSelect"></select></label>
+          <label>遗器<select id="buildRelicSelect"></select></label>
+        </div>
+        <div class="build-actions">
+          <span id="buildScoreText"></span>
+          <button id="buildMaxBtn" type="button">设为练满</button>
+          <button id="buildClearBtn" type="button">清空练度</button>
+        </div>
+      </section>
+      <section class="box-panel">
+        <div class="panel-head">
+          <div><h2>我的 Box</h2><p id="boxSubtitle"></p></div>
+          <div id="boxBadges" class="summary-badges"></div>
+        </div>
+        <div id="boxGrid" class="box-grid"></div>
+      </section>
+      <div id="boxTooltip" class="tooltip" hidden></div>
+    </section>
+
+    <section id="recommenderView" class="hidden">
+      <section class="rec-controls" aria-label="组队推荐控制">
+        <div class="control-group"><label>模式</label><div class="segmented" id="recModeControl"></div></div>
+        <div class="control-group compact"><label>关卡</label><select id="recScopeSelect" title="只使用当前模式最新采样期的同关卡队伍模板"></select></div>
+        <div class="control-group"><label>推荐属性</label><div class="tier-checks" id="recElementControl"></div></div>
+        <div class="control-group compact"><label>缺口</label><select id="recGapSelect" title="限制缺少角色数量"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="2">最多缺2人</option><option value="4">显示全部</option></select></div>
+        <div class="control-group compact"><label>风险</label><select id="recRiskSelect" title="当前模式 T1及以下、近期走弱或核心属性不匹配时的处理方式"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></div>
+        <div class="control-group compact"><label>数量</label><select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></div>
+        <div class="control-group search"><label>搜索</label><input id="recSearchInput" type="search" placeholder="角色 / 队伍 / 来源" /></div>
+      </section>
+      <section class="phase-mechanics" id="phaseMechanicsPanel">
+        <div>
+          <h2 id="phaseMechanicsTitle">本期机制</h2>
+          <p id="phaseMechanicsSubtitle"></p>
+        </div>
+        <p id="phaseMechanicsText"></p>
+        <a id="phaseMechanicsSource" href="#" target="_blank" rel="noopener noreferrer"></a>
+      </section>
+      <section class="rec-layout">
+        <section class="rec-panel">
+          <div class="panel-head">
+            <div><h2 id="recTitle">组队推荐</h2><p id="recSubtitle"></p></div>
+            <div id="recBadges" class="summary-badges"></div>
+          </div>
+          <div id="recList" class="rec-list"></div>
+        </section>
+        <aside class="rec-slate">
+          <div class="panel-head">
+            <div><h2>多队方案</h2><p id="recSlateSubtitle"></p></div>
+          </div>
+          <div id="recSlateList" class="rec-slate-list"></div>
+        </aside>
+      </section>
+      <div id="recTooltip" class="tooltip" hidden></div>
+    </section>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>

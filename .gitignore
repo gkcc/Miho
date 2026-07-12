@@ -24,6 +24,8 @@ out_zzz/
 out_zzz_probe/
 zzz_endgame_export/
 visualizer/
+!crates/miho-core/assets/visualizer/
+!crates/miho-core/assets/visualizer/**
 start_visualizer.cmd
 
 # Local one-off reports; reusable samples belong under examples/

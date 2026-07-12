@@ -15,7 +15,7 @@
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
 - HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 已默认生成 Workbook，两游戏在线入口仅继续受 visualizer 完整目录门禁保护。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 118 项、Python 119 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
+- 最近完整回归：Rust workspace 122 项、Python 119 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
 - 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
 - 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
@@ -37,7 +37,7 @@
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 固化双游戏 visualizer 产物契约 | 完成 | 兼容测试子智能体、主智能体定标 | 两套 Python visualizer、最终 CSV、版本化 Banner/Decision sidecar、本地头像种子 | 脱敏 `data.json` oracle；HTML/CSS/JS/本地头像/Hub 精确文件集合；单动态字段白名单与版本化比较器 | 35 项契约测试；58 项 visualizer 相关测试；Hub/HSR/ZZZ 浏览器加载、切换、Box 与 XSS 冒烟 | 最终 CSV 与 Workbook 已稳定 |
-| 迁移 HSR visualizer bundle | 待开始 | HSR Rust 子智能体、主智能体整合 | HSR visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；离线头像回退；export/visualizer CLI 共用核心实现 | HSR JSON 语义对比、目录比较、CLI fixture、浏览器交互冒烟、严格 clippy | visualizer 契约 |
+| 迁移 HSR visualizer bundle | 进行中（共享边界完成） | HSR Rust 子智能体、主智能体整合 | HSR visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；离线头像回退；export/visualizer CLI 共用核心实现 | HSR JSON 语义对比、目录比较、CLI fixture、浏览器交互冒烟、严格 clippy | visualizer 契约 |
 | 迁移 ZZZ visualizer bundle | 待开始 | ZZZ Rust 子智能体、主智能体整合 | ZZZ visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；代理人/邦布与卡池语义；export/visualizer CLI 共用核心实现 | ZZZ JSON 语义对比、目录比较、CLI fixture、浏览器交互冒烟、严格 clippy | visualizer 契约 |
 
 ## 决策记录
@@ -163,6 +163,13 @@
 - 最大困难：Python visualizer 实际还读取 raw Prydwen/HoYoWiki、phase override、Banner/Decision sidecar 与头像缓存，无法从最终 CSV 单独重建。若按原表述直接设计 Rust writer，会把隐式 cwd/文件探测复制进内核，并在 HSR/ZZZ 之间产生不同的隐藏依赖。
 - 主流程审视与调整：不改变纯 Rust/Tauri 终点，但把后两目标的公共前置从“CSV reader”微调为“最终 ArtifactBundle + 版本化 VisualizerContext（clock、sidecar、avatar store/resolver）”。HSR/ZZZ 仍分别实现，先把 context/schema 和静态资产 writer 固定，再做各自 data builder；在线总门禁继续保持，不因 Python oracle 完成而提前解除。
 - 下一步：先建立共享 Rust visualizer context、路径/URL/JSON 安全边界和静态资产 writer；随后迁移 HSR data builder，再迁移 ZZZ 的代理人/邦布/卡池/Decision 语义。
+
+### 第十一批进度：HSR visualizer 共享边界（子目标 2 前置，2026-07-12）
+
+- 完成：新增版本化 Rust `VisualizerContext`，显式承载 local date、sidecar 与预置 WebP；建立 HSR 编译期静态资源、共享头像附加、BOM/字符串保真的 CSV reader、紧凑 JSON、URL/traversal 与 WebP 完整性校验。静态文件、头像、精确 visualizer 文件集合和刷新后 manifest 均直接对照版本化契约。
+- 最大困难：静态资源目录会被根级 `visualizer/` 忽略规则误吞，而且 `ArtifactBundle::write_to` 只做逐文件原子写出；若资源在 `refresh_manifest` 后才加入，实际目录与 receipt/manifest 会不一致。当前用精确反向 ignore 规则和“Visualizer 必须先于最终 manifest”测试消除第一类静默失败，脏目录清理仍留给可信 CLI adapter 处理，core 不扫描输出目录。
+- 主流程审视与调整：共享 core 只接受显式头像 bytes/store，不复制 Python 的 cwd 与旧输出目录探测。HSR data builder 将从最终 CSV 字节重建并在 report/manifest 前附加；独立 CLI 负责按兼容优先级解析 Banner 与既有头像后构造 context。在线门禁保持不变，直到完整 JSON oracle、CLI、目录和浏览器验证全部通过。
+- 下一步：实现 HSR `meta/trend/tier/changelog/chart` 直通集合，再按 phase → roster/official → usage → banner → team 顺序移植派生集合，并接跨语言黄金 harness。
 
 ## 恢复入口
 

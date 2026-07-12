@@ -36,6 +36,8 @@ pub enum MihoError {
     Csv(#[from] csv::Error),
     #[error("workbook generation failed: {0}")]
     Workbook(String),
+    #[error("visualizer generation failed: {0}")]
+    Visualizer(String),
     #[error("unsupported operation: {0}")]
     Unsupported(String),
 }
