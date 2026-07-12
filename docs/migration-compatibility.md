@@ -22,3 +22,11 @@ No calculation, row, column, filename, exit-code or default-path difference is a
 ## Migration gate
 
 A Rust command must not silently produce partial output. Until its golden suite passes, it exits with an explicit staged-migration message and the scheduled task continues to call Python.
+
+## Visualizer artifact contract
+
+- The versioned oracle lives in `tests/fixtures/visualizer_contract` and is regenerated explicitly with `python tests/test_visualizer_contract.py`.
+- Its input boundary is the complete final CSV set plus versioned Banner/Decision sidecars and a preseeded local avatar store. A visualizer is not assumed to be reversible from CSV alone.
+- JSON object member order is ignored; JSON types and array order are strict. Only `/meta/localDate` is dynamic.
+- The directory file set, normalized-LF UTF-8 static assets, and every binary avatar are hash-locked. URL traversal/active schemes, non-finite JSON numbers, workspace-path leaks, and live network access are rejected.
+- HSR and ZZZ export paths must write final CSV artifacts first, then call the same disk-backed rebuild used by their independent `visualizer` commands.

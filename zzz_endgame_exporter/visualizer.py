@@ -5,6 +5,7 @@ import io
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date
 from pathlib import Path
@@ -16,6 +17,73 @@ from miho_core.banner_plan import effective_banner_phases
 
 from .constants import ELEMENT_CN, MODE_CN, ROLE_ORDER, STYLE_CN
 from .prydwen import extract_phase_updates_from_html
+
+
+def _decoded_url_path(value: str) -> str:
+    decoded = value
+    for _ in range(3):
+        next_value = urllib.parse.unquote(decoded)
+        if next_value == decoded:
+            break
+        decoded = next_value
+    return decoded
+
+
+def _safe_same_origin_relative_url(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text or "\\" in text or any(ord(char) < 32 or ord(char) == 127 for char in text):
+        return ""
+    try:
+        parsed = urllib.parse.urlsplit(text)
+    except ValueError:
+        return ""
+    if parsed.scheme or parsed.netloc or text.startswith("/"):
+        return ""
+    decoded_path = _decoded_url_path(parsed.path)
+    if "\\" in decoded_path:
+        return ""
+    segments = decoded_path.split("/")
+    for index, segment in enumerate(segments):
+        if segment == ".." or (segment == "." and not (index == 0 and text.startswith("./"))):
+            return ""
+        if "/" in segment or "\\" in segment:
+            return ""
+    if not decoded_path or decoded_path in {".", "/"}:
+        return ""
+    return text
+
+
+def _safe_http_url(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text or "\\" in text or any(ord(char) < 32 or ord(char) == 127 for char in text):
+        return ""
+    try:
+        parsed = urllib.parse.urlsplit(text)
+    except ValueError:
+        return ""
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.netloc
+        or any(char.isspace() for char in parsed.netloc)
+    ):
+        return ""
+    return text
+
+
+def _safe_link_url(value: Any) -> str:
+    return _safe_http_url(value) or _safe_same_origin_relative_url(value)
+
+
+def _sanitize_output_urls(value: Any, *, key: str = "") -> Any:
+    if isinstance(value, dict):
+        return {item_key: _sanitize_output_urls(item, key=str(item_key)) for item_key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_output_urls(item, key=key) for item in value]
+    if key == "icon_url":
+        return _safe_same_origin_relative_url(value)
+    if key == "url" or key.endswith("_url"):
+        return _safe_link_url(value)
+    return value
 
 
 def write_visualizer_app(
@@ -55,7 +123,11 @@ def write_visualizer_app(
         "bannerRows": banner_rows,
         "decisionCards": decision_cards,
     }
-    (visualizer_dir / "data.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    data = _sanitize_output_urls(data)
+    (visualizer_dir / "data.json").write_text(
+        json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+        encoding="utf-8",
+    )
     (visualizer_dir / "index.html").write_text(INDEX_HTML, encoding="utf-8")
     (visualizer_dir / "styles.css").write_text(STYLES_CSS, encoding="utf-8")
     (visualizer_dir / "app.js").write_text(APP_JS, encoding="utf-8")
@@ -354,12 +426,15 @@ def _localize_avatar_rows(visualizer_dir: Path, rows: list[dict[str, Any]]) -> l
         icon_url = str(new_row.get("icon_url") or "")
         icon_crop = new_row.get("icon_crop") or ""
         slug = normalize_character_id(new_row.get("character_slug") or new_row.get("character_name_en") or new_row.get("character_name_cn"))
-        if icon_url and slug and not icon_url.startswith("./"):
+        local_url = _safe_same_origin_relative_url(icon_url)
+        new_row["icon_url"] = local_url
+        remote_url = _safe_http_url(icon_url)
+        if remote_url and slug and not local_url:
             local_path = avatars_dir / f"{slug}.webp"
-            source_key = json.dumps({"url": icon_url, "crop": icon_crop or ""}, ensure_ascii=False, sort_keys=True)
+            source_key = json.dumps({"url": remote_url, "crop": icon_crop or ""}, ensure_ascii=False, sort_keys=True)
             cached_key = manifest.get(local_path.name)
             cache_ok = local_path.exists() and cached_key == source_key
-            if cache_ok or _download_static_avatar(icon_url, local_path, icon_crop):
+            if cache_ok or _download_static_avatar(remote_url, local_path, icon_crop):
                 new_row["icon_url"] = f"./assets/avatars/{local_path.name}"
                 if cached_key != source_key:
                     manifest[local_path.name] = source_key
@@ -374,8 +449,11 @@ def _download_static_avatar(url: str, destination: Path, crop: Any = "") -> bool
     try:
         from PIL import Image
 
+        safe_url = _safe_http_url(url)
+        if not safe_url:
+            return False
         request = urllib.request.Request(
-            url,
+            safe_url,
             headers={
                 "User-Agent": "Mozilla/5.0 zzz-endgame-exporter/0.1",
                 "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
@@ -756,6 +834,8 @@ const BUILD_LEVELS=[0,20,40,50,55,60], BUILD_MINDSCAPES=[['unset','未录入'],[
 const BOX_KEY='zzz_endgame_box_v2', OLD_BOX_KEYS=['zzz_endgame_box_v1'], REC_KEY='zzz_endgame_rec_v1';
 let DATA=null,state={page:'analysis',mode:'sd',role:'all',view:'trend',limit:'16',search:''},box={owned:new Set(),builds:{},buildSlug:'',element:'all',style:'all',status:'all',search:'',saveStatus:'浏览器缓存'},rec={mode:'sd',scope:'',elements:{},gap:'1',riskMode:'warn',limit:'8',search:''},banner={phase:'current',search:''},boxSaveTimer=null;
 const $=id=>document.getElementById(id), num=v=>{const n=Number(v);return Number.isFinite(n)?n:null}, esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])), pct=v=>num(v)==null?'-':`${num(v).toFixed(2)}%`;
+const safeRelative=v=>{const text=String(v??'').trim();if(!text||text.includes('\\')||/[\u0000-\u001f\u007f]/.test(text)||/^[a-z][a-z0-9+.-]*:/i.test(text)||text.startsWith('//'))return '';try{const url=new URL(text,location.href),decoded=decodeURIComponent(url.pathname);if(url.origin!==location.origin||decoded.split('/').some((part,index)=>part==='..'||(part==='.'&&index>0)))return '';return text;}catch{return ''}};
+const safeAvatar=v=>safeRelative(v),safeLink=v=>{const text=String(v??'').trim();if(/^https?:\/\//i.test(text)){try{const url=new URL(text);return ['http:','https:'].includes(url.protocol)?text:'';}catch{return ''}}return safeRelative(text)};
 fetch(`./data.json?v=${Date.now()}`,{cache:'no-store'}).then(r=>r.json()).then(d=>{DATA=d;loadBox();loadRec();init();render();syncBoxFromServer();}).catch(e=>document.body.innerHTML=`<main class="app"><h1>数据加载失败</h1><p>${esc(e.message)}</p></main>`);
 function init(){ $('metaLine').textContent=`Prydwen更新：${DATA.meta.tierUpdatedAt||'未知'} · 本地生成：${DATA.meta.generatedAt||'未知'}`; buttons('tabs',[['analysis','趋势分析'],['banner','卡池情报'],['box','我的Box'],['recommender','组队推荐']],state.page,v=>{state.page=v;render();}); buttons('modeControl',MODES,state.mode,v=>{state.mode=v;render();}); buttons('roleControl',ROLES,state.role,v=>{state.role=v;render();}); buttons('viewControl',VIEWS,state.view,v=>{state.view=v;render();}); $('limitSelect').onchange=e=>{state.limit=e.target.value;renderAnalysis();}; $('searchInput').oninput=e=>{state.search=e.target.value.trim().toLowerCase();renderAnalysis();}; initBanner(); initBox(); initRec();}
 function buttons(id,items,current,onClick){const el=$(id); el.innerHTML=''; items.forEach(([v,l])=>{const b=document.createElement('button');b.type='button';b.textContent=l;b.dataset.value=v;b.className=v===current?'active':'';b.onclick=()=>{[...el.children].forEach(x=>x.classList.remove('active'));b.classList.add('active');onClick(v);};el.appendChild(b);});}
@@ -769,17 +849,17 @@ function renderAnalysis(){const series=seriesRows();$('chartTitle').textContent=
 function chartBox(){const svg=$('chart');svg.innerHTML='';const rect=svg.getBoundingClientRect();const w=Math.max(760,rect.width||1000),h=620;svg.setAttribute('viewBox',`0 0 ${w} ${h}`);return{svg,w,h};}
 function add(svg,tag,attrs){const n=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));svg.appendChild(n);return n;}
 function drawLines(series){const {svg,w,h}=chartBox();if(!series.length){add(svg,'text',{x:40,y:60,class:'axis'}).textContent='暂无数据';return;}const defs=add(svg,'defs',{});const dates=[...new Set(series.flatMap(s=>s.rows.map(r=>r.collect_date)))].sort();const max=Math.max(1,...series.flatMap(s=>s.rows.map(r=>num(r.app_rate)||0)));const m={l:70,r:44,t:42,b:60},cw=w-m.l-m.r,ch=h-m.t-m.b;const x=d=>m.l+(dates.indexOf(d)/Math.max(1,dates.length-1))*cw,y=v=>m.t+ch-(v/max)*ch;for(let i=0;i<=5;i++){const yy=m.t+ch*i/5;add(svg,'line',{x1:m.l,y1:yy,x2:m.l+cw,y2:yy,class:'grid'});add(svg,'text',{x:m.l-8,y:yy+4,'text-anchor':'end',class:'axis'}).textContent=(max*(1-i/5)).toFixed(0);}dates.forEach((d,i)=>{if(dates.length>12&&i%2)return;add(svg,'text',{x:x(d),y:m.t+ch+24,'text-anchor':'middle',class:'axis'}).textContent=d.slice(5);});series.forEach((s,i)=>{const color=['#2563eb','#dc2626','#16a34a','#9333ea','#ea580c','#0891b2'][i%6];const pts=s.rows.map(r=>[x(r.collect_date),y(num(r.app_rate)||0),r]).filter(p=>Number.isFinite(p[1]));add(svg,'path',{d:pts.map((p,j)=>`${j?'L':'M'}${p[0]} ${p[1]}`).join(' '),stroke:color,class:'line'});pts.forEach(([xx,yy,row],pi)=>drawAvatarPoint(svg,defs,xx,yy,row,s.slug,color,i,pi));});}
-function drawAvatarPoint(svg,defs,x,y,row,slug,color,seriesIndex,pointIndex){const info=charInfo(slug),r=11,href=info.icon_url||row.icon_url;if(href){const clipId=`clip-${seriesIndex}-${pointIndex}-${Math.round(x)}-${Math.round(y)}`;const clip=add(defs,'clipPath',{id:clipId});add(clip,'circle',{cx:x,cy:y,r});const img=add(svg,'image',{href,x:x-r,y:y-r,width:r*2,height:r*2,'clip-path':`url(#${clipId})`,class:'avatar'});add(svg,'circle',{cx:x,cy:y,r,fill:'none',stroke:color,class:'avatar-ring'});img.addEventListener('mouseenter',e=>showChartTip(e,row));img.addEventListener('mousemove',moveTip);img.addEventListener('mouseleave',()=>{$('tooltip').hidden=true;});}else{const c=add(svg,'circle',{cx:x,cy:y,r:4.8,fill:color});c.addEventListener('mouseenter',e=>showChartTip(e,row));c.addEventListener('mousemove',moveTip);c.addEventListener('mouseleave',()=>{$('tooltip').hidden=true;});}}
+function drawAvatarPoint(svg,defs,x,y,row,slug,color,seriesIndex,pointIndex){const info=charInfo(slug),r=11,href=safeAvatar(info.icon_url||row.icon_url);if(href){const clipId=`clip-${seriesIndex}-${pointIndex}-${Math.round(x)}-${Math.round(y)}`;const clip=add(defs,'clipPath',{id:clipId});add(clip,'circle',{cx:x,cy:y,r});const img=add(svg,'image',{href,x:x-r,y:y-r,width:r*2,height:r*2,'clip-path':`url(#${clipId})`,class:'avatar'});add(svg,'circle',{cx:x,cy:y,r,fill:'none',stroke:color,class:'avatar-ring'});img.addEventListener('mouseenter',e=>showChartTip(e,row));img.addEventListener('mousemove',moveTip);img.addEventListener('mouseleave',()=>{$('tooltip').hidden=true;});}else{const c=add(svg,'circle',{cx:x,cy:y,r:4.8,fill:color});c.addEventListener('mouseenter',e=>showChartTip(e,row));c.addEventListener('mousemove',moveTip);c.addEventListener('mouseleave',()=>{$('tooltip').hidden=true;});}}
 function drawBars(series){const {svg,w,h}=chartBox();const m={l:170,r:80,t:36,b:36},rowH=Math.max(32,Math.min(44,(h-m.t-m.b)/Math.max(series.length,1)));const max=Math.max(1,...series.map(s=>num(s.latest.app_rate)||0));series.forEach((s,i)=>{const y=m.t+i*rowH+rowH/2,val=num(s.latest.app_rate)||0,x=m.l+(val/max)*(w-m.l-m.r),info=charInfo(s.slug);add(svg,'text',{x:18,y:y+4,class:'axis'}).textContent=`${i+1}. ${charName(s.slug)}`;add(svg,'line',{x1:m.l,y1:y,x2:x,y2:y,stroke:'#174c5a',class:'bar'});add(svg,'text',{x:x+14,y:y+4,class:'axis'}).textContent=pct(val);});}
 function drawHeatmap(series){const {svg,w,h}=chartBox();if(!series.length){add(svg,'text',{x:40,y:60,class:'axis'}).textContent='暂无数据';return;}const dates=[...new Set(series.flatMap(s=>s.rows.map(r=>r.collect_date)))].sort();const m={l:180,r:30,t:54,b:42},gap=3,rowH=Math.max(24,Math.min(34,(h-m.t-m.b)/Math.max(series.length,1))),cw=Math.max(12,(w-m.l-m.r-(dates.length-1)*gap)/Math.max(dates.length,1));const max=Math.max(1,...series.flatMap(s=>s.rows.map(r=>num(r.app_rate)||0)));dates.forEach((d,j)=>{if(dates.length>14&&j%2)return;add(svg,'text',{x:m.l+j*(cw+gap)+cw/2,y:m.t-18,'text-anchor':'middle',class:'axis'}).textContent=d.slice(5);});series.forEach((s,i)=>{const y=m.t+i*rowH;add(svg,'text',{x:18,y:y+rowH/2+4,class:'heat-name'}).textContent=`${i+1}. ${charName(s.slug)}`;const byDate=new Map(s.rows.map(r=>[r.collect_date,r]));dates.forEach((d,j)=>{const r=byDate.get(d),val=num(r?.app_rate)||0,intensity=Math.max(.06,Math.min(1,val/max));const rect=add(svg,'rect',{x:m.l+j*(cw+gap),y:y+4,width:cw,height:rowH-8,fill:`rgba(23,76,90,${intensity})`,class:'heat-cell'});if(r){rect.addEventListener('mouseenter',e=>showChartTip(e,r));rect.addEventListener('mousemove',moveTip);rect.addEventListener('mouseleave',()=>{$('tooltip').hidden=true;});}});});}
 function showChartTip(evt,row){const tt=$('tooltip');tt.innerHTML=`<div class="tooltip-grid"><b>角色</b><span>${esc(charName(row.character_slug))}</span><b>日期</b><span>${esc(row.collect_date)}</span><b>出场率</b><span>${pct(row.app_rate)}</span><b>平均分</b><span>${esc(row.avg_score||'-')}</span><b>期数</b><span>${esc(row.phase_name||row.phase_ver||'-')}</span></div>`;tt.hidden=false;moveTip(evt);}
 function moveTip(evt){const tt=$('tooltip');let x=evt.clientX+16,y=evt.clientY+16;const r=tt.getBoundingClientRect();if(x+r.width+12>innerWidth)x=evt.clientX-r.width-16;if(y+r.height+12>innerHeight)y=evt.clientY-r.height-16;tt.style.left=`${Math.max(12,x)}px`;tt.style.top=`${Math.max(12,y)}px`;}
-function renderCharacterList(series){const boxEl=$('characterList');if(!boxEl)return;boxEl.innerHTML='';if(!series.length){boxEl.innerHTML='<div class="empty">暂无角色数据</div>';return;}series.forEach((s,i)=>{const row=s.latest,info=charInfo(s.slug),card=document.createElement('button');card.type='button';card.className='character-card';card.innerHTML=`<img src="${esc(info.icon_url)}" alt=""><div><div class="name">${esc(charName(s.slug))}</div><div class="meta">${esc(info.tier||'未分档')} · ${esc(info.element_cn||'')} · ${esc(info.style_cn||info.role_group_cn||'')}</div></div><div class="rate">${pct(row.app_rate)}</div>`;card.onclick=()=>{$('searchInput').value=charName(s.slug);state.search=charName(s.slug).toLowerCase();renderAnalysis();};boxEl.appendChild(card);});}
+function renderCharacterList(series){const boxEl=$('characterList');if(!boxEl)return;boxEl.innerHTML='';if(!series.length){boxEl.innerHTML='<div class="empty">暂无角色数据</div>';return;}series.forEach((s,i)=>{const row=s.latest,info=charInfo(s.slug),card=document.createElement('button');card.type='button';card.className='character-card';card.innerHTML=`<img src="${esc(safeAvatar(info.icon_url))}" alt=""><div><div class="name">${esc(charName(s.slug))}</div><div class="meta">${esc(info.tier||'未分档')} · ${esc(info.element_cn||'')} · ${esc(info.style_cn||info.role_group_cn||'')}</div></div><div class="rate">${pct(row.app_rate)}</div>`;card.onclick=()=>{$('searchInput').value=charName(s.slug);state.search=charName(s.slug).toLowerCase();renderAnalysis();};boxEl.appendChild(card);});}
 function renderChangelog(series){const boxEl=$('changelogList');if(!boxEl)return;boxEl.innerHTML='';const slugs=new Set(series.map(s=>s.slug));const related=(DATA.changelogRows||[]).filter(r=>String(r.character_slugs||'').split(';').some(slug=>slugs.has(slug)));const rows=(related.length?related:(DATA.changelogRows||[])).slice(0,8);if(!rows.length){boxEl.innerHTML='<div class="empty">暂无 changelog</div>';return;}rows.forEach(r=>{const item=document.createElement('div');item.className='changelog-item';const text=String(r.text||'');item.innerHTML=`<time>${esc(r.changelog_date||'')}</time><p>${esc(text.slice(0,420))}${text.length>420?'...':''}</p>`;boxEl.appendChild(item);});}
 function initBanner(){buttons('bannerPhaseControl',[['current','当期UP'],['next','下一期'],['satellite','确定卫星'],['all','全部含已结束']],banner.phase,v=>{banner.phase=v;renderBanner();});$('bannerSearchInput').oninput=e=>{banner.search=e.target.value.trim().toLowerCase();renderBanner();};}
 function bannerRows(){const q=banner.search;return (DATA.bannerRows||[]).filter(r=>(banner.phase==='all'||r.phase_status===banner.phase)&&(!q||[r.character_slug,r.character_name_cn,r.character_name_en,r.banner_role,r.element_cn,r.style_cn,r.role_group_cn,...(r.analysis_tags||[])].some(x=>String(x||'').toLowerCase().includes(q))));}
-function renderBanner(){const rows=bannerRows();$('bannerTitle').textContent='卡池情报';$('bannerSubtitle').textContent='这里只做数据提炼：复刻看历史趋势和组队占用，新角色/卫星只做公开信息与 Box 关系识别。';$('bannerBadges').innerHTML=[`角色 ${rows.length}`,`Box ${box.owned.size}`,box.saveStatus||'浏览器缓存'].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('bannerGrid');grid.innerHTML='';if(!rows.length){grid.innerHTML='<div class="empty">暂无卡池情报；可更新 configs/zzz_banner_plan.json</div>';return;}const phases=[...new Map(rows.map(r=>[r.phase_id,{id:r.phase_id,title:r.phase_title,subtitle:r.phase_subtitle,date:r.date_range,source:r.source_label,url:r.source_url,status:r.phase_status}])).values()];phases.forEach(phase=>{const section=document.createElement('section');section.className='banner-section';section.innerHTML=`<div class="banner-section-head"><div><h3>${esc(phase.title||'卡池')}</h3><p>${esc(phase.subtitle||'')} · ${esc(phase.date||'时间待确认')}</p></div>${phase.url?`<a href="${esc(phase.url)}" target="_blank" rel="noreferrer">${esc(phase.source||'来源')}</a>`:''}</div><div class="banner-card-grid"></div>`;const inner=section.querySelector('.banner-card-grid');rows.filter(r=>r.phase_id===phase.id).forEach(row=>inner.appendChild(bannerCard(row)));grid.appendChild(section);});}
-function bannerCard(row){const slug=row.character_slug,info={...charInfo(slug),...row},ins=bannerInsight(row);const card=document.createElement('article');card.className=`banner-card ${box.owned.has(slug)?'owned':''} ${row.phase_status}`;const tags=(row.analysis_tags||[]).slice(0,5).map(t=>`<span>${esc(t)}</span>`).join('');card.innerHTML=`<div class="banner-art">${info.icon_url?`<img src="${esc(info.icon_url)}" alt="">`:`<div class="avatar-fallback">${esc((info.character_name_cn||slug).slice(0,2))}</div>`}<button class="mini-owned">${box.owned.has(slug)?'已拥有':'加入Box'}</button></div><div class="banner-body"><div class="banner-kicker">${esc(row.banner_role||row.phase_subtitle||'卡池角色')}</div><h3>${esc(info.character_name_cn||info.character_name_en||slug)}</h3><p class="banner-meta">${esc(info.rarity||'-')} · ${esc(info.element_cn||'属性未知')} · ${esc(info.style_cn||info.role_group_cn||'特性未知')} · ${esc(ins.tierText)}</p><svg class="spark" viewBox="0 0 220 54">${sparkline(ins.points)}</svg><div class="tags">${tags}</div><div class="banner-facts">${ins.lines.slice(0,4).map(x=>`<p>${esc(x)}</p>`).join('')}</div><div class="banner-relations">${ins.relations.slice(0,6).map(x=>`<span class="${x.owned?'owned':''}">${esc(x.name)}${x.count?` ×${x.count}`:''}</span>`).join('')||'<span>暂无历史组合</span>'}</div></div>`;card.querySelector('.mini-owned').onclick=e=>{e.stopPropagation();box.owned.has(slug)?box.owned.delete(slug):box.owned.add(slug);box.buildSlug=slug;saveBox();renderBanner();};card.addEventListener('mouseenter',e=>showBannerTip(e,row,ins));card.addEventListener('mousemove',moveBannerTip);card.addEventListener('mouseleave',()=>{$('bannerTooltip').hidden=true;});return card;}
+function renderBanner(){const rows=bannerRows();$('bannerTitle').textContent='卡池情报';$('bannerSubtitle').textContent='这里只做数据提炼：复刻看历史趋势和组队占用，新角色/卫星只做公开信息与 Box 关系识别。';$('bannerBadges').innerHTML=[`角色 ${rows.length}`,`Box ${box.owned.size}`,box.saveStatus||'浏览器缓存'].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('bannerGrid');grid.innerHTML='';if(!rows.length){grid.innerHTML='<div class="empty">暂无卡池情报；可更新 configs/zzz_banner_plan.json</div>';return;}const phases=[...new Map(rows.map(r=>[r.phase_id,{id:r.phase_id,title:r.phase_title,subtitle:r.phase_subtitle,date:r.date_range,source:r.source_label,url:r.source_url,status:r.phase_status}])).values()];phases.forEach(phase=>{const section=document.createElement('section'),phaseUrl=safeLink(phase.url);section.className='banner-section';section.innerHTML=`<div class="banner-section-head"><div><h3>${esc(phase.title||'卡池')}</h3><p>${esc(phase.subtitle||'')} · ${esc(phase.date||'时间待确认')}</p></div>${phaseUrl?`<a href="${esc(phaseUrl)}" target="_blank" rel="noopener noreferrer">${esc(phase.source||'来源')}</a>`:''}</div><div class="banner-card-grid"></div>`;const inner=section.querySelector('.banner-card-grid');rows.filter(r=>r.phase_id===phase.id).forEach(row=>inner.appendChild(bannerCard(row)));grid.appendChild(section);});}
+function bannerCard(row){const slug=row.character_slug,info={...charInfo(slug),...row},ins=bannerInsight(row),icon=safeAvatar(info.icon_url);const card=document.createElement('article');card.className=`banner-card ${box.owned.has(slug)?'owned':''} ${row.phase_status}`;const tags=(row.analysis_tags||[]).slice(0,5).map(t=>`<span>${esc(t)}</span>`).join('');card.innerHTML=`<div class="banner-art">${icon?`<img src="${esc(icon)}" alt="">`:`<div class="avatar-fallback">${esc((info.character_name_cn||slug).slice(0,2))}</div>`}<button class="mini-owned">${box.owned.has(slug)?'已拥有':'加入Box'}</button></div><div class="banner-body"><div class="banner-kicker">${esc(row.banner_role||row.phase_subtitle||'卡池角色')}</div><h3>${esc(info.character_name_cn||info.character_name_en||slug)}</h3><p class="banner-meta">${esc(info.rarity||'-')} · ${esc(info.element_cn||'属性未知')} · ${esc(info.style_cn||info.role_group_cn||'特性未知')} · ${esc(ins.tierText)}</p><svg class="spark" viewBox="0 0 220 54">${sparkline(ins.points)}</svg><div class="tags">${tags}</div><div class="banner-facts">${ins.lines.slice(0,4).map(x=>`<p>${esc(x)}</p>`).join('')}</div><div class="banner-relations">${ins.relations.slice(0,6).map(x=>`<span class="${x.owned?'owned':''}">${esc(x.name)}${x.count?` ×${x.count}`:''}</span>`).join('')||'<span>暂无历史组合</span>'}</div></div>`;card.querySelector('.mini-owned').onclick=e=>{e.stopPropagation();box.owned.has(slug)?box.owned.delete(slug):box.owned.add(slug);box.buildSlug=slug;saveBox();renderBanner();};card.addEventListener('mouseenter',e=>showBannerTip(e,row,ins));card.addEventListener('mousemove',moveBannerTip);card.addEventListener('mouseleave',()=>{$('bannerTooltip').hidden=true;});return card;}
 function bannerInsight(row){const slug=row.character_slug,info={...charInfo(slug),...row},usage=(DATA.usageRows||[]).filter(r=>r.character_slug===slug&&r.sub_mode==='all').sort((a,b)=>String(a.collect_date).localeCompare(String(b.collect_date))),points=usage.map(r=>({date:r.collect_date,value:num(r.app_rate)||0,mode:r.mode_cn||r.mode})),tiers=(DATA.tierRows||[]).filter(r=>r.character_slug===slug),best=tiers.sort((a,b)=>(TIER_RANK[a.tier]??9)-(TIER_RANK[b.tier]??9))[0]||{},teams=(DATA.teamTemplates||[]).filter(t=>(t.chars||[]).includes(slug)),relations=relationRows(slug,teams),ownedRelation=relations.filter(r=>r.owned).slice(0,4).map(r=>r.name).join('、'),lines=[];if(points.length){const latest=points[points.length-1],avg=points.slice(-3).reduce((s,p)=>s+p.value,0)/Math.min(3,points.length),delta=points.length>1?latest.value-points[0].value:0;lines.push(`历史：${points.length} 个样本点，最新 ${latest.value.toFixed(2)}%，近三期均值 ${avg.toFixed(2)}%，首尾变化 ${delta.toFixed(2)}%。`);}else lines.push('历史：本地高难暂无完整样本，不能用趋势替代实测。');if(teams.length){const bestRank=Math.min(...teams.map(t=>num(t.rank)||9999));lines.push(`组队：历史模板 ${teams.length} 条，最好 Rank ${bestRank}，常见队友见下方关系。`);}else lines.push('组队：暂无可回溯历史队伍，等待实测或人工分析。');if(ownedRelation)lines.push(`Box关系：你已有角色中，历史上相关度较高的是 ${ownedRelation}。`);else lines.push(`Box关系：暂未发现与你已有 Box 的直接历史组合；需要看属性/特性是否能补洞。`);if(row.phase_status==='satellite'||!points.length)lines.push('未知项：技能组、倍率、专武价值、实战轴和环境适配仍需外部分析确认。');if(row.focus)lines.push(`关注点：${row.focus}`);return{points,relations,lines,tierText:best.tier||info.tier||'未分档'};}
 function relationRows(slug,teams){const map=new Map();teams.forEach(t=>(t.chars||[]).forEach(c=>{if(c===slug)return;const item=map.get(c)||{slug:c,name:charName(c),count:0,owned:box.owned.has(c)};item.count++;item.owned=box.owned.has(c);map.set(c,item);}));return [...map.values()].sort((a,b)=>Number(b.owned)-Number(a.owned)||b.count-a.count||a.name.localeCompare(b.name));}
 function sparkline(points){if(!points.length)return '<text x="10" y="31" class="spark-empty">暂无趋势</text>';const max=Math.max(1,...points.map(p=>p.value)),xs=points.map((p,i)=>8+i*(204/Math.max(1,points.length-1))),ys=points.map(p=>46-(p.value/max)*36),d=xs.map((x,i)=>`${i?'L':'M'}${x.toFixed(1)} ${ys[i].toFixed(1)}`).join(' ');return `<path d="${d}" class="spark-line"/><path d="M8 47H212" class="spark-axis"/>${xs.map((x,i)=>`<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="3.2" class="spark-dot"/>`).join('')}`;}

@@ -158,7 +158,9 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "buildConfigLabel" in app_text
     assert "练度未录入" in app_text
     assert "ownedBuildScore" in app_text
-    assert data["trendRows"][0]["icon_url"] == "https://example.com/icon.webp"
+    # A failed remote avatar fetch must degrade to the no-avatar UI instead of
+    # leaving a network-dependent URL in the portable visualizer bundle.
+    assert data["trendRows"][0]["icon_url"] == ""
     assert data["usageRows"][0]["tier_mode"] == "aa"
     assert data["usageRows"][0]["tier"] == "未分档"
     assert data["usageRows"][0]["phase_name_cn"] == "嗡鸣如笑"

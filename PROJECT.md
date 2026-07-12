@@ -7,7 +7,7 @@
 ## 当前状态
 
 - 工作区已安全迁移到 `D:\Projects\终局内容提取`；6,111 个不可再生项目文件与 16,301 个归档文件逐路径 SHA-256 校验均为零差异，迁移回执保存在归档目录。
-- D 盘迁移后重建验证：Rust workspace 118 项通过，frozen pnpm install、Vite build 与 Tauri `--no-bundle` 通过；Python 原有 84 项通过，暂停中的 visualizer 契约半成品仍等待 fixture 与旧断言收口。
+- D 盘迁移后重建验证：Rust workspace 118 项通过，frozen pnpm install、Vite build 与 Tauri `--no-bundle` 通过；原暂停的 visualizer 契约半成品现已完成 fixture、旧断言和浏览器冒烟收口。
 - 工作区治理完成：业务资产已归档到 `D:\Projects\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
 - Rust 已实现 HF 在线/离线统一 `SnapshotSource`、日期与部分失败语义、两游戏多 snapshot/mode 聚合，以及 HSR histograph/fallback、动态视图、完整队伍去重和 ZZZ Bangboo/name fallback。
@@ -15,10 +15,11 @@
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
 - HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 已默认生成 Workbook，两游戏在线入口仅继续受 visualizer 完整目录门禁保护。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 118 项、Python 84 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
+- 最近完整回归：Rust workspace 118 项、Python 119 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
 - 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
 - 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
+- 双游戏 Python visualizer 产物契约已冻结：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
 - Python 仍作为全部导出语义的对照实现，并负责正式 visualizer，以及 evidence、coverage、decision、pull-value、review-packet。
 
 ## 阶段路线
@@ -35,7 +36,7 @@
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 固化双游戏 visualizer 产物契约 | 待开始 | 兼容测试子智能体、主智能体定标 | 两套 Python visualizer、最终 CSV、Banner/Box 配置、现有前端测试 | 脱敏 `data.json` oracle；HTML/CSS/JS/本地头像/Hub 文件集合；动态字段白名单与版本化比较器 | `python -m pytest -q tests/test_visualizer_contract.py`；静态资源哈希与浏览器冒烟 | 最终 CSV 与 Workbook 已稳定 |
+| 固化双游戏 visualizer 产物契约 | 完成 | 兼容测试子智能体、主智能体定标 | 两套 Python visualizer、最终 CSV、版本化 Banner/Decision sidecar、本地头像种子 | 脱敏 `data.json` oracle；HTML/CSS/JS/本地头像/Hub 精确文件集合；单动态字段白名单与版本化比较器 | 35 项契约测试；58 项 visualizer 相关测试；Hub/HSR/ZZZ 浏览器加载、切换、Box 与 XSS 冒烟 | 最终 CSV 与 Workbook 已稳定 |
 | 迁移 HSR visualizer bundle | 待开始 | HSR Rust 子智能体、主智能体整合 | HSR visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；离线头像回退；export/visualizer CLI 共用核心实现 | HSR JSON 语义对比、目录比较、CLI fixture、浏览器交互冒烟、严格 clippy | visualizer 契约 |
 | 迁移 ZZZ visualizer bundle | 待开始 | ZZZ Rust 子智能体、主智能体整合 | ZZZ visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；代理人/邦布与卡池语义；export/visualizer CLI 共用核心实现 | ZZZ JSON 语义对比、目录比较、CLI fixture、浏览器交互冒烟、严格 clippy | visualizer 契约 |
 
@@ -56,13 +57,14 @@
 | 2026-07-12 | 决策命令继续排在导出产品完整性之后；第十批先修前端构建并完成 Workbook | 避免让 evidence/decision 依赖仍受 XLSX/visualizer 总门禁保护的目录；visualizer 数据契约紧随 Workbook | 双游戏导出仅剩批准差异时 |
 | 2026-07-12 | Workbook 比较规范化 RGB alpha、继承字体元数据、solid fill 未使用背景和合并列宽区间；实际 Rust 文件另行强制全局零公式 | 保留视觉/数据语义而不追逐库级 OOXML 表示差异；表头 thin border、类型、格式和宽度仍严格比较 | 更换 XLSX 库或主题默认字体时 |
 | 2026-07-12 | CLI 使用 `WorkbookPolicy::BestEffort`；成功产物进入内嵌 manifest/receipt，失败只记结构化 warning 且不留半成品 | 离线双游戏导出已包含 XLSX；在线总门禁缩小为仅等待 visualizer | visualizer 完整目录黄金对比通过时 |
+| 2026-07-12 | visualizer 契约边界定义为最终 ArtifactBundle 加显式 VisualizerContext，而非声称可由 CSV 单独逆向 | Banner/Decision sidecar、官方/raw 补充信息、clock 与头像存储必须成为 Rust API 的显式输入；两游戏 export 先落最终 CSV 再走独立重建 | Rust context/schema 升级或 sidecar 被并入正式 artifact manifest 时 |
 
 ## 风险登记
 
 | 风险 | 当前状态 | 缓解措施 |
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
-| HSR/ZZZ visualizer 尚未进入 Rust 完整目录 | 高 | Workbook 已通过并进入离线 CLI；两游戏默认在线总门禁仅等待 visualizer 数据与交互契约 |
+| HSR/ZZZ visualizer 尚未进入 Rust 完整目录 | 高 | Python 契约已冻结并完成真实浏览器冒烟；下一步按 ArtifactBundle + VisualizerContext 分游戏迁移 |
 | Workbook 单元格类型和样式可能与 Python 漂移 | 低（已验证） | 双游戏 oracle、显式/混合类型、thin border、样式/列宽语义规范化与 Rust 全局零公式断言已固化 |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
 | Tauri 后台任务、取消和完整 visualizer 尚未迁移 | 高 | 数据与报告默认路径稳定后再接 IPC，前端不复制规则 |
@@ -154,6 +156,14 @@
 - 调整：最终无 Python 目标不变。Workbook 采用显式语义规范化并对 Rust actual 独立执行零公式断言，不做 ZIP 字节追逐；混合类型必须按已知列声明，禁止全局自动推断。下一批先冻结 visualizer 的 `data.json`、静态资源、头像与动态字段边界，再分别移植 HSR/ZZZ，避免两套大型交互实现共享错误规则。
 - 下一批：双游戏 visualizer 产物契约、HSR visualizer bundle、ZZZ visualizer bundle。
 
+### 第十一批进度：visualizer 产物契约（子目标 1/3，2026-07-12）
+
+- 完成：从两游戏完整最终 CSV、版本化 Banner/Decision sidecar 和预置本地头像生成脱敏 oracle；比较器严格检查 JSON 类型与数组顺序，仅允许 `/meta/localDate` 动态；目录集合、UTF-8/LF 静态哈希、逐目标二进制哈希、禁网、便携路径、XSS 载荷、URL traversal/active scheme 和 NaN/Infinity 均已锁定。Hub、HSR、ZZZ 的加载/切换/Box 交互与 XSS 标记已在真实浏览器冒烟通过。
+- 偏差：初始半成品只缺 fixture 看似简单，但审计发现 ZZZ export 仍直接消费内存 rows，绕过独立 visualizer 的最终磁盘边界；Hub 目录名可进入 HTML 属性；旧 HSR 测试还要求远程头像下载失败后保留网络 URL。现已统一磁盘重建、编码 Hub 路径，并把失败头像明确降级为空。
+- 最大困难：Python visualizer 实际还读取 raw Prydwen/HoYoWiki、phase override、Banner/Decision sidecar 与头像缓存，无法从最终 CSV 单独重建。若按原表述直接设计 Rust writer，会把隐式 cwd/文件探测复制进内核，并在 HSR/ZZZ 之间产生不同的隐藏依赖。
+- 主流程审视与调整：不改变纯 Rust/Tauri 终点，但把后两目标的公共前置从“CSV reader”微调为“最终 ArtifactBundle + 版本化 VisualizerContext（clock、sidecar、avatar store/resolver）”。HSR/ZZZ 仍分别实现，先把 context/schema 和静态资产 writer 固定，再做各自 data builder；在线总门禁继续保持，不因 Python oracle 完成而提前解除。
+- 下一步：先建立共享 Rust visualizer context、路径/URL/JSON 安全边界和静态资产 writer；随后迁移 HSR data builder，再迁移 ZZZ 的代理人/邦布/卡池/Decision 语义。
+
 ## 恢复入口
 
 - 项目状态：本文件。
@@ -164,4 +174,4 @@
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
-- 最危险的未验证假设：visualizer 的大型 `data.json`、静态资源和交互仍未建立 Rust/TypeScript 版本化契约；这是解除两游戏在线完整目录门禁前的最后一项导出产品缺口。
+- 最危险的未验证假设：Rust 能否在不复制 Python 隐式 cwd/raw 文件探测的前提下，用显式 VisualizerContext 生成与 oracle 等价的两游戏 `data.json`、静态资源和头像目录；这是解除在线完整目录门禁前的最后一项导出产品缺口。

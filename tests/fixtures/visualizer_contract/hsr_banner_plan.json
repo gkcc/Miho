@@ -1,0 +1,28 @@
+{
+  "phases": [
+    {
+      "id": "fixture-phase",
+      "status": "satellite",
+      "title": "脱敏跃迁</script><svg onload=window.__MIHO_XSS__=1>",
+      "subtitle": "固定离线契约",
+      "date_range": "1900-01-01 - 2999-12-31",
+      "source_label": "脱敏来源",
+      "source_url": "https://invalid.example/banner",
+      "characters": [
+        {
+          "slug": "agent-alpha",
+          "name_cn": "代理甲",
+          "name_en": "Agent Alpha",
+          "banner_role": "限定 5 星",
+          "rarity": "5",
+          "element_cn": "虚数",
+          "path_cn": "巡猎",
+          "role_group_cns": "输出",
+          "icon_url": "./assets/avatars/agent-alpha.webp",
+          "analysis_tags": ["脱敏", "离线"],
+          "focus": "固定契约"
+        }
+      ]
+    }
+  ]
+}

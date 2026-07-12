@@ -1,0 +1,14 @@
+{
+  "summary": {
+    "candidate_count": 1,
+    "source": "fixture"
+  },
+  "cards": [
+    {
+      "character_slug": "agent-alpha",
+      "character_name_cn": "代理甲",
+      "decision": "wait",
+      "reason": "脱敏离线契约"
+    }
+  ]
+}

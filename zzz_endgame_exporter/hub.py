@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 
 def write_visualizer_hub(workspace_dir: Path, *, hsr_dir: str = "out", zzz_dir: str = "out_zzz") -> None:
@@ -12,6 +13,8 @@ def write_visualizer_hub(workspace_dir: Path, *, hsr_dir: str = "out", zzz_dir: 
 
 
 def _html(hsr_dir: str, zzz_dir: str) -> str:
+    hsr_segment = _safe_directory_segment(hsr_dir)
+    zzz_segment = _safe_directory_segment(zzz_dir)
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -28,8 +31,8 @@ def _html(hsr_dir: str, zzz_dir: str) -> str:
         <p id="statusLine">同一个入口切换游戏；Box 数据按游戏分别本地保存。</p>
       </div>
       <nav class="tabs">
-        <button data-game="hsr" data-src="../{hsr_dir}/visualizer/index.html">崩坏：星穹铁道</button>
-        <button data-game="zzz" data-src="../{zzz_dir}/visualizer/index.html">绝区零</button>
+        <button data-game="hsr" data-src="../{hsr_segment}/visualizer/index.html">崩坏：星穹铁道</button>
+        <button data-game="zzz" data-src="../{zzz_segment}/visualizer/index.html">绝区零</button>
       </nav>
     </header>
     <iframe id="gameFrame" title="终局可视化"></iframe>
@@ -38,6 +41,19 @@ def _html(hsr_dir: str, zzz_dir: str) -> str:
 </body>
 </html>
 """
+
+
+def _safe_directory_segment(value: str) -> str:
+    text = str(value).strip()
+    if (
+        not text
+        or text in {".", ".."}
+        or "/" in text
+        or "\\" in text
+        or any(ord(char) < 32 or ord(char) == 127 for char in text)
+    ):
+        raise ValueError(f"unsafe visualizer output directory name: {value!r}")
+    return quote(text, safe="-._~")
 
 
 STYLES = """*{box-sizing:border-box}body{margin:0;background:#eef3f5;color:#172126;font-family:Inter,Segoe UI,Arial,'Microsoft YaHei',sans-serif}.hub{height:100vh;display:grid;grid-template-rows:auto minmax(0,1fr)}.topbar{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;padding:14px 18px;background:white;border-bottom:1px solid #d8e1e5}.topbar h1{margin:0 0 4px;font-size:21px}.topbar p{margin:0;color:#64757d;font-size:12px}.tabs{display:flex;gap:8px;flex-wrap:wrap}.tabs button{border:1px solid #c6d2d7;background:#f9fbfb;color:#1d3942;border-radius:6px;padding:8px 12px;cursor:pointer}.tabs button.active{background:#174c5a;color:white;border-color:#174c5a}iframe{width:100%;height:100%;border:0;background:white}@media(max-width:720px){.topbar{flex-direction:column;padding:12px}.tabs{width:100%}.tabs button{flex:1}}"""

@@ -114,7 +114,10 @@ def read_csv(path: Path) -> list[dict[str, Any]]:
 
 
 def run_visualizer(args: argparse.Namespace) -> None:
-    out_dir = Path(args.out)
+    rebuild_visualizer_from_outputs(Path(args.out))
+
+
+def rebuild_visualizer_from_outputs(out_dir: Path) -> None:
     write_visualizer_app(
         out_dir,
         trend_rows=read_csv(out_dir / "prydwen_tier_usage_trend.csv"),
@@ -124,6 +127,13 @@ def run_visualizer(args: argparse.Namespace) -> None:
         character_usage_rows=read_csv(out_dir / "character_usage_long.csv"),
         team_rank_rows=read_csv(out_dir / "team_rank_raw.csv"),
     )
+
+
+def _write_final_outputs_and_visualizer(out_dir: Path, **output_rows: Any) -> dict[str, list[dict[str, Any]]]:
+    """Write the canonical CSV artifacts before rebuilding the visualizer from them."""
+    tables = write_all_outputs(out_dir, **output_rows)
+    rebuild_visualizer_from_outputs(out_dir)
+    return tables
 
 
 def run_export(args: argparse.Namespace) -> None:
@@ -232,17 +242,7 @@ def run_export(args: argparse.Namespace) -> None:
         prydwen_tier_usage_trend_rows,
         out_dir / "charts" / "prydwen_tier_usage",
     )
-    write_visualizer_app(
-        out_dir,
-        trend_rows=prydwen_tier_usage_trend_rows,
-        tier_rows=prydwen_tier_current_rows,
-        changelog_rows=prydwen_tier_changelog_history_rows,
-        chart_rows=prydwen_tier_chart_rows,
-        character_usage_rows=character_rows,
-        team_rank_rows=team_raw_rows,
-    )
-
-    tables = write_all_outputs(
+    tables = _write_final_outputs_and_visualizer(
         out_dir,
         phase_rows=phase_rows,
         character_rows=character_rows,

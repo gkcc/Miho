@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "oracle": "final CSV + versioned sidecars + preseeded local avatars -> independent Python visualizer command",
+  "dynamic_json_pointers": [
+    "/meta/localDate"
+  ],
+  "object_member_order": "ignored",
+  "array_order": "strict",
+  "json_types": "strict",
+  "file_sets": {
+    "hsr": [
+      "app.js",
+      "assets/avatars/agent-alpha.webp",
+      "data.json",
+      "index.html",
+      "styles.css"
+    ],
+    "zzz": [
+      "app.js",
+      "assets/avatars/agent-alpha.webp",
+      "data.json",
+      "index.html",
+      "styles.css"
+    ],
+    "hub": [
+      "app.js",
+      "index.html",
+      "styles.css"
+    ]
+  },
+  "static_text_sha256": {
+    "hsr": {
+      "app.js": "da85ebc4efb3b784ac07356802dd175c41a1b92ecd774ddf609de454761fe2cb",
+      "index.html": "aecfb66d6f6b4821b835e520d7e91f64d453b8b543a022a6da266c0d05e83a4e",
+      "styles.css": "e47a2030c782251bc1b75436ac848ae167013f8b8b53659f6ff65f6c57e5df88"
+    },
+    "zzz": {
+      "app.js": "fc92b87497bcdd10db64828cba169bd63925caa5cfa9219e3d961db332c9964a",
+      "index.html": "97132c1c66f8f71590b1c36f34d3c31e356f46af62fe431ae8546b402f613123",
+      "styles.css": "3f1154c808509dba1b9af6f6b3845e0b3e73e68d02f28283763e89a89afa247a"
+    },
+    "hub": {
+      "app.js": "45043faae8d788fb9557335a1fffbf7f36f7f5c0778c489a85560f2c5ef2def0",
+      "index.html": "87bd279de2151f8a33d6dcea21816b1f54aaa1c37601f56d24d0216dcf8c59a1",
+      "styles.css": "ef2dd3cf1b6ba58266552e1eb7573efb06cb76b57d5e89524aca8011b6980dd1"
+    }
+  },
+  "binary_sha256": {
+    "hsr": {
+      "assets/avatars/agent-alpha.webp": "269f22aec1411f2dfd07b877fdad24e614fb52bd14ea846abe0f9d916d834a6f"
+    },
+    "zzz": {
+      "assets/avatars/agent-alpha.webp": "269f22aec1411f2dfd07b877fdad24e614fb52bd14ea846abe0f9d916d834a6f"
+    },
+    "hub": {}
+  }
+}

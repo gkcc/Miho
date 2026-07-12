@@ -333,7 +333,11 @@ def _safe_report_status(status: str) -> str:
 
 
 def run_visualizer(args: argparse.Namespace) -> None:
-    out_dir = Path(args.out)
+    rebuild_visualizer_from_outputs(Path(args.out))
+
+
+def rebuild_visualizer_from_outputs(out_dir: Path) -> None:
+    """Rebuild the portable bundle only from committed export artifacts."""
     write_visualizer_app(
         out_dir,
         usage_rows=read_csv(out_dir / "character_usage_long.csv"),
@@ -343,6 +347,12 @@ def run_visualizer(args: argparse.Namespace) -> None:
         changelog_rows=read_csv(out_dir / "prydwen_tier_changelog_history.csv"),
     )
     write_visualizer_hub(out_dir.parent, zzz_dir=out_dir.name)
+
+
+def _write_final_outputs_and_visualizer(out_dir: Path, **output_rows: Any) -> None:
+    """Write every canonical table before crossing the visualizer boundary."""
+    write_outputs(out_dir, **output_rows)
+    rebuild_visualizer_from_outputs(out_dir)
 
 
 def _planned_slugs_from_args(args: argparse.Namespace, out_dir: Path) -> list[str]:
@@ -463,7 +473,7 @@ def run_export(args: argparse.Namespace) -> None:
     changelog_history_rows = merge_changelog_history(out_dir / "prydwen_tier_changelog_history.csv", changelog_rows)
     trend_rows = build_tier_usage_trend(tier_rows, usage_rows)
 
-    write_outputs(
+    _write_final_outputs_and_visualizer(
         out_dir,
         phase_rows=phase_rows,
         usage_rows=usage_rows,
@@ -482,15 +492,6 @@ def run_export(args: argparse.Namespace) -> None:
         warnings=warnings,
         errors=errors,
     )
-    write_visualizer_app(
-        out_dir,
-        usage_rows=usage_rows,
-        tier_rows=tier_rows,
-        team_rows=team_rows,
-        name_rows=name_rows,
-        changelog_rows=changelog_history_rows,
-    )
-    write_visualizer_hub(out_dir.parent, zzz_dir=out_dir.name)
 
 
 def _process_snapshot(

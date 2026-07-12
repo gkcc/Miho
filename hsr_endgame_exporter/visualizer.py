@@ -5,6 +5,7 @@ import io
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date
 from pathlib import Path
@@ -120,6 +121,63 @@ def _phase_name_cn(mode: Any, phase_name: Any) -> str:
     return PHASE_NAME_CN_SEED.get((str(mode or ""), str(phase_name or "")), "")
 
 
+def _safe_relative_url(value: Any, *, require_path: bool) -> str:
+    text = str(value or "").strip()
+    if not text or "\\" in text or any(ord(char) < 32 or ord(char) == 127 for char in text):
+        return ""
+    try:
+        parts = urllib.parse.urlsplit(text)
+    except ValueError:
+        return ""
+    if parts.scheme or parts.netloc or text.startswith("/"):
+        return ""
+    decoded_path = parts.path
+    for _ in range(3):
+        decoded = urllib.parse.unquote(decoded_path)
+        if decoded == decoded_path:
+            break
+        decoded_path = decoded
+    if "\\" in decoded_path or decoded_path.startswith("/"):
+        return ""
+    if any(part == ".." for part in decoded_path.split("/")):
+        return ""
+    if require_path and not decoded_path:
+        return ""
+    return text
+
+
+def _safe_link_url(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text or "\\" in text or any(ord(char) < 32 or ord(char) == 127 for char in text):
+        return ""
+    try:
+        parts = urllib.parse.urlsplit(text)
+    except ValueError:
+        return ""
+    if parts.scheme:
+        if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
+            return ""
+        if any(char.isspace() for char in parts.netloc):
+            return ""
+        return text
+    return _safe_relative_url(text, require_path=False)
+
+
+def _safe_avatar_url(value: Any) -> str:
+    return _safe_relative_url(value, require_path=True)
+
+
+def _http_avatar_source(value: Any) -> str:
+    text = _safe_link_url(value)
+    if not text:
+        return ""
+    try:
+        scheme = urllib.parse.urlsplit(text).scheme.lower()
+    except ValueError:
+        return ""
+    return text if scheme in {"http", "https"} else ""
+
+
 def write_visualizer_app(
     out_dir: Path,
     *,
@@ -139,6 +197,9 @@ def write_visualizer_app(
     phase_info_rows = _build_phase_info_rows(_read_csv(out_dir / "phase_index.csv"))
     banner_rows = _load_banner_rows(out_dir, roster_rows)
     roster_rows = _merge_banner_rows_into_roster(roster_rows, banner_rows)
+    safe_trend_rows = _sanitize_avatar_rows(trend_rows, roster_rows)
+    safe_tier_rows = _sanitize_link_rows(_sanitize_avatar_rows(tier_rows, roster_rows), "source_url")
+    safe_changelog_rows = _sanitize_link_rows(changelog_rows, "source_url")
     team_templates = _build_recommender_rows(
         team_rank_rows if team_rank_rows is not None else _read_csv(out_dir / "team_rank_raw.csv"),
         roster_rows,
@@ -152,10 +213,10 @@ def write_visualizer_app(
             "localDate": date.today().isoformat(),
             "source": "Prydwen Tier List + local MocStats processed dataset + HoYoWiki roster",
         },
-        "trendRows": trend_rows,
-        "usageRows": usage_rows or trend_rows,
-        "tierRows": tier_rows,
-        "changelogRows": changelog_rows,
+        "trendRows": safe_trend_rows,
+        "usageRows": usage_rows or safe_trend_rows,
+        "tierRows": safe_tier_rows,
+        "changelogRows": safe_changelog_rows,
         "chartRows": chart_rows,
         "rosterRows": roster_rows,
         "phaseInfoRows": phase_info_rows,
@@ -163,7 +224,7 @@ def write_visualizer_app(
         "bannerRows": banner_rows,
     }
     (visualizer_dir / "data.json").write_text(
-        json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+        json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
         encoding="utf-8",
     )
     (visualizer_dir / "index.html").write_text(_INDEX_HTML, encoding="utf-8")
@@ -598,6 +659,32 @@ def _to_float(value: Any) -> float:
         return -1.0
 
 
+def _sanitize_link_rows(rows: list[dict[str, Any]], *keys: str) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for source_row in rows:
+        row = dict(source_row)
+        for key in keys:
+            if key in row:
+                row[key] = _safe_link_url(row.get(key))
+        output.append(row)
+    return output
+
+
+def _sanitize_avatar_rows(
+    rows: list[dict[str, Any]],
+    roster_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    roster_lookup = _build_roster_lookup(roster_rows)
+    output: list[dict[str, Any]] = []
+    for source_row in rows:
+        row = dict(source_row)
+        slug = _canonical_slug(row.get("character_slug"))
+        roster_icon = _safe_avatar_url(roster_lookup.get(slug, {}).get("icon_url"))
+        row["icon_url"] = roster_icon or _safe_avatar_url(row.get("icon_url"))
+        output.append(row)
+    return output
+
+
 def _localize_roster_avatars(
     out_dir: Path,
     visualizer_dir: Path,
@@ -611,20 +698,26 @@ def _localize_roster_avatars(
         new_row = dict(row)
         icon_url = str(new_row.get("icon_url") or "")
         slug = str(new_row.get("character_slug") or "")
-        if icon_url and slug:
+        safe_icon_url = _safe_avatar_url(icon_url)
+        remote_source = _http_avatar_source(icon_url)
+        new_row["icon_url"] = safe_icon_url
+        if remote_source and slug:
             local_path = avatars_dir / f"{slug}.webp"
-            if local_path.exists() or _download_static_avatar(icon_url, local_path):
+            if local_path.exists() or _download_static_avatar(remote_source, local_path):
                 new_row["icon_url"] = f"./assets/avatars/{local_path.name}"
         output.append(new_row)
     return output
 
 
 def _download_static_avatar(url: str, destination: Path) -> bool:
+    safe_url = _http_avatar_source(url)
+    if not safe_url:
+        return False
     try:
         from PIL import Image
 
         request = urllib.request.Request(
-            url,
+            safe_url,
             headers={
                 "User-Agent": "Mozilla/5.0 hsr-endgame-exporter/0.1",
                 "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
@@ -774,7 +867,7 @@ def _build_phase_info_rows(phase_rows: list[dict[str, Any]]) -> list[dict[str, A
                 "mechanic_name": seeded.get("mechanic_name", ""),
                 "mechanic_text": seeded.get("mechanic_text", ""),
                 "mechanic_source": seeded.get("mechanic_source", ""),
-                "mechanic_url": seeded.get("mechanic_url", ""),
+                "mechanic_url": _safe_link_url(seeded.get("mechanic_url", "")),
                 "source_note": row.get("note", ""),
             }
         )
@@ -834,7 +927,7 @@ def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[
                     "phase_subtitle": phase.get("subtitle", ""),
                     "date_range": phase.get("date_range", ""),
                     "source_label": char.get("source_label") or phase.get("source_label", ""),
-                    "source_url": char.get("source_url") or phase.get("source_url", ""),
+                    "source_url": _safe_link_url(char.get("source_url") or phase.get("source_url", "")),
                     "slot": index,
                     "character_slug": slug,
                     "character_name_cn": char.get("name_cn") or info.get("character_name_cn") or "",
@@ -844,7 +937,7 @@ def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[
                     "element_cn": char.get("element_cn") or info.get("element_cn") or "",
                     "path_cn": char.get("path_cn") or info.get("path_cn") or "",
                     "role_group_cns": char.get("role_group_cns") or info.get("role_group_cns") or "",
-                    "icon_url": char.get("icon_url") or info.get("icon_url") or "",
+                    "icon_url": _safe_avatar_url(char.get("icon_url")) or _safe_avatar_url(info.get("icon_url")),
                     "analysis_tags": char.get("analysis_tags") or [],
                     "focus": char.get("focus", ""),
                 }
@@ -976,7 +1069,6 @@ _INDEX_HTML = """<!doctype html>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>HSR 高难与本地 Box 可视化</title>
-  <link rel="icon" href="data:," />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -1166,6 +1258,9 @@ function number(v){const n=Number(v);return Number.isFinite(n)?n:null}
 function pct(v){const n=number(v);return n==null?'':`${n.toFixed(2)}%`}
 function fmtMetric(v){const n=number(v);if(n==null)return '';return state.metric==='app_rate'?`${n.toFixed(2)}%`:n.toFixed(2)}
 function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function safeRelativeUrl(v,requirePath=false){const text=String(v??'').trim();if(!text||text.startsWith('/')||text.includes('\\')||/[\u0000-\u001f\u007f]/.test(text)||/^[a-z][a-z0-9+.-]*:/i.test(text)||text.startsWith('//'))return '';let path=text.split(/[?#]/,1)[0];try{for(let i=0;i<3;i++){const decoded=decodeURIComponent(path);if(decoded===path)break;path=decoded;}}catch{return '';}if(path.startsWith('/')||path.includes('\\')||path.split('/').includes('..')||(requirePath&&!path))return '';return text}
+function safeLinkUrl(v){const text=String(v??'').trim();if(!text||text.includes('\\')||/[\u0000-\u001f\u007f]/.test(text))return '';if(/^[a-z][a-z0-9+.-]*:/i.test(text)){try{const url=new URL(text);return ['http:','https:'].includes(url.protocol)&&url.host?text:'';}catch{return '';}}return safeRelativeUrl(text,false)}
+function safeAvatarUrl(v){return safeRelativeUrl(v,true)}
 
 fetch(`./data.json?v=${Date.now()}`,{cache:'no-store'})
   .then(r=>r.json())
@@ -1380,7 +1475,7 @@ function drawAxes(svg,margin,cw,ch,max,dates,x,y,metric){
 }
 
 function drawPoint(svg,defs,x,y,row,slug,color,seriesIndex,pointIndex,radius){
-  if(state.avatars&&row.icon_url){const clipId=`clip-${seriesIndex}-${pointIndex}-${Math.round(x)}-${Math.round(y)}`;const clip=add(svg,'clipPath',{id:clipId},defs);add(svg,'circle',{cx:x,cy:y,r:radius},clip);const img=add(svg,'image',{href:row.icon_url,x:x-radius,y:y-radius,width:radius*2,height:radius*2,'clip-path':`url(#${clipId})`,class:`avatar-node ${dimClass(slug)}`});img.dataset.slug=slug;add(svg,'circle',{cx:x,cy:y,r:radius,fill:'none',stroke:color,class:`avatar-ring ${dimClass(slug)}`});bindHover(img,row,slug);img.addEventListener('click',()=>toggleFocus(slug));}
+  const icon=safeAvatarUrl(row.icon_url);if(state.avatars&&icon){const clipId=`clip-${seriesIndex}-${pointIndex}-${Math.round(x)}-${Math.round(y)}`;const clip=add(svg,'clipPath',{id:clipId},defs);add(svg,'circle',{cx:x,cy:y,r:radius},clip);const img=add(svg,'image',{href:icon,x:x-radius,y:y-radius,width:radius*2,height:radius*2,'clip-path':`url(#${clipId})`,class:`avatar-node ${dimClass(slug)}`});img.dataset.slug=slug;add(svg,'circle',{cx:x,cy:y,r:radius,fill:'none',stroke:color,class:`avatar-ring ${dimClass(slug)}`});bindHover(img,row,slug);img.addEventListener('click',()=>toggleFocus(slug));}
   else{const c=add(svg,'circle',{cx:x,cy:y,r:4.6,fill:color,class:`point-node ${dimClass(slug)}`});c.dataset.slug=slug;bindHover(c,row,slug);c.addEventListener('click',()=>toggleFocus(slug));}
 }
 
@@ -1400,7 +1495,7 @@ function renderHeatmap(series){
   series.forEach((s,idx)=>{const rowY=margin.t+idx*rowH;const latest=s.latest;add(svg,'text',{x:48,y:rowY+rowH/2+4,class:`heat-name ${dimClass(s.slug)}`}).textContent=latest.character_name_cn||latest.character_name_en||s.slug;drawMiniAvatar(svg,defs,24,rowY+rowH/2,latest,s.slug,idx);const byDate=new Map(s.points.map(p=>[p.collect_date,p]));dates.forEach((d,j)=>{const p=byDate.get(d);const val=number(p?.[metric])||0;const intensity=Math.max(.08,Math.min(1,val/max));const fill=metric==='app_rate'?`rgba(23,76,90,${intensity})`:`rgba(37,99,235,${intensity})`;const rect=add(svg,'rect',{x:margin.l+j*(cw+cellGap),y:rowY+5,width:Math.max(10,cw),height:rowH-10,fill,class:`heat-cell ${dimClass(s.slug)}`});rect.dataset.slug=s.slug;if(p)bindHover(rect,p,s.slug);rect.addEventListener('click',()=>toggleFocus(s.slug));});});
 }
 
-function drawMiniAvatar(svg,defs,x,y,row,slug,index){if(!row.icon_url)return;const clipId=`mini-${index}-${slug}`;const clip=add(svg,'clipPath',{id:clipId},defs);add(svg,'circle',{cx:x,cy:y,r:14},clip);const img=add(svg,'image',{href:row.icon_url,x:x-14,y:y-14,width:28,height:28,'clip-path':`url(#${clipId})`,class:`avatar-node ${dimClass(slug)}`});img.dataset.slug=slug;bindHover(img,row,slug);img.addEventListener('click',()=>toggleFocus(slug));}
+function drawMiniAvatar(svg,defs,x,y,row,slug,index){const icon=safeAvatarUrl(row.icon_url);if(!icon)return;const clipId=`mini-${index}-${slug}`;const clip=add(svg,'clipPath',{id:clipId},defs);add(svg,'circle',{cx:x,cy:y,r:14},clip);const img=add(svg,'image',{href:icon,x:x-14,y:y-14,width:28,height:28,'clip-path':`url(#${clipId})`,class:`avatar-node ${dimClass(slug)}`});img.dataset.slug=slug;bindHover(img,row,slug);img.addEventListener('click',()=>toggleFocus(slug));}
 function activeSlug(){return state.focus||state.hover}
 function dimClass(slug){const active=activeSlug();return active&&active!==slug?'dim':state.focus===slug?'focused':''}
 function toggleFocus(slug){state.focus=state.focus===slug?null:slug;state.hover=null;renderAnalysis();}
@@ -1464,9 +1559,10 @@ function buildFor(slug){return normalizeBuild(box.builds?.[canonicalSlug(slug)]|
 function buildShortLabel(slug){const s=buildState(buildFor(slug));return `${s.label}${s.coreRecorded?` ${s.basePercent}%`:''} · ${s.configLabel}`}
 function readBoxRaw(){try{return JSON.parse(localStorage.getItem(BOX_KEY)||'{}');}catch{return{};}}
 function rawOwnedList(raw){const rows=Array.isArray(raw.owned)?raw.owned:Object.keys(raw.owned||{}).filter(k=>raw.owned[k]);return rows.filter(slug=>slug&&slug!=='__codex_test__');}
-function applyBoxRaw(raw){const aliases=boxAliasMap();const owned=rawOwnedList(raw);box.owned=new Set(owned.map(s=>aliases.get(s)||s).filter(Boolean));box.builds={};Object.entries(raw.builds||{}).forEach(([slug,build])=>{const resolved=aliases.get(slug)||slug;if(resolved)box.builds[resolved]=normalizeBuild(build);});box.buildSlug=aliases.get(raw.buildSlug)||raw.buildSlug||'';if(box.buildSlug&&!box.owned.has(box.buildSlug))box.buildSlug='';box.saveStatus=raw.fromServer?'本机自动保存':'浏览器缓存';}
+function readableBoxRaw(raw={}){if(!raw||typeof raw!=='object'||Array.isArray(raw))return{};const version=raw.version==null?1:Number(raw.version);return [1,2,3].includes(version)?raw:{}}
+function applyBoxRaw(raw){raw=readableBoxRaw(raw);const aliases=boxAliasMap();const owned=rawOwnedList(raw);box.owned=new Set(owned.map(s=>aliases.get(s)||s).filter(Boolean));box.builds={};Object.entries(raw.builds||{}).forEach(([slug,build])=>{const resolved=aliases.get(slug)||slug;if(resolved)box.builds[resolved]=normalizeBuild(build);});box.buildSlug=aliases.get(raw.buildSlug)||raw.buildSlug||'';if(box.buildSlug&&!box.owned.has(box.buildSlug))box.buildSlug='';box.saveStatus=raw.fromServer?'本机自动保存':'浏览器缓存';}
 function loadBox(){try{applyBoxRaw(readBoxRaw());}catch{box.owned=new Set();box.builds={};box.buildSlug='';box.saveStatus='浏览器缓存';}}
-function boxPayload(){const builds={};Object.entries(box.builds||{}).forEach(([slug,build])=>{const normalized=normalizeBuild(build);if(buildRecorded(normalized))builds[slug]=normalized;});return{version:3,updatedAt:new Date().toISOString(),owned:[...box.owned].sort(),buildSlug:box.buildSlug||'',builds};}
+function boxPayload(){const builds={};Object.entries(box.builds||{}).forEach(([slug,build])=>{const normalized=normalizeBuild(build);if(buildRecorded(normalized))builds[slug]=normalized;});return{version:2,updatedAt:new Date().toISOString(),owned:[...box.owned].sort(),buildSlug:box.buildSlug||'',builds};}
 function saveBox(){const payload=boxPayload();localStorage.setItem(BOX_KEY,JSON.stringify(payload));box.saveStatus='已保存到浏览器';clearTimeout(boxSaveTimer);boxSaveTimer=setTimeout(()=>saveBoxToServer(payload),180);if(state.page==='box'||state.page==='banner')requestAnimationFrame(()=>{if(state.page==='box')renderBox();else renderBanner();});}
 function hasBoxData(raw){return Boolean(rawOwnedList(raw).length||Object.keys(raw.builds||{}).length);}
 function boxTime(raw){const t=Date.parse(raw.updatedAt||raw.exportedAt||'');return Number.isFinite(t)?t:0;}
