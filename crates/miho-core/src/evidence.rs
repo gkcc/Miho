@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::decision_legacy::{
+    normalize_pyyaml_11_bool_scalars, PYYAML_NON_FINITE_PREFIX, PYYAML_TIMESTAMP_PREFIX,
+};
+
 pub const EVIDENCE_METHOD_VERSION: &str = "evidence-first-v1-20260712";
 
 #[derive(Debug, thiserror::Error)]
@@ -386,9 +390,9 @@ pub struct EvidenceBundleV1 {
 }
 
 #[derive(Debug, Clone)]
-struct CsvTable {
-    headers: Vec<String>,
-    rows: Vec<BTreeMap<String, String>>,
+pub(crate) struct CsvTable {
+    pub(crate) headers: Vec<String>,
+    pub(crate) rows: Vec<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -483,7 +487,7 @@ fn validate_request(request: &EvidenceRequestV1) -> EvidenceResult<()> {
     Ok(())
 }
 
-fn parse_csv(bytes: &[u8], input: &'static str) -> EvidenceResult<CsvTable> {
+pub(crate) fn parse_csv(bytes: &[u8], input: &'static str) -> EvidenceResult<CsvTable> {
     let text =
         std::str::from_utf8(bytes).map_err(|source| EvidenceError::Utf8 { input, source })?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
@@ -516,7 +520,7 @@ fn record_to_map(headers: &StringRecord, record: &StringRecord) -> BTreeMap<Stri
         .collect()
 }
 
-fn parse_name_index(bytes: Option<&[u8]>) -> EvidenceResult<NameIndexV1> {
+pub(crate) fn parse_name_index(bytes: Option<&[u8]>) -> EvidenceResult<NameIndexV1> {
     let Some(bytes) = bytes else {
         return Ok(NameIndexV1::default());
     };
@@ -563,18 +567,66 @@ fn insert_alias(
     Ok(())
 }
 
-fn parse_config(bytes: &[u8], input: &'static str) -> EvidenceResult<Value> {
+pub(crate) fn parse_config(bytes: &[u8], input: &'static str) -> EvidenceResult<Value> {
     let text =
         std::str::from_utf8(bytes).map_err(|source| EvidenceError::Utf8 { input, source })?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     if text.trim_start().starts_with('{') {
         serde_json::from_str(text).map_err(|source| EvidenceError::Json { input, source })
     } else {
-        serde_yaml::from_str(text).map_err(|source| EvidenceError::Yaml { input, source })
+        let compatible = normalize_pyyaml_11_bool_scalars(text);
+        let mut yaml_value: serde_yaml::Value = serde_yaml::from_str(&compatible)
+            .map_err(|source| EvidenceError::Yaml { input, source })?;
+        yaml_value
+            .apply_merge()
+            .map_err(|source| EvidenceError::Yaml { input, source })?;
+        let mut value = serde_json::to_value(yaml_value)
+            .map_err(|source| EvidenceError::Json { input, source })?;
+        restore_or_reject_pyyaml_markers(&mut value, input)?;
+        if !config_value_truthy(&value) {
+            value = Value::Object(Default::default());
+        }
+        Ok(value)
     }
 }
 
-fn parse_account(bytes: &[u8], names: &NameIndexV1) -> EvidenceResult<AccountStateV1> {
+fn restore_or_reject_pyyaml_markers(value: &mut Value, input: &'static str) -> EvidenceResult<()> {
+    match value {
+        Value::String(text) if text.starts_with(PYYAML_NON_FINITE_PREFIX) => Err(
+            EvidenceError::Invalid(format!("non-finite number in {input}")),
+        ),
+        Value::String(text) if text.starts_with(PYYAML_TIMESTAMP_PREFIX) => {
+            *text = text[PYYAML_TIMESTAMP_PREFIX.len()..].to_owned();
+            Ok(())
+        }
+        Value::Array(values) => {
+            for value in values {
+                restore_or_reject_pyyaml_markers(value, input)?;
+            }
+            Ok(())
+        }
+        Value::Object(values) => {
+            for value in values.values_mut() {
+                restore_or_reject_pyyaml_markers(value, input)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn config_value_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(value) => *value,
+        Value::Number(value) => value.as_f64().map(|value| value != 0.0).unwrap_or(true),
+        Value::String(value) => !value.is_empty(),
+        Value::Array(value) => !value.is_empty(),
+        Value::Object(value) => !value.is_empty(),
+    }
+}
+
+pub(crate) fn parse_account(bytes: &[u8], names: &NameIndexV1) -> EvidenceResult<AccountStateV1> {
     let value = parse_config(bytes, "box config")?;
     let object = value
         .as_object()
@@ -1620,7 +1672,7 @@ fn median(sorted: &[f64]) -> Option<f64> {
     }
 }
 
-fn field<'a>(row: &'a BTreeMap<String, String>, key: &str) -> &'a str {
+pub(crate) fn field<'a>(row: &'a BTreeMap<String, String>, key: &str) -> &'a str {
     row.get(key).map(String::as_str).unwrap_or_default()
 }
 
@@ -1634,7 +1686,7 @@ fn normalize_slug(value: &str) -> String {
     crate::normalize::character_slug(value)
 }
 
-fn canonical_slug(value: &str, names: &NameIndexV1) -> String {
+pub(crate) fn canonical_slug(value: &str, names: &NameIndexV1) -> String {
     let slug = normalize_slug(value);
     names.aliases.get(&slug).cloned().unwrap_or(slug)
 }
@@ -1678,7 +1730,7 @@ fn insert_nonempty(set: &mut BTreeSet<String>, value: String) {
     }
 }
 
-fn push_unique(values: &mut Vec<String>, value: String) {
+pub(crate) fn push_unique(values: &mut Vec<String>, value: String) {
     if !value.is_empty() && !values.contains(&value) {
         values.push(value);
     }
@@ -1712,9 +1764,13 @@ fn number_text(value: Option<f64>) -> String {
     }
 }
 
-fn python_general_number(value: f64) -> String {
+pub(crate) fn python_general_number(value: f64) -> String {
     if value == 0.0 {
-        return "0".to_owned();
+        return if value.is_sign_negative() {
+            "-0".to_owned()
+        } else {
+            "0".to_owned()
+        };
     }
     let scientific = format!("{value:.5e}");
     let (_, raw_exponent) = scientific
@@ -2380,9 +2436,30 @@ mod tests {
 
     #[test]
     fn number_text_matches_python_general_format_boundaries() {
+        assert_eq!(number_text(Some(-0.0)), "-0");
         assert_eq!(number_text(Some(5.0 / 6.0)), "0.833333");
         assert_eq!(number_text(Some(999_999.9)), "1e+06");
         assert_eq!(number_text(Some(0.000_01)), "1e-05");
         assert_eq!(number_text(Some(0.000_1)), "0.0001");
+    }
+
+    #[test]
+    fn yaml_config_matches_pyyaml_booleans_merges_empty_docs_and_non_finite_rejection() {
+        let value = parse_config(
+            b"defaults: &defaults\n  owned: off\nagent:\n  <<: *defaults\n",
+            "yaml fixture",
+        )
+        .unwrap();
+        assert_eq!(value["agent"]["owned"], Value::Bool(false));
+        assert_eq!(
+            parse_config(b"", "empty yaml").unwrap(),
+            Value::Object(Default::default())
+        );
+        assert!(parse_config(b"value: .nan\n", "nan yaml").is_err());
+        assert!(parse_config(b"value: 1.0E+400\n", "overflow yaml").is_err());
+        assert_eq!(
+            parse_config(b"value: 1e400\n", "string yaml").unwrap()["value"],
+            Value::String("1e400".to_owned())
+        );
     }
 }

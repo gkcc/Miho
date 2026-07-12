@@ -1,0 +1,33 @@
+{
+  "change_policy": {
+    "allowed_new_evidence_categories": [
+      "新一期 SD/DA 出场率显著变化",
+      "新队伍 coverage 从 B-/C 提升到 A/B+"
+    ]
+  },
+  "decisions": [
+    {
+      "slug": "alpha-prime",
+      "final_stage": "1+1",
+      "decision_status": "locked",
+      "confidence": "high",
+      "reason": "冻结基线保留 1+1",
+      "change_policy": "only_with_new_evidence"
+    },
+    {
+      "slug": "beta",
+      "final_stage": "0+0",
+      "decision_status": "locked",
+      "confidence": "medium",
+      "reason": "与本地机制档一致"
+    },
+    {
+      "slug": "nova",
+      "final_stage": "0+1",
+      "decision_status": "soft_locked",
+      "confidence": "low",
+      "reason": "新角色仅作 delta 审核反例",
+      "change_policy": "wait_for_release_data"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+recommended_stage: 0+0
+acceptable_stage: 0+0
+stage_confidence: medium
+stage_reason: 单候选主证据可支持本体
+missing_data: 与 zeta 捆绑的多候选队伍不能当单抽主证据

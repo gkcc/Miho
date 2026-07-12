@@ -18,6 +18,7 @@ pub mod network;
 pub mod normalize;
 pub mod output;
 pub mod pipeline;
+pub mod pull_value;
 pub mod report;
 pub mod source;
 pub mod supplemental;

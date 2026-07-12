@@ -6,6 +6,7 @@ import pytest
 
 from miho_core.evidence import build_evidence_pool
 from miho_core.pull_value import (
+    _build_card,
     _rerun_value,
     _usage_summary,
     build_pull_value_cards,
@@ -109,6 +110,62 @@ def test_pull_priority_does_not_join_tier_usage_and_evidence_across_modes():
     assert any("同一 mode" in risk for risk in risks)
 
 
+def test_unowned_candidate_uses_only_exact_plan_dependency_as_main_evidence():
+    def record(evidence_id, confidence, dependencies):
+        return SimpleNamespace(
+            evidence_id=evidence_id,
+            evidence_key=f"sd|{evidence_id}",
+            confidence=confidence,
+            source_confidence=confidence,
+            mode="sd",
+            team_slugs=("candidate", "owned-a", "owned-b"),
+            plan_dependency=tuple(dependencies),
+            phase_versions=("3.0",),
+            scopes=("all",),
+            observation_keys=(f"obs-{evidence_id}",),
+            max_app_rate=40.0,
+            record_count=12,
+        )
+
+    exact_b = record("E-exact", "B", ["candidate"])
+    conditional_a = record("E-conditional", "A", ["candidate", "other-planned"])
+    empty_pool = SimpleNamespace(records=[])
+    target_pool = SimpleNamespace(records=[conditional_a, exact_b])
+    usage_rows = [
+        {
+            "collect_date": f"2026-0{month}-01",
+            "mode": "sd",
+            "sub_mode": "all",
+            "character_slug": "candidate",
+            "app_rate": "40",
+        }
+        for month in range(1, 7)
+    ]
+    card = _build_card(
+        {"slug": "candidate", "banner_role": "rerun", "status": "next"},
+        names={"candidate": "候选"},
+        owned=set(),
+        current_pool=empty_pool,
+        target_pool=target_pool,
+        usage_rows=usage_rows,
+        tier_index={
+            "candidate": {
+                "best_rating": 11,
+                "best_tier": "T0",
+                "by_mode": {"sd": {"best_rating": 11}},
+            }
+        },
+        mechanism_notes={},
+        decision_baseline={},
+    )
+
+    assert card.pull_value == "中"
+    assert card.evidence_ids == ("E-exact",)
+    assert card.risk_evidence_ids == ("E-conditional",)
+    assert any("新增依赖队伍 1 条" in basis for basis in card.decision_basis)
+    assert any("同时依赖其他计划角色" in risk for risk in card.risk_notes)
+
+
 def test_non_finite_usage_is_not_counted_as_history():
     usage = _usage_summary(
         "agent-a",
@@ -133,7 +190,26 @@ def test_non_finite_mechanism_note_is_rejected(tmp_path):
     (notes / "agent-a.yaml").write_text("stage_confidence: .nan\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="non-finite number"):
-        load_mechanism_notes(notes)
+        load_mechanism_notes(notes, candidates=["agent-a"])
+
+
+def test_empty_mechanism_candidate_set_skips_unrelated_broken_notes(tmp_path):
+    notes = tmp_path / "notes"
+    notes.mkdir()
+    (notes / "agent-a.yaml").write_text("broken: [\n", encoding="utf-8")
+
+    assert load_mechanism_notes(notes, candidates=[]) == {}
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "1e400"])
+def test_non_finite_banner_plan_is_rejected(tmp_path, token):
+    out = _write_pull_fixture(tmp_path)
+    box = _write_box(tmp_path)
+    plan = tmp_path / "non_finite_plan.json"
+    plan.write_text(f'{{"phases": [], "unused": {token}}}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="non-finite number"):
+        build_pull_value_cards(out, box_path=box, plan_path=plan, statuses=["current"])
 
 
 def test_pull_value_cli_writes_report(tmp_path):

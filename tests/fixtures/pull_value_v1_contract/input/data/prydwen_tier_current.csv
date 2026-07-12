@@ -1,0 +1,10 @@
+tier_mode,character_slug,character_name_cn,role_group_cn,tier,rating,element_cn,style_cn,rarity
+sd,anchor-one,锚点一,强攻,T1,8,火,强攻,S
+sd,anchor-two,锚点二,异常,T1,8,冰,异常,S
+sd,support,稳定支援,支援,T0,10,以太,支援,S
+sd,alpha,阿尔法,强攻,T0,11,火,强攻,S
+sd,beta,贝塔,异常,T0.5,10,冰,异常,S
+sd,gamma,伽马,强攻,T0.5,10,电,强攻,S
+sd,low-a,低稀有候选,支援,T2,6,物理,支援,A
+sd,delta,德尔塔,强攻,T0.5,10,以太,强攻,S
+sd,epsilon,伊普西龙,异常,T0.5,10,火,异常,S

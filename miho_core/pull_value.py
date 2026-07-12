@@ -268,7 +268,7 @@ def load_mechanism_notes(notes_dir: str | Path | None, *, candidates: Iterable[s
     paths = sorted(root.glob("*.yaml")) + sorted(root.glob("*.yml")) + sorted(root.glob("*.json"))
     for path in paths:
         slug = normalize_character_id(path.stem)
-        if wanted and slug not in wanted:
+        if slug not in wanted:
             continue
         data = load_config(path)
         _validate_finite_values(data, path=str(path))
@@ -282,6 +282,7 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
     lines = [
         "# 绝区零 Pull Value Report",
         "",
+        f"- 方法版本：{summary['method_version']}",
         f"- 生成时间：{summary['generated_at']}",
         f"- 数据目录：`{summary['data_dir']}`",
         f"- Box：`{summary['box_path']}`",
@@ -300,6 +301,7 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
         "- mechanism_review 来自 `configs/zzz_mechanism_notes/*.yaml`，用于判断 0+0、0+1、1+0、1+1、2+1 等档位断点。",
         "- 若存在 decision baseline，最终档位沿用 prior_final_stage；本地规则只作为 delta review 输入，不能在无新增证据时覆盖既有 GPT/人工定档。",
         "- 队伍证据只引用 A / B+ / B / B- 聚合记录；C 只作为风险。",
+        "- 未拥有候选的主证据只接受 `plan_dependency == [candidate]`；同时依赖其他计划角色的队伍进入 conditional risk。",
         "",
         "## 总览",
         "",
@@ -452,10 +454,16 @@ def _build_card(
     current_records = _records_for_slug(current_pool, slug)
     target_records = _records_for_slug(target_pool, slug)
     dependent_records = [record for record in target_records if slug in record.plan_dependency]
-    qualifying_dependent = [record for record in dependent_records if record.confidence in {"A", "B+", "B"}]
+    exact_dependent = [record for record in dependent_records if tuple(record.plan_dependency) == (slug,)]
+    conditional_dependent = [record for record in dependent_records if tuple(record.plan_dependency) != (slug,)]
+    qualifying_dependent = [record for record in exact_dependent if record.confidence in {"A", "B+", "B"}]
     qualifying_target = [record for record in target_records if record.confidence in {"A", "B+", "B"}]
-    primary_records = qualifying_dependent or qualifying_target
-    risk_records = [record for record in dependent_records or target_records if record.confidence in {"B-", "C"}]
+    primary_records = qualifying_target if slug in owned else qualifying_dependent
+    risk_source = target_records if slug in owned else exact_dependent
+    risk_records = _unique_records(
+        conditional_dependent
+        + [record for record in risk_source if record.confidence in {"B-", "C"}]
+    )
     evidence_ids = tuple(record.evidence_id for record in _top_records(primary_records))
     risk_evidence_ids = tuple(record.evidence_id for record in _top_records(risk_records))
     evidence_keys = tuple(record.evidence_key for record in _top_records(primary_records))
@@ -482,10 +490,14 @@ def _build_card(
             tier,
             current_records,
             target_records,
-            dependent_records,
+            exact_dependent,
             primary_records,
             slug in owned,
             mechanism,
+        )
+    if conditional_dependent:
+        risks.append(
+            f"{len(conditional_dependent)} 条候选相关队伍同时依赖其他计划角色，只作为 conditional risk，不作为抽取主证据"
         )
     baseline = _stage_baseline_fields(slug, stage, decision_baseline)
     return PullValueCard(
@@ -606,6 +618,7 @@ def _load_candidates(
     local_datetime: datetime | None = None,
 ) -> list[dict[str, Any]]:
     data = load_config(plan_path)
+    _validate_finite_values(data, path=str(plan_path))
     status_set = {str(status).strip().lower() for status in statuses if str(status).strip()}
     global_include_low_rarity = _truthy(data.get("include_low_rarity"))
     output: list[dict[str, Any]] = []
@@ -739,6 +752,18 @@ def _records_for_slug(pool: EvidencePool, slug: str) -> list[Any]:
 
 def _top_records(records: list[Any], limit: int = 5) -> list[Any]:
     return records[:limit]
+
+
+def _unique_records(records: list[Any]) -> list[Any]:
+    output = []
+    seen = set()
+    for record in records:
+        key = str(record.evidence_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(record)
+    return output
 
 
 def _evidence_ref(record: Any) -> dict[str, Any]:
@@ -927,7 +952,7 @@ def _card_lines(card: PullValueCard) -> list[str]:
         f"- 替代风险：{card.replacement_risk}",
         f"- 证据：{', '.join(card.evidence_ids) if card.evidence_ids else '-'}",
         f"- 稳定证据键：{', '.join(card.evidence_keys) if card.evidence_keys else '-'}",
-        f"- 风险证据（B-/C）：{', '.join(card.risk_evidence_ids) if card.risk_evidence_ids else '-'}",
+        f"- 风险/条件证据（conditional 或 B-/C）：{', '.join(card.risk_evidence_ids) if card.risk_evidence_ids else '-'}",
         f"- 风险证据键：{', '.join(card.risk_evidence_keys) if card.risk_evidence_keys else '-'}",
         f"- 依据：{'；'.join(card.decision_basis) if card.decision_basis else '-'}",
         f"- 风险：{'；'.join(card.risk_notes) if card.risk_notes else '无'}",

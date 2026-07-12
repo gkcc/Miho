@@ -27,7 +27,10 @@ No calculation, row, column, filename, exit-code or default-path difference is a
 - Non-finite app rates are unusable and non-finite performance values are missing/sentinel. This is an approved safety correction rather than preserving `nan`/`inf` report text.
 - Evidence/coverage use one explicit local datetime and batch rollback. Colliding output paths fail before replacing old artifacts.
 - Pull-value `高/中高` is now constrained by same-mode qualifying A/B evidence. Stable `evidence_ids`/`evidence_keys` and embedded refs contain only A/B+/B main evidence; risk fields contain B-/C context. This method correction is intentional and hash-locked.
+- For an unowned candidate, primary evidence requires `plan_dependency == [candidate]`; teams that also require another planned unit are conditional risk and cannot raise that candidate's main evidence count.
 - `decision` is labeled `legacy-v0`; its cross-mode heuristic, raw-team dependency and alias limitations are not accepted as evidence-first completion. The Rust compatibility gate is lifted only for explicit `--method legacy-v0`; `pull-value` remains the sole formal recommendation path.
+- The Rust `pull-value` gate is lifted. Default current/next reports and explicit combined output use one clock and one batch installation; failures preserve all old reports and do not mutate manifest, visualizer or legacy decision sidecars. `review-packet` remains staged.
+- Shared YAML config parsing matches the Python oracle for UTF-8 BOM, PyYAML 1.1 booleans, merge keys, empty/falsey roots and recursive non-finite rejection. JSON/YAML plan, Box, baseline and mechanism inputs therefore share the same safety boundary.
 
 ## Migration gate
 

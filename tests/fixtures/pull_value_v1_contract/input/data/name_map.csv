@@ -1,0 +1,12 @@
+character_slug,character_name_en,character_name_cn,aliases,kind
+anchor-one,Anchor One,锚点一,anchor-uno,agent
+anchor-two,Anchor Two,锚点二,,agent
+support,Support,稳定支援,support-alias,agent
+alpha,Alpha,阿尔法,alpha-prime;alpha-alias,agent
+beta,Beta,贝塔,,agent
+gamma,Gamma,伽马,,agent
+nova,Nova,新星,,agent
+low-a,Low A,低稀有候选,,agent
+delta,Delta,德尔塔,,agent
+epsilon,Epsilon,伊普西龙,,agent
+zeta,Zeta,泽塔,,agent

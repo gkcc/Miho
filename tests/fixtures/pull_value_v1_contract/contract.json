@@ -1,0 +1,154 @@
+{
+  "contract_version": "pull-value-v1-golden-20260712",
+  "method_version": "evidence-first-v1-20260712",
+  "fixed_local_clock": "2026-07-12T13:14:15",
+  "normalizations": ["temporary_root"],
+  "input_files": [
+    "baseline.json",
+    "box.json",
+    "data/character_usage_long.csv",
+    "data/name_map.csv",
+    "data/prydwen_tier_current.csv",
+    "data/team_rank_dedup_unordered.csv",
+    "mechanism_notes/alpha.yaml",
+    "mechanism_notes/beta.yaml",
+    "mechanism_notes/delta.yaml",
+    "mechanism_notes/epsilon.yaml",
+    "plan.json"
+  ],
+  "output_files": [
+    "current_pull_cards.json",
+    "current_pull_value_report.md",
+    "next_pull_cards.json",
+    "next_pull_value_report.md"
+  ],
+  "schemas": {
+    "typed_cards_json": {
+      "top_level_fields": ["summary", "cards"],
+      "summary_fields": [
+        "method_version",
+        "generated_at",
+        "data_dir",
+        "box_path",
+        "plan_path",
+        "candidate_count",
+        "planned_slugs",
+        "reviewed_slugs",
+        "filtered_low_rarity_slugs",
+        "current_coverage_records",
+        "target_coverage_records",
+        "mechanism_notes_dir",
+        "decision_baseline_path",
+        "decision_baseline_slugs",
+        "new_evidence_categories"
+      ],
+      "card_fields": [
+        "slug",
+        "name_cn",
+        "candidate_type",
+        "status",
+        "pull_value",
+        "stage_recommendation",
+        "prior_final_stage",
+        "prior_decision_status",
+        "prior_confidence",
+        "prior_reason",
+        "local_rule_stage",
+        "recommended_stage_for_review",
+        "final_stage",
+        "stage_delta",
+        "delta_requires_review",
+        "delta_reason",
+        "change_allowed_reason",
+        "new_evidence_categories",
+        "history_summary",
+        "global_usage_summary",
+        "team_coverage_summary",
+        "mechanism_review_summary",
+        "mechanism_notes",
+        "mechanism_summary",
+        "replacement_risk",
+        "decision_basis",
+        "risk_notes",
+        "evidence_ids",
+        "risk_evidence_ids",
+        "evidence_keys",
+        "risk_evidence_keys",
+        "evidence_refs",
+        "risk_evidence_refs"
+      ],
+      "evidence_ref_fields": [
+        "evidence_id",
+        "evidence_key",
+        "confidence",
+        "source_confidence",
+        "mode",
+        "team_slugs",
+        "plan_dependency",
+        "phase_versions",
+        "scopes",
+        "observation_keys"
+      ]
+    },
+    "markdown": {
+      "title": "# 绝区零 Pull Value Report",
+      "summary_table_columns": [
+        "character",
+        "type",
+        "pull_value",
+        "prior_final_stage",
+        "local_rule_stage",
+        "final_stage",
+        "stage_delta",
+        "delta_requires_review",
+        "change_allowed_reason",
+        "acceptable_stage",
+        "unresolved_stage",
+        "stage_confidence",
+        "not_recommended_stage",
+        "missing_data",
+        "evidence_ids",
+        "evidence_keys",
+        "risk_evidence_ids",
+        "risk_evidence_keys",
+        "key_basis",
+        "risk"
+      ]
+    }
+  },
+  "normalized_sha256": {
+    "current_pull_cards.json": "d50f3994eaf3894c56aff7d5ad741930529d3c943721768a87525f047ff00dc2",
+    "current_pull_value_report.md": "d417127367b72cc90fb25934a8238881b753c1b43c63b5b1a5a79f02da8d609d",
+    "next_pull_cards.json": "ef9459a03c9df039f9767515cf3908ab410c2c89bf3d0b4879e60c98a1c84aae",
+    "next_pull_value_report.md": "cb51a466a3eccfad66155feccef846ff5ff5b4f1f9b6f4dc269ccad908d142b3"
+  },
+  "stable_evidence_ids": {
+    "sd|alpha|anchor-one|support": "E-SD-078BE089A7",
+    "sd|anchor-one|beta|support": "E-SD-A412C67114",
+    "sd|anchor-one|gamma|support": "E-SD-FCD5C791C5",
+    "sd|anchor-one|delta|support": "E-SD-49044A37B0",
+    "sd|anchor-two|delta|support": "E-SD-C4150B39C3",
+    "sd|anchor-one|epsilon|support": "E-SD-12A6377412",
+    "sd|epsilon|support|zeta": "E-SD-46AB991DE4"
+  },
+  "rust_command_comparison_seam": {
+    "status": "executed_by_rust_contract",
+    "commands": [
+      [
+        "miho",
+        "zzz",
+        "pull-value",
+        "--box",
+        "<ROOT>/input/box.json",
+        "--out",
+        "<ROOT>/input/data",
+        "--plan",
+        "<ROOT>/input/plan.json",
+        "--mechanism-notes-dir",
+        "<ROOT>/input/mechanism_notes",
+        "--decision-baseline",
+        "<ROOT>/input/baseline.json"
+      ]
+    ]
+  }
+}

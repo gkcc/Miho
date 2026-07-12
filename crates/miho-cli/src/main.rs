@@ -30,6 +30,10 @@ use miho_core::{
     network::{FetchMode, HttpClient},
     normalize::parse_date,
     pipeline::{run_hsr_export_v1, run_zzz_export_v1, ExportRequest, Game, OfflineFixture},
+    pull_value::{
+        build_pull_value_bundle_v1, render_pull_value_markdown_v1, validate_mechanism_note_v1,
+        PullValueContextV1, PullValueInputsV1, PullValueRequestV1,
+    },
     source::HfSnapshotSource,
     visualizer::{attach_visualizer_hub, validate_json_surrogate_escapes, VisualizerContext},
     zzz_enrichment::first_valid_phase_override_path,
@@ -544,6 +548,146 @@ fn run_zzz_coverage(args: &CoverageArgs, invocation: &ReportInvocation) -> anyho
     Ok(())
 }
 
+fn run_zzz_pull_value(args: &PullValueArgs, invocation: &ReportInvocation) -> anyhow::Result<()> {
+    let data_dir = invocation.resolve(&args.out);
+    let box_path = invocation.resolve(&args.box_path);
+    let plan_path = invocation.resolve(&args.plan);
+    let mechanism_notes_dir = args
+        .mechanism_notes_dir
+        .as_deref()
+        .map(|path| invocation.resolve(path))
+        .unwrap_or_else(|| {
+            plan_path
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .join("zzz_mechanism_notes")
+        });
+    let decision_baseline_path = invocation.resolve(&args.decision_baseline);
+    let statuses = {
+        let values = split_report_values(Some(&args.plan_status));
+        if values.is_empty() {
+            vec!["current".to_owned(), "next".to_owned()]
+        } else {
+            values
+        }
+    };
+    let context = PullValueContextV1 {
+        local_datetime: invocation.local_datetime,
+        data_dir: data_dir.to_string_lossy().into_owned(),
+        box_path: box_path.to_string_lossy().into_owned(),
+        plan_path: plan_path.to_string_lossy().into_owned(),
+        mechanism_notes_dir: mechanism_notes_dir.to_string_lossy().into_owned(),
+        decision_baseline_path: decision_baseline_path.to_string_lossy().into_owned(),
+    };
+    let explicit_planned_slugs = split_report_values(args.planned_slugs.as_deref());
+    let outputs = if let Some(output) = args.output.as_deref() {
+        vec![(invocation.resolve(output), statuses.clone())]
+    } else {
+        let mut seen = BTreeSet::new();
+        let mut outputs = Vec::with_capacity(statuses.len());
+        for status in statuses.iter().cloned() {
+            let safe_status = miho_core::normalize::character_slug(&status);
+            let safe_status = if safe_status.is_empty() {
+                "status".to_owned()
+            } else {
+                safe_status
+            };
+            let output = data_dir.join(format!("{safe_status}_pull_value_report.md"));
+            if !seen.insert(output.clone()) {
+                bail!(
+                    "plan statuses resolve to the same pull-value output: {}",
+                    output.display()
+                );
+            }
+            outputs.push((output, vec![status]));
+        }
+        outputs
+    };
+    let evidence = load_evidence_inputs(&data_dir, &box_path, Some(plan_path.clone()))?;
+    let mut inputs = PullValueInputsV1 {
+        evidence,
+        usage_csv: read_optional_report_input(&data_dir.join("character_usage_long.csv"))?,
+        mechanism_notes: BTreeMap::new(),
+        decision_baseline: read_optional_report_input(&decision_baseline_path)?,
+    };
+    let candidate_scan = build_pull_value_bundle_v1(
+        &inputs,
+        &PullValueRequestV1 {
+            explicit_planned_slugs: explicit_planned_slugs.clone(),
+            plan_statuses: statuses,
+            ..PullValueRequestV1::default()
+        },
+        &context,
+    )?;
+    let reviewed_slugs = candidate_scan
+        .summary
+        .reviewed_slugs
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    inputs.mechanism_notes = load_mechanism_note_inputs(&mechanism_notes_dir, &reviewed_slugs)?;
+    let mut rendered = Vec::with_capacity(outputs.len());
+    for (output, plan_statuses) in outputs {
+        let bundle = build_pull_value_bundle_v1(
+            &inputs,
+            &PullValueRequestV1 {
+                explicit_planned_slugs: explicit_planned_slugs.clone(),
+                plan_statuses,
+                ..PullValueRequestV1::default()
+            },
+            &context,
+        )?;
+        let markdown = render_pull_value_markdown_v1(&bundle);
+        rendered.push((output, platform_text_bytes(&markdown)));
+    }
+    atomic::write_batch(&rendered)?;
+    Ok(())
+}
+
+fn load_mechanism_note_inputs(
+    root: &Path,
+    reviewed_slugs: &BTreeSet<String>,
+) -> anyhow::Result<BTreeMap<String, Vec<u8>>> {
+    if reviewed_slugs.is_empty() || !root.is_dir() {
+        return Ok(BTreeMap::new());
+    }
+    let mut by_extension = BTreeMap::<String, Vec<PathBuf>>::new();
+    for entry in fs::read_dir(root)
+        .with_context(|| format!("cannot read mechanism notes directory {}", root.display()))?
+    {
+        let path = entry
+            .with_context(|| format!("cannot read mechanism notes directory {}", root.display()))?
+            .path();
+        let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let extension = extension.to_ascii_lowercase();
+        if matches!(extension.as_str(), "yaml" | "yml" | "json") {
+            by_extension.entry(extension).or_default().push(path);
+        }
+    }
+    let mut notes = BTreeMap::new();
+    for extension in ["yaml", "yml", "json"] {
+        let Some(paths) = by_extension.get_mut(extension) else {
+            continue;
+        };
+        paths.sort();
+        for path in paths {
+            let stem = path
+                .file_stem()
+                .map(|value| value.to_string_lossy())
+                .unwrap_or_default();
+            let slug = miho_core::normalize::character_slug(&stem);
+            if !reviewed_slugs.contains(&slug) {
+                continue;
+            }
+            let bytes = read_report_input(path)?;
+            validate_mechanism_note_v1(&bytes)?;
+            notes.insert(slug, bytes);
+        }
+    }
+    Ok(notes)
+}
+
 fn load_evidence_inputs(
     data_dir: &Path,
     box_path: &Path,
@@ -688,6 +832,12 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
         } => {
             let invocation = ReportInvocation::capture()?;
             return run_zzz_coverage(args, &invocation);
+        }
+        GameCommand::Zzz {
+            command: ZzzCommand::PullValue(args),
+        } => {
+            let invocation = ReportInvocation::capture()?;
+            return run_zzz_pull_value(args, &invocation);
         }
         _ => {}
     }

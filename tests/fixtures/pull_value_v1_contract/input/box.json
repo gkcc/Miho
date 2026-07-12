@@ -1,0 +1,14 @@
+{
+  "owned": ["anchor-one", "anchor-two", "support"],
+  "builds": {
+    "anchor-one": true,
+    "anchor-two": true,
+    "support": true,
+    "alpha": true,
+    "beta": true,
+    "gamma": true,
+    "delta": true,
+    "epsilon": true,
+    "zeta": true
+  }
+}

@@ -14,8 +14,8 @@ use crate::normalize::{character_slug, parse_percent};
 use crate::visualizer::python_json_number_repr;
 
 pub const DECISION_LEGACY_METHOD: &str = "legacy-v0";
-const PYYAML_TIMESTAMP_PREFIX: &str = "\0pyyaml-timestamp:";
-const PYYAML_NON_FINITE_PREFIX: &str = "\0pyyaml-non-finite:";
+pub(crate) const PYYAML_TIMESTAMP_PREFIX: &str = "\0pyyaml-timestamp:";
+pub(crate) const PYYAML_NON_FINITE_PREFIX: &str = "\0pyyaml-non-finite:";
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecisionLegacyError {
@@ -253,7 +253,7 @@ fn parse_mapping_config(
 /// PyYAML's safe loader still resolves the YAML 1.1 plain scalars
 /// yes/no/on/off as booleans, while serde_yaml follows YAML 1.2. Preserve that
 /// legacy dialect without changing quoted strings or block-scalar contents.
-fn normalize_pyyaml_11_bool_scalars(text: &str) -> String {
+pub(crate) fn normalize_pyyaml_11_bool_scalars(text: &str) -> String {
     fn replacement(value: &str) -> Option<String> {
         match value.to_ascii_lowercase().as_str() {
             "yes" | "on" => return Some("true".to_owned()),
@@ -264,6 +264,17 @@ fn normalize_pyyaml_11_bool_scalars(text: &str) -> String {
             _ => {}
         }
         let compact = value.replace('_', "");
+        let lower = compact.to_ascii_lowercase();
+        let has_exponent = lower.contains('e');
+        let pyyaml_float = compact.contains('.')
+            && (!has_exponent || lower.contains("e+") || lower.contains("e-"));
+        if pyyaml_float
+            && compact
+                .parse::<f64>()
+                .is_ok_and(|number| !number.is_finite())
+        {
+            return Some(format!("\"\\0pyyaml-non-finite:{value}\""));
+        }
         let (sign, unsigned) = match compact.as_bytes().first() {
             Some(b'+') => (1_i128, &compact[1..]),
             Some(b'-') => (-1_i128, &compact[1..]),

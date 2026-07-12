@@ -1,0 +1,72 @@
+{
+  "phases": [
+    {
+      "status": "next",
+      "title": "Clock-derived current phase",
+      "start_at": "2026-07-01 00:00:00",
+      "end_at": "2026-07-20 23:59:59",
+      "characters": [
+        {
+          "slug": "alpha-prime",
+          "name_cn": "阿尔法候选名",
+          "banner_role": "限定 S 级复刻",
+          "analysis_tags": ["复刻", "同模式 A"],
+          "role_group_cn": "候选定位",
+          "element_cn": "候选元素",
+          "style_cn": "候选特性",
+          "focus": "候选 focus 优先"
+        },
+        {
+          "slug": "beta",
+          "name_cn": "贝塔",
+          "banner_role": "限定 S 级复刻",
+          "analysis_tags": ["复刻", "同模式 B+"]
+        },
+        {
+          "slug": "gamma",
+          "name_cn": "伽马",
+          "banner_role": "限定 S 级复刻",
+          "analysis_tags": ["复刻", "单 B 封顶中"]
+        },
+        {
+          "slug": "nova",
+          "name_cn": "新星",
+          "banner_role": "限定 S 级新角色",
+          "analysis_tags": ["新角色", "等实测"]
+        },
+        {
+          "slug": "low-a",
+          "name_cn": "低稀有候选",
+          "banner_role": "A 级陪跑",
+          "analysis_tags": ["A 级", "四星"]
+        }
+      ]
+    },
+    {
+      "status": "current",
+      "title": "Clock-derived next phase",
+      "start_at": "2026-08-01 00:00:00",
+      "end_at": "2026-08-20 23:59:59",
+      "characters": [
+        {
+          "slug": "delta",
+          "name_cn": "德尔塔",
+          "banner_role": "限定 S 级复刻",
+          "analysis_tags": ["复刻", "两条独立 B"]
+        },
+        {
+          "slug": "epsilon",
+          "name_cn": "伊普西龙",
+          "banner_role": "限定 S 级复刻",
+          "analysis_tags": ["复刻", "单候选主证据", "多候选风险"]
+        },
+        {
+          "slug": "zeta",
+          "name_cn": "泽塔",
+          "banner_role": "限定 S 级新角色",
+          "analysis_tags": ["新角色", "计划依赖伙伴"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+identity:
+  role_group_cn: 机制笔记定位
+  element_cn: 机制笔记元素
+  style_cn: 机制笔记特性
+  rarity: S
+recommended_stage: 0+0
+acceptable_stage: 0+0
+unresolved_stage: 0+1 / 1+0 / 1+1 / 2+1
+stage_confidence: high
+not_recommended_stage: 2+1 以上缺少收益证据
+stage_reason: 显式 mechanism_notes 定档优先于默认回退
+missing_data: 1+1 与 2+1 的长线收益
+source_quality:
+  identity: official
+  breakpoints: reviewed
+stage_notes:
+  "0+0":
+    value_type: 本体完整度
+    evidence: 机制笔记显式支持
+    missing_data: 无
+risks_and_counterevidence:
+  - 专武替代品未完整测试
+  - 高影画的机会成本高

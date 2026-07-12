@@ -1,0 +1,5 @@
+recommended_stage: 0+0
+acceptable_stage: 0+0
+stage_confidence: medium
+stage_reason: 两条独立 B 只支持本体优先级
+missing_data: 高档位收益

@@ -10,7 +10,7 @@ import subprocess
 import sys
 from argparse import Namespace
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -71,6 +71,12 @@ class _FixedLocalDateTime(datetime):
         return value if tz is None else value.replace(tzinfo=tz)  # type: ignore[arg-type]
 
 
+class _FixedLocalDate(date):
+    @classmethod
+    def today(cls) -> "_FixedLocalDate":
+        return cls.fromisoformat(LOCAL_DATETIME[:10])
+
+
 @pytest.fixture(scope="module")
 def visualizer_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     workspace = tmp_path_factory.mktemp("miho-visualizer-contract") / "中文 空格 workspace"
@@ -106,6 +112,10 @@ def visualizer_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     workspace.mkdir(parents=True, exist_ok=True)
     with _working_directory(workspace), patch(
         "miho_core.banner_plan.datetime", _FixedLocalDateTime
+    ), patch(
+        "hsr_endgame_exporter.visualizer.date", _FixedLocalDate
+    ), patch(
+        "zzz_endgame_exporter.visualizer.date", _FixedLocalDate
     ), patch("urllib.request.urlopen", side_effect=forbidden_network):
         run_hsr_visualizer(Namespace(out=str(hsr_root)))
         run_zzz_visualizer(Namespace(out=str(zzz_root)))
