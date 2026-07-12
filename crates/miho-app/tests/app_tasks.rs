@@ -9,11 +9,12 @@ use std::{
 
 use chrono::{NaiveDateTime, Timelike};
 use miho_app::{
-    execute_task_result_v1, execute_task_v1, parse_task_intent_v1, AppInvocation, CoverageIntentV1,
-    CoverageTaskV1, DecisionIntentV1, DecisionTaskV1, EvidenceIntentV1, EvidenceTaskV1, PullTaskV1,
-    PullValueIntentV1, ReviewPacketIntentV1, TaskFailureV1, TaskIntentSpecV1, TaskIntentV1,
-    TaskOperationV1, TaskReceiptV1, TaskRequestV1, TaskSpecV1, WorkspaceLayout,
-    TASK_FAILURE_SCHEMA_V1, TASK_INTENT_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
+    execute_task_result_v1, execute_task_v1, parse_task_intent_v1, resolve_task_intent_v1,
+    AppInvocation, CoverageIntentV1, CoverageTaskV1, DecisionIntentV1, DecisionTaskV1,
+    EvidenceIntentV1, EvidenceTaskV1, NativeTaskPathsV1, PullTaskV1, PullValueIntentV1,
+    ReviewPacketIntentV1, TaskFailureV1, TaskIntentSpecV1, TaskIntentV1, TaskOperationV1,
+    TaskReceiptV1, TaskRequestV1, TaskSpecV1, WorkspaceLayout, TASK_FAILURE_SCHEMA_V1,
+    TASK_INTENT_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
 };
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -181,7 +182,8 @@ fn invocation_normalizes_paths_truncates_one_clock_and_exposes_debug_seam() {
         let _guard = ENV_LOCK.lock().unwrap();
         let previous = std::env::var_os("MIHO_REPORT_LOCAL_DATETIME");
         std::env::set_var("MIHO_REPORT_LOCAL_DATETIME", "2026-07-13T01:02:03.456789");
-        let captured = AppInvocation::capture().unwrap();
+        let capture_cwd = root.join("captured-cwd");
+        let captured = AppInvocation::capture_in(capture_cwd.clone()).unwrap();
         match previous {
             Some(value) => std::env::set_var("MIHO_REPORT_LOCAL_DATETIME", value),
             None => std::env::remove_var("MIHO_REPORT_LOCAL_DATETIME"),
@@ -191,8 +193,114 @@ fn invocation_normalizes_paths_truncates_one_clock_and_exposes_debug_seam() {
             NaiveDateTime::parse_from_str("2026-07-13T01:02:03.456789", "%Y-%m-%dT%H:%M:%S%.f")
                 .unwrap()
         );
+        assert_eq!(captured.cwd(), capture_cwd);
     }
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn native_resolver_maps_all_pathless_operations_without_ui_outputs() {
+    let paths = NativeTaskPathsV1 {
+        data_dir: PathBuf::from("authorized/data"),
+        box_path: PathBuf::from("authorized/box.yaml"),
+        rules_path: PathBuf::from("authorized/rules.yaml"),
+        banner_plan_path: PathBuf::from("authorized/banner.json"),
+        mechanism_notes_dir: PathBuf::from("authorized/notes"),
+        decision_baseline_path: PathBuf::from("authorized/baseline.json"),
+    };
+
+    let decision = resolve_task_intent_v1(
+        &TaskIntentV1::new(TaskIntentSpecV1::Decision(DecisionIntentV1 {
+            method: "legacy-v0".to_owned(),
+        })),
+        &paths,
+    );
+    assert_eq!(decision.workspace.data_dir, paths.data_dir);
+    assert_eq!(decision.workspace.box_path, paths.box_path);
+    let TaskSpecV1::Decision(params) = decision.task else {
+        panic!("decision mapping")
+    };
+    assert_eq!(params.method, "legacy-v0");
+    assert_eq!(params.rules_path, paths.rules_path);
+
+    let evidence = resolve_task_intent_v1(
+        &TaskIntentV1::new(TaskIntentSpecV1::Evidence(EvidenceIntentV1 {
+            planned_slugs: vec!["alpha".to_owned()],
+            plan_statuses: vec!["next".to_owned()],
+            limit: 7,
+            min_a_app_rate: "sd=8".to_owned(),
+            include_missing: true,
+        })),
+        &paths,
+    );
+    let TaskSpecV1::Evidence(params) = evidence.task else {
+        panic!("evidence mapping")
+    };
+    assert_eq!(params.planned_slugs, vec!["alpha"]);
+    assert_eq!(params.plan_path, Some(paths.banner_plan_path.clone()));
+    assert_eq!(params.plan_statuses, vec!["next"]);
+    assert_eq!(params.limit, 7);
+    assert_eq!(params.min_a_app_rate, "sd=8");
+    assert!(params.include_missing);
+    assert_eq!(params.output, None);
+
+    let coverage = resolve_task_intent_v1(
+        &TaskIntentV1::new(TaskIntentSpecV1::Coverage(CoverageIntentV1 {
+            planned_slugs: vec!["beta".to_owned()],
+            plan_statuses: vec!["current".to_owned()],
+            limit: 9,
+            min_a_app_rate: "9".to_owned(),
+        })),
+        &paths,
+    );
+    let TaskSpecV1::Coverage(params) = coverage.task else {
+        panic!("coverage mapping")
+    };
+    assert_eq!(params.planned_slugs, vec!["beta"]);
+    assert_eq!(params.plan_path, Some(paths.banner_plan_path.clone()));
+    assert_eq!(params.plan_statuses, vec!["current"]);
+    assert_eq!(params.limit, 9);
+    assert_eq!(params.min_a_app_rate, "9");
+    assert_eq!(params.current_output, None);
+    assert_eq!(params.target_output, None);
+    assert_eq!(params.aggregate_output, None);
+
+    let pull = resolve_task_intent_v1(
+        &TaskIntentV1::new(TaskIntentSpecV1::PullValue(PullValueIntentV1 {
+            plan_statuses: vec!["current".to_owned()],
+            planned_slugs: vec!["gamma".to_owned()],
+        })),
+        &paths,
+    );
+    let TaskSpecV1::PullValue(params) = pull.task else {
+        panic!("pull mapping")
+    };
+    assert_eq!(params.plan_path, paths.banner_plan_path);
+    assert_eq!(params.plan_statuses, vec!["current"]);
+    assert_eq!(params.planned_slugs, vec!["gamma"]);
+    assert_eq!(
+        params.mechanism_notes_dir,
+        Some(paths.mechanism_notes_dir.clone())
+    );
+    assert_eq!(params.decision_baseline_path, paths.decision_baseline_path);
+    assert_eq!(params.output, None);
+
+    let review = resolve_task_intent_v1(
+        &TaskIntentV1::new(TaskIntentSpecV1::ReviewPacket(ReviewPacketIntentV1 {
+            plan_statuses: vec!["next".to_owned()],
+            planned_slugs: vec!["delta".to_owned()],
+        })),
+        &paths,
+    );
+    let TaskSpecV1::ReviewPacket(params) = review.task else {
+        panic!("review mapping")
+    };
+    assert_eq!(params.plan_path, paths.banner_plan_path);
+    assert_eq!(params.plan_statuses, vec!["next"]);
+    assert_eq!(params.planned_slugs, vec!["delta"]);
+    assert_eq!(params.mechanism_notes_dir, Some(paths.mechanism_notes_dir));
+    assert_eq!(params.decision_baseline_path, paths.decision_baseline_path);
+    assert_eq!(params.output, None);
 }
 
 #[test]

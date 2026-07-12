@@ -11,7 +11,14 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+miho-app = { path = "../../miho-app" }
 miho-core = { path = "../../miho-core" }
 serde.workspace = true
+serde_json.workspace = true
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "=2.7.1"
+thiserror.workspace = true
+tokio.workspace = true
 
+[dev-dependencies]
+anyhow.workspace = true

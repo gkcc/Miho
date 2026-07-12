@@ -34,6 +34,15 @@ use miho_core::{
 };
 use serde::{Deserialize, Serialize};
 
+mod task_manager;
+
+pub use task_manager::{
+    CancelOutcomeV1, CancelTaskResultV1, PublicArtifactV1, PublicTaskFailureV1,
+    PublicTaskSnapshotV1, PublicTaskUpdateV1, TaskExecutor, TaskManager, TaskManagerError,
+    TaskSnapshotV1, TaskSpawner, TaskStatusV1, PUBLIC_TASK_SNAPSHOT_SCHEMA_V1,
+    TASK_SNAPSHOT_SCHEMA_V1,
+};
+
 pub const TASK_REQUEST_SCHEMA_V1: &str = "miho-task-request-v1";
 pub const TASK_INTENT_SCHEMA_V1: &str = "miho-task-intent-v1";
 pub const TASK_RECEIPT_SCHEMA_V1: &str = "miho-task-receipt-v1";
@@ -175,6 +184,17 @@ impl TaskIntentSpecV1 {
 pub struct TaskIntentV1 {
     pub schema_version: String,
     pub task: TaskIntentSpecV1,
+}
+
+/// Native-only paths selected or authorized outside the WebView boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTaskPathsV1 {
+    pub data_dir: PathBuf,
+    pub box_path: PathBuf,
+    pub rules_path: PathBuf,
+    pub banner_plan_path: PathBuf,
+    pub mechanism_notes_dir: PathBuf,
+    pub decision_baseline_path: PathBuf,
 }
 
 impl TaskIntentV1 {
@@ -370,6 +390,60 @@ impl TaskRequestV1 {
     }
 }
 
+/// Resolve a validated pathless intent with native-authorized paths.
+///
+/// UI intents cannot select arbitrary output paths: every operation uses its
+/// existing application default beneath `data_dir` unless a trusted native
+/// caller constructs `TaskRequestV1` directly.
+pub fn resolve_task_intent_v1(intent: &TaskIntentV1, paths: &NativeTaskPathsV1) -> TaskRequestV1 {
+    let workspace = WorkspaceLayout {
+        data_dir: paths.data_dir.clone(),
+        box_path: paths.box_path.clone(),
+    };
+    let task = match &intent.task {
+        TaskIntentSpecV1::Decision(params) => TaskSpecV1::Decision(DecisionTaskV1 {
+            method: params.method.clone(),
+            rules_path: paths.rules_path.clone(),
+        }),
+        TaskIntentSpecV1::Evidence(params) => TaskSpecV1::Evidence(EvidenceTaskV1 {
+            planned_slugs: params.planned_slugs.clone(),
+            plan_path: Some(paths.banner_plan_path.clone()),
+            plan_statuses: params.plan_statuses.clone(),
+            output: None,
+            limit: params.limit,
+            min_a_app_rate: params.min_a_app_rate.clone(),
+            include_missing: params.include_missing,
+        }),
+        TaskIntentSpecV1::Coverage(params) => TaskSpecV1::Coverage(CoverageTaskV1 {
+            planned_slugs: params.planned_slugs.clone(),
+            plan_path: Some(paths.banner_plan_path.clone()),
+            plan_statuses: params.plan_statuses.clone(),
+            limit: params.limit,
+            min_a_app_rate: params.min_a_app_rate.clone(),
+            current_output: None,
+            target_output: None,
+            aggregate_output: None,
+        }),
+        TaskIntentSpecV1::PullValue(params) => TaskSpecV1::PullValue(PullTaskV1 {
+            plan_path: paths.banner_plan_path.clone(),
+            plan_statuses: params.plan_statuses.clone(),
+            planned_slugs: params.planned_slugs.clone(),
+            mechanism_notes_dir: Some(paths.mechanism_notes_dir.clone()),
+            decision_baseline_path: paths.decision_baseline_path.clone(),
+            output: None,
+        }),
+        TaskIntentSpecV1::ReviewPacket(params) => TaskSpecV1::ReviewPacket(PullTaskV1 {
+            plan_path: paths.banner_plan_path.clone(),
+            plan_statuses: params.plan_statuses.clone(),
+            planned_slugs: params.planned_slugs.clone(),
+            mechanism_notes_dir: Some(paths.mechanism_notes_dir.clone()),
+            decision_baseline_path: paths.decision_baseline_path.clone(),
+            output: None,
+        }),
+    };
+    TaskRequestV1::new(workspace, task)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TaskReceiptV1 {
@@ -442,9 +516,41 @@ pub struct AppInvocation {
     local_datetime: NaiveDateTime,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionControlError {
+    Cancelled,
+}
+
+impl std::fmt::Display for ExecutionControlError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cancelled => formatter.write_str("task execution cancelled before commit"),
+        }
+    }
+}
+
+impl std::error::Error for ExecutionControlError {}
+
+pub trait ExecutionObserver: Send + Sync {
+    /// Called immediately before the executor's only atomic installation.
+    fn before_commit(&self) -> Result<(), ExecutionControlError>;
+}
+
+struct DirectExecutionObserver;
+
+impl ExecutionObserver for DirectExecutionObserver {
+    fn before_commit(&self) -> Result<(), ExecutionControlError> {
+        Ok(())
+    }
+}
+
 impl AppInvocation {
     pub fn capture() -> anyhow::Result<Self> {
         let cwd = std::env::current_dir().context("cannot capture report working directory")?;
+        Self::capture_in(cwd)
+    }
+
+    pub fn capture_in(cwd: PathBuf) -> anyhow::Result<Self> {
         #[cfg(debug_assertions)]
         let now = if let Some(value) = std::env::var_os("MIHO_REPORT_LOCAL_DATETIME") {
             NaiveDateTime::parse_from_str(&value.to_string_lossy(), "%Y-%m-%dT%H:%M:%S%.f")
@@ -517,23 +623,33 @@ pub fn execute_task_v1(
     request: &TaskRequestV1,
     invocation: &AppInvocation,
 ) -> anyhow::Result<TaskReceiptV1> {
+    execute_task_observed_v1(request, invocation, &DirectExecutionObserver)
+}
+
+pub fn execute_task_observed_v1(
+    request: &TaskRequestV1,
+    invocation: &AppInvocation,
+    observer: &dyn ExecutionObserver,
+) -> anyhow::Result<TaskReceiptV1> {
     request.validate()?;
     let operation = request.operation();
     let (outputs, method_version, output_schema, notices) = match &request.task {
-        TaskSpecV1::Decision(task) => run_decision(&request.workspace, task, invocation)?,
-        TaskSpecV1::Evidence(task) => run_evidence(&request.workspace, task, invocation)?,
-        TaskSpecV1::Coverage(task) => run_coverage(&request.workspace, task, invocation)?,
+        TaskSpecV1::Decision(task) => run_decision(&request.workspace, task, invocation, observer)?,
+        TaskSpecV1::Evidence(task) => run_evidence(&request.workspace, task, invocation, observer)?,
+        TaskSpecV1::Coverage(task) => run_coverage(&request.workspace, task, invocation, observer)?,
         TaskSpecV1::PullValue(task) => run_pull_artifact(
             &request.workspace,
             task,
             invocation,
             PullArtifactKind::Report,
+            observer,
         )?,
         TaskSpecV1::ReviewPacket(task) => run_pull_artifact(
             &request.workspace,
             task,
             invocation,
             PullArtifactKind::ReviewPacket,
+            observer,
         )?,
     };
     Ok(TaskReceiptV1 {
@@ -564,6 +680,7 @@ fn run_decision(
     workspace: &WorkspaceLayout,
     task: &DecisionTaskV1,
     invocation: &AppInvocation,
+    observer: &dyn ExecutionObserver,
 ) -> anyhow::Result<RunResult> {
     if task.method != DECISION_LEGACY_METHOD {
         bail!("unsupported decision method");
@@ -599,10 +716,13 @@ fn run_decision(
         data_dir.join("decision_cards.json"),
         data_dir.join("decision_report.md"),
     ];
-    atomic::write_batch(&[
-        (outputs[0].clone(), platform_text_bytes(&json)),
-        (outputs[1].clone(), platform_text_bytes(&markdown)),
-    ])?;
+    commit_batch(
+        observer,
+        &[
+            (outputs[0].clone(), platform_text_bytes(&json)),
+            (outputs[1].clone(), platform_text_bytes(&markdown)),
+        ],
+    )?;
     Ok((
         outputs,
         DECISION_LEGACY_METHOD.to_owned(),
@@ -618,6 +738,7 @@ fn run_evidence(
     workspace: &WorkspaceLayout,
     task: &EvidenceTaskV1,
     invocation: &AppInvocation,
+    observer: &dyn ExecutionObserver,
 ) -> anyhow::Result<RunResult> {
     let data_dir = invocation.resolve(&workspace.data_dir);
     let inputs = load_evidence_inputs(
@@ -656,7 +777,10 @@ fn run_evidence(
         .as_deref()
         .map(|path| invocation.resolve(path))
         .unwrap_or_else(|| data_dir.join("evidence_pool_summary.md"));
-    atomic::write_batch(&[(output.clone(), platform_text_bytes(&markdown))])?;
+    commit_batch(
+        observer,
+        &[(output.clone(), platform_text_bytes(&markdown))],
+    )?;
     Ok((
         vec![output],
         EVIDENCE_METHOD_VERSION.to_owned(),
@@ -669,6 +793,7 @@ fn run_coverage(
     workspace: &WorkspaceLayout,
     task: &CoverageTaskV1,
     invocation: &AppInvocation,
+    observer: &dyn ExecutionObserver,
 ) -> anyhow::Result<RunResult> {
     let data_dir = invocation.resolve(&workspace.data_dir);
     let inputs = load_evidence_inputs(
@@ -723,11 +848,14 @@ fn run_coverage(
             .map(|path| invocation.resolve(path))
             .unwrap_or_else(|| data_dir.join("team_signature_aggregates.csv")),
     ];
-    atomic::write_batch(&[
-        (outputs[0].clone(), platform_text_bytes(&current)),
-        (outputs[1].clone(), platform_text_bytes(&target)),
-        (outputs[2].clone(), aggregate),
-    ])?;
+    commit_batch(
+        observer,
+        &[
+            (outputs[0].clone(), platform_text_bytes(&current)),
+            (outputs[1].clone(), platform_text_bytes(&target)),
+            (outputs[2].clone(), aggregate),
+        ],
+    )?;
     Ok((
         outputs,
         EVIDENCE_METHOD_VERSION.to_owned(),
@@ -770,6 +898,7 @@ fn run_pull_artifact(
     task: &PullTaskV1,
     invocation: &AppInvocation,
     artifact: PullArtifactKind,
+    observer: &dyn ExecutionObserver,
 ) -> anyhow::Result<RunResult> {
     let data_dir = invocation.resolve(&workspace.data_dir);
     let box_path = invocation.resolve(&workspace.box_path);
@@ -862,7 +991,7 @@ fn run_pull_artifact(
         rendered.push((output, platform_text_bytes(&markdown)));
     }
     let outputs = rendered.iter().map(|(path, _)| path.clone()).collect();
-    atomic::write_batch(&rendered)?;
+    commit_batch(observer, &rendered)?;
     Ok((
         outputs,
         PULL_VALUE_METHOD_VERSION.to_owned(),
@@ -999,6 +1128,15 @@ fn platform_text_bytes(text: &str) -> Vec<u8> {
     {
         text.as_bytes().to_vec()
     }
+}
+
+fn commit_batch(
+    observer: &dyn ExecutionObserver,
+    outputs: &[(PathBuf, Vec<u8>)],
+) -> anyhow::Result<()> {
+    observer.before_commit()?;
+    atomic::write_batch(outputs)?;
+    Ok(())
 }
 
 #[cfg(test)]
