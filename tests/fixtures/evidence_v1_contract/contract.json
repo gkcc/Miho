@@ -1,0 +1,37 @@
+{
+  "contract_version": "evidence-v1-golden-20260712",
+  "fixed_local_clock": "2026-07-12T13:14:15",
+  "normalizations": ["temporary_root", "generated_at"],
+  "input_files": [
+    "box.json",
+    "data/name_map.csv",
+    "data/prydwen_tier_current.csv",
+    "data/team_rank_dedup_unordered.csv",
+    "plan.json"
+  ],
+  "output_files": [
+    "current_box_team_coverage.md",
+    "evidence_pool_summary.md",
+    "target_box_team_coverage.md",
+    "team_signature_aggregates.csv"
+  ],
+  "normalized_sha256": {
+    "current_box_team_coverage.md": "cad433a55206e9be77c4be83b6f347e5d4e1bdb072bcd0c556a45361798f70b9",
+    "evidence_pool_summary.md": "8f3ecf31cbb076e93fa84d1fee518d245140f97246758804cc5bc0981d650d38",
+    "target_box_team_coverage.md": "5d8e29bfdf81eec2bc6336e905edfaac58809f750418212e4c1977036bc8762b",
+    "team_signature_aggregates.csv": "2a18ac6c119e41369e2d69cf3f156640de98e9f05943a423cf7df1f57420e300"
+  },
+  "stable_evidence_ids": {
+    "da|lucy|miyabi|nicole-demara|bangboo:biggest-fan": "E-DA-DB7F5133D3",
+    "sd|lucy|miyabi|nicole-demara|bangboo:biggest-fan": "E-SD-DA019C43D7",
+    "sd|lucy|miyabi|sunna|bangboo:biggest-fan": "E-SD-A695F7877A",
+    "sd|lucy|miyabi|zhao|bangboo:biggest-fan": "E-SD-44E44C3FC0"
+  },
+  "rust_command_comparison_seam": {
+    "status": "reserved_not_executed_by_python_contract",
+    "commands": [
+      ["miho", "zzz", "evidence", "--box", "<ROOT>/input/box.json", "--out", "<ROOT>/input/data", "--plan", "<ROOT>/input/plan.json", "--plan-status", "current", "--include-missing", "--output", "<OUTPUT>/evidence_pool_summary.md"],
+      ["miho", "zzz", "coverage", "--box", "<ROOT>/input/box.json", "--out", "<ROOT>/input/data", "--plan", "<ROOT>/input/plan.json", "--plan-status", "current", "--current-output", "<OUTPUT>/current_box_team_coverage.md", "--target-output", "<OUTPUT>/target_box_team_coverage.md", "--aggregate-output", "<OUTPUT>/team_signature_aggregates.csv"]
+    ]
+  }
+}

@@ -1,18 +1,23 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::Duration as StdDuration,
 };
 
-use anyhow::bail;
-use chrono::{Duration, Local, Utc};
+use anyhow::{bail, Context};
+use chrono::{Duration, Local, NaiveDateTime, Timelike, Utc};
 use clap::{Args, Parser, Subcommand};
 use miho_core::{
+    atomic,
     contract::{
         DatasetRef, DateRange, DiagnosticSeverity, ExportContext, FeatureFlags, FetchPolicy,
         GameMode, HistoryPolicy, WorkbookPolicy, EXPORT_REQUEST_SCHEMA_VERSION,
+    },
+    evidence::{
+        build_evidence_bundle_v1, render_aggregate_csv_v1, render_coverage_markdown_v1,
+        EvidenceContextV1, EvidenceGameV1, EvidenceInputsV1, EvidenceRequestV1,
     },
     hf::HuggingFaceRepo,
     hsr_supplemental::{HsrFixtureSupplementalSource, HsrHttpSupplementalSource},
@@ -294,10 +299,289 @@ struct ServeArgs {
     port: u16,
 }
 
+impl Cli {
+    fn failure_prefix(&self) -> &'static str {
+        match &self.game {
+            GameCommand::Hsr {
+                command: HsrCommand::Export(_),
+            }
+            | GameCommand::Zzz {
+                command: ZzzCommand::Export(_),
+            } => "export",
+            GameCommand::Hsr {
+                command: HsrCommand::Visualizer(_),
+            }
+            | GameCommand::Zzz {
+                command: ZzzCommand::Visualizer(_),
+            } => "visualizer",
+            GameCommand::Zzz {
+                command: ZzzCommand::Decision(_),
+            } => "decision",
+            GameCommand::Zzz {
+                command: ZzzCommand::Evidence(_),
+            } => "evidence",
+            GameCommand::Zzz {
+                command: ZzzCommand::Coverage(_),
+            } => "coverage",
+            GameCommand::Zzz {
+                command: ZzzCommand::PullValue(_),
+            } => "pull-value",
+            GameCommand::Zzz {
+                command: ZzzCommand::ReviewPacket(_),
+            } => "review-packet",
+            GameCommand::Zzz {
+                command: ZzzCommand::Serve(_),
+            } => "serve",
+        }
+    }
+}
+
+struct ReportInvocation {
+    cwd: PathBuf,
+    local_datetime: NaiveDateTime,
+}
+
+impl ReportInvocation {
+    fn capture() -> anyhow::Result<Self> {
+        let cwd = std::env::current_dir().context("cannot capture report working directory")?;
+        #[cfg(debug_assertions)]
+        let now = if let Some(value) = std::env::var_os("MIHO_REPORT_LOCAL_DATETIME") {
+            NaiveDateTime::parse_from_str(&value.to_string_lossy(), "%Y-%m-%dT%H:%M:%S%.f")
+                .context("invalid MIHO_REPORT_LOCAL_DATETIME")?
+        } else {
+            Local::now().naive_local()
+        };
+        #[cfg(not(debug_assertions))]
+        let now = Local::now().naive_local();
+        let nanos = now.nanosecond() / 1_000 * 1_000;
+        let local_datetime = now
+            .with_nanosecond(nanos)
+            .context("cannot truncate report local datetime to microseconds")?;
+        Ok(Self {
+            cwd,
+            local_datetime,
+        })
+    }
+
+    fn resolve(&self, path: &Path) -> PathBuf {
+        let joined = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.cwd.join(path)
+        };
+        let mut normalized = PathBuf::new();
+        for component in joined.components() {
+            match component {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    let _ = normalized.pop();
+                }
+                Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                    normalized.push(component.as_os_str());
+                }
+            }
+        }
+        normalized
+    }
+}
+
+fn run_zzz_evidence(args: &EvidenceArgs, invocation: &ReportInvocation) -> anyhow::Result<()> {
+    let data_dir = invocation.resolve(&args.out);
+    let inputs = load_evidence_inputs(
+        &data_dir,
+        &invocation.resolve(&args.box_path),
+        args.plan.as_deref().map(|path| invocation.resolve(path)),
+    )?;
+    let (default_min_a_app_rate, min_a_app_rate_by_mode) =
+        parse_min_a_app_rate(&args.min_a_app_rate)?;
+    let request = EvidenceRequestV1 {
+        game: EvidenceGameV1::Zzz,
+        explicit_planned_slugs: split_report_values(args.planned_slugs.as_deref()),
+        plan_statuses: split_report_values(Some(&args.plan_status)),
+        include_missing: args.include_missing && !args.no_include_missing,
+        default_min_a_app_rate,
+        min_a_app_rate_by_mode,
+        ..EvidenceRequestV1::default()
+    };
+    let context = EvidenceContextV1 {
+        local_datetime: invocation.local_datetime,
+    };
+    let bundle = build_evidence_bundle_v1(&inputs, &request, &context)?;
+    let team_source = data_dir.join("team_rank_dedup_unordered.csv");
+    let markdown = render_coverage_markdown_v1(
+        &bundle.target,
+        "绝区零目标账号证据池队伍覆盖",
+        &team_source.to_string_lossy(),
+        args.limit,
+    );
+    let output = args
+        .output
+        .as_deref()
+        .map(|path| invocation.resolve(path))
+        .unwrap_or_else(|| data_dir.join("evidence_pool_summary.md"));
+    atomic::write_batch(&[(output, platform_text_bytes(&markdown))])?;
+    Ok(())
+}
+
+fn run_zzz_coverage(args: &CoverageArgs, invocation: &ReportInvocation) -> anyhow::Result<()> {
+    let data_dir = invocation.resolve(&args.out);
+    let inputs = load_evidence_inputs(
+        &data_dir,
+        &invocation.resolve(&args.box_path),
+        args.plan.as_deref().map(|path| invocation.resolve(path)),
+    )?;
+    let (default_min_a_app_rate, min_a_app_rate_by_mode) =
+        parse_min_a_app_rate(&args.min_a_app_rate)?;
+    let request = EvidenceRequestV1 {
+        game: EvidenceGameV1::Zzz,
+        explicit_planned_slugs: split_report_values(args.planned_slugs.as_deref()),
+        plan_statuses: split_report_values(Some(&args.plan_status)),
+        default_min_a_app_rate,
+        min_a_app_rate_by_mode,
+        ..EvidenceRequestV1::default()
+    };
+    let context = EvidenceContextV1 {
+        local_datetime: invocation.local_datetime,
+    };
+    let bundle = build_evidence_bundle_v1(&inputs, &request, &context)?;
+    let team_source = data_dir.join("team_rank_dedup_unordered.csv");
+    let team_source = team_source.to_string_lossy();
+    let current = render_coverage_markdown_v1(
+        &bundle.current,
+        "当前 Box 队伍覆盖",
+        &team_source,
+        args.limit,
+    );
+    let target = render_coverage_markdown_v1(
+        &bundle.target,
+        "目标 Box 队伍覆盖",
+        &team_source,
+        args.limit,
+    );
+    let aggregate = render_aggregate_csv_v1(&bundle.target.aggregates)?;
+    let current_output = args
+        .current_output
+        .as_deref()
+        .map(|path| invocation.resolve(path))
+        .unwrap_or_else(|| data_dir.join("current_box_team_coverage.md"));
+    let target_output = args
+        .target_output
+        .as_deref()
+        .map(|path| invocation.resolve(path))
+        .unwrap_or_else(|| data_dir.join("target_box_team_coverage.md"));
+    let aggregate_output = args
+        .aggregate_output
+        .as_deref()
+        .map(|path| invocation.resolve(path))
+        .unwrap_or_else(|| data_dir.join("team_signature_aggregates.csv"));
+    atomic::write_batch(&[
+        (current_output, platform_text_bytes(&current)),
+        (target_output, platform_text_bytes(&target)),
+        (aggregate_output, aggregate),
+    ])?;
+    Ok(())
+}
+
+fn load_evidence_inputs(
+    data_dir: &Path,
+    box_path: &Path,
+    plan_path: Option<PathBuf>,
+) -> anyhow::Result<EvidenceInputsV1> {
+    let team_path = data_dir.join("team_rank_dedup_unordered.csv");
+    Ok(EvidenceInputsV1 {
+        team_rank_dedup_unordered_csv: read_report_input(&team_path)?,
+        name_map_csv: read_optional_report_input(&data_dir.join("name_map.csv"))?,
+        tier_csv: read_optional_report_input(&data_dir.join("prydwen_tier_current.csv"))?,
+        box_json: read_report_input(box_path)?,
+        banner_plan_json: plan_path.as_deref().map(read_report_input).transpose()?,
+    })
+}
+
+fn read_report_input(path: &Path) -> anyhow::Result<Vec<u8>> {
+    fs::read(path).with_context(|| format!("cannot read report input {}", path.display()))
+}
+
+fn read_optional_report_input(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
+    if path.exists() {
+        read_report_input(path).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+fn split_report_values(value: Option<&str>) -> Vec<String> {
+    value
+        .into_iter()
+        .flat_map(|text| text.split([',', ';']))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn parse_min_a_app_rate(value: &str) -> anyhow::Result<(f64, BTreeMap<String, f64>)> {
+    let text = value.trim();
+    if text.is_empty() {
+        return Ok((10.0, BTreeMap::new()));
+    }
+    if !text.contains('=') {
+        let number = parse_non_negative_finite_threshold(text, "threshold")?;
+        return Ok((number, BTreeMap::new()));
+    }
+    let mut default = 10.0;
+    let mut values = BTreeMap::new();
+    for item in text
+        .split([',', ';'])
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        let (key, raw_number) = item
+            .split_once('=')
+            .with_context(|| format!("invalid threshold item: {item}"))?;
+        let mode = key.trim().to_ascii_lowercase();
+        if mode.is_empty() {
+            bail!("invalid threshold mode: {item}");
+        }
+        let number = parse_non_negative_finite_threshold(raw_number.trim(), item)?;
+        if mode == "default" {
+            default = number;
+        }
+        values.insert(mode, number);
+    }
+    if values.is_empty() {
+        Ok((10.0, BTreeMap::new()))
+    } else {
+        Ok((default, values))
+    }
+}
+
+fn parse_non_negative_finite_threshold(value: &str, label: &str) -> anyhow::Result<f64> {
+    let number = value
+        .parse::<f64>()
+        .with_context(|| format!("invalid {label}: {value}"))?;
+    if !number.is_finite() || number < 0.0 {
+        bail!("invalid {label}: {value}");
+    }
+    Ok(number)
+}
+
+fn platform_text_bytes(text: &str) -> Vec<u8> {
+    #[cfg(windows)]
+    {
+        text.replace('\n', "\r\n").into_bytes()
+    }
+    #[cfg(not(windows))]
+    {
+        text.as_bytes().to_vec()
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    if let Err(error) = execute(Cli::parse()).await {
-        eprintln!("export failed: {error}");
+    let cli = Cli::parse();
+    let failure_prefix = cli.failure_prefix();
+    if let Err(error) = execute(cli).await {
+        eprintln!("{failure_prefix} failed: {error}");
         std::process::exit(1);
     }
 }
@@ -321,6 +605,21 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("./zzz_endgame_export"));
             return rebuild_zzz_visualizer(&out);
+        }
+        _ => {}
+    }
+    match &cli.game {
+        GameCommand::Zzz {
+            command: ZzzCommand::Evidence(args),
+        } => {
+            let invocation = ReportInvocation::capture()?;
+            return run_zzz_evidence(args, &invocation);
+        }
+        GameCommand::Zzz {
+            command: ZzzCommand::Coverage(args),
+        } => {
+            let invocation = ReportInvocation::capture()?;
+            return run_zzz_coverage(args, &invocation);
         }
         _ => {}
     }
@@ -1403,6 +1702,18 @@ mod tests {
             args.decision_baseline,
             PathBuf::from("./configs/zzz_decision_baseline.json")
         );
+    }
+
+    #[test]
+    fn report_thresholds_match_python_scalar_and_mode_syntax() {
+        assert_eq!(parse_min_a_app_rate("5").unwrap(), (5.0, BTreeMap::new()));
+        let (default, modes) = parse_min_a_app_rate("sd=5; da=10, default=7").unwrap();
+        assert_eq!(default, 7.0);
+        assert_eq!(modes.get("sd"), Some(&5.0));
+        assert_eq!(modes.get("da"), Some(&10.0));
+        assert_eq!(modes.get("default"), Some(&7.0));
+        assert!(parse_min_a_app_rate("sd=NaN").is_err());
+        assert!(parse_min_a_app_rate("sd=-1").is_err());
     }
 
     #[test]

@@ -1,0 +1,13 @@
+{
+  "agents": {
+    "miyabi": {"owned": true},
+    "lucy": {"owned": true},
+    "nicole": {"owned": true}
+  },
+  "builds": {
+    "miyabi": {"level": 60},
+    "lucy": {"level": 60},
+    "nicole-demara": {"level": 60}
+  },
+  "bangboos": ["big-fan"]
+}

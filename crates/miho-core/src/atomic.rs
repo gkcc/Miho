@@ -1,7 +1,8 @@
 use std::{
+    collections::BTreeSet,
     fs::{self, OpenOptions},
     io::Write,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -38,12 +39,209 @@ pub fn write(path: &Path, contents: &[u8]) -> Result<()> {
     result
 }
 
+pub fn write_batch(outputs: &[(PathBuf, Vec<u8>)]) -> Result<()> {
+    write_batch_inner(outputs, None)
+}
+
+fn write_batch_inner(
+    outputs: &[(PathBuf, Vec<u8>)],
+    fail_before_install: Option<usize>,
+) -> Result<()> {
+    let mut seen = BTreeSet::new();
+    for (path, _) in outputs {
+        let normalized = normalized_absolute(path)?;
+        #[cfg(windows)]
+        let normalized = PathBuf::from(normalized.to_string_lossy().to_lowercase());
+        if !seen.insert(normalized) {
+            return Err(MihoError::Unsupported(format!(
+                "batch output paths collide: {}",
+                path.display()
+            )));
+        }
+        if path.file_name().is_none() {
+            return Err(MihoError::Unsupported(format!(
+                "batch output path has no file name: {}",
+                path.display()
+            )));
+        }
+        reject_reparse_ancestors(path)?;
+        if let Ok(metadata) = fs::symlink_metadata(path) {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(MihoError::Unsupported(format!(
+                    "batch output target is not a regular file: {}",
+                    path.display()
+                )));
+            }
+        }
+    }
+
+    let mut staged = Vec::with_capacity(outputs.len());
+    let mut backups = Vec::new();
+    let mut installed = Vec::new();
+    let result = (|| {
+        for (path, contents) in outputs {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(|source| MihoError::Write {
+                    path: parent.into(),
+                    source,
+                })?;
+            }
+            let stage = unique_sibling(path, "stage");
+            staged.push((path.clone(), stage.clone()));
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&stage)
+                .map_err(|source| MihoError::Write {
+                    path: stage.clone(),
+                    source,
+                })?;
+            file.write_all(contents)
+                .and_then(|_| file.sync_all())
+                .map_err(|source| MihoError::Write {
+                    path: stage.clone(),
+                    source,
+                })?;
+        }
+
+        for (index, (path, stage)) in staged.iter().enumerate() {
+            if fail_before_install == Some(index) {
+                return Err(MihoError::Unsupported(format!(
+                    "injected batch install failure at {}",
+                    path.display()
+                )));
+            }
+            if path.exists() {
+                let backup = unique_sibling(path, "backup");
+                fs::rename(path, &backup).map_err(|source| MihoError::Write {
+                    path: path.clone(),
+                    source,
+                })?;
+                backups.push((path.clone(), backup));
+            }
+            fs::rename(stage, path).map_err(|source| MihoError::Write {
+                path: path.clone(),
+                source,
+            })?;
+            installed.push(path.clone());
+        }
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        for path in installed.iter().rev() {
+            let _ = fs::remove_file(path);
+        }
+        let mut rollback_failures = Vec::new();
+        for (path, backup) in &backups {
+            if backup.exists() {
+                if let Err(source) = fs::rename(backup, path) {
+                    rollback_failures.push(format!(
+                        "{} -> {}: {source}",
+                        backup.display(),
+                        path.display()
+                    ));
+                }
+            }
+        }
+        for (_, stage) in &staged {
+            let _ = fs::remove_file(stage);
+        }
+        if rollback_failures.is_empty() {
+            return Err(error);
+        }
+        return Err(MihoError::Unsupported(format!(
+            "batch install failed ({error}); rollback incomplete: {}",
+            rollback_failures.join("; ")
+        )));
+    }
+
+    for (_, backup) in &backups {
+        let _ = fs::remove_file(backup);
+    }
+    for (_, stage) in &staged {
+        let _ = fs::remove_file(stage);
+    }
+    Ok(())
+}
+
+fn reject_reparse_ancestors(path: &Path) -> Result<()> {
+    let mut ancestor = path.parent();
+    while let Some(candidate) = ancestor {
+        match fs::symlink_metadata(candidate) {
+            Ok(metadata) if is_symlink_or_reparse(&metadata) => {
+                return Err(MihoError::Unsupported(format!(
+                    "batch output parent is a symlink or reparse point: {}",
+                    candidate.display()
+                )));
+            }
+            Ok(_) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(MihoError::Read {
+                    path: candidate.to_path_buf(),
+                    source,
+                });
+            }
+        }
+        ancestor = candidate.parent();
+    }
+    Ok(())
+}
+
+fn is_symlink_or_reparse(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 fn unique_sibling(path: &Path, kind: &str) -> PathBuf {
     let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
     let name = path.file_name().and_then(|v| v.to_str()).unwrap_or("miho");
     path.with_file_name(format!(".{name}.{kind}.{}.{id}", std::process::id()))
+}
+
+fn normalized_absolute(path: &Path) -> Result<PathBuf> {
+    let source = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|source| MihoError::Read {
+                path: PathBuf::from("."),
+                source,
+            })?
+            .join(path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in source.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(MihoError::Unsupported(format!(
+                        "batch output path escapes its root: {}",
+                        path.display()
+                    )));
+                }
+            }
+        }
+    }
+    Ok(normalized)
 }
 
 fn replace(temp: &Path, target: &Path) -> Result<()> {
@@ -120,5 +318,65 @@ mod tests {
         }
         assert!(fs::read_to_string(&path).unwrap().parse::<u8>().is_ok());
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn batch_rejects_collisions_before_mutation() {
+        let root = test_path("batch-collision");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("same.md");
+        fs::write(&path, b"old").unwrap();
+        let error = write_batch(&[
+            (path.clone(), b"first".to_vec()),
+            (path.clone(), b"second".to_vec()),
+        ])
+        .unwrap_err();
+        assert!(error.to_string().contains("collide"));
+        assert_eq!(fs::read(&path).unwrap(), b"old");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn batch_rolls_back_all_targets_when_later_install_fails() {
+        let root = test_path("batch-rollback");
+        fs::create_dir_all(&root).unwrap();
+        let first = root.join("first.md");
+        let second = root.join("second.md");
+        fs::write(&first, b"old-first").unwrap();
+        fs::write(&second, b"old-second").unwrap();
+        let outputs = [
+            (first.clone(), b"new-first".to_vec()),
+            (second.clone(), b"new-second".to_vec()),
+        ];
+        assert!(write_batch_inner(&outputs, Some(1)).is_err());
+        assert_eq!(fs::read(&first).unwrap(), b"old-first");
+        assert_eq!(fs::read(&second).unwrap(), b"old-second");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn batch_rejects_aliasing_symlink_parents_before_mutation() {
+        let root = test_path("batch-parent-link");
+        let real = root.join("real");
+        let alias = root.join("alias");
+        fs::create_dir_all(&real).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&real, &alias).is_err() {
+            fs::remove_dir_all(root).unwrap();
+            return;
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let real_output = real.join("same.md");
+        let alias_output = alias.join("same.md");
+        let error = write_batch(&[
+            (real_output.clone(), b"current".to_vec()),
+            (alias_output, b"target".to_vec()),
+        ])
+        .unwrap_err();
+        assert!(error.to_string().contains("symlink or reparse"));
+        assert!(!real_output.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 }

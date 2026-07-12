@@ -3,6 +3,7 @@ pub mod box_state;
 pub mod config;
 pub mod contract;
 pub mod error;
+pub mod evidence;
 pub mod hf;
 pub mod hsr;
 pub mod hsr_enrichment;

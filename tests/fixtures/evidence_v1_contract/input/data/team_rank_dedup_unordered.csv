@@ -1,0 +1,23 @@
+snapshot_id,collect_date,mode,mode_cn,sub_mode,sub_mode_cn,phase_ver,phase_name,scope,source_kind,rank,char_1_slug,char_2_slug,char_3_slug,bangboo_slug,app_rate,avg_score,duplicate_count
+sd-281-a,2026-06-01,sd,式舆防卫,5-1,5 / 1,2.8.1,SD 2.8.1,5-1_combined.json,dedup,2,miyabi,lucy,nicole,big-fan,12.5,30001,2
+sd-281-b,2026-06-01,sd,式舆防卫,5-2,5 / 2,2.8.1,SD 2.8.1,5-2_combined.json,dedup,1,nicole-demara,miyabi,lucy,biggest-fan,11.5,30002,1
+sd-282-a,2026-06-08,sd,式舆防卫,5-3,5 / 3,2.8.2,SD 2.8.2,5-3_combined.json,dedup,3,lucy,nicole-demara,miyabi,biggest-fan,10.5,30003,3
+sd-282-b,2026-06-08,sd,式舆防卫,5-1,5 / 1,2.8.2,SD 2.8.2,5-1_combined.json,dedup,4,miyabi,nicole-demara,lucy,biggest-fan,9.5,30004,1
+sd-283-a,2026-06-15,sd,式舆防卫,5-2,5 / 2,2.8.3,SD 2.8.3,5-2_combined.json,dedup,5,miyabi,lucy,nicole-demara,biggest-fan,8.5,30005,1
+sd-283-b,2026-06-15,sd,式舆防卫,5-3,5 / 3,2.8.3,SD 2.8.3,5-3_combined.json,dedup,6,nicole-demara,lucy,miyabi,biggest-fan,7.5,30006,1
+sd-284-a,2026-06-22,sd,式舆防卫,5-1,5 / 1,2.8.4,SD 2.8.4,5-1_combined.json,dedup,7,miyabi,lucy,nicole-demara,biggest-fan,6.5,30007,1
+sd-284-b,2026-06-22,sd,式舆防卫,5-2,5 / 2,2.8.4,SD 2.8.4,5-2_combined.json,dedup,8,lucy,miyabi,nicole-demara,biggest-fan,5.5,30008,1
+sd-285-a,2026-06-29,sd,式舆防卫,5-3,5 / 3,2.8.5,SD 2.8.5,5-3_combined.json,dedup,9,nicole-demara,miyabi,lucy,biggest-fan,4.5,30009,1
+sd-285-b,2026-06-29,sd,式舆防卫,5-1,5 / 1,2.8.5,SD 2.8.5,5-1_combined.json,dedup,10,miyabi,nicole-demara,lucy,biggest-fan,3.5,30010,1
+sd-286-a,2026-07-06,sd,式舆防卫,5-2,5 / 2,2.8.6,SD 2.8.6,5-2_combined.json,dedup,11,miyabi,lucy,nicole-demara,biggest-fan,2.5,30011,1
+sd-286-b,2026-07-06,sd,式舆防卫,5-3,5 / 3,2.8.6,SD 2.8.6,5-3_combined.json,dedup,12,nicole-demara,lucy,miyabi,biggest-fan,1.5,0,1
+da-281,2026-06-01,da,危局强袭,all,全部,2.8.1,DA 2.8.1,all,raw,3,miyabi,lucy,nicole-demara,biggest-fan,3.0,900001,2
+da-282,2026-06-15,da,危局强袭,all,全部,2.8.2,DA 2.8.2,all,raw,2,nicole,miyabi,lucy,big-fan,2.0,900002,1
+da-283,2026-06-29,da,危局强袭,all,全部,2.8.3,DA 2.8.3,all,raw,1,lucy,nicole-demara,miyabi,biggest-fan,1.0,900003,1
+sd-plan-281-a,2026-06-01,sd,式舆防卫,5-1,5 / 1,2.8.1,SD Plan 2.8.1,5-1_combined.json,dedup,2,miyabi,lucy,sun-na,biggest-fan,8.0,31001,2
+sd-plan-281-b,2026-06-01,sd,式舆防卫,5-2,5 / 2,2.8.1,SD Plan 2.8.1,5-2_combined.json,dedup,1,sunna,miyabi,lucy,biggest-fan,7.0,31002,1
+sd-plan-282-a,2026-06-15,sd,式舆防卫,5-1,5 / 1,2.8.2,SD Plan 2.8.2,5-1_combined.json,dedup,4,lucy,sunna,miyabi,biggest-fan,6.0,31003,2
+sd-plan-282-b,2026-06-15,sd,式舆防卫,5-2,5 / 2,2.8.2,SD Plan 2.8.2,5-2_combined.json,dedup,3,miyabi,sunna,lucy,biggest-fan,5.0,31004,1
+sd-plan-283-a,2026-06-29,sd,式舆防卫,5-1,5 / 1,2.8.3,SD Plan 2.8.3,5-1_combined.json,dedup,6,miyabi,lucy,sunna,biggest-fan,4.0,0,2
+sd-plan-283-b,2026-06-29,sd,式舆防卫,5-2,5 / 2,2.8.3,SD Plan 2.8.3,5-2_combined.json,dedup,5,sunna,lucy,miyabi,biggest-fan,3.0,0,1
+sd-missing,2026-07-06,sd,式舆防卫,5-3,5 / 3,2.8.6,SD Missing,5-3_combined.json,dedup,1,miyabi,lucy,zhao,biggest-fan,20.0,32000,4
