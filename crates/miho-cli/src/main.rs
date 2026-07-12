@@ -1,6 +1,7 @@
 use std::{
+    collections::BTreeSet,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::Duration as StdDuration,
 };
@@ -20,9 +21,10 @@ use miho_core::{
     normalize::parse_date,
     pipeline::{run_hsr_export_v1, run_zzz_export_v1, ExportRequest, Game, OfflineFixture},
     source::HfSnapshotSource,
-    visualizer::VisualizerContext,
+    visualizer::{attach_visualizer_hub, validate_json_surrogate_escapes, VisualizerContext},
     zzz_enrichment::first_valid_phase_override_path,
     zzz_supplemental::{ZzzFixtureSupplementalSource, ZzzHttpSupplementalSource},
+    zzz_visualizer::attach_zzz_visualizer,
     MihoError,
 };
 
@@ -301,15 +303,26 @@ async fn main() {
 }
 
 async fn execute(cli: Cli) -> anyhow::Result<()> {
-    if let GameCommand::Hsr {
-        command: HsrCommand::Visualizer(args),
-    } = &cli.game
-    {
-        let out = args
-            .out
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("./hsr_endgame_export"));
-        return rebuild_hsr_visualizer(&out);
+    match &cli.game {
+        GameCommand::Hsr {
+            command: HsrCommand::Visualizer(args),
+        } => {
+            let out = args
+                .out
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("./hsr_endgame_export"));
+            return rebuild_hsr_visualizer(&out);
+        }
+        GameCommand::Zzz {
+            command: ZzzCommand::Visualizer(args),
+        } => {
+            let out = args
+                .out
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("./zzz_endgame_export"));
+            return rebuild_zzz_visualizer(&out);
+        }
+        _ => {}
     }
     let (game, args, name_map_seed) = match cli.game {
         GameCommand::Hsr { command: HsrCommand::Export(args) } => {
@@ -321,6 +334,9 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
         }
         _ => bail!("this command's Rust implementation is registered but not yet enabled; use the Python compatibility command during staged migration"),
     };
+    if game == Game::Zzz {
+        validate_zzz_hub_preflight(&args.out)?;
+    }
     let revision = "main";
     let request = ExportRequest {
         schema_version: EXPORT_REQUEST_SCHEMA_VERSION,
@@ -430,10 +446,11 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             }
         }
     };
-    if game == Game::Hsr {
-        attach_hsr_visualizer_from_output(&mut run.bundle, &args.out)?;
-        run.bundle.refresh_manifest("artifact_manifest.json")?;
+    match game {
+        Game::Hsr => attach_hsr_visualizer_from_output(&mut run.bundle, &args.out)?,
+        Game::Zzz => attach_zzz_visualizer_from_output(&mut run.bundle, &args.out)?,
     }
+    run.bundle.refresh_manifest("artifact_manifest.json")?;
     for diagnostic in &run.diagnostics {
         match diagnostic.severity {
             DiagnosticSeverity::Warning => eprintln!("warning: {}", diagnostic.message),
@@ -442,29 +459,34 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             }
         }
     }
-    if game == Game::Hsr {
-        write_bundle_transactionally(&args.out, &run.bundle)?;
-    } else {
-        run.bundle.write_to(&args.out)?;
+    write_bundle_transactionally(&args.out, &run.bundle)?;
+    if game == Game::Zzz {
+        write_zzz_hub(&args.out)?;
     }
     Ok(())
 }
 
-fn online_export_gate(game: Game) -> Option<&'static str> {
-    match game {
-        Game::Hsr => None,
-        Game::Zzz => Some(
-            "ZZZ supplemental sources are migrated and Workbook export now passes compatibility checks, but online export remains gated until visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command",
-        ),
-    }
+fn online_export_gate(_game: Game) -> Option<&'static str> {
+    None
 }
 
 fn rebuild_hsr_visualizer(out: &Path) -> anyhow::Result<()> {
     validate_output_root(out)?;
-    let mut bundle = load_existing_output(out)?;
+    let mut bundle = load_existing_output(out, Game::Hsr)?;
     attach_hsr_visualizer_from_output(&mut bundle, out)?;
     bundle.refresh_manifest("artifact_manifest.json")?;
     write_bundle_transactionally(out, &bundle)?;
+    Ok(())
+}
+
+fn rebuild_zzz_visualizer(out: &Path) -> anyhow::Result<()> {
+    validate_zzz_hub_preflight(out)?;
+    validate_output_root(out)?;
+    let mut bundle = load_existing_output(out, Game::Zzz)?;
+    attach_zzz_visualizer_from_output(&mut bundle, out)?;
+    bundle.refresh_manifest("artifact_manifest.json")?;
+    write_bundle_transactionally(out, &bundle)?;
+    write_zzz_hub(out)?;
     Ok(())
 }
 
@@ -474,12 +496,12 @@ fn attach_hsr_visualizer_from_output(
 ) -> anyhow::Result<()> {
     validate_optional_directory(out)?;
     validate_optional_directory(&out.join("visualizer"))?;
-    let avatars = read_existing_hsr_avatars(out)?;
+    let avatars = read_existing_visualizer_avatars(out)?;
     for path in hsr_banner_candidates(out) {
         let Some(bytes) = read_json_object_candidate(&path)? else {
             continue;
         };
-        let mut context = hsr_visualizer_context(&avatars)?;
+        let mut context = visualizer_context(&avatars)?;
         context.add_sidecar_bytes("hsr_banner_plan.json", bytes)?;
         match attach_hsr_visualizer(bundle, &context) {
             Ok(()) => return Ok(()),
@@ -488,8 +510,35 @@ fn attach_hsr_visualizer_from_output(
         }
     }
 
-    let context = hsr_visualizer_context(&avatars)?;
+    let context = visualizer_context(&avatars)?;
     attach_hsr_visualizer(bundle, &context)?;
+    Ok(())
+}
+
+fn attach_zzz_visualizer_from_output(
+    bundle: &mut miho_core::output::ArtifactBundle,
+    out: &Path,
+) -> anyhow::Result<()> {
+    validate_optional_directory(out)?;
+    validate_optional_directory(&out.join("visualizer"))?;
+    let avatars = read_existing_visualizer_avatars(out)?;
+    let mut context = visualizer_context(&avatars)?;
+
+    if let Some(bytes) = first_valid_phase_override_candidate(&zzz_phase_override_candidates(out))?
+    {
+        context.add_sidecar_bytes("zzz_endgame_phase_overrides.json", bytes)?;
+    }
+    if let Some(bytes) =
+        first_valid_json_candidate(&zzz_banner_candidates(out), serde_json::Value::is_object)?
+    {
+        context.add_sidecar_bytes("zzz_banner_plan.json", bytes)?;
+    }
+    match fs::read(out.join("decision_cards.json")) {
+        Ok(bytes) => context.add_sidecar_bytes("decision_cards.json", bytes)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    attach_zzz_visualizer(bundle, &context)?;
     Ok(())
 }
 
@@ -517,6 +566,11 @@ fn write_bundle_transactionally(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Err(error) => return Err(error.into()),
     };
+    let old_managed = if old_exists {
+        read_manifest_ownership(out)?
+    } else {
+        None
+    };
     let stage = create_transaction_stage(parent, name)?;
     let prepare = (|| -> anyhow::Result<()> {
         if old_exists {
@@ -524,6 +578,7 @@ fn write_bundle_transactionally(
         }
         remove_staged_visualizer(&stage)?;
         remove_staged_manifest(&stage)?;
+        remove_stale_managed(&stage, old_managed.as_ref(), bundle)?;
         bundle.write_to(&stage)?;
         Ok(())
     })();
@@ -558,6 +613,107 @@ fn write_bundle_transactionally(
             Ok(()) => Err(install_error.into()),
             Err(rollback_error) => Err(anyhow::anyhow!(
                 "output install failed ({install_error}); rollback also failed ({rollback_error}); old output remains at {}",
+                backup.display()
+            )),
+        };
+    }
+    fs::remove_dir_all(backup)?;
+    Ok(())
+}
+
+fn write_zzz_hub(out: &Path) -> anyhow::Result<()> {
+    validate_zzz_hub_preflight(out)?;
+    let zzz_dir = out
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!("ZZZ output directory name is not UTF-8: {}", out.display())
+        })?;
+    let workspace = out
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut bundle = miho_core::output::ArtifactBundle::default();
+    attach_visualizer_hub(&mut bundle, "out", zzz_dir)?;
+    write_clean_directory_transactionally(&workspace.join("visualizer"), &bundle)
+}
+
+fn validate_zzz_hub_preflight(out: &Path) -> anyhow::Result<()> {
+    let zzz_dir = out
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!("ZZZ output directory name is not UTF-8: {}", out.display())
+        })?;
+    let workspace = out
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+
+    // Build the dynamic Hub in memory first so unsafe output segments are
+    // rejected before either the export directory or its sibling Hub changes.
+    let mut probe = miho_core::output::ArtifactBundle::default();
+    attach_visualizer_hub(&mut probe, "out", zzz_dir)?;
+
+    let target = workspace.join("visualizer");
+    match fs::symlink_metadata(&target) {
+        Ok(metadata) if !metadata.file_type().is_symlink() && metadata.is_dir() => Ok(()),
+        Ok(_) => bail!("refusing unsafe hub directory: {}", target.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn write_clean_directory_transactionally(
+    target: &Path,
+    bundle: &miho_core::output::ArtifactBundle,
+) -> anyhow::Result<()> {
+    let name = target.file_name().ok_or_else(|| {
+        anyhow::anyhow!(
+            "transactional directory requires a name: {}",
+            target.display()
+        )
+    })?;
+    let parent = target
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let old_exists = match fs::symlink_metadata(target) {
+        Ok(metadata) if !metadata.file_type().is_symlink() && metadata.is_dir() => true,
+        Ok(_) => bail!("refusing unsafe hub directory: {}", target.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    let stage = create_transaction_stage(parent, name)?;
+    if let Err(error) = bundle.write_to(&stage) {
+        let _ = fs::remove_dir_all(&stage);
+        return Err(error.into());
+    }
+    #[cfg(debug_assertions)]
+    if std::env::var_os("MIHO_TEST_FAIL_HUB_TRANSACTION_BEFORE_SWAP").is_some() {
+        fs::remove_dir_all(&stage)?;
+        bail!("injected Hub transaction failure before swap");
+    }
+    if !old_exists {
+        if let Err(error) = fs::rename(&stage, target) {
+            let _ = fs::remove_dir_all(&stage);
+            return Err(error.into());
+        }
+        return Ok(());
+    }
+    let backup = unused_transaction_sibling(parent, name, "backup")?;
+    if let Err(error) = fs::rename(target, &backup) {
+        let _ = fs::remove_dir_all(&stage);
+        return Err(error.into());
+    }
+    if let Err(install_error) = fs::rename(&stage, target) {
+        let rollback = fs::rename(&backup, target);
+        let _ = fs::remove_dir_all(&stage);
+        return match rollback {
+            Ok(()) => Err(install_error.into()),
+            Err(rollback_error) => Err(anyhow::anyhow!(
+                "Hub install failed ({install_error}); rollback also failed ({rollback_error}); old Hub remains at {}",
                 backup.display()
             )),
         };
@@ -651,6 +807,40 @@ fn remove_staged_manifest(stage: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn remove_stale_managed(
+    stage: &Path,
+    old_managed: Option<&BTreeSet<PathBuf>>,
+    bundle: &miho_core::output::ArtifactBundle,
+) -> anyhow::Result<()> {
+    let Some(old_managed) = old_managed else {
+        return Ok(());
+    };
+    let new_managed = bundle
+        .manifest()
+        .into_iter()
+        .map(|entry| PathBuf::from(entry.path))
+        .collect::<BTreeSet<_>>();
+    for relative in old_managed {
+        if is_visualizer_path(relative)
+            || relative == Path::new("artifact_manifest.json")
+            || is_known_sidecar(relative)
+            || new_managed.contains(relative)
+        {
+            continue;
+        }
+        let path = stage.join(relative);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if !metadata.file_type().is_symlink() && metadata.is_file() => {
+                fs::remove_file(path)?;
+            }
+            Ok(_) => bail!("refusing unsafe stale managed path: {}", path.display()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
 fn validate_output_root(out: &Path) -> anyhow::Result<()> {
     let metadata = fs::symlink_metadata(out)?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
@@ -671,10 +861,14 @@ fn validate_optional_directory(path: &Path) -> anyhow::Result<bool> {
     }
 }
 
-fn load_existing_output(out: &Path) -> anyhow::Result<miho_core::output::ArtifactBundle> {
+fn load_existing_output(
+    out: &Path,
+    game: Game,
+) -> anyhow::Result<miho_core::output::ArtifactBundle> {
     fn visit(
         root: &Path,
         current: &Path,
+        game: Game,
         bundle: &mut miho_core::output::ArtifactBundle,
     ) -> anyhow::Result<()> {
         for entry in fs::read_dir(current)? {
@@ -682,8 +876,9 @@ fn load_existing_output(out: &Path) -> anyhow::Result<miho_core::output::Artifac
             let path = entry.path();
             let relative = path.strip_prefix(root)?;
             let file_type = entry.file_type()?;
-            if relative == Path::new("visualizer")
+            if is_visualizer_path(relative)
                 || relative == Path::new("artifact_manifest.json")
+                || is_known_sidecar(relative)
             {
                 continue;
             }
@@ -691,22 +886,196 @@ fn load_existing_output(out: &Path) -> anyhow::Result<miho_core::output::Artifac
                 bail!("refusing symlink in existing output: {}", path.display());
             }
             if file_type.is_dir() {
-                visit(root, &path, bundle)?;
-            } else if file_type.is_file() {
+                visit(root, &path, game, bundle)?;
+            } else if file_type.is_file() && is_legacy_managed_artifact(game, relative) {
                 bundle.add_bytes(relative, fs::read(&path)?)?;
             } else {
-                bail!("unsupported artifact type: {}", path.display());
+                if !file_type.is_file() {
+                    bail!("unsupported artifact type: {}", path.display());
+                }
             }
         }
         Ok(())
     }
 
     let mut bundle = miho_core::output::ArtifactBundle::default();
-    visit(out, out, &mut bundle)?;
+    if let Some(managed) = read_manifest_ownership(out)? {
+        for relative in managed {
+            if is_visualizer_path(&relative)
+                || relative == Path::new("artifact_manifest.json")
+                || is_known_sidecar(&relative)
+            {
+                continue;
+            }
+            let path = out.join(&relative);
+            let metadata = fs::symlink_metadata(&path).map_err(|error| {
+                anyhow::anyhow!(
+                    "managed artifact is not readable: {}: {error}",
+                    path.display()
+                )
+            })?;
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                bail!("managed artifact is not a regular file: {}", path.display());
+            }
+            bundle.add_bytes(relative, fs::read(path)?)?;
+        }
+    } else {
+        visit(out, out, game, &mut bundle)?;
+    }
     Ok(bundle)
 }
 
-fn read_existing_hsr_avatars(out: &Path) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+fn is_legacy_managed_artifact(game: Game, path: &Path) -> bool {
+    let fixed = match game {
+        Game::Hsr => matches!(
+            path.to_str(),
+            Some(
+                "phase_index.csv"
+                    | "character_usage_long.csv"
+                    | "team_rank_raw.csv"
+                    | "prydwen_tier_current.csv"
+                    | "histograph_usage_long.csv"
+                    | "character_usage_phase_latest.csv"
+                    | "team_rank_dedup_ordered.csv"
+                    | "team_rank_dedup_unordered.csv"
+                    | "name_map.csv"
+                    | "name_map_unresolved.csv"
+                    | "prydwen_tier_history.csv"
+                    | "prydwen_tier_changelog.csv"
+                    | "prydwen_tier_changelog_history.csv"
+                    | "prydwen_tier_usage_trend.csv"
+                    | "prydwen_tier_charts.csv"
+                    | "overview.csv"
+                    | "latest_usage_cn.csv"
+                    | "top_teams_latest.csv"
+                    | "export_report.md"
+                    | "hsr_endgame_dataset.xlsx"
+            )
+        ),
+        Game::Zzz => matches!(
+            path.to_str(),
+            Some(
+                "phase_index.csv"
+                    | "character_usage_long.csv"
+                    | "character_usage_phase_latest.csv"
+                    | "team_rank_raw.csv"
+                    | "team_rank_dedup_unordered.csv"
+                    | "name_map.csv"
+                    | "name_map_unresolved.csv"
+                    | "prydwen_tier_current.csv"
+                    | "prydwen_tier_history.csv"
+                    | "prydwen_tier_changelog.csv"
+                    | "prydwen_tier_changelog_history.csv"
+                    | "prydwen_tier_usage_trend.csv"
+                    | "export_report.md"
+                    | "zzz_endgame_dataset.xlsx"
+            )
+        ),
+    };
+    fixed || is_legacy_raw_artifact(game, path) || is_legacy_chart_artifact(game, path)
+}
+
+fn is_legacy_raw_artifact(game: Game, path: &Path) -> bool {
+    if path.starts_with("raw/hf") {
+        return path != Path::new("raw/hf");
+    }
+    match game {
+        Game::Hsr => {
+            [
+                "raw/prydwen/aa.html",
+                "raw/prydwen/as.html",
+                "raw/prydwen/moc.html",
+                "raw/prydwen/pf.html",
+                "raw/hoyowiki/hsr_characters_zh-cn.json",
+                "raw/hoyowiki/hsr_characters_en-us.json",
+            ]
+            .into_iter()
+            .any(|candidate| path == Path::new(candidate))
+                || is_prydwen_tier_snapshot(path)
+        }
+        Game::Zzz => {
+            [
+                "raw/prydwen/sd.html",
+                "raw/prydwen/da.html",
+                "raw/hoyowiki/zzz_agents_zh-cn.json",
+                "raw/hoyowiki/zzz_agents_en-us.json",
+                "raw/hoyowiki/zzz_bangboo_zh-cn.json",
+                "raw/hoyowiki/zzz_bangboo_en-us.json",
+            ]
+            .into_iter()
+            .any(|candidate| path == Path::new(candidate))
+                || is_prydwen_tier_snapshot(path)
+        }
+    }
+}
+
+fn is_prydwen_tier_snapshot(path: &Path) -> bool {
+    path.parent() == Some(Path::new("raw/prydwen_tier"))
+        && path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .and_then(|value| value.strip_prefix("tier-list_"))
+            .and_then(|value| value.strip_suffix(".html"))
+            .is_some_and(|snapshot| !snapshot.is_empty())
+}
+
+fn is_legacy_chart_artifact(game: Game, path: &Path) -> bool {
+    game == Game::Hsr
+        && path.parent() == Some(Path::new("charts/prydwen_tier_usage"))
+        && path.extension().and_then(|value| value.to_str()) == Some("svg")
+        && path.file_stem().is_some_and(|value| !value.is_empty())
+}
+
+fn read_manifest_ownership(out: &Path) -> anyhow::Result<Option<BTreeSet<PathBuf>>> {
+    let path = out.join("artifact_manifest.json");
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let entries: Vec<miho_core::output::ArtifactManifestEntry> = serde_json::from_slice(&bytes)
+        .map_err(|error| anyhow::anyhow!("invalid existing artifact manifest: {error}"))?;
+    let mut managed = BTreeSet::new();
+    for entry in entries {
+        let relative = PathBuf::from(entry.path);
+        if relative.as_os_str().is_empty()
+            || relative.is_absolute()
+            || relative
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            bail!(
+                "invalid path in existing artifact manifest: {}",
+                relative.display()
+            );
+        }
+        if !managed.insert(relative.clone()) {
+            bail!(
+                "duplicate path in existing artifact manifest: {}",
+                relative.display()
+            );
+        }
+    }
+    Ok(Some(managed))
+}
+
+fn is_visualizer_path(path: &Path) -> bool {
+    path == Path::new("visualizer") || path.starts_with("visualizer")
+}
+
+fn is_known_sidecar(path: &Path) -> bool {
+    matches!(
+        path.to_str(),
+        Some(
+            "hsr_banner_plan.json"
+                | "zzz_endgame_phase_overrides.json"
+                | "zzz_banner_plan.json"
+                | "decision_cards.json"
+        )
+    )
+}
+
+fn read_existing_visualizer_avatars(out: &Path) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
     if !validate_optional_directory(&out.join("visualizer/assets"))? {
         return Ok(Vec::new());
     }
@@ -737,8 +1106,8 @@ fn read_existing_hsr_avatars(out: &Path) -> anyhow::Result<Vec<(String, Vec<u8>)
     Ok(avatars)
 }
 
-fn hsr_visualizer_context(avatars: &[(String, Vec<u8>)]) -> anyhow::Result<VisualizerContext> {
-    let mut context = VisualizerContext::new(Local::now().date_naive());
+fn visualizer_context(avatars: &[(String, Vec<u8>)]) -> anyhow::Result<VisualizerContext> {
+    let mut context = VisualizerContext::new_with_local_datetime(Local::now().naive_local());
     for (slug, bytes) in avatars {
         context.add_avatar_webp(slug, bytes.clone())?;
     }
@@ -754,17 +1123,85 @@ fn hsr_banner_candidates(out: &Path) -> Vec<PathBuf> {
     candidates
 }
 
+fn zzz_phase_override_candidates(out: &Path) -> Vec<PathBuf> {
+    let mut candidates = vec![out.join("zzz_endgame_phase_overrides.json")];
+    if let Some(parent) = out.parent() {
+        candidates.push(parent.join("configs/zzz_endgame_phase_overrides.json"));
+    }
+    candidates.push(PathBuf::from("configs/zzz_endgame_phase_overrides.json"));
+    candidates
+}
+
+fn zzz_banner_candidates(out: &Path) -> Vec<PathBuf> {
+    let mut candidates = vec![out.join("zzz_banner_plan.json")];
+    if let Some(parent) = out.parent() {
+        candidates.push(parent.join("configs/zzz_banner_plan.json"));
+    }
+    candidates.push(PathBuf::from("configs/zzz_banner_plan.json"));
+    candidates
+}
+
+fn first_valid_json_candidate(
+    paths: &[PathBuf],
+    is_valid: fn(&serde_json::Value) -> bool,
+) -> anyhow::Result<Option<Vec<u8>>> {
+    for path in paths {
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let text = strict_utf8_candidate(&bytes, path)?;
+        validate_json_surrogate_escapes(text, &path.display().to_string())?;
+        let Ok(value) = serde_json::from_str(text) else {
+            continue;
+        };
+        if is_valid(&value) {
+            return Ok(Some(bytes));
+        }
+    }
+    Ok(None)
+}
+
+fn first_valid_phase_override_candidate(paths: &[PathBuf]) -> anyhow::Result<Option<Vec<u8>>> {
+    for path in paths {
+        let Ok(bytes) = fs::read(path) else {
+            continue;
+        };
+        let text = strict_utf8_candidate(&bytes, path)?;
+        validate_json_surrogate_escapes(text, &path.display().to_string())?;
+        let Ok(value) = serde_json::from_str(text) else {
+            continue;
+        };
+        if is_valid_phase_override(&value) {
+            return Ok(Some(bytes));
+        }
+    }
+    Ok(None)
+}
+
+fn is_valid_phase_override(value: &serde_json::Value) -> bool {
+    value.is_array()
+        || value
+            .as_object()
+            .and_then(|object| object.get("phases"))
+            .is_some_and(serde_json::Value::is_array)
+}
+
 fn read_json_object_candidate(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    let text = match std::str::from_utf8(&bytes) {
-        Ok(text) => text.trim(),
-        Err(_) => return Ok(None),
-    };
+    let text = strict_utf8_candidate(&bytes, path)?.trim();
+    validate_json_surrogate_escapes(text, &path.display().to_string())?;
     Ok((text.starts_with('{') && text.ends_with('}')).then_some(bytes))
+}
+
+fn strict_utf8_candidate<'a>(bytes: &'a [u8], path: &Path) -> anyhow::Result<&'a str> {
+    std::str::from_utf8(bytes)
+        .map_err(|source| anyhow::anyhow!("invalid UTF-8 in {}: {source}", path.display()))
 }
 
 fn cache_root(game: Game, repo_id: &str, revision: &str) -> PathBuf {
@@ -781,14 +1218,7 @@ fn zzz_phase_override_path(game: Game, output_root: &std::path::Path) -> Option<
     if game != Game::Zzz {
         return None;
     }
-    let mut candidates = vec![output_root.join("zzz_endgame_phase_overrides.json")];
-    if let Some(parent) = output_root.parent() {
-        candidates.push(parent.join("configs/zzz_endgame_phase_overrides.json"));
-    }
-    if let Ok(current) = std::env::current_dir() {
-        candidates.push(current.join("configs/zzz_endgame_phase_overrides.json"));
-    }
-    first_valid_phase_override_path(candidates)
+    first_valid_phase_override_path(zzz_phase_override_candidates(output_root))
 }
 
 fn cache_root_from(base: &std::path::Path, game: Game, repo_id: &str, revision: &str) -> PathBuf {
@@ -832,6 +1262,51 @@ mod tests {
     #[test]
     fn command_tree_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn legacy_ownership_allowlist_covers_optional_exports_but_rejects_unknown_files() {
+        for path in [
+            "hsr_endgame_dataset.xlsx",
+            "export_report.md",
+            "prydwen_tier_charts.csv",
+            "charts/prydwen_tier_usage/moc_sub_dps_t0_t2_usage.svg",
+            "raw/hf/4.3.2/moc/comps/stage_1_combined.json",
+            "raw/prydwen/pf.html",
+            "raw/prydwen_tier/tier-list_20260106.html",
+            "raw/hoyowiki/hsr_characters_en-us.json",
+        ] {
+            assert!(
+                is_legacy_managed_artifact(Game::Hsr, Path::new(path)),
+                "HSR allowlist omitted {path}"
+            );
+        }
+        for path in [
+            "zzz_endgame_dataset.xlsx",
+            "export_report.md",
+            "prydwen_tier_usage_trend.csv",
+            "raw/hf/3.0.1/sd/comps/5-1_combined.json",
+            "raw/prydwen/da.html",
+            "raw/prydwen_tier/tier-list_20260707.html",
+            "raw/hoyowiki/zzz_bangboo_zh-cn.json",
+        ] {
+            assert!(
+                is_legacy_managed_artifact(Game::Zzz, Path::new(path)),
+                "ZZZ allowlist omitted {path}"
+            );
+        }
+        for (game, path) in [
+            (Game::Hsr, "keep-me.txt"),
+            (Game::Zzz, "notes/keep-me.txt"),
+            (Game::Hsr, "raw/prydwen/keep-me.html"),
+            (Game::Zzz, "raw/hoyowiki/keep-me.json"),
+            (Game::Zzz, "charts/prydwen_tier_usage/foreign.svg"),
+        ] {
+            assert!(
+                !is_legacy_managed_artifact(game, Path::new(path)),
+                "unknown file was promoted: {path}"
+            );
+        }
     }
 
     #[test]
@@ -947,16 +1422,30 @@ mod tests {
     }
 
     #[test]
-    fn online_gate_is_lifted_only_for_hsr() {
+    fn zzz_visualizer_default_matches_python_contract() {
+        let cli = Cli::try_parse_from(["miho", "zzz", "visualizer"]).unwrap();
+        let GameCommand::Zzz {
+            command: ZzzCommand::Visualizer(args),
+        } = cli.game
+        else {
+            panic!("expected ZZZ visualizer")
+        };
+        assert_eq!(
+            args.out
+                .unwrap_or_else(|| PathBuf::from("./zzz_endgame_export")),
+            PathBuf::from("./zzz_endgame_export")
+        );
+    }
+
+    #[test]
+    fn online_export_gate_is_lifted_for_both_games() {
         assert!(online_export_gate(Game::Hsr).is_none());
-        assert!(online_export_gate(Game::Zzz)
-            .unwrap()
-            .contains("visualizer artifacts"));
+        assert!(online_export_gate(Game::Zzz).is_none());
     }
 
     #[tokio::test]
     async fn unported_command_keeps_explicit_gate() {
-        let cli = Cli::try_parse_from(["miho", "zzz", "visualizer"]).unwrap();
+        let cli = Cli::try_parse_from(["miho", "zzz", "serve"]).unwrap();
         assert!(execute(cli)
             .await
             .unwrap_err()
@@ -984,7 +1473,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&out).unwrap();
         std::fs::create_dir_all(fallback.parent().unwrap()).unwrap();
-        std::fs::write(out.join("zzz_endgame_phase_overrides.json"), "{broken").unwrap();
+        std::fs::create_dir(out.join("zzz_endgame_phase_overrides.json")).unwrap();
         std::fs::write(&fallback, r#"{"phases":[]}"#).unwrap();
 
         assert_eq!(zzz_phase_override_path(Game::Zzz, &out), Some(fallback));

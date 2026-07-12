@@ -6,8 +6,10 @@ use crate::{
     normalize::character_slug,
     output::ArtifactBundle,
     visualizer::{
-        attach_avatar_assets, attach_hsr_static_assets, compact_json, local_avatar_url,
-        read_csv_rows, safe_link_url, safe_relative_url, VisualizerContext,
+        attach_avatar_assets, attach_hsr_static_assets, compact_json,
+        effective_banner_status as shared_effective_banner_status, local_avatar_url,
+        python_scalar_text, python_value_truthy, read_csv_rows, safe_link_url, safe_relative_url,
+        strict_utf8, validate_json_surrogate_escapes, VisualizerContext,
     },
     MihoError, Result,
 };
@@ -20,7 +22,7 @@ pub fn attach_hsr_visualizer(
     bundle: &mut ArtifactBundle,
     context: &VisualizerContext,
 ) -> Result<()> {
-    context.validate()?;
+    let local_datetime = context.require_local_datetime()?;
     let trend = read_csv_rows(bundle, "prydwen_tier_usage_trend.csv")?;
     let tiers = read_csv_rows(bundle, "prydwen_tier_current.csv")?;
     let changelog = read_csv_rows(bundle, "prydwen_tier_changelog_history.csv")?;
@@ -32,7 +34,7 @@ pub fn attach_hsr_visualizer(
 
     let mut roster = build_roster(bundle, &tiers, &characters, &names, context)?;
     let phase_info = build_phase_info(&phases, context);
-    let banner = build_banner(context, &roster)?;
+    let banner = build_banner(context, &roster, local_datetime)?;
     merge_banner_into_roster(&mut roster, &banner);
     let usage = build_usage(&characters, &tiers, &roster, context);
     let team_templates = build_teams(&teams, &phase_info, &roster, context)?;
@@ -183,7 +185,9 @@ fn read_official_rows(bundle: &ArtifactBundle, path: &str) -> Result<Vec<Value>>
     let Some(bytes) = bundle.get(path) else {
         return Ok(vec![]);
     };
-    let value: Value = serde_json::from_slice(bytes).map_err(|source| MihoError::Json {
+    let text = strict_utf8(bytes, path)?;
+    validate_json_surrogate_escapes(text, path)?;
+    let value: Value = serde_json::from_str(text).map_err(|source| MihoError::Json {
         path: path.into(),
         source,
     })?;
@@ -878,11 +882,17 @@ fn build_phase_info(phases: &[Row], context: &VisualizerContext) -> Vec<Value> {
     }).collect()
 }
 
-fn build_banner(context: &VisualizerContext, roster: &[Value]) -> Result<Vec<Value>> {
+fn build_banner(
+    context: &VisualizerContext,
+    roster: &[Value],
+    local_datetime: chrono::NaiveDateTime,
+) -> Result<Vec<Value>> {
     let Some(bytes) = context.sidecar("hsr_banner_plan.json") else {
         return Ok(vec![]);
     };
-    let root: Value = serde_json::from_slice(bytes).map_err(|source| MihoError::Json {
+    let text = strict_utf8(bytes, "hsr_banner_plan.json")?;
+    validate_json_surrogate_escapes(text, "hsr_banner_plan.json")?;
+    let root: Value = serde_json::from_str(text).map_err(|source| MihoError::Json {
         path: "hsr_banner_plan.json".into(),
         source,
     })?;
@@ -894,7 +904,7 @@ fn build_banner(context: &VisualizerContext, roster: &[Value]) -> Result<Vec<Val
         .into_iter()
         .flatten()
     {
-        let status = effective_banner_status(phase, context);
+        let status = shared_effective_banner_status(phase, local_datetime)?;
         for (index, ch) in phase
             .get("characters")
             .and_then(Value::as_array)
@@ -909,7 +919,17 @@ fn build_banner(context: &VisualizerContext, roster: &[Value]) -> Result<Vec<Val
             let r = lookup.get(&slug);
             let cv = |k| ch.get(k).and_then(Value::as_str).unwrap_or("");
             let pv = |k| phase.get(k).and_then(Value::as_str).unwrap_or("");
-            let source_url = first(&[Some(cv("source_url")), Some(pv("source_url"))]);
+            let source_url_value = [ch.get("source_url"), phase.get("source_url")]
+                .into_iter()
+                .flatten()
+                .find(|value| python_value_truthy(value));
+            let source_url = safe_link_url(&python_scalar_text(source_url_value));
+            let source_label = [ch.get("source_label"), phase.get("source_label")]
+                .into_iter()
+                .flatten()
+                .find(|value| python_value_truthy(value))
+                .cloned()
+                .unwrap_or_else(|| Value::String(String::new()));
             let roster_icon = r
                 .and_then(|value| value.get("icon_url"))
                 .and_then(Value::as_str)
@@ -918,111 +938,15 @@ fn build_banner(context: &VisualizerContext, roster: &[Value]) -> Result<Vec<Val
                 local_avatar_url(context, &slug)
             } else {
                 first(&[
-                    nonempty_text(&safe_relative_url(cv("icon_url"))).as_deref(),
+                    nonempty_text(&safe_relative_url(&python_scalar_text(ch.get("icon_url"))))
+                        .as_deref(),
                     nonempty_text(&safe_relative_url(roster_icon)).as_deref(),
                 ])
             };
-            output.push(json!({"phase_id":pv("id"),"phase_status":status,"phase_title":pv("title"),"phase_subtitle":pv("subtitle"),"date_range":pv("date_range"),"source_label":first(&[Some(cv("source_label")),Some(pv("source_label"))]),"source_url":safe_link_url(&source_url),"slot":index+1,"character_slug":slug,"character_name_cn":first(&[Some(cv("name_cn")),r.and_then(|v|v.get("character_name_cn")).and_then(Value::as_str)]),"character_name_en":first(&[Some(cv("name_en")),r.and_then(|v|v.get("character_name_en")).and_then(Value::as_str)]),"banner_role":cv("banner_role"),"rarity":first(&[Some(cv("rarity")),r.and_then(|v|v.get("rarity")).and_then(Value::as_str)]),"element_cn":first(&[Some(cv("element_cn")),r.and_then(|v|v.get("element_cn")).and_then(Value::as_str)]),"path_cn":first(&[Some(cv("path_cn")),r.and_then(|v|v.get("path_cn")).and_then(Value::as_str)]),"role_group_cns":first(&[Some(cv("role_group_cns")),r.and_then(|v|v.get("role_group_cns")).and_then(Value::as_str)]),"icon_url":icon_url,"analysis_tags":ch.get("analysis_tags").cloned().unwrap_or_else(||json!([])),"focus":cv("focus")}));
+            output.push(json!({"phase_id":pv("id"),"phase_status":status,"phase_title":pv("title"),"phase_subtitle":pv("subtitle"),"date_range":pv("date_range"),"source_label":source_label,"source_url":source_url,"slot":index+1,"character_slug":slug,"character_name_cn":first(&[Some(cv("name_cn")),r.and_then(|v|v.get("character_name_cn")).and_then(Value::as_str)]),"character_name_en":first(&[Some(cv("name_en")),r.and_then(|v|v.get("character_name_en")).and_then(Value::as_str)]),"banner_role":cv("banner_role"),"rarity":first(&[Some(cv("rarity")),r.and_then(|v|v.get("rarity")).and_then(Value::as_str)]),"element_cn":first(&[Some(cv("element_cn")),r.and_then(|v|v.get("element_cn")).and_then(Value::as_str)]),"path_cn":first(&[Some(cv("path_cn")),r.and_then(|v|v.get("path_cn")).and_then(Value::as_str)]),"role_group_cns":first(&[Some(cv("role_group_cns")),r.and_then(|v|v.get("role_group_cns")).and_then(Value::as_str)]),"icon_url":icon_url,"analysis_tags":ch.get("analysis_tags").cloned().unwrap_or_else(||json!([])),"focus":cv("focus")}));
         }
     }
     Ok(output)
-}
-
-fn effective_banner_status(phase: &Value, context: &VisualizerContext) -> String {
-    let declared = phase
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    if declared == "satellite" {
-        return declared;
-    }
-    let explicit_start = ["start_at", "starts_at", "start_time", "start"]
-        .iter()
-        .find_map(|key| phase.get(key).and_then(Value::as_str).and_then(first_date));
-    let explicit_end = ["end_at", "ends_at", "end_time", "end"]
-        .iter()
-        .find_map(|key| phase.get(key).and_then(Value::as_str).and_then(first_date));
-    let (start, end) = if explicit_start.is_some() || explicit_end.is_some() {
-        (explicit_start, explicit_end)
-    } else {
-        let dates = phase
-            .get("date_range")
-            .and_then(Value::as_str)
-            .map(all_dates)
-            .unwrap_or_default();
-        (dates.first().copied(), dates.get(1).copied())
-    };
-    if start.is_none() && end.is_none() {
-        return declared;
-    }
-    if !declared.is_empty()
-        && !matches!(
-            declared.as_str(),
-            "current" | "next" | "previous" | "expired" | "past"
-        )
-    {
-        return declared;
-    }
-    if start.is_some_and(|date| context.local_date < date) {
-        "next".into()
-    } else if end.is_some_and(|date| context.local_date > date) {
-        "previous".into()
-    } else {
-        "current".into()
-    }
-}
-
-fn first_date(value: &str) -> Option<chrono::NaiveDate> {
-    all_dates(value).into_iter().next()
-}
-
-fn all_dates(value: &str) -> Vec<chrono::NaiveDate> {
-    let bytes = value.as_bytes();
-    let mut output = Vec::new();
-    for index in 0..bytes.len() {
-        let Some(year) = ascii_number(bytes.get(index..index + 4)) else {
-            continue;
-        };
-        if !bytes
-            .get(index + 4)
-            .is_some_and(|byte| matches!(byte, b'-' | b'/'))
-        {
-            continue;
-        }
-        let month_start = index + 5;
-        let Some(month_end) = (month_start..=(month_start + 2).min(bytes.len())).find(|position| {
-            bytes
-                .get(*position)
-                .is_some_and(|byte| matches!(byte, b'-' | b'/'))
-        }) else {
-            continue;
-        };
-        let Some(month) = ascii_number(bytes.get(month_start..month_end)) else {
-            continue;
-        };
-        let day_start = month_end + 1;
-        let day_end = (day_start..(day_start + 2).min(bytes.len()))
-            .take_while(|position| bytes[*position].is_ascii_digit())
-            .last()
-            .map_or(day_start, |position| position + 1);
-        let Some(day) = ascii_number(bytes.get(day_start..day_end)) else {
-            continue;
-        };
-        if let Some(date) = chrono::NaiveDate::from_ymd_opt(year, month as u32, day as u32) {
-            output.push(date);
-        }
-    }
-    output
-}
-
-fn ascii_number(value: Option<&[u8]>) -> Option<i32> {
-    let value = value?;
-    if value.is_empty() || !value.iter().all(u8::is_ascii_digit) {
-        return None;
-    }
-    std::str::from_utf8(value).ok()?.parse().ok()
 }
 
 fn merge_banner_into_roster(roster: &mut Vec<Value>, banner: &[Value]) {
@@ -1599,6 +1523,45 @@ mod tests {
     }
 
     #[test]
+    fn attach_requires_an_explicit_local_datetime() {
+        let mut bundle = ArtifactBundle::default();
+        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let error = attach_hsr_visualizer(&mut bundle, &context).unwrap_err();
+        assert!(error.to_string().contains("explicit local datetime"));
+    }
+
+    #[test]
+    fn invalid_utf8_in_hoyowiki_and_banner_inputs_is_not_silently_ignored() {
+        let mut bundle = ArtifactBundle::default();
+        bundle
+            .add_bytes(
+                "raw/hoyowiki/hsr_characters_en-us.json",
+                vec![b'[', 0xff, b']'],
+            )
+            .unwrap();
+        let context = VisualizerContext::new_with_local_datetime(
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 12)
+                .unwrap()
+                .and_hms_opt(13, 0, 0)
+                .unwrap(),
+        );
+        let error = build_roster(&bundle, &[], &[], &[], &context).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("invalid UTF-8 in raw/hoyowiki/hsr_characters_en-us.json"));
+
+        let mut context = context;
+        context
+            .add_sidecar_bytes("hsr_banner_plan.json", vec![b'{', 0xff, b'}'])
+            .unwrap();
+        let error =
+            build_banner(&context, &[], context.require_local_datetime().unwrap()).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("invalid UTF-8 in hsr_banner_plan.json"));
+    }
+
+    #[test]
     fn official_roster_uses_joined_source_order_and_skips_rows_without_english_names() {
         let mut bundle = ArtifactBundle::default();
         bundle
@@ -1670,8 +1633,12 @@ mod tests {
             ("character_slug", "topaz-and-numby"),
             ("character_name_cn", "托帕&账账"),
         ])];
-        let mut context =
-            VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let mut context = VisualizerContext::new_with_local_datetime(
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 12)
+                .unwrap()
+                .and_hms_opt(13, 0, 0)
+                .unwrap(),
+        );
         context.add_avatar_webp("topaz-and-numby", AVATAR).unwrap();
 
         let rows = build_roster(&bundle, &tiers, &usage, &[], &context).unwrap();
@@ -1795,28 +1762,44 @@ mod tests {
 
     #[test]
     fn banner_status_and_banner_only_roster_follow_python() {
-        let mut context =
-            VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let mut context = VisualizerContext::new_with_local_datetime(
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 12)
+                .unwrap()
+                .and_hms_opt(13, 0, 0)
+                .unwrap(),
+        );
         context
-            .add_sidecar_json(
+            .add_sidecar_bytes(
                 "hsr_banner_plan.json",
-                &json!({"phases":[{
+                r#"{"phases":[{
                     "id":"old","status":"current","date_range":"中文 1900/1/1 - 1900/1/2",
                     "title":"旧跃迁","characters":[{
                         "slug":"new-agent","name_cn":"新角色","name_en":"New Agent",
-                        "rarity":"5","element_cn":"量子","path_cn":"智识","role_group_cns":"主C"
+                        "rarity":"5","element_cn":"量子","path_cn":"智识","role_group_cns":"主C",
+                        "source_url":1e-7,"icon_url":100000000000000000000000000000
+                    },{
+                        "slug":"huge-agent","name_cn":"大整数角色","name_en":"Huge Agent",
+                        "source_url":100000000000000000000000000001
                     }]
-                }]}),
+                }]}"#
+                    .as_bytes(),
             )
             .unwrap();
-        let banner = build_banner(&context, &[]).unwrap();
+        let banner =
+            build_banner(&context, &[], context.require_local_datetime().unwrap()).unwrap();
         assert_eq!(banner[0]["phase_status"], "previous");
+        assert_eq!(banner[0]["source_url"], "1e-07");
+        assert_eq!(banner[0]["icon_url"], "100000000000000000000000000000");
+        assert_eq!(banner[1]["source_url"], "100000000000000000000000000001");
         let mut roster = vec![];
         merge_banner_into_roster(&mut roster, &banner);
-        assert_eq!(roster.len(), 1);
-        assert_eq!(roster[0]["character_slug"], "new-agent");
-        assert_eq!(roster[0]["source"], "banner_plan");
-        assert_eq!(roster[0]["banner_statuses"], "previous");
+        assert_eq!(roster.len(), 2);
+        let new_agent = roster
+            .iter()
+            .find(|row| row["character_slug"] == "new-agent")
+            .unwrap();
+        assert_eq!(new_agent["source"], "banner_plan");
+        assert_eq!(new_agent["banner_statuses"], "previous");
     }
 
     #[test]

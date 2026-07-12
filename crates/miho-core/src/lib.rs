@@ -28,5 +28,6 @@ pub mod zzz_history;
 pub mod zzz_prydwen;
 pub mod zzz_sources;
 pub mod zzz_supplemental;
+pub mod zzz_visualizer;
 
 pub use error::{MihoError, Result};
