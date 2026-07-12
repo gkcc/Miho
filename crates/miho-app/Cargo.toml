@@ -1,17 +1,11 @@
 [package]
-name = "miho-cli"
+name = "miho-app"
 version.workspace = true
 edition.workspace = true
 
-[[bin]]
-name = "miho"
-path = "src/main.rs"
-
 [dependencies]
 anyhow.workspace = true
-clap.workspace = true
 chrono.workspace = true
-miho-app = { path = "../miho-app" }
 miho-core = { path = "../miho-core" }
+serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true

@@ -9,19 +9,19 @@
 - 工作区已安全迁移到 `D:\Projects\终局内容提取`；6,111 个不可再生项目文件与 16,301 个归档文件逐路径 SHA-256 校验均为零差异，迁移回执保存在归档目录。
 - D 盘迁移后重建验证：Rust workspace 迁移测试持续通过，frozen pnpm install、Vite build 与 Tauri `--no-bundle` 通过；双游戏 visualizer 契约、Rust 实现、真实 CLI、Hub 与浏览器冒烟现已全部收口。
 - 工作区治理完成：业务资产已归档到 `D:\Projects\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
-- Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
+- Cargo workspace 已建立：`miho-core`、`miho-app`、`miho-cli`、`miho-desktop`。
 - Rust 已实现 HF 在线/离线统一 `SnapshotSource`、日期与部分失败语义、两游戏多 snapshot/mode 聚合，以及 HSR histograph/fallback、动态视图、完整队伍去重和 ZZZ Bangboo/name fallback。
 - Rust CLI 已接通 HSR/ZZZ `export`、原子写出和 0/1/2 退出码；两游戏的 Prydwen visible/tier/changelog、HoYoWiki 官方名称、历史、趋势、raw 与 Workbook 产物均已进入共享 Rust pipeline，补充来源或 Workbook 失败只降级为结构化 warning。
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
 - HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 默认生成 Workbook，两游戏在线 export 均在 visualizer 完整目录验收后解除总门禁。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 218 项、Python 181 项（含 visualizer、Evidence V1、LegacyV0 decision、pull-value V1 与 review-packet V1 契约）、workspace 严格 clippy、Python compileall 与 diff check 通过；前端 Vite build 与 Tauri `--no-bundle` 仍沿用第十一批已通过基线。
+- 最近完整回归：Rust workspace 223 项、Python 181 项（含共享 app task、visualizer、Evidence V1、LegacyV0 decision、pull-value V1 与 review-packet V1 契约）、workspace 严格 clippy、Python compileall 与 diff check 通过；前端 Vite build 与 Tauri `--no-bundle` 仍沿用第十一批已通过基线。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
 - 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
 - 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
 - 双游戏 visualizer 产物契约已冻结并由 Rust 实现：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
 - `evidence-first-v1-20260712` 已由 Python oracle 与共享 Rust core/CLI 双实现：跨 mode 隔离、A 的 sentinel/稳定性门槛、owned/built 分离、稳定 E-ID、显式时钟、JSON/YAML/BOM、四产物黄金和任意路径整批回滚均已验收；Rust evidence/coverage 门禁已解除。
-- Python 继续作为决策/报告迁移 oracle；Rust `decision` 已作为显式 `legacy-v0` compatibility 完成迁移，不将其跨模式 heuristic、raw team 依赖和 alias 缺口宣称为 evidence-first 完成。Rust `pull-value` 已成为唯一正式推荐入口；Rust `review-packet` 已解除 core/CLI 门禁，只序列化同一批 pull cards、refs、stable IDs/keys/trace，不生成第二套推荐。共享报告 IPC、后台任务与 Tauri UI 仍待产品化。
+- Python 继续作为决策/报告迁移 oracle；Rust `decision` 已作为显式 `legacy-v0` compatibility 完成迁移，不将其跨模式 heuristic、raw team 依赖和 alias 缺口宣称为 evidence-first 完成。Rust `pull-value` 已成为唯一正式推荐入口；Rust `review-packet` 只序列化同一批 cards/refs/trace。五类报告现共用 `miho-app` 的单次时钟、路径探测、render 与批事务执行器；pathless `TaskIntentV1` 与结构化 receipt/failure 已冻结，但 TaskManager、Tauri 命令和 UI 尚未接入。
 
 ## 阶段路线
 
@@ -59,6 +59,14 @@
 | 迁移 Rust pull-value | 完成 | 主智能体、CLI/fixture 子智能体、两名独立对抗审查子智能体 | Evidence V1 主/风险证据、tier/usage、Banner plan、baseline | typed pull cards、同 mode A/B 支撑的抽取价值报告、Rust CLI | current/next 跨语言黄金；exact dependency、PyYAML/非有限/rounding/事务/0-1-2 对抗；独立 `Blocker=0 / High=0` | Rust decision 边界固定 |
 | 迁移 Rust review-packet | 完成 | 主智能体、两名独立只读/对抗审查子智能体 | pull-value typed bundle、current/next Python packet | 只序列化同一批 pull cards 的 Rust packet/core/CLI | current/next 跨语言 hash、字段顺序/trace、sentinel 不重算、动态 fence、Python JSON 数值、split/combined、单时钟/批事务、0/1/2；独立 `Blocker=0 / High=0` | Rust pull-value 已解门 |
 
+## 当前三目标（第十四批）
+
+| 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 共享报告应用层与 V1 intent/receipt/failure | 完成 | 主智能体、应用层实现子智能体、两名独立对抗审查子智能体 | CLI 五类私有报告 adapter、现有 core/黄金/事务契约 | `miho-app`、trusted native request、pathless intent、共享 executor、CLI 薄适配 | app 6 项、真实 CLI 16 项、Rust 223 项；malformed/unknown/schema failure；junction/later-install；独立 `Blocker=0 / High=0` | 第十三批完成 |
+| Rust TaskManager 与 Tauri 薄命令 | 未开始 | 待分配 | pathless intent、trusted workspace、共享 executor | start/get/list/cancel、capabilities、workspace 选择、状态/进度事件 | 同目标互斥、commit 前取消、commit 后 too-late、丢事件可查询恢复、无任意路径 IPC | 共享应用层完成 |
+| 安全前端与 visualizer 协议桥 | 未开始 | 待分配 | Tauri TaskManager、Box State、Rust visualizer 静态资产 | 任务面板、错误/诊断/产物、文件选择、内嵌双游戏 visualizer | 无 innerHTML XSS、Box 双向一致、受限资源路由、Vite/Tauri build 与浏览器冒烟 | TaskManager 完成 |
+
 ## 决策记录
 
 | 日期 | 决策 | 影响 | 复核条件 |
@@ -87,6 +95,7 @@
 | 2026-07-12 | LegacyV0 compatibility 按 Python 的字段存在性、truthiness、`str(float)`、DictReader 与 PyYAML 1.1 语义做显式 adapter，不以 serde 默认行为代替兼容契约 | 六 CSV 的 missing/null/empty、JSON/YAML quoted/plain scalar、非有限失败和旧两文件事务进入 Rust 门禁；visualizer sidecar 根字段标记 `decisionMethodVersion=legacy-v0` | 删除 LegacyV0、升级其公开 schema，或 Python oracle 被版本化替代时 |
 | 2026-07-13 | `pull-value` 作为唯一正式推荐入口解除 Rust 门禁；未拥有候选的主证据只接受 exact single dependency，多计划依赖进入 conditional risk | current/next 或显式合并报告使用单次时钟和批事务；PyYAML/JSON/BOM/非有限值走共享安全解析；manifest/visualizer/legacy sidecar 不归报告命令管理 | Evidence 方法/schema 升级、报告进入正式 manifest，或 review-packet/IPC 改变卡片所有权时 |
 | 2026-07-13 | Rust `review-packet` 解除 core/CLI 门禁，并固定为 `PullValueBundleV1` 的安全 serializer | 不重新读取输入或重算推荐；split/combined 与 pull-value 共用 adapter、单次时钟和批事务；manifest、visualizer、decision、pull/coverage 产物仍为 unmanaged | pull card/schema、Evidence 方法、JSON renderer、报告 ownership 或 IPC 所有权变化时 |
+| 2026-07-13 | 五类报告路径/时钟/渲染/批事务从 CLI 私有实现迁入共享 `miho-app`；WebView 只接受 pathless `TaskIntentV1` | pathful `TaskRequestV1/WorkspaceLayout` 不实现 serde，仅供可信原生 adapter；malformed/unknown/wrong schema 进入版本化 failure；CLI 只翻译参数并调用唯一 executor | intent/schema、workspace 授权、TaskManager 取消/commit 边界或报告 ownership 变化时 |
 
 ## 风险登记
 
@@ -98,6 +107,9 @@
 | Workbook 单元格类型和样式可能与 Python 漂移 | 低（已验证） | 双游戏 oracle、显式/混合类型、thin border、样式/列宽语义规范化与 Rust 全局零公式断言已固化 |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
 | Tauri 后台任务、取消和 visualizer 产品集成尚未迁移 | 高 | 数据与报告默认路径稳定后再接 IPC，前端不复制规则 |
+| 已安装每日任务仍指向不存在的 C 盘旧脚本 | 高（外部当前态） | 纯 Rust update runner 可替换前先禁用旧任务；新任务验证成功后再原子切换，不能把 Ready/迁移前 result=0 当健康证据 |
+| PowerShell 自动更新不检查 native `$LASTEXITCODE`，失败后仍可能前移 freshness state | 高 | 不在 PowerShell 重建业务编排；先实现单一 Rust update runner + failure receipt，旧脚本修为非零立即失败且状态只在成功后提交 |
+| NSIS/便携版尚未携带 CLI、默认 configs，也未做无 Python 安装验收 | 高 | TaskManager/UI 完成后打包 `miho.exe` 与资源，执行真实 NSIS/portable/升级/卸载/Task Scheduler/无 Python 矩阵 |
 | 外部数据源随时间变化 | 高 | 归档历史 raw 数据，黄金测试只用固定离线输入 |
 | 子智能体共享工作树冲突 | 中 | 并行任务划定互斥路径；公共类型由主智能体串行整合 |
 | pnpm/esbuild 构建审批或端口再次漂移 | 低（已验证） | 布尔 allowlist、packageManager/Node engines、1420 strict port 与根级复现脚本已固化 |
@@ -301,6 +313,18 @@
 - **路线修正**：决策/报告 core+CLI 阶段至此收口。下一批不再新增推荐规则，而是建立共享报告 IPC/后台任务，把同一 typed pull-card 所有权、单次时钟、取消/进度和批事务带入 Tauri UI；之后再做自动化发布和无 Python 环境退役验收。
 - **项目状态**：第十三批完成不等于整个项目完成；Tauri 产品化、自动化发布、计划任务切换与 Python 退役仍是剩余主线。
 
+### 第十四批进度：共享报告应用层与安全 intent 完成（子目标 1/3，2026-07-13）
+
+- **显式提问**：本阶段我最有把握的完成证据是什么？最值得质疑、最可能被现有测试漏掉的点是什么？
+- **主判断—最有把握**：新增 `miho-app` 后，CLI 中五类报告的 direct core renderer、输入探测和 `atomic::write_batch` 路径已全部删除；CLI 只拆分参数、构造 trusted native request、捕获一次 `AppInvocation` 并调用 `execute_task_v1`。app fixture、真实 CLI 黄金、junction 与 later-install rollback 都穿过同一 executor，decision 成功 notice 也保持原字节。
+- **主判断—最值得质疑**：最大风险不是报告字节，而是把“共享 native request”误当成“安全 WebView wire”。最初 `TaskRequestV1/WorkspaceLayout` 仍可 `Deserialize` 任意 `PathBuf`，unknown nested 又会在 serde 阶段绕过 `TaskFailureV1`；若下一步直接挂到 `#[tauri::command]`，会形成任意本地文件读写面。同步 executor 目前也还没有取消 checkpoint，不能据此声称后台任务完成。
+- **独立对抗判断**：两名未参与 CLI 集成的审查子智能体均把 pathful wire 与非结构化 parse failure 判为 High；另发现 decision notice 冒号变分号的 Low。修复后终审确认 pathless intent、malformed/unknown/schema failure、真实 CLI 五报告、Windows junction、第二文件安装失败回滚和 locked metadata，最终 `Blocker=0 / High=0 / Medium=0 / Low=0`。
+- **主线程回应与处理**：接受两个 IPC High。`WorkspaceLayout/TaskRequestV1/TaskSpecV1` 及五类 pathful task 参数全部移除 serde，只能由可信原生 adapter 构造；新增不含 workspace/path/output/file 的严格 `TaskIntentV1`。`parse_task_intent_v1` 将 malformed/unknown 映射为 `request.invalid`，wrong schema 映射为 `request.unsupported_schema`，能安全识别时保留 operation；native 执行错误稳定为 `task.failed`。notice 恢复原冒号并锁入测试。
+- **最大困难与路线修正**：最大困难是 CLI 为兼容必须接受任意用户路径，而 WebView 又绝不能获得同等权限；仅靠注释区分 trusted/untrusted 不足以形成安全边界。主流程因此从“把 CLI request 直接序列化给 Tauri”修正为“pathless intent → Rust 保存的 workspace/opaque selection → trusted native request → 单一 executor”。下一子目标必须先实现 workspace 授权和 TaskManager，再暴露薄 Tauri 命令。
+- **最终验收**：`cargo test --workspace --locked --no-fail-fast` 共 223 项、`cargo clippy --workspace --all-targets --locked -- -D warnings`、`python -m pytest -q` 共 181 项、Python compileall 与 `git diff --check` 全绿。一次与独立终审并发运行时既有 atomic concurrency test 遇到 Windows `PermissionDenied`；所有子智能体停止后该单测和全量均立即通过，未改生产代码。独立终审 `Blocker=0 / High=0 / Medium=0 / Low=0`。
+- **下一步**：实现纯 Rust TaskManager 与 Tauri 薄命令，状态至少覆盖 queued/running/committing/succeeded/failed/cancelling/cancelled；同 workspace/output 互斥，commit 前取消不改输出，commit 后明确 too-late，事件丢失可由 get/list 补偿。
+- **并行项目记忆**：自动化只读审计确认已安装 `MiHoYoEndgameDailyUpdate` 仍指向不存在的 C 盘脚本，旧 PowerShell 还可能忽略 native 非零码并错误前移 freshness state。它们不混入本提交，但已提升为项目 High；TaskManager/UI 后应优先实现单一 Rust update runner，再切换计划任务。
+
 ## 恢复入口
 
 - 项目状态：本文件。
@@ -311,4 +335,4 @@
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
-- 最危险的未验证假设：共享报告 IPC/后台任务接入 Tauri 后能否保持 typed bundle 单一所有权、单次时钟、取消/进度和批事务，以及自动化切换与无 Python 发布能否在真实安装环境复现；Evidence/Pull/Review 已证明“先冻结显式输入与时钟，再做路径/失败对抗反例”的路线有效。
+- 最危险的未验证假设：TaskManager 能否把 pathless intent 安全解析为受授权 workspace、在 commit 前可靠取消且不破坏批事务，以及自动化切换与无 Python 发布能否在真实安装环境复现；共享 app 已证明 trusted native request 与 WebView intent 必须由类型隔离，不能靠调用约定。

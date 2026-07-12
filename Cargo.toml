@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/miho-core", "crates/miho-cli", "crates/miho-desktop/src-tauri"]
+members = ["crates/miho-core", "crates/miho-app", "crates/miho-cli", "crates/miho-desktop/src-tauri"]
 resolver = "2"
 
 [workspace.package]

@@ -1874,12 +1874,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "miho-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "miho-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "miho-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "miho-app",
  "miho-core",
  "serde_json",
  "tokio",

@@ -48,7 +48,7 @@ final export CSV + Decision Box profile + legacy rules
 | `pull-value` | Box, dedup team CSV, CLI banner plan by default | name/usage/tier, mechanism notes, baseline, explicit planned slugs | combined output or one Markdown per status |
 | `review-packet` | same card inputs as pull-value | same optional inputs | combined output or one packet per status |
 
-The core Rust APIs must receive bytes/typed documents and an explicit context. Path defaults, cwd resolution, file globbing and local-clock capture belong to the trusted CLI/Tauri adapter.
+The core Rust APIs receive bytes/typed documents and an explicit context. Shared report path defaults, cwd resolution, file globbing, local-clock capture and batch installation now belong to `miho-app`; CLI is a thin argument adapter. The trusted-native versus pathless WebView boundary is frozen in `docs/app-task-contract.md`.
 
 ## Failure and installation contract
 
@@ -88,4 +88,4 @@ For an unowned pull candidate, a target-pool team is primary evidence only when 
 - Decision (complete): priority table, alias identity, legacy cross-mode methodology, non-finite/raw scalar types, missing/null/empty inputs, explicit method, two-file rollback and visualizer method marker are frozen by the dedicated cross-language contract.
 - Pull (complete): A/B gate matrix, exact single-candidate dependency, conditional risk, new-character exception, low rarity, baseline delta, mechanism-note precedence, PyYAML/JSON/BOM/non-finite boundaries, stable ordering/rounding, clock/cwd, real CLI 0/1/2 and split-output rollback are frozen by the dedicated contract.
 - Review packet (complete): current/next hashes, payload schema/order, stable refs/trace, sentinel no-recompute proof, strict JSON/number spelling, dynamic fence safety, split/combined output, status collision and batch rollback are frozen by the dedicated contract.
-- Real Rust CLI: all five report families have command-specific output/error contracts and 0/1/2 coverage. Shared report IPC and the Tauri background-task adapter remain a later product stage.
+- Real Rust CLI: all five report families have command-specific output/error contracts and 0/1/2 coverage through the shared `miho-app` executor. Pathless intent/receipt/failure are frozen; the TaskManager and Tauri background-task adapter remain a later product stage.

@@ -1,9 +1,18 @@
 # 自更新与本地评判能力报告
 
-- 生成时间：2026-07-06
-- 当前实现：`scripts/update_endgame_data.ps1` 一键刷新；`scripts/install_daily_update_task.ps1` 可注册 Windows 每日任务；脚本会先检查 HF 数据源最新 snapshot / collect_date，源数据未变化时跳过重导出。
+- 初版生成时间：2026-07-06
+- 最近审计：2026-07-13
+- 当前结论：下述 Python 脚本描述的是旧设计能力，不是健康的生产基线。Rust CLI 已覆盖对应 export/visualizer/report 命令，但自动化尚未切换。
 
-## 已经能自动更新的部分
+## 当前阻断（2026-07-13）
+
+- 已安装任务 `MiHoYoEndgameDailyUpdate` 仍指向 `C:\Users\zy958\Documents\终局内容提取\scripts\update_endgame_data.ps1`；该脚本已不存在。任务显示 Ready、迁移前上次结果为 0，不能证明当前可用。
+- `scripts/update_endgame_data.ps1` 仍包含 3 个 inline Python source probe 和 7 个 `python -m` 正式执行入口，不满足无 Python 运行时目标。
+- `Invoke-Step` 未检查 native `$LASTEXITCODE`。Windows PowerShell 5.1 不会因 native 非零码自动抛出异常，脚本可能在命令失败后继续前移 `.miho/update_source_state.json`，造成“任务显示成功、报告长期冻结”的假绿。
+- 当前 NSIS 配置未携带 `miho.exe` 与默认 configs，也没有 portable/升级/卸载/Task Scheduler/无 Python 的真实安装验收。
+- 路线已调整为：先基于 `miho-app` 建立单一 Rust update runner 和 failure receipt，再实现 fail-safe 任务安装/迁移，随后打包 NSIS+portable 并在无 Python Windows 环境验收；旧任务在替代链验证前必须禁用或明确标记为不可用。
+
+## 旧脚本设计上能自动更新的部分（当前仍依赖 Python）
 
 | 项目 | 当前能力 | 证据 |
 |---|---|---|
@@ -23,7 +32,7 @@
 | HSR 目标账号 pull value | 当前 HSR 已有数据导出与方法论产物，但 pull-value CLI 先落在 ZZZ | 复用 `miho_core.evidence` 做 HSR 角色计划报告适配 |
 | 无人值守 GPT 模型评判 | 当前选择不使用 API key，因此不能做到无人值守调用 GPT | 使用 `current_gpt_pull_reviewer_packet.md` / `next_gpt_pull_reviewer_packet.md` 作为交互版；若未来要全自动，再接入 `OPENAI_API_KEY` |
 
-## 每日更新建议
+## 旧脚本手动入口（仅兼容/诊断，不作为生产建议）
 
 手动运行：
 
@@ -31,7 +40,7 @@
 powershell -ExecutionPolicy Bypass -File .\scripts\update_endgame_data.ps1
 ```
 
-注册每日任务：
+注册每日任务（当前不要执行，安装器仍会写入源码路径）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install_daily_update_task.ps1 -At "09:30"

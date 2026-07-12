@@ -33,7 +33,7 @@ No calculation, row, column, filename, exit-code or default-path difference is a
 - The Rust `pull-value` and `review-packet` gates are lifted. Review packets directly serialize the existing Rust pull cards and rename only `pull_value` to `local_rule_pull_value`; they do not recompute recommendations. Default current/next files and explicit combined output share one clock and one batch installation; failures preserve all old reports and do not mutate manifest, visualizer, legacy decision, pull-value or coverage consumers.
 - JSON lexical form is part of packet compatibility rather than an allowed difference: small exponents are normalized to Python spelling such as `1e-07`, while `-0.0` and large integers retain Python-compatible representation.
 - Shared YAML config parsing matches the Python oracle for UTF-8 BOM, PyYAML 1.1 booleans, merge keys, empty/falsey roots and recursive non-finite rejection. JSON/YAML plan, Box, baseline and mechanism inputs therefore share the same safety boundary.
-- Shared report IPC, Tauri background tasks, progress/cancellation/error propagation and file selection are not yet migrated; lifting the Rust CLI report gates does not complete the Tauri product stage.
+- Five report commands now share the `miho-app` native executor, so CLI no longer owns a second path/clock/render/transaction implementation. `TaskIntentV1` is strict and pathless; pathful native request types are deliberately not serializable/deserializable. The TaskManager, Tauri commands, progress/cancellation and native workspace/file authorization are still not migrated, so this does not complete the Tauri product stage.
 
 ## Migration gate
 
