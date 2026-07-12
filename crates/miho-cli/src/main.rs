@@ -8,12 +8,17 @@ use std::{
 
 use anyhow::{bail, Context};
 use chrono::{Duration, Local, NaiveDateTime, Timelike, Utc};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use miho_core::{
     atomic,
     contract::{
         DatasetRef, DateRange, DiagnosticSeverity, ExportContext, FeatureFlags, FetchPolicy,
         GameMode, HistoryPolicy, WorkbookPolicy, EXPORT_REQUEST_SCHEMA_VERSION,
+    },
+    decision_legacy::{
+        build_decision_legacy_v0, render_decision_json_legacy_v0,
+        render_decision_markdown_legacy_v0, DecisionLegacyContextV0, DecisionLegacyInputsV0,
+        DecisionLegacyRequestV0, DECISION_LEGACY_METHOD,
     },
     evidence::{
         build_evidence_bundle_v1, render_aggregate_csv_v1, render_coverage_markdown_v1,
@@ -61,6 +66,7 @@ enum HsrCommand {
 #[derive(Subcommand)]
 enum ZzzCommand {
     Export(ZzzExportArgs),
+    #[command(about = "Build legacy-v0 compatibility cards; not formal evidence-first advice")]
     Decision(DecisionArgs),
     Evidence(EvidenceArgs),
     Coverage(CoverageArgs),
@@ -206,12 +212,20 @@ struct VisualizerArgs {
 
 #[derive(Args)]
 struct DecisionArgs {
+    #[arg(long, value_enum)]
+    method: DecisionMethodArg,
     #[arg(long = "box")]
     box_path: PathBuf,
     #[arg(long, default_value = "./zzz_endgame_export")]
     out: PathBuf,
     #[arg(long, default_value = "./configs/zzz_decision_rules.yaml")]
     rules: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum DecisionMethodArg {
+    #[value(name = "legacy-v0")]
+    LegacyV0,
 }
 
 #[derive(Args)]
@@ -383,6 +397,54 @@ impl ReportInvocation {
         }
         normalized
     }
+}
+
+fn run_zzz_decision(args: &DecisionArgs, invocation: &ReportInvocation) -> anyhow::Result<()> {
+    if args.method != DecisionMethodArg::LegacyV0 {
+        bail!("unsupported decision method");
+    }
+    let data_dir = invocation.resolve(&args.out);
+    let optional = |name: &str| read_optional_report_input(&data_dir.join(name));
+    let rules_path = invocation.resolve(&args.rules);
+    let inputs = DecisionLegacyInputsV0 {
+        box_config: read_report_input(&invocation.resolve(&args.box_path))?,
+        rules_config: read_optional_report_input(&rules_path)?,
+        tier_current_csv: optional("prydwen_tier_current.csv")?,
+        tier_history_csv: optional("prydwen_tier_history.csv")?,
+        usage_csv: optional("character_usage_long.csv")?,
+        team_raw_csv: optional("team_rank_raw.csv")?,
+        name_map_csv: optional("name_map.csv")?,
+        changelog_history_csv: optional("prydwen_tier_changelog_history.csv")?,
+    };
+    let result = build_decision_legacy_v0(
+        &inputs,
+        &DecisionLegacyRequestV0 {
+            method: DECISION_LEGACY_METHOD.to_owned(),
+        },
+    )?;
+    let json = render_decision_json_legacy_v0(&result)?;
+    let json =
+        String::from_utf8(json).context("legacy decision JSON renderer returned invalid UTF-8")?;
+    let markdown = render_decision_markdown_legacy_v0(
+        &result,
+        &DecisionLegacyContextV0 {
+            local_datetime: invocation.local_datetime,
+        },
+    );
+    atomic::write_batch(&[
+        (
+            data_dir.join("decision_cards.json"),
+            platform_text_bytes(&json),
+        ),
+        (
+            data_dir.join("decision_report.md"),
+            platform_text_bytes(&markdown),
+        ),
+    ])?;
+    eprintln!(
+        "legacy-v0 compatibility only: formal evidence-first advice is provided by pull-value"
+    );
+    Ok(())
 }
 
 fn run_zzz_evidence(args: &EvidenceArgs, invocation: &ReportInvocation) -> anyhow::Result<()> {
@@ -609,6 +671,12 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
         _ => {}
     }
     match &cli.game {
+        GameCommand::Zzz {
+            command: ZzzCommand::Decision(args),
+        } => {
+            let invocation = ReportInvocation::capture()?;
+            return run_zzz_decision(args, &invocation);
+        }
         GameCommand::Zzz {
             command: ZzzCommand::Evidence(args),
         } => {
@@ -1702,6 +1770,25 @@ mod tests {
             args.decision_baseline,
             PathBuf::from("./configs/zzz_decision_baseline.json")
         );
+
+        assert!(Cli::try_parse_from(["miho", "zzz", "decision", "--box", "box.json"]).is_err());
+        let decision = Cli::try_parse_from([
+            "miho",
+            "zzz",
+            "decision",
+            "--method",
+            "legacy-v0",
+            "--box",
+            "box.json",
+        ])
+        .unwrap();
+        let GameCommand::Zzz {
+            command: ZzzCommand::Decision(args),
+        } = decision.game
+        else {
+            panic!("expected decision")
+        };
+        assert_eq!(args.method, DecisionMethodArg::LegacyV0);
     }
 
     #[test]

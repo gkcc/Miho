@@ -1,0 +1,12 @@
+candidate_min_rating: 10
+max_generated_candidates: 10
+pull_rating: 10
+skip_rating: 8
+low_tier_warning_rating: 9
+default_max_recommended_stage: 0+1
+candidates:
+  - slug: seed-agent
+    name_cn: 卫星代理人
+    banner_type: satellite
+    role_group: support
+    notes: 仅有规则占位信息，必须等待真实高难样本

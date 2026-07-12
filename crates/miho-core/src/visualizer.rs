@@ -342,7 +342,8 @@ pub fn python_scalar_text(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) | Some(Value::Bool(false)) => String::new(),
         Some(Value::Bool(true)) => "True".into(),
-        Some(Value::Number(number)) => python_json_number_text(number),
+        Some(Value::Number(number)) if number.as_f64() == Some(0.0) => String::new(),
+        Some(Value::Number(number)) => python_json_number_repr(number),
         Some(Value::String(value)) => value.clone(),
         Some(Value::Array(values)) if values.is_empty() => String::new(),
         Some(Value::Object(values)) if values.is_empty() => String::new(),
@@ -361,26 +362,20 @@ pub fn python_value_truthy(value: &Value) -> bool {
     }
 }
 
-fn python_json_number_text(number: &serde_json::Number) -> String {
+/// Match Python's JSON/`repr(float)` spelling for a finite JSON number.
+///
+/// Rust and Python use the same shortest-roundtrip digits, but Rust omits the
+/// explicit exponent sign and leading zero that Python emits (for example,
+/// `1e-7` versus `1e-07`).
+pub(crate) fn python_json_number_repr(number: &serde_json::Number) -> String {
     let token = number.to_string();
     if !token.contains(['.', 'e', 'E']) {
-        return if token
-            .trim_start_matches('-')
-            .bytes()
-            .all(|byte| byte == b'0')
-        {
-            String::new()
-        } else {
-            token
-        };
+        return token;
     }
 
     let Ok(value) = token.parse::<f64>() else {
         return token;
     };
-    if value == 0.0 {
-        return String::new();
-    }
     if value.is_infinite() {
         return if value.is_sign_negative() {
             "-inf".into()

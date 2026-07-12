@@ -121,6 +121,7 @@ def write_visualizer_app(
         "phaseInfoRows": phase_info_rows,
         "changelogRows": changelog_rows[:80],
         "bannerRows": banner_rows,
+        "decisionMethodVersion": "legacy-v0",
         "decisionCards": decision_cards,
     }
     data = _sanitize_output_urls(data)

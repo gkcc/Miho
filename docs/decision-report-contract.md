@@ -56,9 +56,9 @@ The core Rust APIs must receive bytes/typed documents and an explicit context. P
 - Error prefixes are command-specific, not the export-only prefix.
 - Missing dedup team or Box input is fatal. Missing name/usage/tier data is tolerated where the Python command currently treats it as empty.
 - Evidence and coverage pre-render all files, reject colliding destinations, stage sibling files and roll back the entire batch if installation fails.
-- Decision and split pull/review writes remain non-atomic in `legacy-v0`; their Rust gates cannot lift until batch transaction tests pass.
+- Rust `decision --method legacy-v0` pre-renders both legacy files and installs them through the shared batch transaction; failure preserves both old files and leaves manifest/visualizer unmanaged. Split pull/review writes remain gated until their own batch transaction tests pass.
 - Strict JSON output must reject non-finite values. If this differs from legacy Python `NaN`/`Infinity`, it is an approved safety correction with a regression test.
-- PyYAML is a declared oracle dependency; installed and fallback-parser environments must no longer silently select different config semantics.
+- PyYAML is the LegacyV0 oracle. The Rust compatibility adapter explicitly preserves its 1.1 plain-scalar, merge/flow, timestamp and presence semantics; typed Evidence V1/pull schemas must not inherit that dynamic compatibility surface implicitly.
 
 ## Legacy decision boundary
 
@@ -83,6 +83,6 @@ For an unowned pull candidate, a target-pool team is primary evidence only when 
 ## Remaining gate matrices
 
 - Evidence/coverage: mode separation, A/B boundaries, sentinel density, stability, explicit build state, alias collision, plan clock boundaries, ordering/E-ID stability, UTF-8/config failures, output collision and rollback.
-- Decision: priority table, alias identity, mode methodology, non-finite types, missing/invalid inputs, clock/cwd, two-file rollback and visualizer freshness.
+- Decision (complete): priority table, alias identity, legacy cross-mode methodology, non-finite/raw scalar types, missing/null/empty inputs, explicit method, two-file rollback and visualizer method marker are frozen by the dedicated cross-language contract.
 - Pull/review: A/B gate matrix, new-character exception, low rarity, baseline delta, mechanism-note precedence, strict packet JSON, Markdown fence safety, clock/cwd and split-output rollback.
 - Real Rust CLI: exact output set, semantic/byte oracle as applicable, command-specific stderr and 0/1/2 exits.

@@ -1,0 +1,13 @@
+account:
+  game: zzz
+  fixture: decision-legacy-v0
+agents:
+  - slug: miyabi
+    name_cn: 星见雅
+    owned: true
+    cinema: 0
+    signature: 1
+    level: 60
+    w_engine_level: 60
+    core_skill: 7
+    drive_discs: complete

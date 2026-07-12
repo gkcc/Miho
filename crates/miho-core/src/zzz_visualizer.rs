@@ -54,6 +54,7 @@ pub fn attach_zzz_visualizer(
         "phaseInfoRows": phase_info,
         "changelogRows": string_rows(&changelog).into_iter().take(80).collect::<Vec<_>>(),
         "bannerRows": banner,
+        "decisionMethodVersion": "legacy-v0",
         "decisionCards": decision_cards,
     });
     sanitize_urls(&mut data, "");

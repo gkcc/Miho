@@ -548,6 +548,7 @@ def test_zzz_dense_oracle_exercises_explicit_context_and_selection_contracts(
     assert banner["icon_source_label"] == 456
     assert banner["icon_source_url"] == "456"
 
+    assert data["decisionMethodVersion"] == "legacy-v0"
     decision = data["decisionCards"]
     assert decision["summary"]["source_url"] == "docs/decision-summary.html#safe"
     dense_card = decision["cards"][1]

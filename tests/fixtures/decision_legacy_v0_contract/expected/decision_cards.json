@@ -1,0 +1,476 @@
+{
+  "summary": {
+    "owned_agents": 1,
+    "candidate_count": 4,
+    "decision_counts": {
+      "抽": 1,
+      "等实测": 1,
+      "停止加仓": 1,
+      "不抽": 1
+    },
+    "data_rows": {
+      "tier_current": 3,
+      "usage": 5,
+      "teams": 2,
+      "changelog": 2
+    }
+  },
+  "cards": [
+    {
+      "slug": "zhao",
+      "name_cn": "照",
+      "name_en": "Zhao",
+      "owned": false,
+      "current_stage": "未拥有",
+      "candidate_type": "rerun_or_existing",
+      "decision": "抽",
+      "decision_score": 126.5,
+      "decision_reasons": [
+        "当前最好评级 T0，且 Box 内替代压力不高"
+      ],
+      "warnings": [],
+      "tier_summary": {
+        "best_tier": "T0",
+        "best_rating": 11.0,
+        "modes": {
+          "sd": {
+            "mode_cn": "式舆防卫",
+            "tier": "T0",
+            "rating": 11.0,
+            "role_group_cn": "直伤主C"
+          }
+        },
+        "role_group": "crit_dps",
+        "role_group_cn": "直伤主C",
+        "element": "Fire",
+        "element_cn": "火",
+        "style": "Attack",
+        "style_cn": "强攻",
+        "rarity": "S"
+      },
+      "history_summary": {
+        "usage_points": 2,
+        "modes": {
+          "sd": {
+            "mode_cn": "式舆防卫",
+            "points": 2,
+            "latest_collect_date": "2026-06-01",
+            "latest_app_rate": 18.0,
+            "avg_last3_app_rate": 16.5,
+            "peak_app_rate": 18.0,
+            "trend_delta": 3.0
+          }
+        },
+        "team_appearances": 1,
+        "best_team_rank": 1,
+        "latest_team_examples": [
+          {
+            "collect_date": "2026-06-01",
+            "mode_cn": "式舆防卫",
+            "sub_mode_cn": "危局强袭",
+            "rank": "1",
+            "app_rate": 8.5,
+            "team": "照 / 妮可·德玛拉 / 露西"
+          }
+        ],
+        "changelog_mentions": 1,
+        "changelog_latest": "2026-06-05"
+      },
+      "release_risk": {
+        "level": "低",
+        "reason": "已有本地高难历史可参考"
+      },
+      "replacement_risk": {
+        "level": "低",
+        "reason": "Box 内暂无明显同定位替代",
+        "replacements": []
+      },
+      "investment": {
+        "status": "未拥有",
+        "score": 0,
+        "warnings": [
+          "未拥有，练度不可评估"
+        ],
+        "ready": false
+      },
+      "stage_comparison": [
+        {
+          "stage": "0+0",
+          "label": "0+0 本体",
+          "pull_cost": 1,
+          "value": "高",
+          "advice": "优先看本体",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "0+1",
+          "label": "0+1 本体+专武",
+          "pull_cost": 2,
+          "value": "中",
+          "advice": "仅作占位比较",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "1+1",
+          "label": "1+1 一影+专武",
+          "pull_cost": 3,
+          "value": "低",
+          "advice": "第一版不建议加仓",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "2+1",
+          "label": "2+1 二影+专武",
+          "pull_cost": 4,
+          "value": "低",
+          "advice": "第一版不建议加仓",
+          "reached": false,
+          "placeholder": true
+        }
+      ],
+      "notes": "",
+      "source": "generated_from_local_tier"
+    },
+    {
+      "slug": "seed-agent",
+      "name_cn": "卫星代理人",
+      "name_en": "",
+      "owned": false,
+      "current_stage": "未拥有",
+      "candidate_type": "satellite",
+      "decision": "等实测",
+      "decision_score": -10.0,
+      "decision_reasons": [
+        "本地高难历史不足，无法验证真实出场率和队伍稳定性"
+      ],
+      "warnings": [],
+      "tier_summary": {
+        "best_tier": "",
+        "best_rating": 0,
+        "modes": {},
+        "role_group": "support",
+        "role_group_cn": "",
+        "element": "",
+        "element_cn": "",
+        "style": "",
+        "style_cn": "",
+        "rarity": ""
+      },
+      "history_summary": {
+        "usage_points": 0,
+        "modes": {},
+        "team_appearances": 0,
+        "best_team_rank": "",
+        "latest_team_examples": [],
+        "changelog_mentions": 0,
+        "changelog_latest": ""
+      },
+      "release_risk": {
+        "level": "高",
+        "reason": "卫星信息不可验证，不能按正式强度处理"
+      },
+      "replacement_risk": {
+        "level": "低",
+        "reason": "Box 内暂无明显同定位替代",
+        "replacements": []
+      },
+      "investment": {
+        "status": "未拥有",
+        "score": 0,
+        "warnings": [
+          "未拥有，练度不可评估"
+        ],
+        "ready": false
+      },
+      "stage_comparison": [
+        {
+          "stage": "0+0",
+          "label": "0+0 本体",
+          "pull_cost": 1,
+          "value": "未知",
+          "advice": "等实测后再判断",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "0+1",
+          "label": "0+1 本体+专武",
+          "pull_cost": 2,
+          "value": "未知",
+          "advice": "等实测后再判断",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "1+1",
+          "label": "1+1 一影+专武",
+          "pull_cost": 3,
+          "value": "低",
+          "advice": "第一版不建议加仓",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "2+1",
+          "label": "2+1 二影+专武",
+          "pull_cost": 4,
+          "value": "低",
+          "advice": "第一版不建议加仓",
+          "reached": false,
+          "placeholder": true
+        }
+      ],
+      "notes": "仅有规则占位信息，必须等待真实高难样本",
+      "source": "rules"
+    },
+    {
+      "slug": "miyabi",
+      "name_cn": "星见雅",
+      "name_en": "Miyabi",
+      "owned": true,
+      "current_stage": "0+1",
+      "candidate_type": "rerun_or_existing",
+      "decision": "停止加仓",
+      "decision_score": 122.0,
+      "decision_reasons": [
+        "本地 Box 已达到 0+1，第一版规则认为无需继续加仓"
+      ],
+      "warnings": [],
+      "tier_summary": {
+        "best_tier": "T0.5",
+        "best_rating": 10.0,
+        "modes": {
+          "sd": {
+            "mode_cn": "式舆防卫",
+            "tier": "T0.5",
+            "rating": 10.0,
+            "role_group_cn": "异常主C"
+          }
+        },
+        "role_group": "anomaly_dps",
+        "role_group_cn": "异常主C",
+        "element": "Ice",
+        "element_cn": "冰",
+        "style": "Anomaly",
+        "style_cn": "异常",
+        "rarity": "S"
+      },
+      "history_summary": {
+        "usage_points": 1,
+        "modes": {
+          "sd": {
+            "mode_cn": "式舆防卫",
+            "points": 1,
+            "latest_collect_date": "2026-06-01",
+            "latest_app_rate": 22.0,
+            "avg_last3_app_rate": 22.0,
+            "peak_app_rate": 22.0,
+            "trend_delta": 0
+          }
+        },
+        "team_appearances": 1,
+        "best_team_rank": 2,
+        "latest_team_examples": [
+          {
+            "collect_date": "2026-06-01",
+            "mode_cn": "式舆防卫",
+            "sub_mode_cn": "危局强袭",
+            "rank": "2",
+            "app_rate": 6.25,
+            "team": "爱丽丝·泰姆菲尔德 / 星见雅 / 露西"
+          }
+        ],
+        "changelog_mentions": 0,
+        "changelog_latest": ""
+      },
+      "release_risk": {
+        "level": "低",
+        "reason": "已有本地高难历史可参考"
+      },
+      "replacement_risk": {
+        "level": "低",
+        "reason": "Box 内暂无明显同定位替代",
+        "replacements": []
+      },
+      "investment": {
+        "status": "已满练",
+        "score": 1.0,
+        "warnings": [],
+        "ready": true
+      },
+      "stage_comparison": [
+        {
+          "stage": "0+0",
+          "label": "0+0 本体",
+          "pull_cost": 1,
+          "value": "已达成",
+          "advice": "不用再投入",
+          "reached": true,
+          "placeholder": true
+        },
+        {
+          "stage": "0+1",
+          "label": "0+1 本体+专武",
+          "pull_cost": 2,
+          "value": "已达成",
+          "advice": "不用再投入",
+          "reached": true,
+          "placeholder": true
+        },
+        {
+          "stage": "1+1",
+          "label": "1+1 一影+专武",
+          "pull_cost": 3,
+          "value": "低",
+          "advice": "第一版不建议加仓",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "2+1",
+          "label": "2+1 二影+专武",
+          "pull_cost": 4,
+          "value": "低",
+          "advice": "第一版不建议加仓",
+          "reached": false,
+          "placeholder": true
+        }
+      ],
+      "notes": "",
+      "source": "generated_from_local_tier"
+    },
+    {
+      "slug": "alice",
+      "name_cn": "爱丽丝·泰姆菲尔德",
+      "name_en": "Alice Thymefield",
+      "owned": false,
+      "current_stage": "未拥有",
+      "candidate_type": "rerun_or_existing",
+      "decision": "不抽",
+      "decision_score": 105.0,
+      "decision_reasons": [
+        "评级或替代收益不足，当前不作为抽取目标"
+      ],
+      "warnings": [
+        "Box 内已有同定位高评级角色，新增收益可能被稀释"
+      ],
+      "tier_summary": {
+        "best_tier": "T0.5",
+        "best_rating": 10.0,
+        "modes": {
+          "sd": {
+            "mode_cn": "式舆防卫",
+            "tier": "T0.5",
+            "rating": 10.0,
+            "role_group_cn": "异常主C"
+          }
+        },
+        "role_group": "anomaly_dps",
+        "role_group_cn": "异常主C",
+        "element": "Physical",
+        "element_cn": "物理",
+        "style": "Anomaly",
+        "style_cn": "异常",
+        "rarity": "S"
+      },
+      "history_summary": {
+        "usage_points": 2,
+        "modes": {
+          "sd": {
+            "mode_cn": "式舆防卫",
+            "points": 2,
+            "latest_collect_date": "2026-06-01",
+            "latest_app_rate": 14.0,
+            "avg_last3_app_rate": 13.0,
+            "peak_app_rate": 14.0,
+            "trend_delta": 2.0
+          }
+        },
+        "team_appearances": 1,
+        "best_team_rank": 2,
+        "latest_team_examples": [
+          {
+            "collect_date": "2026-06-01",
+            "mode_cn": "式舆防卫",
+            "sub_mode_cn": "危局强袭",
+            "rank": "2",
+            "app_rate": 6.25,
+            "team": "爱丽丝·泰姆菲尔德 / 星见雅 / 露西"
+          }
+        ],
+        "changelog_mentions": 1,
+        "changelog_latest": "2026-06-05"
+      },
+      "release_risk": {
+        "level": "低",
+        "reason": "已有本地高难历史可参考"
+      },
+      "replacement_risk": {
+        "level": "高",
+        "reason": "Box 内已有同定位高评级角色，新增收益可能被稀释",
+        "replacements": [
+          {
+            "slug": "miyabi",
+            "name_cn": "星见雅",
+            "tier": "T0.5",
+            "rating": 10.0,
+            "same_role": true,
+            "same_style": true,
+            "same_element": false
+          }
+        ]
+      },
+      "investment": {
+        "status": "未拥有",
+        "score": 0,
+        "warnings": [
+          "未拥有，练度不可评估"
+        ],
+        "ready": false
+      },
+      "stage_comparison": [
+        {
+          "stage": "0+0",
+          "label": "0+0 本体",
+          "pull_cost": 1,
+          "value": "低",
+          "advice": "本期不作为抽取目标",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "0+1",
+          "label": "0+1 本体+专武",
+          "pull_cost": 2,
+          "value": "低",
+          "advice": "本期不作为抽取目标",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "1+1",
+          "label": "1+1 一影+专武",
+          "pull_cost": 3,
+          "value": "低",
+          "advice": "第一版不建议加仓",
+          "reached": false,
+          "placeholder": true
+        },
+        {
+          "stage": "2+1",
+          "label": "2+1 二影+专武",
+          "pull_cost": 4,
+          "value": "低",
+          "advice": "第一版不建议加仓",
+          "reached": false,
+          "placeholder": true
+        }
+      ],
+      "notes": "",
+      "source": "generated_from_local_tier"
+    }
+  ]
+}

@@ -27,7 +27,7 @@ No calculation, row, column, filename, exit-code or default-path difference is a
 - Non-finite app rates are unusable and non-finite performance values are missing/sentinel. This is an approved safety correction rather than preserving `nan`/`inf` report text.
 - Evidence/coverage use one explicit local datetime and batch rollback. Colliding output paths fail before replacing old artifacts.
 - Pull-value `高/中高` is now constrained by same-mode qualifying A/B evidence. Stable `evidence_ids`/`evidence_keys` and embedded refs contain only A/B+/B main evidence; risk fields contain B-/C context. This method correction is intentional and hash-locked.
-- Current Python `decision` is labeled `legacy-v0`; its cross-mode heuristic, raw-team dependency and alias limitations are not accepted as evidence-first completion. Its Rust gate remains closed pending an explicit legacy/versioned-default decision.
+- `decision` is labeled `legacy-v0`; its cross-mode heuristic, raw-team dependency and alias limitations are not accepted as evidence-first completion. The Rust compatibility gate is lifted only for explicit `--method legacy-v0`; `pull-value` remains the sole formal recommendation path.
 
 ## Migration gate
 

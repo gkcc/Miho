@@ -76,6 +76,105 @@ fn copy_data(target: &Path) {
     }
 }
 
+fn decision_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/decision_legacy_v0_contract")
+}
+
+fn copy_decision_data(target: &Path) {
+    fs::create_dir_all(target).unwrap();
+    for name in [
+        "prydwen_tier_current.csv",
+        "prydwen_tier_history.csv",
+        "character_usage_long.csv",
+        "team_rank_raw.csv",
+        "name_map.csv",
+        "prydwen_tier_changelog_history.csv",
+    ] {
+        fs::copy(
+            decision_fixture().join("input/data").join(name),
+            target.join(name),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn explicit_legacy_decision_matches_goldens_and_preserves_unmanaged_files() {
+    let root = temp_root("legacy-decision");
+    let data = root.join("out");
+    copy_decision_data(&data);
+    let manifest = data.join("artifact_manifest.json");
+    let visualizer = data.join("visualizer/data.json");
+    fs::write(&manifest, b"manifest-before").unwrap();
+    fs::create_dir_all(visualizer.parent().unwrap()).unwrap();
+    fs::write(&visualizer, b"visualizer-before").unwrap();
+    let result = run(Command::new(binary())
+        .args(["zzz", "decision", "--method", "legacy-v0", "--box"])
+        .arg(decision_fixture().join("input/box.yaml"))
+        .arg("--out")
+        .arg(&data)
+        .arg("--rules")
+        .arg(decision_fixture().join("input/rules.yaml"))
+        .env("MIHO_REPORT_LOCAL_DATETIME", FIXED_CLOCK));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8_lossy(&result.stderr).contains("compatibility only"));
+    let actual_json = fs::read_to_string(data.join("decision_cards.json"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    let expected_json = fs::read_to_string(decision_fixture().join("expected/decision_cards.json"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    assert_eq!(actual_json, expected_json);
+    let actual_md = fs::read_to_string(data.join("decision_report.md"))
+        .unwrap()
+        .replace("\r\n", "\n")
+        .replace(FIXED_CLOCK, "<GENERATED_AT>");
+    let expected_md = fs::read_to_string(decision_fixture().join("expected/decision_report.md"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    assert_eq!(actual_md, expected_md);
+    assert_eq!(fs::read(manifest).unwrap(), b"manifest-before");
+    assert_eq!(fs::read(visualizer).unwrap(), b"visualizer-before");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn legacy_decision_strict_failure_keeps_both_old_outputs() {
+    let root = temp_root("legacy-decision-failure");
+    let data = root.join("out");
+    copy_decision_data(&data);
+    fs::write(data.join("decision_cards.json"), b"old-json").unwrap();
+    fs::write(data.join("decision_report.md"), b"old-markdown").unwrap();
+    fs::write(
+        data.join("prydwen_tier_current.csv"),
+        b"character_slug,tier_mode,rating\nbad,sd,NaN\n",
+    )
+    .unwrap();
+    let result = run(Command::new(binary())
+        .args(["zzz", "decision", "--method", "legacy-v0", "--box"])
+        .arg(decision_fixture().join("input/box.yaml"))
+        .arg("--out")
+        .arg(&data)
+        .arg("--rules")
+        .arg(decision_fixture().join("input/rules.yaml"))
+        .env("MIHO_REPORT_LOCAL_DATETIME", FIXED_CLOCK));
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).starts_with("decision failed:"));
+    assert_eq!(
+        fs::read(data.join("decision_cards.json")).unwrap(),
+        b"old-json"
+    );
+    assert_eq!(
+        fs::read(data.join("decision_report.md")).unwrap(),
+        b"old-markdown"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn evidence_and_coverage_match_goldens_across_distinct_output_parents() {
     let root = temp_root("golden");
@@ -138,6 +237,10 @@ fn report_exit_codes_and_failure_prefixes_are_command_specific() {
     let missing_argument = run(Command::new(binary()).args(["zzz", "evidence"]));
     assert_eq!(missing_argument.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&missing_argument.stderr).contains("--box"));
+
+    let missing_method = run(Command::new(binary()).args(["zzz", "decision", "--box", "box.yaml"]));
+    assert_eq!(missing_method.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&missing_method.stderr).contains("--method"));
 
     let root = temp_root("failure-prefix");
     let runtime_failure = run(report_command(

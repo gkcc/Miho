@@ -15,13 +15,13 @@
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
 - HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 默认生成 Workbook，两游戏在线 export 均在 visualizer 完整目录验收后解除总门禁。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 174 项、Python 162 项（含 visualizer 与 Evidence V1 契约）和 workspace 严格 clippy 通过；前端 Vite build 与 Tauri `--no-bundle` 仍沿用第十一批已通过基线。
+- 最近完整回归：Rust workspace 191 项、Python 165 项（含 visualizer、Evidence V1 与 LegacyV0 decision 契约）、workspace 严格 clippy、Python compileall 与 diff check 通过；前端 Vite build 与 Tauri `--no-bundle` 仍沿用第十一批已通过基线。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
 - 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
 - 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
 - 双游戏 visualizer 产物契约已冻结并由 Rust 实现：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
 - `evidence-first-v1-20260712` 已由 Python oracle 与共享 Rust core/CLI 双实现：跨 mode 隔离、A 的 sentinel/稳定性门槛、owned/built 分离、稳定 E-ID、显式时钟、JSON/YAML/BOM、四产物黄金和任意路径整批回滚均已验收；Rust evidence/coverage 门禁已解除。
-- Python 继续作为决策/报告迁移 oracle；当前 `decision` 明确标记为 `legacy-v0`，不将其跨模式 heuristic、raw team 依赖和 alias 缺口宣称为 evidence-first 完成。
+- Python 继续作为决策/报告迁移 oracle；Rust `decision` 已作为显式 `legacy-v0` compatibility 完成迁移，不将其跨模式 heuristic、raw team 依赖和 alias 缺口宣称为 evidence-first 完成。正式推荐仍只由待迁移的 `pull-value` 产生。
 
 ## 阶段路线
 
@@ -55,9 +55,9 @@
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 迁移 Rust decision compatibility | 进行中 | 三个只读边界/fixture 审计子智能体、待实现 | `legacy-v0` 六 CSV/Box/rules 契约 | 仅在显式 `--method legacy-v0` 下运行的 Rust compatibility core/CLI | 旧 JSON/Markdown 精确兼容、两文件事务、0/1/2；不得成为正式推荐默认 | Rust evidence/coverage 已解门 |
+| 迁移 Rust decision compatibility | 完成 | 三个只读边界/fixture 审计子智能体、主智能体、独立对抗审查子智能体 | `legacy-v0` 六 CSV/Box/rules 契约 | 仅在显式 `--method legacy-v0` 下运行的 Rust compatibility core/CLI | 旧 JSON/Markdown 精确兼容、两文件事务、0/1/2；独立 `Blocker=0 / High=0`；不得成为正式推荐默认 | Rust evidence/coverage 已解门 |
 | 迁移 Rust pull-value | 未开始 | 待分配 | Evidence V1 主/风险证据、tier/usage、Banner plan、baseline | 同 mode A/B 支撑的抽取价值报告 | 高/中高逐项引用主证据；跨语言黄金与对抗反例 | Rust decision 边界固定 |
-| 迁移 Rust review-packet 并收口报告 IPC | 未开始 | 待分配 | pull-value、current/next packet、Tauri 任务模型 | Rust packet、后台任务/进度/取消的共享请求边界 | packet hash/trace、CLI/Tauri 同 core、无 Python 报告链 | Rust pull-value 已解门 |
+| 迁移 Rust review-packet | 未开始 | 待分配 | pull-value、current/next packet | 只序列化同一批 pull cards 的 Rust packet/core/CLI | packet hash/trace、不重算推荐、无 Python CLI 报告链 | Rust pull-value 已解门 |
 
 ## 决策记录
 
@@ -84,13 +84,14 @@
 | 2026-07-12 | 决策/报告以 `evidence-first-v1-20260712` 为正式方法；旧 decision 标记 `legacy-v0` | 同队不跨 mode 合并分数/置信度；A 需有效表现与稳定组件；高/中高抽取必须引用 A/B 主证据；LegacyV0 精确兼容不等于方法完成 | 证据策略/schema 升级或用户明确要求旧 heuristic 默认化时 |
 | 2026-07-12 | Rust evidence/coverage 报告是 export 目录中的 unmanaged consumer artifact；报告命令只捕获一次 cwd/local datetime，任意输出整批安装并拒绝父链 symlink/reparse point | 不刷新或占有 `artifact_manifest.json`/visualizer；debug 固定时钟只用于黄金测试，release 始终使用本地时钟；路径别名不能绕过三输出互异性 | 报告进入正式 artifact schema、支持受信任 reparse 输出或事务协议升级时 |
 | 2026-07-12 | `decision` 只迁移显式 `legacy-v0` compatibility；正式 evidence-first 推荐唯一入口是 `pull-value`，`review-packet` 直接序列化同一批卡片 | 禁止再造第二套 Decision V1 与 pull-value 竞争；Legacy 继续保留 raw team、跨 mode heuristic 和旧 payload/hash，但 CLI/help/receipt 必须标 compatibility only，UI 不得当正式推荐 | 产品明确批准独立 Decision V1 的版本化规则/schema，或正式推荐入口发生变更时 |
+| 2026-07-12 | LegacyV0 compatibility 按 Python 的字段存在性、truthiness、`str(float)`、DictReader 与 PyYAML 1.1 语义做显式 adapter，不以 serde 默认行为代替兼容契约 | 六 CSV 的 missing/null/empty、JSON/YAML quoted/plain scalar、非有限失败和旧两文件事务进入 Rust 门禁；visualizer sidecar 根字段标记 `decisionMethodVersion=legacy-v0` | 删除 LegacyV0、升级其公开 schema，或 Python oracle 被版本化替代时 |
 
 ## 风险登记
 
 | 风险 | 当前状态 | 缓解措施 |
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
-| Legacy decision 与 evidence-first 方法冲突 | 中（边界已固定，迁移待完成） | `decision --method legacy-v0` 仅作 compatibility；正式推荐只由 pull-value 产生并以 dedup A/B 主证据支撑高优先级 |
+| Legacy decision 与 evidence-first 方法冲突 | 低（兼容迁移已验证，正式方法仍隔离） | `decision --method legacy-v0` 仅作 compatibility；正式推荐只由 pull-value 产生并以 dedup A/B 主证据支撑高优先级 |
 | 双游戏 visualizer 与 Python 语义漂移 | 低（已验证） | 46 项跨语言/真实 CLI 契约、118 项 core、浏览器冒烟与独立对抗反例；sidecar/schema 变化时重新关门复核 |
 | Workbook 单元格类型和样式可能与 Python 漂移 | 低（已验证） | 双游戏 oracle、显式/混合类型、thin border、样式/列宽语义规范化与 Rust 全局零公式断言已固化 |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
@@ -257,6 +258,17 @@
 - 最有把握的依据：现有 smoke 已有四类决策和稳定 hash（JSON `65045aee…772d`、Markdown `d29a13b…7da8`），Python 代码明确展示全局最高 tier、跨 mode 最大 usage/最差 trend、`team_rank_raw.csv`、忽略 aliases 和 arbitrary force_decision；这些只能作为兼容行为，不能升级为 evidence-first。
 - 最大困难与路线修正：最大困难是“迁移 decision”在命令名上看似正式推荐，实际只是一套旧 visualizer sidecar heuristic。主流程从“实现 Legacy 与一个新 Decision V1”修正为“Legacy compatibility + pull-value 唯一正式推荐”，减少重复规则和冲突 UI。下一步先物化 dedicated Legacy fixture，完成纯 Rust core、显式 method、两文件事务与独立对抗；随后直接进入 pull-value。
 - 关键反例：planned union 中某 A 队同时依赖候选 A/B，不能在 A 卡上伪装成“抽 A 即可成队”；正式 pull 主证据只接受 `plan_dependency == [candidate]`，额外计划依赖只能进入 conditional risk。SD tier、DA usage、SD evidence 也不得拼成高档。
+
+### 第十三批进度：Rust LegacyV0 decision compatibility 完成（子目标 1/3，2026-07-12）
+
+- **显式提问**：本阶段我最有把握的完成证据是什么？最值得质疑、最可能被现有测试漏掉的点是什么？
+- **主判断—最有把握**：纯 Rust `DecisionLegacyInputsV0 + DecisionLegacyRequestV0 + DecisionLegacyContextV0` 已在显式 `--method legacy-v0` 下读取旧六 CSV、Box 与 rules，生成冻结的四类决策和完整嵌套 payload；JSON/Markdown 与 Python oracle 逐字一致。真实 CLI 只写 `decision_cards.json`/`decision_report.md`，通过共享批事务保持旧两文件、manifest 与 visualizer 不变，成功 stderr 明确 `compatibility only`。ZZZ visualizer 根字段同时固定 `decisionMethodVersion: legacy-v0`，旧 decision payload/hash 不加 method 字段。
+- **主判断—最值得质疑**：最大漏测面不是四类决策主路径，而是 Python 动态类型边界。`dict.get` 的 key absent 与 present-null、`or` truthiness、`csv.DictReader` 的 ragged row、PyYAML 1.1 的 yes/off、merge、flow、八进制/六十进制/timestamp，以及 Python binary64 的 `1e-07` 表示，都可能在 serde/标准 Rust parse 下产生“语义看似相近、旧文件却不精确”的差分。非有限输入还必须在写出前失败并保留旧两文件，不能用饱和转换掩盖。
+- **独立对抗判断**：未参与实现的审查子智能体持续用真实 Python/Rust CLI 构造反例，先后报告 visualizer method 标记、Box owned/cinema、字符串 truthiness、replacement 空值、raw team null、config presence/slice、team rank NaN/Infinity、有限指数表示、文本 Infinity 误拒、数字空白/underscore、ragged CSV、PyYAML 1.1/merge/flow/timestamp、missing/null/empty、quoted non-finite raw field 与 numeric-to-string repr 等 High。全部修复后，它重放所有已报告反例，最终给出 `Blocker=0 / High=0`，且无保留 Medium/Low。
+- **主线程回应与处理**：所有 Blocker/High 均接受并转成门禁，没有以“Legacy 输入不该这样写”豁免。Rust Row 保留 header presence 与 missing cell；config adapter 显式区分 raw string 与数值消费字段；PyYAML adapter 对齐 1.1 scalar/merge；所有 Python `str(float)` 路径共用 number repr；非有限、timestamp 与批写失败在安装前终止。最终专用 Rust contract 15 项、CLI report 6 项、Python decision/visualizer 49 项与独立真实 CLI 复合差分均通过。
+- **最大困难与路线修正**：最大困难是“精确兼容”不能靠翻译算法主体完成，真正工作量集中在 Python 运行时的 presence/type/parser/renderer 语义。如果继续用一个通用 serde helper 覆盖所有字段，会在安全数值和合法文本之间反复误判。主流程因此明确：LegacyV0 保留专用兼容 adapter，不外溢为正式方法；下一批 `pull-value` 使用版本化 typed schema 和 Evidence V1，不继承 Legacy 的宽松 YAML/CSV 动态语义。只读路线审计还发现 `review-packet` 与 Tauri IPC 被错误捆绑，现拆为 pull-value core/CLI → review-packet serializer/core/CLI → 共享报告 IPC/后台任务 → Tauri UI/visualizer 集成。
+- **最终验收**：`cargo test --workspace --no-fail-fast` 共 191 项、`cargo clippy --workspace --all-targets -- -D warnings`、`python -m pytest -q` 共 165 项、Python compileall 与 `git diff --check` 全绿；独立结论 `Blocker=0 / High=0`。前端 Vite/Tauri 构建未受本批代码触及，继续沿用第十一批全绿基线。
+- **下一步**：只迁移 Rust pull-value core + CLI，冻结 typed pull cards 与 current/next Markdown；高/中高仍必须由同 mode tier/usage/A-B 主证据和单候选 `plan_dependency` 支撑。`review-packet` 与 Tauri IPC 不并入该最小提交。
 
 ## 恢复入口
 

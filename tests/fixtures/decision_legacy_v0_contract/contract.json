@@ -1,0 +1,66 @@
+{
+  "contract_version": "decision-legacy-v0-golden-20260712",
+  "method_version": "legacy-v0",
+  "fixed_local_clock": "2026-07-12T13:14:15",
+  "normalizations": ["temporary_root", "generated_at"],
+  "input_files": [
+    "box.yaml",
+    "data/character_usage_long.csv",
+    "data/name_map.csv",
+    "data/prydwen_tier_changelog_history.csv",
+    "data/prydwen_tier_current.csv",
+    "data/prydwen_tier_history.csv",
+    "data/team_rank_raw.csv",
+    "rules.yaml"
+  ],
+  "output_files": [
+    "decision_cards.json",
+    "decision_report.md"
+  ],
+  "expected_decisions": {
+    "alice": "不抽",
+    "miyabi": "停止加仓",
+    "seed-agent": "等实测",
+    "zhao": "抽"
+  },
+  "normalized_sha256": {
+    "decision_cards.json": "3ae8294f52ad96059670caba107446f3ada9e67b80c3d08b2f5d911e249860de",
+    "decision_report.md": "778a44508872aaa45734e940db01e0b0589418f4d76b08b16e1b3d7cf5194787"
+  },
+  "payload_schema": {
+    "payload": ["summary", "cards"],
+    "summary": ["owned_agents", "candidate_count", "decision_counts", "data_rows"],
+    "data_rows": ["tier_current", "usage", "teams", "changelog"],
+    "card": [
+      "slug", "name_cn", "name_en", "owned", "current_stage", "candidate_type",
+      "decision", "decision_score", "decision_reasons", "warnings", "tier_summary",
+      "history_summary", "release_risk", "replacement_risk", "investment",
+      "stage_comparison", "notes", "source"
+    ],
+    "tier_summary": [
+      "best_tier", "best_rating", "modes", "role_group", "role_group_cn", "element",
+      "element_cn", "style", "style_cn", "rarity"
+    ],
+    "tier_mode": ["mode_cn", "tier", "rating", "role_group_cn"],
+    "history_summary": [
+      "usage_points", "modes", "team_appearances", "best_team_rank",
+      "latest_team_examples", "changelog_mentions", "changelog_latest"
+    ],
+    "history_mode": [
+      "mode_cn", "points", "latest_collect_date", "latest_app_rate",
+      "avg_last3_app_rate", "peak_app_rate", "trend_delta"
+    ],
+    "team_example": ["collect_date", "mode_cn", "sub_mode_cn", "rank", "app_rate", "team"],
+    "release_risk": ["level", "reason"],
+    "replacement_risk": ["level", "reason", "replacements"],
+    "replacement": ["slug", "name_cn", "tier", "rating", "same_role", "same_style", "same_element"],
+    "investment": ["status", "score", "warnings", "ready"],
+    "stage": ["stage", "label", "pull_cost", "value", "advice", "reached", "placeholder"]
+  },
+  "rust_command_comparison_seam": {
+    "status": "executed_by_rust_contract",
+    "commands": [
+      ["miho", "zzz", "decision", "--method", "legacy-v0", "--box", "<ROOT>/input/box.yaml", "--out", "<ROOT>/input/data", "--rules", "<ROOT>/input/rules.yaml"]
+    ]
+  }
+}

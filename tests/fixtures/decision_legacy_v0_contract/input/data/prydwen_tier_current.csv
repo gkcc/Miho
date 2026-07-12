@@ -1,0 +1,4 @@
+tier_mode,tier_mode_cn,character_slug,character_name_en,character_name_cn,role_group,role_group_cn,tier,rating,element,element_cn,style,style_cn,rarity,is_new
+sd,式舆防卫,zhao,Zhao,照,crit_dps,直伤主C,T0,11,Fire,火,Attack,强攻,S,
+sd,式舆防卫,alice,Alice Thymefield,爱丽丝·泰姆菲尔德,anomaly_dps,异常主C,T0.5,10,Physical,物理,Anomaly,异常,S,
+sd,式舆防卫,miyabi,Miyabi,星见雅,anomaly_dps,异常主C,T0.5,10,Ice,冰,Anomaly,异常,S,
