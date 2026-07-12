@@ -30,3 +30,4 @@ A Rust command must not silently produce partial output. Until its golden suite 
 - JSON object member order is ignored; JSON types and array order are strict. Only `/meta/localDate` is dynamic.
 - The directory file set, normalized-LF UTF-8 static assets, and every binary avatar are hash-locked. URL traversal/active schemes, non-finite JSON numbers, workspace-path leaks, and live network access are rejected.
 - HSR and ZZZ export paths must write final CSV artifacts first, then call the same disk-backed rebuild used by their independent `visualizer` commands.
+- The Rust HSR golden harness currently proves the final-CSV/Prydwen fallback path. HoYoWiki roster input remains an explicit hard gate until its merge branch has native coverage; this gate must not be relaxed by the single-row oracle alone.

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from argparse import Namespace
 from contextlib import contextmanager
@@ -91,6 +92,63 @@ def visualizer_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
         run_hsr_visualizer(Namespace(out=str(hsr_root)))
         run_zzz_visualizer(Namespace(out=str(zzz_root)))
     return workspace
+
+
+@pytest.fixture(scope="module")
+def rust_hsr_visualizer_root(
+    tmp_path_factory: pytest.TempPathFactory,
+    visualizer_workspace: Path,
+) -> Path:
+    csv_root = visualizer_workspace / "out"
+    python_root = _visualizer_root(visualizer_workspace, "hsr")
+    local_date = load_json(python_root / "data.json")["meta"]["localDate"]
+    out_root = (
+        tmp_path_factory.mktemp("miho-rust-hsr-visualizer-contract")
+        / "Rust 中文 空格 output"
+    )
+    subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--quiet",
+            "-p",
+            "miho-core",
+            "--example",
+            "hsr_visualizer_contract",
+            "--",
+            str(csv_root),
+            str(out_root),
+            local_date,
+            str(csv_root / "hsr_banner_plan.json"),
+            "agent-alpha",
+            str(python_root / "assets" / "avatars" / "agent-alpha.webp"),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+    return out_root / "visualizer"
+
+
+def test_rust_hsr_visualizer_matches_python_json_exactly(
+    visualizer_workspace: Path,
+    rust_hsr_visualizer_root: Path,
+) -> None:
+    expected = load_json(_visualizer_root(visualizer_workspace, "hsr") / "data.json")
+    actual = load_json(rust_hsr_visualizer_root / "data.json")
+
+    assert_json_contract_equal(expected, actual, dynamic_pointers=())
+
+
+def test_rust_hsr_visualizer_file_set_and_asset_hashes_are_exact(
+    rust_hsr_visualizer_root: Path,
+) -> None:
+    contract = load_json(FIXTURES / "contract.json")
+    assert relative_file_set(rust_hsr_visualizer_root) == contract["file_sets"]["hsr"]
+
+    for name, expected_hash in contract["static_text_sha256"]["hsr"].items():
+        assert normalized_utf8_sha256(rust_hsr_visualizer_root / name) == expected_hash
+    for name, expected_hash in contract["binary_sha256"]["hsr"].items():
+        assert binary_sha256(rust_hsr_visualizer_root / name) == expected_hash
 
 
 @pytest.mark.parametrize("game", ["hsr", "zzz"])

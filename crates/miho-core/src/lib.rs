@@ -11,6 +11,7 @@ pub mod hsr_history;
 pub mod hsr_names;
 pub mod hsr_sources;
 pub mod hsr_supplemental;
+pub mod hsr_visualizer;
 pub mod network;
 pub mod normalize;
 pub mod output;
