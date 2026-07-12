@@ -29,13 +29,13 @@
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
-## 当前三目标（第十批）
+## 当前三目标（第十一批）
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 建立可复现的 Tauri/Vite 构建基线 | 已完成 | 前端子智能体、主智能体审查 | pnpm 11.7、Node 24、现有 Tauri/Vite scaffold | 布尔 `allowBuilds.esbuild`；固定 package manager/Node 范围；Vite 1420 strict port；根构建脚本 | 干净 frozen install、esbuild 0.25.12、Vite build、desktop 3 项、Tauri no-bundle 通过 | 无 |
-| 固化双游戏 Workbook 语义契约 | 已完成 | 兼容测试子智能体、主智能体定标 | Python 生成器、归档 XLSX、现有 CSV bundle | HSR 18-sheet、ZZZ 12-sheet 脱敏 XLSX oracle；sheet/列/值/类型/样式/宽度/公式规范化比较器 | 7 项契约测试；Artifact Tool 导入、公式扫描与 30-sheet 渲染核验通过 | 现有 exporter bundle |
-| 接入共享 Rust Workbook writer | 已完成 | Rust 子智能体审计、主智能体实现整合 | Workbook 语义契约、`WorkbookPolicy`、最终 ArtifactBundle | HSR 18-sheet 与 ZZZ 12-sheet；显式/混合单元格类型；全局零公式；BestEffort diagnostics、manifest/receipt 与 CLI 原子写出 | 双游戏 10 项 XLSX 契约、CLI 11 项、Rust workspace 118 项、Python 84 项、严格 clippy 通过 | Workbook 契约 |
+| 固化双游戏 visualizer 产物契约 | 待开始 | 兼容测试子智能体、主智能体定标 | 两套 Python visualizer、最终 CSV、Banner/Box 配置、现有前端测试 | 脱敏 `data.json` oracle；HTML/CSS/JS/本地头像/Hub 文件集合；动态字段白名单与版本化比较器 | `python -m pytest -q tests/test_visualizer_contract.py`；静态资源哈希与浏览器冒烟 | 最终 CSV 与 Workbook 已稳定 |
+| 迁移 HSR visualizer bundle | 待开始 | HSR Rust 子智能体、主智能体整合 | HSR visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；离线头像回退；export/visualizer CLI 共用核心实现 | HSR JSON 语义对比、目录比较、CLI fixture、浏览器交互冒烟、严格 clippy | visualizer 契约 |
+| 迁移 ZZZ visualizer bundle | 待开始 | ZZZ Rust 子智能体、主智能体整合 | ZZZ visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；代理人/邦布与卡池语义；export/visualizer CLI 共用核心实现 | ZZZ JSON 语义对比、目录比较、CLI fixture、浏览器交互冒烟、严格 clippy | visualizer 契约 |
 
 ## 决策记录
 
@@ -142,6 +142,14 @@
 - 验证结果：Rust workspace 111 项、Python 74 项与 workspace 严格 clippy 通过；前端 `pnpm --dir crates/miho-desktop build` 在干净依赖状态因 `ERR_PNPM_IGNORED_BUILDS` 失败，临时生成的 `node_modules` 已清除。
 - 调整：最终无 Python 目标不变，继续保持在线总门禁。第十批先修复可复现 Tauri/Vite 构建，再用语义而非 XLSX 字节比较固化 Workbook，随后由共享 Rust writer 接入两游戏；visualizer 数据契约与等价 UI 排在下一批，决策报告不提前穿插。
 - 下一批：可复现前端构建基线、双游戏 Workbook 语义契约、共享 Rust Workbook writer。
+
+### 复盘 10：可复现前端与双游戏 Workbook（2026-07-12）
+
+- 完成：固定 pnpm/Node/esbuild/Vite/Tauri 可复现构建；建立 HSR 18-sheet、ZZZ 12-sheet 脱敏 Workbook oracle 和语义比较器；共享 Rust writer 直接消费最终 CSV，覆盖显式/混合类型、两套样式、冻结/筛选/列宽、`0.00`、全局零公式、BestEffort warning、manifest/receipt 与 CLI 原子写出。离线双游戏 CLI 已默认包含 XLSX，在线门禁只剩 visualizer。
+- 偏差：初版契约漏掉 pandas 表头四边 thin border，也会用 `EXTERNAL_TEXT` 同时掩盖 actual 公式；`rust_xlsxwriter` 与 openpyxl 对 RGB alpha、继承字体、solid fill 背景和连续列宽有不同但等价的 OOXML 表示。真实 HSR fixture 还发现 `special_rating` 同列可同时出现数值和 `E6` 文本，且旧 Rust `overview.csv` 将趋势、图表和 warning 固定为 0。视觉 QA 确认 HSR 两张 dedup 表有签名裁剪，ZZZ 维持 pandas 默认窄列的系统性截断；本轮按等价迁移保留，产品化阶段再改善。
+- 失败原因：单行 oracle 能冻结主路径，却不足以揭示混合列与空数值格；最初比较器把库级 XML 表示误当业务语义；早期最小 exporter 的 overview 只验证了垂直切片，未随补充来源能力同步扩展。
+- 调整：最终无 Python 目标不变。Workbook 采用显式语义规范化并对 Rust actual 独立执行零公式断言，不做 ZIP 字节追逐；混合类型必须按已知列声明，禁止全局自动推断。下一批先冻结 visualizer 的 `data.json`、静态资源、头像与动态字段边界，再分别移植 HSR/ZZZ，避免两套大型交互实现共享错误规则。
+- 下一批：双游戏 visualizer 产物契约、HSR visualizer bundle、ZZZ visualizer bundle。
 
 ## 恢复入口
 
