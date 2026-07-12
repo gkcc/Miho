@@ -31,8 +31,8 @@ use miho_core::{
     normalize::parse_date,
     pipeline::{run_hsr_export_v1, run_zzz_export_v1, ExportRequest, Game, OfflineFixture},
     pull_value::{
-        build_pull_value_bundle_v1, render_pull_value_markdown_v1, validate_mechanism_note_v1,
-        PullValueContextV1, PullValueInputsV1, PullValueRequestV1,
+        build_pull_value_bundle_v1, render_gpt_review_packet_v1, render_pull_value_markdown_v1,
+        validate_mechanism_note_v1, PullValueContextV1, PullValueInputsV1, PullValueRequestV1,
     },
     source::HfSnapshotSource,
     visualizer::{attach_visualizer_hub, validate_json_surrogate_escapes, VisualizerContext},
@@ -549,6 +549,43 @@ fn run_zzz_coverage(args: &CoverageArgs, invocation: &ReportInvocation) -> anyho
 }
 
 fn run_zzz_pull_value(args: &PullValueArgs, invocation: &ReportInvocation) -> anyhow::Result<()> {
+    run_zzz_pull_artifact(args, invocation, PullArtifactKind::Report)
+}
+
+fn run_zzz_review_packet(
+    args: &PullValueArgs,
+    invocation: &ReportInvocation,
+) -> anyhow::Result<()> {
+    run_zzz_pull_artifact(args, invocation, PullArtifactKind::ReviewPacket)
+}
+
+#[derive(Clone, Copy)]
+enum PullArtifactKind {
+    Report,
+    ReviewPacket,
+}
+
+impl PullArtifactKind {
+    fn filename(self, safe_status: &str) -> String {
+        match self {
+            Self::Report => format!("{safe_status}_pull_value_report.md"),
+            Self::ReviewPacket => format!("{safe_status}_gpt_pull_reviewer_packet.md"),
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Report => "pull-value",
+            Self::ReviewPacket => "review-packet",
+        }
+    }
+}
+
+fn run_zzz_pull_artifact(
+    args: &PullValueArgs,
+    invocation: &ReportInvocation,
+    artifact: PullArtifactKind,
+) -> anyhow::Result<()> {
     let data_dir = invocation.resolve(&args.out);
     let box_path = invocation.resolve(&args.box_path);
     let plan_path = invocation.resolve(&args.plan);
@@ -592,10 +629,11 @@ fn run_zzz_pull_value(args: &PullValueArgs, invocation: &ReportInvocation) -> an
             } else {
                 safe_status
             };
-            let output = data_dir.join(format!("{safe_status}_pull_value_report.md"));
+            let output = data_dir.join(artifact.filename(&safe_status));
             if !seen.insert(output.clone()) {
                 bail!(
-                    "plan statuses resolve to the same pull-value output: {}",
+                    "plan statuses resolve to the same {} output: {}",
+                    artifact.label(),
                     output.display()
                 );
             }
@@ -636,7 +674,10 @@ fn run_zzz_pull_value(args: &PullValueArgs, invocation: &ReportInvocation) -> an
             },
             &context,
         )?;
-        let markdown = render_pull_value_markdown_v1(&bundle);
+        let markdown = match artifact {
+            PullArtifactKind::Report => render_pull_value_markdown_v1(&bundle),
+            PullArtifactKind::ReviewPacket => render_gpt_review_packet_v1(&bundle)?,
+        };
         rendered.push((output, platform_text_bytes(&markdown)));
     }
     atomic::write_batch(&rendered)?;
@@ -838,6 +879,12 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
         } => {
             let invocation = ReportInvocation::capture()?;
             return run_zzz_pull_value(args, &invocation);
+        }
+        GameCommand::Zzz {
+            command: ZzzCommand::ReviewPacket(args),
+        } => {
+            let invocation = ReportInvocation::capture()?;
+            return run_zzz_review_packet(args, &invocation);
         }
         _ => {}
     }

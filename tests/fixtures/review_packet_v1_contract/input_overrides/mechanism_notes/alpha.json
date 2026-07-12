@@ -1,0 +1,30 @@
+{
+  "identity": {
+    "role_group_cn": "机制笔记定位",
+    "element_cn": "机制笔记元素",
+    "style_cn": "机制笔记特性",
+    "rarity": "S"
+  },
+  "recommended_stage": "0+0",
+  "acceptable_stage": "0+0",
+  "unresolved_stage": "0+1 / 1+0 / 1+1 / 2+1",
+  "stage_confidence": "high",
+  "not_recommended_stage": "2+1 以上缺少收益证据",
+  "stage_reason": "危险文本 </script> | Markdown pipe\n第二行仍在 JSON 字符串内",
+  "missing_data": "1+1 与 2+1 的长线收益",
+  "source_quality": {
+    "identity": "official",
+    "breakpoints": "reviewed"
+  },
+  "stage_notes": {
+    "0+0": {
+      "value_type": "本体完整度",
+      "evidence": "机制笔记显式支持 | 不应破坏 packet",
+      "missing_data": "无"
+    }
+  },
+  "risks_and_counterevidence": [
+    "反证 </script> | 保留",
+    "跨行风险第一行\n跨行风险第二行"
+  ]
+}

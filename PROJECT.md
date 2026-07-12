@@ -15,13 +15,13 @@
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
 - HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 默认生成 Workbook，两游戏在线 export 均在 visualizer 完整目录验收后解除总门禁。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 213 项、Python 176 项（含 visualizer、Evidence V1、LegacyV0 decision 与 pull-value V1 契约）、workspace 严格 clippy、Python compileall 与 diff check 通过；前端 Vite build 与 Tauri `--no-bundle` 仍沿用第十一批已通过基线。
+- 最近完整回归：Rust workspace 218 项、Python 181 项（含 visualizer、Evidence V1、LegacyV0 decision、pull-value V1 与 review-packet V1 契约）、workspace 严格 clippy、Python compileall 与 diff check 通过；前端 Vite build 与 Tauri `--no-bundle` 仍沿用第十一批已通过基线。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
 - 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
 - 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
 - 双游戏 visualizer 产物契约已冻结并由 Rust 实现：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
 - `evidence-first-v1-20260712` 已由 Python oracle 与共享 Rust core/CLI 双实现：跨 mode 隔离、A 的 sentinel/稳定性门槛、owned/built 分离、稳定 E-ID、显式时钟、JSON/YAML/BOM、四产物黄金和任意路径整批回滚均已验收；Rust evidence/coverage 门禁已解除。
-- Python 继续作为决策/报告迁移 oracle；Rust `decision` 已作为显式 `legacy-v0` compatibility 完成迁移，不将其跨模式 heuristic、raw team 依赖和 alias 缺口宣称为 evidence-first 完成。Rust `pull-value` 已成为唯一正式推荐入口；`review-packet` 仍待迁移且不得重算推荐。
+- Python 继续作为决策/报告迁移 oracle；Rust `decision` 已作为显式 `legacy-v0` compatibility 完成迁移，不将其跨模式 heuristic、raw team 依赖和 alias 缺口宣称为 evidence-first 完成。Rust `pull-value` 已成为唯一正式推荐入口；Rust `review-packet` 已解除 core/CLI 门禁，只序列化同一批 pull cards、refs、stable IDs/keys/trace，不生成第二套推荐。共享报告 IPC、后台任务与 Tauri UI 仍待产品化。
 
 ## 阶段路线
 
@@ -29,7 +29,7 @@
 2. **兼容基线**：固化 CLI、输入输出和允许差异，建立黄金比较器。
 3. **Rust 基础内核**：完成强类型配置、规范化、解析模型、稳定标识、可靠存储与网络边界。
 4. **数据抓取与导出**：移植 Hugging Face、Prydwen、官方名称及 HSR/ZZZ 导出。
-5. **决策与报告**：移植 evidence、coverage、decision、pull-value、review-packet。
+5. **决策与报告**：完成 evidence、coverage、decision compatibility、pull-value、review-packet 的 Rust core/CLI 迁移。
 6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
 7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
 
@@ -51,13 +51,13 @@
 | 定标 Evidence V1 Python oracle | 完成 | 主智能体、独立对抗审查子智能体 | 完整 dedup team、name/tier、Box/builds、plan、显式 local datetime | mode-scoped evidence key、A/B/C、observation trace、current/target/aggregate、pull 主/风险证据分离 | 159 项 Python；跨 mode、sentinel/stability/build、alias、schema、clock、路径冲突和回滚反例；独立 `Blocker=0 / High=0` | 契约盘点 |
 | 迁移 Rust evidence/coverage | 完成 | 主智能体、Rust core/fixture 子智能体、独立对抗审查子智能体 | EvidenceInputs/Request/Context V1、Python oracle | 共享 Rust evidence core、两命令 CLI、事务安装 | 四产物跨语言黄金；真实 CLI 0/1/2、YAML/BOM、manifest/visualizer 保留、junction/回滚反例；独立 `Blocker=0 / High=0` | Evidence V1 复核清零 Blocker/High |
 
-## 当前三目标（第十三批）
+## 第十三批三目标（已完成）
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 迁移 Rust decision compatibility | 完成 | 三个只读边界/fixture 审计子智能体、主智能体、独立对抗审查子智能体 | `legacy-v0` 六 CSV/Box/rules 契约 | 仅在显式 `--method legacy-v0` 下运行的 Rust compatibility core/CLI | 旧 JSON/Markdown 精确兼容、两文件事务、0/1/2；独立 `Blocker=0 / High=0`；不得成为正式推荐默认 | Rust evidence/coverage 已解门 |
 | 迁移 Rust pull-value | 完成 | 主智能体、CLI/fixture 子智能体、两名独立对抗审查子智能体 | Evidence V1 主/风险证据、tier/usage、Banner plan、baseline | typed pull cards、同 mode A/B 支撑的抽取价值报告、Rust CLI | current/next 跨语言黄金；exact dependency、PyYAML/非有限/rounding/事务/0-1-2 对抗；独立 `Blocker=0 / High=0` | Rust decision 边界固定 |
-| 迁移 Rust review-packet | 未开始 | 待分配 | pull-value、current/next packet | 只序列化同一批 pull cards 的 Rust packet/core/CLI | packet hash/trace、不重算推荐、无 Python CLI 报告链 | Rust pull-value 已解门 |
+| 迁移 Rust review-packet | 完成 | 主智能体、两名独立只读/对抗审查子智能体 | pull-value typed bundle、current/next Python packet | 只序列化同一批 pull cards 的 Rust packet/core/CLI | current/next 跨语言 hash、字段顺序/trace、sentinel 不重算、动态 fence、Python JSON 数值、split/combined、单时钟/批事务、0/1/2；独立 `Blocker=0 / High=0` | Rust pull-value 已解门 |
 
 ## 决策记录
 
@@ -86,6 +86,7 @@
 | 2026-07-12 | `decision` 只迁移显式 `legacy-v0` compatibility；正式 evidence-first 推荐唯一入口是 `pull-value`，`review-packet` 直接序列化同一批卡片 | 禁止再造第二套 Decision V1 与 pull-value 竞争；Legacy 继续保留 raw team、跨 mode heuristic 和旧 payload/hash，但 CLI/help/receipt 必须标 compatibility only，UI 不得当正式推荐 | 产品明确批准独立 Decision V1 的版本化规则/schema，或正式推荐入口发生变更时 |
 | 2026-07-12 | LegacyV0 compatibility 按 Python 的字段存在性、truthiness、`str(float)`、DictReader 与 PyYAML 1.1 语义做显式 adapter，不以 serde 默认行为代替兼容契约 | 六 CSV 的 missing/null/empty、JSON/YAML quoted/plain scalar、非有限失败和旧两文件事务进入 Rust 门禁；visualizer sidecar 根字段标记 `decisionMethodVersion=legacy-v0` | 删除 LegacyV0、升级其公开 schema，或 Python oracle 被版本化替代时 |
 | 2026-07-13 | `pull-value` 作为唯一正式推荐入口解除 Rust 门禁；未拥有候选的主证据只接受 exact single dependency，多计划依赖进入 conditional risk | current/next 或显式合并报告使用单次时钟和批事务；PyYAML/JSON/BOM/非有限值走共享安全解析；manifest/visualizer/legacy sidecar 不归报告命令管理 | Evidence 方法/schema 升级、报告进入正式 manifest，或 review-packet/IPC 改变卡片所有权时 |
+| 2026-07-13 | Rust `review-packet` 解除 core/CLI 门禁，并固定为 `PullValueBundleV1` 的安全 serializer | 不重新读取输入或重算推荐；split/combined 与 pull-value 共用 adapter、单次时钟和批事务；manifest、visualizer、decision、pull/coverage 产物仍为 unmanaged | pull card/schema、Evidence 方法、JSON renderer、报告 ownership 或 IPC 所有权变化时 |
 
 ## 风险登记
 
@@ -282,6 +283,24 @@
 - **最终验收**：`cargo test --workspace --no-fail-fast` 共 213 项、`cargo clippy --workspace --all-targets -- -D warnings`、`python -m pytest -q` 共 176 项、Python compileall 与 `git diff --check` 全绿；专用 pull core 14 项、真实报告 CLI 13 项，独立结论 `Blocker=0 / High=0 / Medium=0`。前端 Vite/Tauri 构建未受本批产品代码触及，继续沿用第十一批全绿基线。
 - **下一步**：迁移 Rust `review-packet` serializer/core/CLI；它必须直接消费同一批 pull cards 与 refs，冻结 packet hash/trace、Markdown fence/JSON 安全、current/next 批事务和 0/1/2，并继续保持 Tauri IPC/UI 在下一独立子目标。
 
+### 第十三批进度：Rust review-packet 完成（子目标 3/3，2026-07-13）
+
+- **显式提问**：本阶段我最有把握的完成证据是什么？最值得质疑、最可能被现有测试漏掉的点是什么？
+- **主判断—最有把握**：专用 Python oracle、Rust core golden 和真实 Rust CLI 已共同冻结 current/next packet。规范化 SHA-256 分别为 current `893ee23ebc38135482165fbfda5c9cead737b35cab16734babfc8b0c7bde5461`、next `3dd1e707fd8d1f5ec801dfc5d2a241a669bf9468c7416a0f33e452ecb19886de`；字段顺序、stable refs/keys/trace 均逐字一致。直接篡改已有 bundle card 的 sentinel 后 packet 原样输出，证明 renderer 没有第二次计算推荐。
+- **主判断—最值得质疑**：JSON 语义相同不代表 packet 字节相同；mechanism note 中的小指数、负零、大整数，以及 payload 的连续反引号、Unicode、跨行文本、路径和平台换行都可能破坏 hash 或 Markdown。默认 split 与显式 combined 还必须证明共用同一次时钟、预渲染边界和批事务，不能只验证 renderer happy path。
+- **独立对抗判断**：未参与实现的终审曾发现一个 High：Python 把 `1e-7` 写为 `1e-07`，Rust 写为 `1e-7`。修复后真实 Python/Rust CLI 覆盖 `0.0000001`、`1e-7`、`1e+20`、`-0.0` 与大整数并逐字一致；五反引号 fence、Windows junction、第二文件安装失败回滚、notes precedence、0/1/2 和所有 consumer sidecar 保留均通过，最终 `Blocker=0 / High=0 / Medium=0 / Low=0`。另一静态审计仅保留一个非阻断 Low：合法路径自身含反引号时“相关文件”区 inline-code 显示可能异常，但 payload、JSON 与结论不受影响，且与 Python 既有行为一致。
+- **主线程回应与处理**：接受 JSON lexical High，将 `normalize_python_json_numbers` 提升为共享 helper，补齐 `1e-07`、`-0.0`、大整数和整数 `-0` 回归。fence 固定为 `max(3, payload 最长连续反引号 + 1)`；CLI 复用 `run_zzz_pull_artifact`，只分叉文件名与 renderer，因此 card 构建、单次时钟、碰撞预检和批事务没有第二条规则链。
+- **最大困难与路线修正**：最大困难是既要保持普通 packet 的旧 hash，又要修复固定 fence 注入和 Python/Rust 浮点指数格式；即便“只做 serializer”，仍存在 JSON lexical、Markdown fence、路径、换行和 ownership 风险。主流程不改变纯 Rust/Tauri 终点，但下一阶段必须让 IPC/Tauri 传递 typed request/bundle/context 并复用现有 renderer/事务所有权，禁止前端复制 serializer 或重算推荐。
+- **最终验收**：`cargo test --workspace --no-fail-fast` 共 218 项、`cargo clippy --workspace --all-targets -- -D warnings`、`python -m pytest -q` 共 181 项、Python compileall 与 `git diff --check` 全绿；packet 专用 Python 5 项、Rust golden 1 项、真实 Rust CLI 3 项，独立终审 `Blocker=0 / High=0 / Medium=0 / Low=0`。前端 Vite/Tauri 构建未受本批产品代码触及，继续沿用第十一批全绿基线。
+- **下一步**：进入共享报告 IPC/后台任务，随后接 Tauri 任务、进度、取消、错误和文件选择；自动化、发布、无 Python 环境验收与 Python 退役仍未完成。
+
+### 第十三批三目标复盘（2026-07-13）
+
+- **完成**：LegacyV0 decision compatibility、Evidence V1 `pull-value` 正式推荐与 `review-packet` 安全 serializer 均完成 Rust core/CLI 迁移；每个子目标分别提交或进入本次提交，并在独立对抗复核清零 Blocker/High 后解除门禁。
+- **最大偏差与困难**：review-packet 的算法工作量很小，但 Python JSON lexical、动态 Markdown fence、Windows 路径/事务和 consumer ownership 仍足以造成 hash、安全或回滚漂移；“不重算”不能替代字节与真实 CLI 证据。
+- **路线修正**：决策/报告 core+CLI 阶段至此收口。下一批不再新增推荐规则，而是建立共享报告 IPC/后台任务，把同一 typed pull-card 所有权、单次时钟、取消/进度和批事务带入 Tauri UI；之后再做自动化发布和无 Python 环境退役验收。
+- **项目状态**：第十三批完成不等于整个项目完成；Tauri 产品化、自动化发布、计划任务切换与 Python 退役仍是剩余主线。
+
 ## 恢复入口
 
 - 项目状态：本文件。
@@ -292,4 +311,4 @@
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
-- 最危险的未验证假设：`review-packet` 能否只序列化同一批 Rust pull cards 而不产生第二套推荐，以及共享报告 IPC/后台任务接入 Tauri 后能否保持单次时钟、取消/进度和批事务所有权；Evidence/Pull 已证明“先冻结显式输入与时钟，再做路径/失败对抗反例”的路线有效。
+- 最危险的未验证假设：共享报告 IPC/后台任务接入 Tauri 后能否保持 typed bundle 单一所有权、单次时钟、取消/进度和批事务，以及自动化切换与无 Python 发布能否在真实安装环境复现；Evidence/Pull/Review 已证明“先冻结显式输入与时钟，再做路径/失败对抗反例”的路线有效。

@@ -20,7 +20,7 @@ final export CSV + Decision Box profile + legacy rules
 
 - `evidence-first-v1-20260712`: formal evidence/coverage and pull-value method.
 - `legacy-v0`: current Python `decision` heuristic. It is retained as a compatibility oracle only and is not evidence-first.
-- `tests/fixtures/decision_report_contract/contract.json` is a five-command bundle smoke with canonical hashes. It is not sufficient by itself to lift a Rust gate; dedicated LegacyV0 and pull-value contracts plus real CLI adversarial tests now lift those two gates independently.
+- `tests/fixtures/decision_report_contract/contract.json` is a five-command bundle smoke with canonical hashes. It is not sufficient by itself to lift a Rust gate; dedicated LegacyV0, pull-value and review-packet contracts plus real CLI adversarial tests now lift those gates independently.
 
 ## Evidence-first V1 invariants
 
@@ -57,7 +57,8 @@ The core Rust APIs must receive bytes/typed documents and an explicit context. P
 - Missing dedup team or Box input is fatal. Missing name/usage/tier data is tolerated where the Python command currently treats it as empty.
 - Evidence and coverage pre-render all files, reject colliding destinations, stage sibling files and roll back the entire batch if installation fails.
 - Rust `decision --method legacy-v0` pre-renders both legacy files and installs them through the shared batch transaction; failure preserves both old files and leaves manifest/visualizer unmanaged.
-- Rust `pull-value` resolves one invocation clock, pre-renders every requested status report and installs them through the same batch transaction. Status filename collisions, symlink/reparse ancestors and later-install failures preserve all old reports; manifest, visualizer and legacy decision sidecars remain unmanaged. `review-packet` remains gated until its own serializer and split-output contract pass.
+- Rust `pull-value` and `review-packet` share `run_zzz_pull_artifact`: one invocation clock, the same typed bundle construction, split or explicit combined output, pre-rendering and one batch transaction. Status filename collisions, symlink/reparse ancestors and later-install failures preserve all old files; manifest, visualizer, legacy decision sidecars and sibling consumer reports remain unmanaged.
+- The packet serializer changes only `pull_value` to `local_rule_pull_value`; every other card field, evidence ref and trace is serialized from the existing bundle without recomputation. It uses strict finite JSON, Python-compatible numeric spelling, unescaped Unicode and a Markdown fence of `max(3, longest payload backtick run + 1)`. The renderer emits one trailing LF; the trusted CLI adapter applies platform line endings.
 - Strict JSON output must reject non-finite values. If this differs from legacy Python `NaN`/`Infinity`, it is an approved safety correction with a regression test.
 - PyYAML is the config oracle. The shared Rust loader now preserves 1.1 plain booleans, merge keys, empty/falsey YAML roots and non-finite rejection for Evidence V1/pull inputs. LegacyV0 additionally retains its wider timestamp, presence and dynamic scalar compatibility surface.
 
@@ -81,10 +82,10 @@ The narrower product decision is now fixed:
 
 For an unowned pull candidate, a target-pool team is primary evidence only when its non-owned plan dependency is exactly that candidate. Teams that also require other planned candidates are conditional risk, not proof that pulling one candidate completes the team.
 
-## Remaining gate matrices
+## Gate matrices
 
 - Evidence/coverage: mode separation, A/B boundaries, sentinel density, stability, explicit build state, alias collision, plan clock boundaries, ordering/E-ID stability, UTF-8/config failures, output collision and rollback.
 - Decision (complete): priority table, alias identity, legacy cross-mode methodology, non-finite/raw scalar types, missing/null/empty inputs, explicit method, two-file rollback and visualizer method marker are frozen by the dedicated cross-language contract.
 - Pull (complete): A/B gate matrix, exact single-candidate dependency, conditional risk, new-character exception, low rarity, baseline delta, mechanism-note precedence, PyYAML/JSON/BOM/non-finite boundaries, stable ordering/rounding, clock/cwd, real CLI 0/1/2 and split-output rollback are frozen by the dedicated contract.
-- Review packet (remaining): serialize the same Rust pull cards without recomputation; freeze strict packet JSON/fence safety, trace/hash and split-output rollback.
-- Real Rust CLI: exact output set, semantic/byte oracle as applicable, command-specific stderr and 0/1/2 exits.
+- Review packet (complete): current/next hashes, payload schema/order, stable refs/trace, sentinel no-recompute proof, strict JSON/number spelling, dynamic fence safety, split/combined output, status collision and batch rollback are frozen by the dedicated contract.
+- Real Rust CLI: all five report families have command-specific output/error contracts and 0/1/2 coverage. Shared report IPC and the Tauri background-task adapter remain a later product stage.

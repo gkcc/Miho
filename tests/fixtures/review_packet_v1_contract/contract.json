@@ -1,0 +1,146 @@
+{
+  "contract_version": "review-packet-v1-golden-20260713",
+  "method_version": "evidence-first-v1-20260712",
+  "fixed_local_clock": "2026-07-13T09:10:11",
+  "normalizations": ["temporary_root"],
+  "shared_input_reference": "../pull_value_v1_contract/input",
+  "fixture_files": [
+    "input_overrides/mechanism_notes/alpha.json"
+  ],
+  "output_files": [
+    "current_gpt_pull_reviewer_packet.md",
+    "next_gpt_pull_reviewer_packet.md"
+  ],
+  "schemas": {
+    "evidence_payload": {
+      "top_level_fields": ["summary", "candidates"],
+      "summary_fields": [
+        "method_version",
+        "generated_at",
+        "data_dir",
+        "box_path",
+        "plan_path",
+        "candidate_count",
+        "planned_slugs",
+        "reviewed_slugs",
+        "filtered_low_rarity_slugs",
+        "current_coverage_records",
+        "target_coverage_records",
+        "mechanism_notes_dir",
+        "decision_baseline_path",
+        "decision_baseline_slugs",
+        "new_evidence_categories"
+      ],
+      "candidate_fields": [
+        "slug",
+        "name_cn",
+        "candidate_type",
+        "status",
+        "local_rule_pull_value",
+        "stage_recommendation",
+        "prior_final_stage",
+        "prior_decision_status",
+        "prior_confidence",
+        "prior_reason",
+        "local_rule_stage",
+        "recommended_stage_for_review",
+        "final_stage",
+        "stage_delta",
+        "delta_requires_review",
+        "delta_reason",
+        "change_allowed_reason",
+        "new_evidence_categories",
+        "history_summary",
+        "global_usage_summary",
+        "team_coverage_summary",
+        "mechanism_review_summary",
+        "mechanism_notes",
+        "mechanism_summary",
+        "replacement_risk",
+        "decision_basis",
+        "risk_notes",
+        "evidence_ids",
+        "risk_evidence_ids",
+        "evidence_keys",
+        "risk_evidence_keys",
+        "evidence_refs",
+        "risk_evidence_refs"
+      ],
+      "stage_recommendation_fields": [
+        "recommended_stage",
+        "acceptable_stage",
+        "unresolved_stage",
+        "stage_confidence",
+        "not_recommended_stage",
+        "reason",
+        "missing_data"
+      ],
+      "evidence_ref_fields": [
+        "evidence_id",
+        "evidence_key",
+        "confidence",
+        "source_confidence",
+        "mode",
+        "team_slugs",
+        "plan_dependency",
+        "phase_versions",
+        "scopes",
+        "observation_keys"
+      ]
+    },
+    "markdown": {
+      "title": "# GPT Pull Reviewer Packet",
+      "section_headings": [
+        "## 使用方式",
+        "## 评审规则",
+        "## 建议提问",
+        "## Evidence Payload",
+        "## 相关文件"
+      ],
+      "payload_fence": "json"
+    }
+  },
+  "normalized_sha256": {
+    "current_gpt_pull_reviewer_packet.md": "893ee23ebc38135482165fbfda5c9cead737b35cab16734babfc8b0c7bde5461",
+    "next_gpt_pull_reviewer_packet.md": "3dd1e707fd8d1f5ec801dfc5d2a241a669bf9468c7416a0f33e452ecb19886de"
+  },
+  "stable_evidence_ids": {
+    "sd|alpha|anchor-one|support": "E-SD-078BE089A7",
+    "sd|anchor-one|beta|support": "E-SD-A412C67114",
+    "sd|anchor-one|gamma|support": "E-SD-FCD5C791C5",
+    "sd|anchor-one|delta|support": "E-SD-49044A37B0",
+    "sd|anchor-two|delta|support": "E-SD-C4150B39C3",
+    "sd|anchor-one|epsilon|support": "E-SD-12A6377412",
+    "sd|epsilon|support|zeta": "E-SD-46AB991DE4"
+  },
+  "dangerous_text_contract": {
+    "python_fixture_literals": ["</script>", "|", "\\n"],
+    "python_fixture_excluded_literal": "```",
+    "rust_dynamic_fence_policy": "max(3, longest_payload_backtick_run + 1)",
+    "rust_dynamic_fence_test": "pull_value_v1_contract::review_packet_serializes_existing_cards_without_recomputing_and_keeps_fence_safe"
+  },
+  "rust_command_comparison_seam": {
+    "status": "executed_by_rust_contract",
+    "commands": [
+      [
+        "miho",
+        "zzz",
+        "review-packet",
+        "--box",
+        "<ROOT>/input/box.json",
+        "--out",
+        "<ROOT>/input/data",
+        "--plan",
+        "<ROOT>/input/plan.json",
+        "--mechanism-notes-dir",
+        "<ROOT>/input/mechanism_notes",
+        "--decision-baseline",
+        "<ROOT>/input/baseline.json"
+      ]
+    ],
+    "expected_outputs": [
+      "<ROOT>/input/data/current_gpt_pull_reviewer_packet.md",
+      "<ROOT>/input/data/next_gpt_pull_reviewer_packet.md"
+    ]
+  }
+}

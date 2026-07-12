@@ -8,8 +8,9 @@ use chrono::NaiveDateTime;
 use miho_core::{
     evidence::EvidenceInputsV1,
     pull_value::{
-        build_pull_value_bundle_v1, render_pull_value_json_v1, render_pull_value_markdown_v1,
-        validate_mechanism_note_v1, PullValueContextV1, PullValueInputsV1, PullValueRequestV1,
+        build_pull_value_bundle_v1, render_gpt_review_packet_v1, render_pull_value_json_v1,
+        render_pull_value_markdown_v1, validate_mechanism_note_v1, PullValueContextV1,
+        PullValueInputsV1, PullValueRequestV1,
     },
 };
 
@@ -495,4 +496,50 @@ fn quoted_falsey_scalar_text_is_preserved_outside_flag_fields() {
     assert!(odd.mechanism_review_summary.contains("source_quality=no"));
     assert!(odd.mechanism_summary.contains("archetype=false"));
     assert_eq!(odd.replacement_risk, "0");
+}
+
+#[test]
+fn review_packet_serializes_existing_cards_without_recomputing_and_keeps_fence_safe() {
+    let mut bundle = build_pull_value_bundle_v1(
+        &inputs(),
+        &PullValueRequestV1 {
+            plan_statuses: vec!["current".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    bundle.cards[0].pull_value = "SERIALIZER-SENTINEL".to_owned();
+    bundle.cards[0].mechanism_notes = serde_json::json!({
+        "danger": "````\n</script>\nA|B",
+        "weird_small": 1e-7,
+        "negative_zero": -0.0,
+        "large_integer": 12345678901234567890_u64,
+        "integer_negative_zero": serde_json::from_str::<serde_json::Value>("-0").unwrap()
+    });
+    let packet = render_gpt_review_packet_v1(&bundle).unwrap();
+    assert!(packet.contains("\"local_rule_pull_value\": \"SERIALIZER-SENTINEL\""));
+    assert!(!packet.contains("\"pull_value\":"));
+    assert!(packet.contains("````\\n</script>\\nA|B"));
+    assert!(packet.contains("\"weird_small\": 1e-07"));
+    assert!(packet.contains("\"negative_zero\": -0.0"));
+    assert!(packet.contains("\"large_integer\": 12345678901234567890"));
+    assert!(packet.contains("\"integer_negative_zero\": 0"));
+    assert_eq!(packet.lines().filter(|line| *line == "`````").count(), 1);
+    assert_eq!(
+        packet.lines().filter(|line| *line == "`````json").count(),
+        1
+    );
+    let payload = packet
+        .split_once("`````json\n")
+        .unwrap()
+        .1
+        .split_once("\n`````\n")
+        .unwrap()
+        .0;
+    let payload: serde_json::Value = serde_json::from_str(payload).unwrap();
+    assert_eq!(
+        payload["candidates"][0]["local_rule_pull_value"],
+        "SERIALIZER-SENTINEL"
+    );
 }

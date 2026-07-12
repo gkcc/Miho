@@ -9,6 +9,7 @@ use std::{
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 const FIXED_CLOCK: &str = "2026-07-12T13:14:15";
+const REVIEW_FIXED_CLOCK: &str = "2026-07-13T09:10:11";
 
 fn binary() -> &'static str {
     env!("CARGO_BIN_EXE_miho")
@@ -84,6 +85,10 @@ fn pull_value_fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/pull_value_v1_contract")
 }
 
+fn review_packet_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/review_packet_v1_contract")
+}
+
 fn copy_pull_value_inputs(target: &Path) {
     let source = pull_value_fixture().join("input");
     fs::create_dir_all(target.join("data")).unwrap();
@@ -124,11 +129,42 @@ fn pull_value_command(root: &Path) -> Command {
     process
 }
 
+fn copy_review_packet_inputs(target: &Path) {
+    copy_pull_value_inputs(target);
+    fs::copy(
+        review_packet_fixture().join("input_overrides/mechanism_notes/alpha.json"),
+        target.join("mechanism_notes/alpha.json"),
+    )
+    .unwrap();
+}
+
+fn review_packet_command(root: &Path) -> Command {
+    let mut process = report_command("review-packet", &root.join("box.json"), &root.join("data"));
+    process
+        .arg("--plan")
+        .arg(root.join("plan.json"))
+        .arg("--mechanism-notes-dir")
+        .arg(root.join("mechanism_notes"))
+        .arg("--decision-baseline")
+        .arg(root.join("baseline.json"))
+        .env("MIHO_REPORT_LOCAL_DATETIME", REVIEW_FIXED_CLOCK);
+    process
+}
+
 fn normalized_pull_value(path: &Path, runtime_root: &Path) -> String {
     fs::read_to_string(path)
         .unwrap()
         .replace("\r\n", "\n")
         .replace(runtime_root.to_string_lossy().as_ref(), "<ROOT>")
+}
+
+fn normalized_review_packet(path: &Path, runtime_root: &Path) -> String {
+    let root = runtime_root.to_string_lossy();
+    fs::read_to_string(path)
+        .unwrap()
+        .replace("\r\n", "\n")
+        .replace(&root.replace('\\', "\\\\"), "<ROOT>")
+        .replace(root.as_ref(), "<ROOT>")
 }
 
 fn copy_decision_data(target: &Path) {
@@ -297,6 +333,10 @@ fn report_exit_codes_and_failure_prefixes_are_command_specific() {
     assert_eq!(missing_pull_box.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&missing_pull_box.stderr).contains("--box"));
 
+    let missing_review_box = run(Command::new(binary()).args(["zzz", "review-packet"]));
+    assert_eq!(missing_review_box.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&missing_review_box.stderr).contains("--box"));
+
     let root = temp_root("failure-prefix");
     let runtime_failure = run(report_command(
         "coverage",
@@ -316,14 +356,12 @@ fn report_exit_codes_and_failure_prefixes_are_command_specific() {
     assert_eq!(pull_runtime_failure.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&pull_runtime_failure.stderr).starts_with("pull-value failed:"));
 
-    let gated_review_packet = run(Command::new(binary())
+    let review_runtime_failure = run(Command::new(binary())
         .args(["zzz", "review-packet", "--box"])
         .arg(root.join("missing-box.json")));
-    assert_eq!(gated_review_packet.status.code(), Some(1));
-    assert!(
-        String::from_utf8_lossy(&gated_review_packet.stderr).starts_with("review-packet failed:")
-    );
-    assert!(String::from_utf8_lossy(&gated_review_packet.stderr).contains("not yet enabled"));
+    assert_eq!(review_runtime_failure.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&review_runtime_failure.stderr)
+        .starts_with("review-packet failed:"));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -553,5 +591,92 @@ fn pull_value_accepts_windows_case_insensitive_note_extensions() {
     );
     let report = fs::read_to_string(output).unwrap();
     assert!(report.contains("source_quality：identity=official；breakpoints=reviewed"));
+    fs::remove_dir_all(runtime).unwrap();
+}
+
+#[test]
+fn review_packet_default_dual_outputs_match_python_goldens_and_preserve_consumers() {
+    let runtime = temp_root("review-packet-golden");
+    let root = runtime.join("input");
+    copy_review_packet_inputs(&root);
+    let protected = [
+        "artifact_manifest.json",
+        "visualizer/data.json",
+        "decision_cards.json",
+        "decision_report.md",
+        "current_pull_value_report.md",
+        "next_pull_value_report.md",
+        "current_box_team_coverage.md",
+        "target_box_team_coverage.md",
+        "team_signature_aggregates.csv",
+    ];
+    for name in protected {
+        let path = root.join("data").join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, format!("protected:{name}")).unwrap();
+    }
+
+    let result = run(&mut review_packet_command(&root));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    for status in ["current", "next"] {
+        let actual = normalized_review_packet(
+            &root.join(format!("data/{status}_gpt_pull_reviewer_packet.md")),
+            &runtime,
+        );
+        let expected = fs::read_to_string(
+            review_packet_fixture().join(format!("expected/{status}_gpt_pull_reviewer_packet.md")),
+        )
+        .unwrap()
+        .replace("\r\n", "\n");
+        assert_eq!(actual, expected, "{status} review packet");
+    }
+    assert!(!root.join("data/gpt_pull_reviewer_packet.md").exists());
+    for name in protected {
+        assert_eq!(
+            fs::read_to_string(root.join("data").join(name)).unwrap(),
+            format!("protected:{name}")
+        );
+    }
+    fs::remove_dir_all(runtime).unwrap();
+}
+
+#[test]
+fn review_packet_explicit_output_combines_statuses_without_split_files() {
+    let runtime = temp_root("review-packet-combined");
+    let root = runtime.join("input");
+    copy_review_packet_inputs(&root);
+    let output = runtime.join("combined-packet.md");
+    let result = run(review_packet_command(&root).arg("--output").arg(&output));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let packet = fs::read_to_string(output).unwrap();
+    assert!(packet.contains("\"slug\": \"alpha\""));
+    assert!(packet.contains("\"slug\": \"delta\""));
+    assert!(packet.contains("\"generated_at\": \"2026-07-13T09:10:11\""));
+    assert!(!root
+        .join("data/current_gpt_pull_reviewer_packet.md")
+        .exists());
+    assert!(!root.join("data/next_gpt_pull_reviewer_packet.md").exists());
+    fs::remove_dir_all(runtime).unwrap();
+}
+
+#[test]
+fn review_packet_rejects_status_collisions_before_mutation() {
+    let runtime = temp_root("review-packet-collision");
+    let root = runtime.join("input");
+    copy_review_packet_inputs(&root);
+    let output = root.join("data/current_gpt_pull_reviewer_packet.md");
+    fs::write(&output, b"old-packet").unwrap();
+    let result = run(review_packet_command(&root).args(["--plan-status", "current,CURRENT"]));
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).starts_with("review-packet failed:"));
+    assert_eq!(fs::read(output).unwrap(), b"old-packet");
     fs::remove_dir_all(runtime).unwrap();
 }

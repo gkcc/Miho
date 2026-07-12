@@ -16,6 +16,7 @@ The Python implementation remains the behavioral oracle until each Rust command 
 - Generation timestamps and collection timestamps.
 - JSON object key order and insignificant whitespace.
 - Network-origin content that changed between captures.
+- Review-packet payloads containing backticks may use a fence longer than Python's fixed three backticks: Rust chooses one more than the payload's longest consecutive run. The JSON payload and recommendation content remain unchanged.
 
 No calculation, row, column, filename, exit-code or default-path difference is allowed unless added here with a reason and regression fixture.
 
@@ -29,8 +30,10 @@ No calculation, row, column, filename, exit-code or default-path difference is a
 - Pull-value `高/中高` is now constrained by same-mode qualifying A/B evidence. Stable `evidence_ids`/`evidence_keys` and embedded refs contain only A/B+/B main evidence; risk fields contain B-/C context. This method correction is intentional and hash-locked.
 - For an unowned candidate, primary evidence requires `plan_dependency == [candidate]`; teams that also require another planned unit are conditional risk and cannot raise that candidate's main evidence count.
 - `decision` is labeled `legacy-v0`; its cross-mode heuristic, raw-team dependency and alias limitations are not accepted as evidence-first completion. The Rust compatibility gate is lifted only for explicit `--method legacy-v0`; `pull-value` remains the sole formal recommendation path.
-- The Rust `pull-value` gate is lifted. Default current/next reports and explicit combined output use one clock and one batch installation; failures preserve all old reports and do not mutate manifest, visualizer or legacy decision sidecars. `review-packet` remains staged.
+- The Rust `pull-value` and `review-packet` gates are lifted. Review packets directly serialize the existing Rust pull cards and rename only `pull_value` to `local_rule_pull_value`; they do not recompute recommendations. Default current/next files and explicit combined output share one clock and one batch installation; failures preserve all old reports and do not mutate manifest, visualizer, legacy decision, pull-value or coverage consumers.
+- JSON lexical form is part of packet compatibility rather than an allowed difference: small exponents are normalized to Python spelling such as `1e-07`, while `-0.0` and large integers retain Python-compatible representation.
 - Shared YAML config parsing matches the Python oracle for UTF-8 BOM, PyYAML 1.1 booleans, merge keys, empty/falsey roots and recursive non-finite rejection. JSON/YAML plan, Box, baseline and mechanism inputs therefore share the same safety boundary.
+- Shared report IPC, Tauri background tasks, progress/cancellation/error propagation and file selection are not yet migrated; lifting the Rust CLI report gates does not complete the Tauri product stage.
 
 ## Migration gate
 

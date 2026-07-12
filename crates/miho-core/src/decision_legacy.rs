@@ -11,7 +11,7 @@ use csv::{ReaderBuilder, StringRecord};
 use serde_json::{json, Map, Number, Value};
 
 use crate::normalize::{character_slug, parse_percent};
-use crate::visualizer::python_json_number_repr;
+use crate::visualizer::{normalize_python_json_numbers, python_json_number_repr};
 
 pub const DECISION_LEGACY_METHOD: &str = "legacy-v0";
 pub(crate) const PYYAML_TIMESTAMP_PREFIX: &str = "\0pyyaml-timestamp:";
@@ -1838,53 +1838,4 @@ fn json_scalar(v: Option<&Value>) -> String {
         Some(Value::Bool(b)) => b.to_string(),
         _ => String::new(),
     }
-}
-
-fn normalize_python_json_numbers(input: &[u8]) -> Vec<u8> {
-    let mut output = Vec::with_capacity(input.len());
-    let mut index = 0;
-    let mut in_string = false;
-    let mut escaped = false;
-    while index < input.len() {
-        let byte = input[index];
-        if in_string {
-            output.push(byte);
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-            output.push(byte);
-            index += 1;
-            continue;
-        }
-        if byte == b'-' || byte.is_ascii_digit() {
-            let start = index;
-            index += 1;
-            while index < input.len()
-                && matches!(input[index], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
-            {
-                index += 1;
-            }
-            let token = std::str::from_utf8(&input[start..index]).unwrap_or_default();
-            if token.contains(['.', 'e', 'E']) {
-                if let Ok(Value::Number(number)) = serde_json::from_str::<Value>(token) {
-                    output.extend_from_slice(python_json_number_repr(&number).as_bytes());
-                    continue;
-                }
-            }
-            output.extend_from_slice(token.as_bytes());
-            continue;
-        }
-        output.push(byte);
-        index += 1;
-    }
-    output
 }

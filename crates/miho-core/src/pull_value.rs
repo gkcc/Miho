@@ -3,7 +3,10 @@
 //! This core owns no path discovery or clock access. A trusted adapter supplies
 //! all bytes, display labels, and one explicit local datetime.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
@@ -16,7 +19,10 @@ use crate::evidence::{
     EvidenceRequestV1, NameIndexV1, EVIDENCE_METHOD_VERSION,
 };
 use crate::normalize::{character_slug, parse_percent};
-use crate::visualizer::{effective_banner_status, python_json_number_repr, python_value_truthy};
+use crate::visualizer::{
+    effective_banner_status, normalize_python_json_numbers, python_json_number_repr,
+    python_value_truthy,
+};
 
 pub const PULL_VALUE_METHOD_VERSION: &str = EVIDENCE_METHOD_VERSION;
 
@@ -359,6 +365,100 @@ pub fn render_pull_value_json_v1(bundle: &PullValueBundleV1) -> PullValueResult<
     let mut bytes = serde_json::to_vec_pretty(bundle)?;
     bytes.push(b'\n');
     Ok(bytes)
+}
+
+pub fn render_gpt_review_packet_v1(bundle: &PullValueBundleV1) -> PullValueResult<String> {
+    let mut candidates = Vec::with_capacity(bundle.cards.len());
+    for card in &bundle.cards {
+        let Value::Object(fields) = serde_json::to_value(card)? else {
+            return Err(PullValueError::Invalid(
+                "pull-value card did not serialize as an object".to_owned(),
+            ));
+        };
+        let mut candidate = Map::with_capacity(fields.len());
+        for (key, value) in fields {
+            if key == "pull_value" {
+                candidate.insert("local_rule_pull_value".to_owned(), value);
+            } else {
+                candidate.insert(key, value);
+            }
+        }
+        candidates.push(Value::Object(candidate));
+    }
+    let mut payload = Map::with_capacity(2);
+    payload.insert("summary".to_owned(), serde_json::to_value(&bundle.summary)?);
+    payload.insert("candidates".to_owned(), Value::Array(candidates));
+    let payload = serde_json::to_vec_pretty(&Value::Object(payload))?;
+    let payload = String::from_utf8(normalize_python_json_numbers(&payload)).map_err(|error| {
+        PullValueError::Invalid(format!("review packet JSON is not valid UTF-8: {error}"))
+    })?;
+    let fence = "`".repeat(longest_backtick_run(&payload).saturating_add(1).max(3));
+    let data_dir = Path::new(&bundle.summary.data_dir);
+    Ok([
+        "# GPT Pull Reviewer Packet".to_owned(),
+        String::new(),
+        "## 使用方式".to_owned(),
+        String::new(),
+        "把本文件交给 Codex/GPT，要求它基于证据重新评审每个候选角色的 X+X 档位。".to_owned(),
+        "这是无 API key 的交互版：本地负责自动更新数据和证据包，GPT 评判由你登录后发起。".to_owned(),
+        String::new(),
+        "## 评审规则".to_owned(),
+        String::new(),
+        "- 不要只按 target coverage 定性；复刻角色必须同时看历史走势、全局出场、T 榜定位、current/target 覆盖和 X+X 必要性。".to_owned(),
+        "- 必须把 historical_usage、target_coverage、mechanism_review 三类证据分开列出，再综合判断。".to_owned(),
+        "- 新角色没有历史队伍记录只能标记为未实测，不能作为负面扣分。".to_owned(),
+        "- A 级 / 四星角色默认不作为独立抽取价值候选；它们只作为队友、陪跑顺带收益或 coverage 证据。".to_owned(),
+        "- 如果 Evidence Payload 含 prior_final_stage / final_stage，最终档位先沿用 baseline；local_rule_stage 只能触发 delta review，不能直接覆盖既有结论。".to_owned(),
+        "- C 档或 theoretical-only 不能作为抽取/档位主依据。".to_owned(),
+        "- sentinel 分数不能当真实表现。".to_owned(),
+        "- 输出每个角色的 recommended_stage、unresolved_stage、stage_confidence、not_recommended_stage、理由、反证、需要等待的数据，以及是否建议立刻抽。".to_owned(),
+        String::new(),
+        "## 建议提问".to_owned(),
+        String::new(),
+        "请读取这个 packet，按长期 auto 高难奖励目标，评审每个候选角色应该抽到 X+X。输出：结论表、每人证据链、风险、需要等的数据。".to_owned(),
+        String::new(),
+        "## Evidence Payload".to_owned(),
+        String::new(),
+        format!("{fence}json"),
+        payload,
+        fence,
+        String::new(),
+        "## 相关文件".to_owned(),
+        String::new(),
+        format!(
+            "- pull value reports: `{}` / `{}`",
+            data_dir.join("current_pull_value_report.md").display(),
+            data_dir.join("next_pull_value_report.md").display()
+        ),
+        format!(
+            "- current coverage: `{}`",
+            data_dir.join("current_box_team_coverage.md").display()
+        ),
+        format!(
+            "- target coverage: `{}`",
+            data_dir.join("target_box_team_coverage.md").display()
+        ),
+        format!(
+            "- team signature aggregates: `{}`",
+            data_dir.join("team_signature_aggregates.csv").display()
+        ),
+        String::new(),
+    ]
+    .join("\n"))
+}
+
+fn longest_backtick_run(value: &str) -> usize {
+    value
+        .chars()
+        .fold((0_usize, 0_usize), |(longest, current), ch| {
+            if ch == '`' {
+                let current = current + 1;
+                (longest.max(current), current)
+            } else {
+                (longest, 0)
+            }
+        })
+        .0
 }
 
 pub fn render_pull_value_markdown_v1(bundle: &PullValueBundleV1) -> String {

@@ -369,6 +369,9 @@ pub fn python_value_truthy(value: &Value) -> bool {
 /// `1e-7` versus `1e-07`).
 pub(crate) fn python_json_number_repr(number: &serde_json::Number) -> String {
     let token = number.to_string();
+    if token == "-0" {
+        return "0".to_owned();
+    }
     if !token.contains(['.', 'e', 'E']) {
         return token;
     }
@@ -391,6 +394,55 @@ pub(crate) fn python_json_number_repr(number: &serde_json::Number) -> String {
         return rust;
     };
     format!("{mantissa}e{exponent:+03}")
+}
+
+pub(crate) fn normalize_python_json_numbers(input: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(input.len());
+    let mut index = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    while index < input.len() {
+        let byte = input[index];
+        if in_string {
+            output.push(byte);
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            index += 1;
+            continue;
+        }
+        if byte == b'"' {
+            in_string = true;
+            output.push(byte);
+            index += 1;
+            continue;
+        }
+        if byte == b'-' || byte.is_ascii_digit() {
+            let start = index;
+            index += 1;
+            while index < input.len()
+                && matches!(input[index], b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
+            {
+                index += 1;
+            }
+            let token = std::str::from_utf8(&input[start..index]).unwrap_or_default();
+            if token.contains(['.', 'e', 'E']) {
+                if let Ok(Value::Number(number)) = serde_json::from_str::<Value>(token) {
+                    output.extend_from_slice(python_json_number_repr(&number).as_bytes());
+                    continue;
+                }
+            }
+            output.extend_from_slice(token.as_bytes());
+            continue;
+        }
+        output.push(byte);
+        index += 1;
+    }
+    output
 }
 
 fn python_urlsplit_accepts_nfkc_authority(authority: &str) -> bool {
