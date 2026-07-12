@@ -69,6 +69,17 @@ The core Rust APIs must receive bytes/typed documents and an explicit context. P
 
 or document a narrower product decision before removing the gate. Exact happy-path hashes alone do not make `legacy-v0` a formal evidence-first recommendation engine.
 
+### Product resolution (2026-07-12)
+
+The narrower product decision is now fixed:
+
+- `decision` is compatibility-only and may run only when the request explicitly selects `legacy-v0` (CLI: `--method legacy-v0`). Its legacy JSON/Markdown payload remains byte-compatible and therefore does not gain an in-payload method field.
+- CLI help/request/receipt and the visualizer adapter boundary must identify the output as `legacy-v0 / compatibility only`; the product UI must not present it as the formal evidence-first recommendation.
+- `pull-value` is the only formal `evidence-first-v1-20260712` recommendation engine. `review-packet` serializes the same pull cards and evidence references; it does not recompute a second decision.
+- A future standalone Decision V1 requires a separately versioned ruleset and output schema. It must not be inferred from LegacyV0 compatibility work.
+
+For an unowned pull candidate, a target-pool team is primary evidence only when its non-owned plan dependency is exactly that candidate. Teams that also require other planned candidates are conditional risk, not proof that pulling one candidate completes the team.
+
 ## Remaining gate matrices
 
 - Evidence/coverage: mode separation, A/B boundaries, sentinel density, stability, explicit build state, alias collision, plan clock boundaries, ordering/E-ID stability, UTF-8/config failures, output collision and rollback.

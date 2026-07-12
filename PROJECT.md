@@ -55,7 +55,7 @@
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 迁移 Rust decision | 未开始 | 待分配 | `legacy-v0` 兼容契约、Evidence V1 pool、规则配置 | 明确版本边界的 Rust decision core/CLI | LegacyV0 精确兼容与正式 Evidence V1 不混淆；真实 CLI/失败语义/独立对抗 | Rust evidence/coverage 已解门 |
+| 迁移 Rust decision compatibility | 进行中 | 三个只读边界/fixture 审计子智能体、待实现 | `legacy-v0` 六 CSV/Box/rules 契约 | 仅在显式 `--method legacy-v0` 下运行的 Rust compatibility core/CLI | 旧 JSON/Markdown 精确兼容、两文件事务、0/1/2；不得成为正式推荐默认 | Rust evidence/coverage 已解门 |
 | 迁移 Rust pull-value | 未开始 | 待分配 | Evidence V1 主/风险证据、tier/usage、Banner plan、baseline | 同 mode A/B 支撑的抽取价值报告 | 高/中高逐项引用主证据；跨语言黄金与对抗反例 | Rust decision 边界固定 |
 | 迁移 Rust review-packet 并收口报告 IPC | 未开始 | 待分配 | pull-value、current/next packet、Tauri 任务模型 | Rust packet、后台任务/进度/取消的共享请求边界 | packet hash/trace、CLI/Tauri 同 core、无 Python 报告链 | Rust pull-value 已解门 |
 
@@ -83,13 +83,14 @@
 | 2026-07-12 | legacy 无 manifest 输出只从游戏正式命名空间恢复 ownership；未知文件保留但不进入新 manifest | `raw/hf/**` 因动态 source path 被保留为 export-owned 命名空间，用户私有文件不得放入其中 | 正式 artifact schema/manifest 增加显式 ownership metadata 时 |
 | 2026-07-12 | 决策/报告以 `evidence-first-v1-20260712` 为正式方法；旧 decision 标记 `legacy-v0` | 同队不跨 mode 合并分数/置信度；A 需有效表现与稳定组件；高/中高抽取必须引用 A/B 主证据；LegacyV0 精确兼容不等于方法完成 | 证据策略/schema 升级或用户明确要求旧 heuristic 默认化时 |
 | 2026-07-12 | Rust evidence/coverage 报告是 export 目录中的 unmanaged consumer artifact；报告命令只捕获一次 cwd/local datetime，任意输出整批安装并拒绝父链 symlink/reparse point | 不刷新或占有 `artifact_manifest.json`/visualizer；debug 固定时钟只用于黄金测试，release 始终使用本地时钟；路径别名不能绕过三输出互异性 | 报告进入正式 artifact schema、支持受信任 reparse 输出或事务协议升级时 |
+| 2026-07-12 | `decision` 只迁移显式 `legacy-v0` compatibility；正式 evidence-first 推荐唯一入口是 `pull-value`，`review-packet` 直接序列化同一批卡片 | 禁止再造第二套 Decision V1 与 pull-value 竞争；Legacy 继续保留 raw team、跨 mode heuristic 和旧 payload/hash，但 CLI/help/receipt 必须标 compatibility only，UI 不得当正式推荐 | 产品明确批准独立 Decision V1 的版本化规则/schema，或正式推荐入口发生变更时 |
 
 ## 风险登记
 
 | 风险 | 当前状态 | 缓解措施 |
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
-| Legacy decision 与 evidence-first 方法冲突 | 高 | 保留 `legacy-v0` 兼容边界；正式默认必须版本化、不跨 mode、只以 dedup A/B 主证据支撑高优先级 |
+| Legacy decision 与 evidence-first 方法冲突 | 中（边界已固定，迁移待完成） | `decision --method legacy-v0` 仅作 compatibility；正式推荐只由 pull-value 产生并以 dedup A/B 主证据支撑高优先级 |
 | 双游戏 visualizer 与 Python 语义漂移 | 低（已验证） | 46 项跨语言/真实 CLI 契约、118 项 core、浏览器冒烟与独立对抗反例；sidecar/schema 变化时重新关门复核 |
 | Workbook 单元格类型和样式可能与 Python 漂移 | 低（已验证） | 双游戏 oracle、显式/混合类型、thin border、样式/列宽语义规范化与 Rust 全局零公式断言已固化 |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
@@ -249,6 +250,14 @@
 - 最大偏差与困难：原估计主要是翻译聚合/渲染，实际先修正了 oracle 的跨 mode、build 与高优先级证据缺陷，又发现精确黄金无法覆盖 CLI 时钟和 Windows junction 路径身份。若没有两轮独立对抗复核，会把错误方法或伪事务直接冻结进 Rust。
 - 路线总结：保持纯 Rust/Tauri 终点；后续报告统一使用版本化纯 core + 单次 `ReportInvocation` + unmanaged 批事务 writer。第十三批先处理 decision 的兼容/正式方法双边界，再按 pull-value → review-packet/IPC 顺序推进，不把 LegacyV0 精确兼容误写成 evidence-first 完成。
 
+### 第十三批进度：decision 产品边界审计（子目标 1 前置，2026-07-12）
+
+- 完成：三个互斥只读子智能体分别审计 LegacyV0 精确契约、正式 Evidence V1 决策设计和可复用 fixture。共同结论是当前没有独立 Decision V1 的完整规则/schema；若临场发明，会与已经冻结证据门槛的 pull-value 产生两套正式结论。
+- 产品收敛：`decision` 只保留显式 `--method legacy-v0` compatibility，固定读取六个 CSV、Box 和可选 rules，输出旧 `decision_cards.json`/`decision_report.md`；正式推荐只由 pull-value 生成，review-packet 不重算。旧 payload 为保留 hash 不新增 method 字段，版本在 CLI request/help/receipt 与 visualizer adapter 边界显式标记。
+- 最有把握的依据：现有 smoke 已有四类决策和稳定 hash（JSON `65045aee…772d`、Markdown `d29a13b…7da8`），Python 代码明确展示全局最高 tier、跨 mode 最大 usage/最差 trend、`team_rank_raw.csv`、忽略 aliases 和 arbitrary force_decision；这些只能作为兼容行为，不能升级为 evidence-first。
+- 最大困难与路线修正：最大困难是“迁移 decision”在命令名上看似正式推荐，实际只是一套旧 visualizer sidecar heuristic。主流程从“实现 Legacy 与一个新 Decision V1”修正为“Legacy compatibility + pull-value 唯一正式推荐”，减少重复规则和冲突 UI。下一步先物化 dedicated Legacy fixture，完成纯 Rust core、显式 method、两文件事务与独立对抗；随后直接进入 pull-value。
+- 关键反例：planned union 中某 A 队同时依赖候选 A/B，不能在 A 卡上伪装成“抽 A 即可成队”；正式 pull 主证据只接受 `plan_dependency == [candidate]`，额外计划依赖只能进入 conditional risk。SD tier、DA usage、SD evidence 也不得拼成高档。
+
 ## 恢复入口
 
 - 项目状态：本文件。
@@ -259,4 +268,4 @@
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
-- 最危险的未验证假设：decision/pull-value/review-packet 能否在保留 `legacy-v0` 兼容边界的同时，默认使用 Evidence V1 的同 mode A/B 主证据，并让 CLI/Tauri 共用显式 context；evidence/coverage 已证明“先冻结显式输入与时钟，再做路径/失败对抗反例”的路线有效。
+- 最危险的未验证假设：Legacy decision 能否在显式 compatibility-only 的前提下精确迁移且不污染正式 UI，以及 pull-value/review-packet 能否让同 mode tier/usage/A-B 主证据和单候选 plan dependency 同时闭环；evidence/coverage 已证明“先冻结显式输入与时钟，再做路径/失败对抗反例”的路线有效。
