@@ -51,6 +51,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for relative in HSR_VISUALIZER_CSVS {
         bundle.add_bytes(relative, fs::read(csv_root.join(relative))?)?;
     }
+    for relative in [
+        "raw/hoyowiki/hsr_characters_zh-cn.json",
+        "raw/hoyowiki/hsr_characters_en-us.json",
+    ] {
+        let path = csv_root.join(relative);
+        if path.is_file() {
+            bundle.add_bytes(relative, fs::read(path)?)?;
+        }
+    }
 
     let mut context = VisualizerContext::new(local_date);
     context.add_sidecar_bytes("hsr_banner_plan.json", fs::read(banner_json)?)?;

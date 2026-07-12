@@ -72,10 +72,14 @@ def visualizer_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     # CSVs exist, matching the independent `visualizer` CLI commands.
     _write_hsr_oracle(hsr_root)
     _write_zzz_oracle(zzz_root)
+    _densify_hsr_visualizer_csvs(hsr_root)
     _stabilize_final_csvs(hsr_root, "hsr")
     _stabilize_final_csvs(zzz_root, "zzz")
+    _write_hsr_official_roster_fixture(hsr_root)
 
-    shutil.copyfile(FIXTURES / "hsr_banner_plan.json", hsr_root / "hsr_banner_plan.json")
+    _write_dense_hsr_banner_plan(
+        FIXTURES / "hsr_banner_plan.json", hsr_root / "hsr_banner_plan.json"
+    )
     shutil.copyfile(FIXTURES / "zzz_banner_plan.json", zzz_root / "zzz_banner_plan.json")
     shutil.copyfile(FIXTURES / "decision_cards.json", zzz_root / "decision_cards.json")
     _preseed_avatar(hsr_root)
@@ -129,6 +133,38 @@ def rust_hsr_visualizer_root(
     return out_root / "visualizer"
 
 
+@pytest.fixture(scope="module")
+def cli_hsr_visualizer_root(
+    tmp_path_factory: pytest.TempPathFactory,
+    visualizer_workspace: Path,
+) -> Path:
+    source_root = visualizer_workspace / "out"
+    out_root = (
+        tmp_path_factory.mktemp("miho-cli-hsr-visualizer-contract")
+        / "CLI 中文 空格 output"
+    )
+    shutil.copytree(source_root, out_root)
+    result = subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--quiet",
+            "-p",
+            "miho-cli",
+            "--",
+            "hsr",
+            "visualizer",
+            "--out",
+            str(out_root),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return out_root / "visualizer"
+
+
 def test_rust_hsr_visualizer_matches_python_json_exactly(
     visualizer_workspace: Path,
     rust_hsr_visualizer_root: Path,
@@ -151,6 +187,30 @@ def test_rust_hsr_visualizer_file_set_and_asset_hashes_are_exact(
         assert binary_sha256(rust_hsr_visualizer_root / name) == expected_hash
 
 
+def test_real_hsr_cli_visualizer_matches_the_complete_python_oracle(
+    visualizer_workspace: Path,
+    cli_hsr_visualizer_root: Path,
+) -> None:
+    expected_root = _visualizer_root(visualizer_workspace, "hsr")
+    expected_data = load_json(expected_root / "data.json")
+    actual_data = load_json(cli_hsr_visualizer_root / "data.json")
+    assert_json_contract_equal(expected_data, actual_data, dynamic_pointers=())
+
+    contract = load_json(FIXTURES / "contract.json")
+    expected_files = relative_file_set(expected_root)
+    assert expected_files == contract["file_sets"]["hsr"]
+    assert relative_file_set(cli_hsr_visualizer_root) == expected_files
+
+    for name, contract_hash in contract["static_text_sha256"]["hsr"].items():
+        expected_hash = normalized_utf8_sha256(expected_root / name)
+        assert expected_hash == contract_hash
+        assert normalized_utf8_sha256(cli_hsr_visualizer_root / name) == expected_hash
+    for name, contract_hash in contract["binary_sha256"]["hsr"].items():
+        expected_hash = binary_sha256(expected_root / name)
+        assert expected_hash == contract_hash
+        assert binary_sha256(cli_hsr_visualizer_root / name) == expected_hash
+
+
 @pytest.mark.parametrize("game", ["hsr", "zzz"])
 def test_python_visualizer_matches_strict_json_oracle(
     visualizer_workspace: Path,
@@ -165,6 +225,70 @@ def test_python_visualizer_matches_strict_json_oracle(
         if key == "meta":
             continue
         assert value, f"oracle does not exercise top-level collection {game}:{key}"
+
+
+def test_hsr_dense_oracle_exercises_phase_team_banner_tier_and_alias_contracts(
+    visualizer_workspace: Path,
+) -> None:
+    data = load_json(_visualizer_root(visualizer_workspace, "hsr") / "data.json")
+
+    phases = data["phaseInfoRows"]
+    assert sum(
+        row["mode"] == "moc" and row["phase_ver"] == "4.2.1" for row in phases
+    ) == 2
+    assert {
+        (row["mode"], row["phase_name"])
+        for row in phases
+        if row["mechanic_name"]
+    } == {
+        ("moc", "Duty Action"),
+        ("pf", "Falsehood to Fact"),
+        ("aa", "The Humming Laughter"),
+    }
+
+    teams = data["teamTemplates"]
+    assert [(row["mode"], row["scope_key"]) for row in teams] == [
+        ("aa", "2-1"),
+        ("moc", "all"),
+        ("pf", "4-2"),
+    ]
+    assert len(
+        {
+            (row["mode"], row["scope_key"], tuple(sorted(row["chars"])))
+            for row in teams
+        }
+    ) == len(teams)
+
+    alpha_tiers = [
+        row for row in data["tierRows"] if row["character_slug"] == "agent-alpha"
+    ]
+    assert [(row["role_group"], row["rating"]) for row in alpha_tiers] == [
+        ("damage", "9"),
+        ("damage", "7"),
+        ("support", "8"),
+    ]
+    alpha = next(
+        row for row in data["rosterRows"] if row["character_slug"] == "agent-alpha"
+    )
+    assert alpha["role_groups"] == "support;damage"
+
+    topaz = next(
+        row
+        for row in data["rosterRows"]
+        if row["character_slug"] == "topaz-and-numby"
+    )
+    assert topaz["alias_slugs"] == "topaz-and-numby;topaz"
+    assert topaz["icon_url"] == "./assets/avatars/agent-alpha.webp?alias=topaz#safe"
+
+    banner = next(
+        row for row in data["bannerRows"] if row["character_slug"] == "agent-zeta"
+    )
+    assert banner["phase_status"] == "previous"
+    assert banner["source_url"] == "docs/banner-source.html"
+    banner_only = next(
+        row for row in data["rosterRows"] if row["character_slug"] == "agent-zeta"
+    )
+    assert banner_only["source"] == "banner_plan"
 
 
 def test_json_comparator_is_type_and_array_order_strict() -> None:
@@ -256,10 +380,13 @@ def test_avatar_is_valid_preseeded_local_artifact(
     data = load_json(visualizer / "data.json")
     icon_urls = list(_values_for_key(data, "icon_url"))
     assert icon_urls
+    safe_avatar_url = safe_hsr_avatar_url if game == "hsr" else safe_zzz_avatar_url
     for icon_url in icon_urls:
-        assert icon_url in {"", "./assets/avatars/agent-alpha.webp"}
+        assert safe_avatar_url(icon_url) == icon_url
         if icon_url:
-            resolved = (visualizer / icon_url).resolve()
+            asset_path = re.split(r"[?#]", icon_url, maxsplit=1)[0]
+            assert asset_path == "./assets/avatars/agent-alpha.webp"
+            resolved = (visualizer / asset_path).resolve()
             assert resolved.is_relative_to(visualizer.resolve())
             assert resolved.is_file()
 
@@ -328,7 +455,9 @@ def test_fixture_is_desensitized_and_documents_single_dynamic_field() -> None:
     assert _UID_RE.search(joined) is None
     assert re.findall(r"https://([A-Za-z0-9.-]+)", joined)
     assert set(re.findall(r"https://([A-Za-z0-9.-]+)", joined)) == {
-        "invalid.example"
+        "hsr.hoyoverse.com",
+        "invalid.example",
+        "wiki.biligame.com",
     }
 
 
@@ -472,11 +601,252 @@ def _mutate_csv(path: Path, mutate: object) -> None:
         writer.writerows(rows)
 
 
+def _append_csv_rows(path: Path, additions: list[dict[str, object]]) -> None:
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or [])
+        rows = list(reader)
+    rows.extend(
+        {field: str(addition.get(field, "")) for field in fieldnames}
+        for addition in additions
+    )
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, lineterminator="\r\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _first_csv_row(path: Path) -> dict[str, str]:
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        return next(csv.DictReader(handle))
+
+
+def _densify_hsr_visualizer_csvs(out_dir: Path) -> None:
+    phase_seed = _first_csv_row(out_dir / "phase_index.csv")
+    phase_specs = [
+        ("moc-duty", "moc", "混沌回忆", "4.2.1", "Duty Action"),
+        ("moc-parallel", "moc", "混沌回忆", "4.2.1", "Parallel Trial"),
+        ("pf-falsehood", "pf", "虚构叙事", "4.3.1", "Falsehood to Fact"),
+        ("aa-humming", "aa", "异相仲裁", "4.3.1", "The Humming Laughter"),
+    ]
+    phases: list[dict[str, object]] = []
+    for snapshot, mode, mode_cn, version, name in phase_specs:
+        phases.append(
+            {
+                **phase_seed,
+                "snapshot_id": snapshot,
+                "collect_date": "2026-07-12",
+                "mode": mode,
+                "mode_cn": mode_cn,
+                "phase_ver": version,
+                "phase_name": name,
+                "source": "dense-fixture",
+                "source_path": f"dense/{snapshot}/",
+                "note": f"dense phase {snapshot}",
+            }
+        )
+    _append_csv_rows(out_dir / "phase_index.csv", phases)
+
+    team_seed = _first_csv_row(out_dir / "team_rank_raw.csv")
+    teams = [
+        {
+            **team_seed,
+            "snapshot_id": "fixture-1-permuted",
+            "rank": 2,
+            "char_1_slug": team_seed["char_2_slug"],
+            "char_2_slug": team_seed["char_1_slug"],
+            "char_1_name_cn": team_seed["char_2_name_cn"],
+            "char_2_name_cn": team_seed["char_1_name_cn"],
+            "source_file": "fixture/teams-permuted.json",
+            "raw_index": 2,
+        },
+        {
+            **team_seed,
+            "snapshot_id": "pf-falsehood",
+            "mode": "pf",
+            "mode_cn": "虚构叙事",
+            "phase_ver": "4.3.1",
+            "phase_name": "Falsehood to Fact",
+            "scope": "2",
+            "rank": 3,
+            "source_file": "fixture/pf-teams.json",
+            "raw_index": 3,
+        },
+        {
+            **team_seed,
+            "snapshot_id": "aa-humming",
+            "mode": "aa",
+            "mode_cn": "异相仲裁",
+            "phase_ver": "4.3.1",
+            "phase_name": "The Humming Laughter",
+            "scope": "4",
+            "rank": 4,
+            "source_file": "fixture/aa-teams.json",
+            "raw_index": 4,
+        },
+    ]
+    _append_csv_rows(out_dir / "team_rank_raw.csv", teams)
+
+    tier_seed = _first_csv_row(out_dir / "prydwen_tier_current.csv")
+    tiers = [
+        {
+            **tier_seed,
+            "tier_snapshot_id": "2026-07-12-low",
+            "tier": "T2",
+            "rating": 7,
+            "tags": "same-role-lower-rating",
+        },
+        {
+            **tier_seed,
+            "tier_snapshot_id": "2026-07-12-support",
+            "tier_mode": "pf",
+            "tier_mode_cn": "虚构叙事",
+            "prydwen_category": "Support",
+            "prydwen_role": "Support",
+            "role_group": "support",
+            "role_group_cn": "辅助",
+            "tier": "T0.5",
+            "rating": 8,
+            "tags": "cross-role",
+        },
+        {
+            **tier_seed,
+            "tier_snapshot_id": "2026-07-12-alias",
+            "tier_mode": "aa",
+            "tier_mode_cn": "异相仲裁",
+            "character_slug": "topaz",
+            "character_name_en": "Topaz and Numby",
+            "character_name_cn": "托帕&账账",
+            "prydwen_category": "Damage",
+            "prydwen_role": "Damage",
+            "role_group": "main_dps",
+            "role_group_cn": "主C",
+            "tier": "T0",
+            "rating": 10,
+            "tags": "safe-relative-alias",
+            "element": "Fire",
+            "path": "Hunt",
+            "icon_url": "./assets/avatars/agent-alpha.webp?alias=topaz#safe",
+        },
+    ]
+    _append_csv_rows(out_dir / "prydwen_tier_current.csv", tiers)
+
+
+def _write_dense_hsr_banner_plan(source: Path, destination: Path) -> None:
+    plan = json.loads(source.read_text(encoding="utf-8"))
+    plan["phases"].append(
+        {
+            "id": "date-driven-previous",
+            "status": "current",
+            "title": "Date-driven fixture",
+            "subtitle": "Declared current, dates make it previous",
+            "date_range": "1900-01-01 - 1900-12-31",
+            "source_label": "dense fixture",
+            "source_url": "docs/banner-source.html",
+            "characters": [
+                {
+                    "slug": "agent-zeta",
+                    "name_cn": "代理己",
+                    "name_en": "Agent Zeta",
+                    "banner_role": "banner-only",
+                    "rarity": "5",
+                    "element_cn": "冰",
+                    "path_cn": "记忆",
+                    "role_group_cns": "辅助",
+                    "icon_url": "./assets/avatars/agent-alpha.webp?banner=zeta#safe",
+                    "analysis_tags": ["date-driven", "banner-only"],
+                    "focus": "date-derived status",
+                }
+            ],
+        }
+    )
+    destination.write_text(
+        json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def _preseed_avatar(out_dir: Path) -> None:
     encoded = (FIXTURES / "avatar.webp.b64").read_text(encoding="ascii").strip()
     destination = out_dir / "visualizer" / "assets" / "avatars" / "agent-alpha.webp"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(base64.b64decode(encoded, validate=True))
+
+
+def _write_hsr_official_roster_fixture(out_dir: Path) -> None:
+    raw = out_dir / "raw" / "hoyowiki"
+    raw.mkdir(parents=True, exist_ok=True)
+    common = {
+        "character_rarity": {"values": ["5-star"]},
+        "character_combat_type": {"values": ["Imaginary"]},
+        "character_paths": {"values": ["Hunt"]},
+    }
+    en = [
+        {
+            "entry_page_id": "1",
+            "name": "Agent Alpha",
+            "filter_values": common,
+            "icon_url": "./assets/avatars/agent-alpha.webp",
+        },
+        {
+            "entry_page_id": "2",
+            "name": "Agent Epsilon",
+            "filter_values": {
+                "character_rarity": {"values": ["4-star"]},
+                "character_combat_type": {"values": ["Fire"]},
+                "character_paths": {"values": ["Harmony"]},
+            },
+        },
+        {"entry_page_id": "3", "name": ""},
+        {
+            "entry_page_id": "4",
+            "name": "Topaz",
+            "filter_values": {
+                "character_rarity": {"values": ["5-star"]},
+                "character_combat_type": {"values": ["Fire"]},
+                "character_paths": {"values": ["Hunt"]},
+            },
+            "icon_url": "./assets/avatars/agent-alpha.webp?alias=topaz#safe",
+        },
+    ]
+    zh = [
+        {
+            "entry_page_id": "1",
+            "name": "代理甲",
+            "filter_values": {
+                "character_rarity": {"values": ["五星"]},
+                "character_combat_type": {"values": ["虚数"]},
+                "character_paths": {"values": ["巡猎"]},
+            },
+            "icon_url": "./assets/avatars/agent-alpha.webp",
+        },
+        {
+            "entry_page_id": "2",
+            "name": "代理戊",
+            "filter_values": {
+                "character_rarity": {"values": ["四星"]},
+                "character_combat_type": {"values": ["火"]},
+                "character_paths": {"values": ["同谐"]},
+            },
+            "icon_url": "javascript:alert(1)",
+        },
+        {"entry_page_id": "3", "name": "仅中文角色"},
+        {
+            "entry_page_id": "4",
+            "name": "托帕&账账",
+            "filter_values": {
+                "character_rarity": {"values": ["五星"]},
+                "character_combat_type": {"values": ["火"]},
+                "character_paths": {"values": ["巡猎"]},
+            },
+            "icon_url": "./assets/avatars/agent-alpha.webp?alias=topaz#safe",
+        },
+    ]
+    (raw / "hsr_characters_en-us.json").write_text(
+        json.dumps(en, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    (raw / "hsr_characters_zh-cn.json").write_text(
+        json.dumps(zh, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def _values_for_key(value: object, target: str):

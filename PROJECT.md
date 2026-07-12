@@ -7,20 +7,20 @@
 ## 当前状态
 
 - 工作区已安全迁移到 `D:\Projects\终局内容提取`；6,111 个不可再生项目文件与 16,301 个归档文件逐路径 SHA-256 校验均为零差异，迁移回执保存在归档目录。
-- D 盘迁移后重建验证：Rust workspace 118 项通过，frozen pnpm install、Vite build 与 Tauri `--no-bundle` 通过；原暂停的 visualizer 契约半成品现已完成 fixture、旧断言和浏览器冒烟收口。
+- D 盘迁移后重建验证：Rust workspace 131 项通过，frozen pnpm install、Vite build 与 Tauri `--no-bundle` 通过；原暂停的 visualizer 契约半成品现已完成 fixture、旧断言和浏览器冒烟收口。
 - 工作区治理完成：业务资产已归档到 `D:\Projects\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
 - Cargo workspace 已建立：`miho-core`、`miho-cli`、`miho-desktop`。
 - Rust 已实现 HF 在线/离线统一 `SnapshotSource`、日期与部分失败语义、两游戏多 snapshot/mode 聚合，以及 HSR histograph/fallback、动态视图、完整队伍去重和 ZZZ Bangboo/name fallback。
 - Rust CLI 已接通 HSR/ZZZ `export`、原子写出和 0/1/2 退出码；两游戏的 Prydwen visible/tier/changelog、HoYoWiki 官方名称、历史、趋势、raw 与 Workbook 产物均已进入共享 Rust pipeline，补充来源或 Workbook 失败只降级为结构化 warning。
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
-- HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 已默认生成 Workbook，两游戏在线入口仅继续受 visualizer 完整目录门禁保护。
+- HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 已默认生成 Workbook，HSR 在线 export 在 visualizer 完整目录验收后解除总门禁，ZZZ 在线入口继续受 visualizer 门禁保护。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 123 项、Python 121 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
+- 最近完整回归：Rust workspace 131 项、Python 123 项和 workspace 严格 clippy 通过；前端 frozen install、esbuild 0.25.12、Vite build 与 Tauri `--no-bundle` 均已通过。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:1420` strict port，根脚本可从干净依赖状态复现。
 - 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
 - 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
 - 双游戏 Python visualizer 产物契约已冻结：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
-- Python 仍作为全部导出语义的对照实现，并负责正式 visualizer，以及 evidence、coverage、decision、pull-value、review-packet。
+- Python 仍作为全部导出语义的对照实现，并暂时负责 ZZZ 正式 visualizer，以及 evidence、coverage、decision、pull-value、review-packet；HSR visualizer 的 core、独立 CLI 与 export 接线已由 Rust 接管。
 
 ## 阶段路线
 
@@ -36,9 +36,9 @@
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 固化双游戏 visualizer 产物契约 | 完成 | 兼容测试子智能体、主智能体定标 | 两套 Python visualizer、最终 CSV、版本化 Banner/Decision sidecar、本地头像种子 | 脱敏 `data.json` oracle；HTML/CSS/JS/本地头像/Hub 精确文件集合；单动态字段白名单与版本化比较器 | 35 项契约测试；58 项 visualizer 相关测试；Hub/HSR/ZZZ 浏览器加载、切换、Box 与 XSS 冒烟 | 最终 CSV 与 Workbook 已稳定 |
-| 迁移 HSR visualizer bundle | 进行中（黄金 bundle 通过） | HSR Rust 子智能体、主智能体整合 | HSR visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；离线头像回退；export/visualizer CLI 共用核心实现 | HSR JSON/目录/资源黄金对比已通过；仍待 HoYoWiki roster、CLI/export 与浏览器收口 | visualizer 契约 |
-| 迁移 ZZZ visualizer bundle | 待开始 | ZZZ Rust 子智能体、主智能体整合 | ZZZ visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；代理人/邦布与卡池语义；export/visualizer CLI 共用核心实现 | ZZZ JSON 语义对比、目录比较、CLI fixture、浏览器交互冒烟、严格 clippy | visualizer 契约 |
+| 固化双游戏 visualizer 产物契约 | 完成 | 兼容测试子智能体、主智能体定标 | 两套 Python visualizer、最终 CSV、版本化 Banner/Decision sidecar、本地头像种子 | 脱敏 `data.json` oracle；HTML/CSS/JS/本地头像/Hub 精确文件集合；单动态字段白名单与版本化比较器 | 当前 39 项契约测试；Hub/HSR/ZZZ 浏览器加载、切换、Box 与 XSS 冒烟 | 最终 CSV 与 Workbook 已稳定 |
+| 迁移 HSR visualizer bundle | 完成 | HSR Rust 子智能体、CLI 子智能体、契约子智能体、主智能体整合 | HSR visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；离线头像回退；export/visualizer CLI 共用核心实现 | 致密 Rust/Python JSON、目录与 hash 零差异；真实 CLI 整目录零差异；浏览器 Banner/Box/XSS/console 冒烟；线上门禁解除 | visualizer 契约 |
+| 迁移 ZZZ visualizer bundle | 待开始（字段审计完成） | ZZZ Rust 子智能体、主智能体整合 | ZZZ visualizer 契约、最终 ArtifactBundle、共享缓存/网络层 | Rust 生成等价 `visualizer/data.json` 与静态资源；代理人/邦布与卡池语义；export/visualizer CLI 共用核心实现 | ZZZ JSON 语义对比、目录比较、CLI fixture、浏览器交互冒烟、严格 clippy | visualizer 契约；显式本地 datetime context |
 
 ## 决策记录
 
@@ -58,13 +58,14 @@
 | 2026-07-12 | Workbook 比较规范化 RGB alpha、继承字体元数据、solid fill 未使用背景和合并列宽区间；实际 Rust 文件另行强制全局零公式 | 保留视觉/数据语义而不追逐库级 OOXML 表示差异；表头 thin border、类型、格式和宽度仍严格比较 | 更换 XLSX 库或主题默认字体时 |
 | 2026-07-12 | CLI 使用 `WorkbookPolicy::BestEffort`；成功产物进入内嵌 manifest/receipt，失败只记结构化 warning 且不留半成品 | 离线双游戏导出已包含 XLSX；在线总门禁缩小为仅等待 visualizer | visualizer 完整目录黄金对比通过时 |
 | 2026-07-12 | visualizer 契约边界定义为最终 ArtifactBundle 加显式 VisualizerContext，而非声称可由 CSV 单独逆向 | Banner/Decision sidecar、官方/raw 补充信息、clock 与头像存储必须成为 Rust API 的显式输入；两游戏 export 先落最终 CSV 再走独立重建 | Rust context/schema 升级或 sidecar 被并入正式 artifact manifest 时 |
+| 2026-07-12 | HSR visualizer 通过致密跨语言、真实 CLI 整目录与浏览器验收后解除在线 export 总门禁；ZZZ 门禁保持 | HSR 默认在线路径可直接生成 CSV、Workbook、visualizer 与最终 manifest；Python 保留为 oracle，不再是 HSR 正式运行时依赖 | HSR 完整目录出现未批准差异或外部来源协议变化时 |
 
 ## 风险登记
 
 | 风险 | 当前状态 | 缓解措施 |
 | --- | --- | --- |
 | Python/Rust 计算或默认值漂移 | 高 | 先固化 CLI 与黄金输出，逐命令解除门禁 |
-| HSR/ZZZ visualizer 尚未进入 Rust 完整目录 | 高 | Python 契约已冻结并完成真实浏览器冒烟；下一步按 ArtifactBundle + VisualizerContext 分游戏迁移 |
+| ZZZ visualizer 尚未进入 Rust 完整目录 | 高 | Python 契约已冻结并完成真实浏览器冒烟；字段/排序/sidecar 审计已完成，下一步按 ArtifactBundle + 显式 datetime context 迁移 |
 | Workbook 单元格类型和样式可能与 Python 漂移 | 低（已验证） | 双游戏 oracle、显式/混合类型、thin border、样式/列宽语义规范化与 Rust 全局零公式断言已固化 |
 | `atomic::write` Windows 替换存在极短路径缺口 | 中 | 唯一临时文件、同步、备份与失败回滚已覆盖；安装环境继续压力测试 |
 | Tauri 后台任务、取消和完整 visualizer 尚未迁移 | 高 | 数据与报告默认路径稳定后再接 IPC，前端不复制规则 |
@@ -178,6 +179,14 @@
 - 主流程审视与调整：HSR 在线门禁继续保持；下一步必须先移植官方中英 roster 的 entry id 合并、顺序、filter values、别名和图标优先级，并增加 Rust 原生分支测试。完成后再把同一 builder 接入独立 `visualizer` 和 export，最后做真实浏览器冒烟，不能仅凭当前单行 oracle 解锁。
 - 下一步：补齐 HoYoWiki roster 与完整 phase/scope seed，再接可信 CLI adapter 的 Banner/旧头像读取、visualizer 子树替换和 manifest 刷新。
 
+### 第十一批进度：HSR visualizer 完成（子目标 2/3，2026-07-12）
+
+- 完成：HoYoWiki 中英 roster 已按 `entry_page_id`、双侧顺序、英文名门槛和首个 filter value 合并，官方-only、tier/usage fallback、alias、source、角色职能与本地头像优先级均有原生测试。HSR builder 补齐 16 个 phase 中文名、4 类机制、MOC/PF/AS/AA scope、team 精确 phase 回退/置换去重/来源排序/240 与 1000 限额、usage 按 mode+role 最高 rating、日期有效 Banner 与 banner-only roster，以及整数/非有限数值语义。
+- CLI 与验收：独立 `miho hsr visualizer` 会从最终磁盘 artifact 显式加载 Banner 与旧 WebP；离线/在线 HSR export 在最终写出边界复用同一 core。输出先在同卷 sibling staging 完整构建，再通过 backup/swap 安装，失败回滚旧目录且新 manifest 只在整体成功后可见。致密跨语言契约 39 项、真实 CLI 整目录 JSON/文件集/hash 零差异、Rust workspace 131 项、Python 123 项与严格 clippy 通过。真实浏览器确认页面、Banner、Box 状态/练度可交互，XSS 标记为空且 console warning/error 为零。
+- 最大困难：严格比较器本身没有问题，但原黄金只有单角色、单模式、单 team 和静态 Banner；“逐字段零差异”会掩盖跨行聚合键、精确 phase 选择、置换去重、rating 取优与日期状态没有被触发，形成已经完整迁移的错觉。
+- 主流程审视与调整：HSR 门禁按预定证据解除，但后续不再把“严格黄金”自动等同“覆盖充分”。ZZZ 必须先建立能触发多行选择/回退的致密 fixture，再做 core/CLI/浏览器验收；同时把 ZZZ Banner 依赖的含时分本地时钟升级为显式版本化 context，不能用 `NaiveDate` 静默近似。两游戏继续共享 ArtifactBundle/安全 writer，不共享各自排序与派生规则。
+- 下一步：新增 `zzz_visualizer` 独立模块和 ZZZ 静态资产，先锁定 phase override/raw 补偿、official roster、Bangboo/team、Banner/Decision 与 datetime context，再接真实 CLI 和 Hub 浏览器冒烟。
+
 ## 恢复入口
 
 - 项目状态：本文件。
@@ -188,4 +197,4 @@
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
-- 最危险的未验证假设：Rust 能否在不复制 Python 隐式 cwd/raw 文件探测的前提下，用显式 VisualizerContext 生成与 oracle 等价的两游戏 `data.json`、静态资源和头像目录；这是解除在线完整目录门禁前的最后一项导出产品缺口。
+- 最危险的未验证假设：ZZZ 能否在不复制 Python 隐式 cwd/raw 文件探测的前提下，用显式版本化 datetime、phase/Banner/Decision sidecar 与头像 context 生成等价完整目录；HSR 已证明该边界可行，但 ZZZ 的 Bangboo、Decision 和含时分 Banner 状态仍未迁移。

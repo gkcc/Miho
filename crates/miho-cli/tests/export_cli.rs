@@ -52,6 +52,25 @@ fn export(game: &str, fixture_path: Option<&Path>, out: &Path) -> Output {
     command.output().expect("miho binary should start")
 }
 
+fn visualizer(game: &str, out: &Path) -> Output {
+    Command::new(binary())
+        .args([game, "visualizer", "--out"])
+        .arg(out)
+        .output()
+        .expect("miho binary should start")
+}
+
+fn assert_no_transaction_residue(parent: &Path, output_name: &str) {
+    let prefix = format!(".{output_name}.miho-");
+    let residue = fs::read_dir(parent)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| name.starts_with(&prefix))
+        .collect::<Vec<_>>();
+    assert!(residue.is_empty(), "transaction residue: {residue:?}");
+}
+
 fn assert_core_export(game: &str, files: &[&str]) {
     let out = temp_output(game);
     let result = export(game, Some(&fixture(game)), &out);
@@ -96,6 +115,10 @@ fn hsr_offline_export_writes_complete_core_set() {
             "export_report.md",
             "artifact_manifest.json",
             "hsr_endgame_dataset.xlsx",
+            "visualizer/index.html",
+            "visualizer/styles.css",
+            "visualizer/app.js",
+            "visualizer/data.json",
         ],
     );
 }
@@ -195,19 +218,6 @@ fn zzz_hf_only_online_export_also_keeps_the_product_level_gate() {
 }
 
 #[test]
-fn hsr_default_online_export_keeps_the_complete_directory_gate() {
-    let out = temp_output("hsr-online-gate");
-    let result = export("hsr", None, &out);
-    assert_eq!(result.status.code(), Some(1));
-    let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(stderr.contains("Workbook export now passes compatibility checks"));
-    assert!(stderr.contains("visualizer artifacts"));
-    assert!(!stderr.contains("XLSX and visualizer"));
-    assert!(!stderr.contains("supplemental capabilities are not yet migrated"));
-    assert!(!out.exists());
-}
-
-#[test]
 fn invalid_date_is_a_business_error() {
     let out = temp_output("invalid-date");
     let result = Command::new(binary())
@@ -275,4 +285,108 @@ fn hsr_migrated_top_n_and_name_seed_are_accepted() {
     assert!(names.contains("topaz-and-numby,Topaz and Numby,Topaz CN"));
     fs::remove_file(seed).unwrap();
     fs::remove_dir_all(out).unwrap();
+}
+
+#[test]
+fn hsr_visualizer_rebuilds_existing_artifacts_and_refreshes_manifest() {
+    let root = temp_output("hsr-visualizer-root");
+    let out = root.join("中文 空格 output");
+    let exported = export("hsr", Some(&fixture("hsr")), &out);
+    assert!(
+        exported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&exported.stderr)
+    );
+
+    let avatar = b"RIFF\x1e\x00\x00\x00WEBPVP8L\x11\x00\x00\x00/\x01@\x00\x00\x07\xd0\xb1\x96t\xbd\xff\x81\x88\xe8\x7f\x00\x00";
+    let avatar_path = out.join("visualizer/assets/avatars/agent-alpha.webp");
+    fs::create_dir_all(avatar_path.parent().unwrap()).unwrap();
+    fs::write(&avatar_path, avatar).unwrap();
+    fs::write(out.join("visualizer/stale.txt"), "stale").unwrap();
+    fs::write(out.join("keep-me.txt"), "unmanaged").unwrap();
+    fs::write(out.join("hsr_banner_plan.json"), "{broken}").unwrap();
+    let fallback = root.join("configs/hsr_banner_plan.json");
+    fs::create_dir_all(fallback.parent().unwrap()).unwrap();
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/visualizer_contract/hsr_banner_plan.json"),
+        &fallback,
+    )
+    .unwrap();
+
+    let result = visualizer("hsr", &out);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(out.join("visualizer/index.html").is_file());
+    assert!(out.join("visualizer/styles.css").is_file());
+    assert!(out.join("visualizer/app.js").is_file());
+    assert_eq!(fs::read(&avatar_path).unwrap(), avatar);
+    assert!(!out.join("visualizer/stale.txt").exists());
+    assert_eq!(
+        fs::read_to_string(out.join("keep-me.txt")).unwrap(),
+        "unmanaged"
+    );
+
+    let data = fs::read_to_string(out.join("visualizer/data.json")).unwrap();
+    assert!(data.contains("fixture-phase"));
+    assert!(data.contains("./assets/avatars/agent-alpha.webp"));
+    let manifest = fs::read_to_string(out.join("artifact_manifest.json")).unwrap();
+    for path in [
+        "visualizer/index.html",
+        "visualizer/styles.css",
+        "visualizer/app.js",
+        "visualizer/data.json",
+        "visualizer/assets/avatars/agent-alpha.webp",
+    ] {
+        assert!(manifest.contains(path), "manifest is missing {path}");
+    }
+    assert!(!manifest.contains("visualizer/stale.txt"));
+    assert_no_transaction_residue(&root, "中文 空格 output");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn hsr_visualizer_failure_before_swap_keeps_old_output_unchanged() {
+    let root = temp_output("hsr-visualizer-rollback-root");
+    let out = root.join("rollback-output");
+    let exported = export("hsr", Some(&fixture("hsr")), &out);
+    assert!(
+        exported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&exported.stderr)
+    );
+    fs::write(out.join("visualizer/stale.txt"), "old-stale").unwrap();
+    fs::write(out.join("keep-me.txt"), "old-unmanaged").unwrap();
+    let old_data = fs::read(out.join("visualizer/data.json")).unwrap();
+    let old_manifest = fs::read(out.join("artifact_manifest.json")).unwrap();
+
+    let result = Command::new(binary())
+        .args(["hsr", "visualizer", "--out"])
+        .arg(&out)
+        .env("MIHO_TEST_FAIL_OUTPUT_TRANSACTION_BEFORE_SWAP", "1")
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("before swap"));
+    assert_eq!(
+        fs::read_to_string(out.join("visualizer/stale.txt")).unwrap(),
+        "old-stale"
+    );
+    assert_eq!(
+        fs::read_to_string(out.join("keep-me.txt")).unwrap(),
+        "old-unmanaged"
+    );
+    assert_eq!(
+        fs::read(out.join("visualizer/data.json")).unwrap(),
+        old_data
+    );
+    assert_eq!(
+        fs::read(out.join("artifact_manifest.json")).unwrap(),
+        old_manifest
+    );
+    assert_no_transaction_residue(&root, "rollback-output");
+    fs::remove_dir_all(root).unwrap();
 }

@@ -1,4 +1,9 @@
-use std::{path::PathBuf, time::Duration as StdDuration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration as StdDuration,
+};
 
 use anyhow::bail;
 use chrono::{Duration, Local, Utc};
@@ -10,12 +15,15 @@ use miho_core::{
     },
     hf::HuggingFaceRepo,
     hsr_supplemental::{HsrFixtureSupplementalSource, HsrHttpSupplementalSource},
+    hsr_visualizer::attach_hsr_visualizer,
     network::{FetchMode, HttpClient},
     normalize::parse_date,
     pipeline::{run_hsr_export_v1, run_zzz_export_v1, ExportRequest, Game, OfflineFixture},
     source::HfSnapshotSource,
+    visualizer::VisualizerContext,
     zzz_enrichment::first_valid_phase_override_path,
     zzz_supplemental::{ZzzFixtureSupplementalSource, ZzzHttpSupplementalSource},
+    MihoError,
 };
 
 #[derive(Parser)]
@@ -293,6 +301,16 @@ async fn main() {
 }
 
 async fn execute(cli: Cli) -> anyhow::Result<()> {
+    if let GameCommand::Hsr {
+        command: HsrCommand::Visualizer(args),
+    } = &cli.game
+    {
+        let out = args
+            .out
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("./hsr_endgame_export"));
+        return rebuild_hsr_visualizer(&out);
+    }
     let (game, args, name_map_seed) = match cli.game {
         GameCommand::Hsr { command: HsrCommand::Export(args) } => {
             let name_map_seed = args.name_map_seed.clone();
@@ -338,7 +356,7 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
     #[cfg(not(debug_assertions))]
     let offline_fixture: Option<std::ffi::OsString> = None;
 
-    let run = if let Some(path) = offline_fixture {
+    let mut run = if let Some(path) = offline_fixture {
         let fixture_path = PathBuf::from(path);
         let fixture = OfflineFixture::load(&fixture_path)?;
         if fixture.manifest.game != game {
@@ -373,15 +391,8 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
         eprintln!("fixture mode: {}", fixture_path.display());
         run
     } else {
-        if game == Game::Zzz {
-            bail!(
-                "ZZZ supplemental sources are migrated and Workbook export now passes compatibility checks, but online export remains gated until visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command"
-            );
-        }
-        if game == Game::Hsr {
-            bail!(
-                "HSR supplemental sources are migrated and Workbook export now passes compatibility checks, but the default online export remains gated until visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command"
-            );
+        if let Some(message) = online_export_gate(game) {
+            bail!("{message}");
         }
         let cache_root = cache_root(game, &args.repo_id, revision);
         let source = HfSnapshotSource::new(
@@ -419,6 +430,10 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             }
         }
     };
+    if game == Game::Hsr {
+        attach_hsr_visualizer_from_output(&mut run.bundle, &args.out)?;
+        run.bundle.refresh_manifest("artifact_manifest.json")?;
+    }
     for diagnostic in &run.diagnostics {
         match diagnostic.severity {
             DiagnosticSeverity::Warning => eprintln!("warning: {}", diagnostic.message),
@@ -427,8 +442,329 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             }
         }
     }
-    run.bundle.write_to(&args.out)?;
+    if game == Game::Hsr {
+        write_bundle_transactionally(&args.out, &run.bundle)?;
+    } else {
+        run.bundle.write_to(&args.out)?;
+    }
     Ok(())
+}
+
+fn online_export_gate(game: Game) -> Option<&'static str> {
+    match game {
+        Game::Hsr => None,
+        Game::Zzz => Some(
+            "ZZZ supplemental sources are migrated and Workbook export now passes compatibility checks, but online export remains gated until visualizer artifacts pass the complete-directory compatibility check; use the Python compatibility command",
+        ),
+    }
+}
+
+fn rebuild_hsr_visualizer(out: &Path) -> anyhow::Result<()> {
+    validate_output_root(out)?;
+    let mut bundle = load_existing_output(out)?;
+    attach_hsr_visualizer_from_output(&mut bundle, out)?;
+    bundle.refresh_manifest("artifact_manifest.json")?;
+    write_bundle_transactionally(out, &bundle)?;
+    Ok(())
+}
+
+fn attach_hsr_visualizer_from_output(
+    bundle: &mut miho_core::output::ArtifactBundle,
+    out: &Path,
+) -> anyhow::Result<()> {
+    validate_optional_directory(out)?;
+    validate_optional_directory(&out.join("visualizer"))?;
+    let avatars = read_existing_hsr_avatars(out)?;
+    for path in hsr_banner_candidates(out) {
+        let Some(bytes) = read_json_object_candidate(&path)? else {
+            continue;
+        };
+        let mut context = hsr_visualizer_context(&avatars)?;
+        context.add_sidecar_bytes("hsr_banner_plan.json", bytes)?;
+        match attach_hsr_visualizer(bundle, &context) {
+            Ok(()) => return Ok(()),
+            Err(MihoError::Json { path, .. }) if path == Path::new("hsr_banner_plan.json") => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    let context = hsr_visualizer_context(&avatars)?;
+    attach_hsr_visualizer(bundle, &context)?;
+    Ok(())
+}
+
+static NEXT_OUTPUT_TRANSACTION_ID: AtomicU64 = AtomicU64::new(0);
+
+fn write_bundle_transactionally(
+    out: &Path,
+    bundle: &miho_core::output::ArtifactBundle,
+) -> anyhow::Result<()> {
+    let name = out.file_name().ok_or_else(|| {
+        anyhow::anyhow!(
+            "transactional output requires a named directory: {}",
+            out.display()
+        )
+    })?;
+    let parent = out
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+
+    let old_exists = match fs::symlink_metadata(out) {
+        Ok(metadata) if !metadata.file_type().is_symlink() && metadata.is_dir() => true,
+        Ok(_) => bail!("refusing unsafe output directory: {}", out.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    let stage = create_transaction_stage(parent, name)?;
+    let prepare = (|| -> anyhow::Result<()> {
+        if old_exists {
+            copy_directory_contents(out, &stage)?;
+        }
+        remove_staged_visualizer(&stage)?;
+        remove_staged_manifest(&stage)?;
+        bundle.write_to(&stage)?;
+        Ok(())
+    })();
+    if let Err(error) = prepare {
+        let _ = fs::remove_dir_all(&stage);
+        return Err(error);
+    }
+
+    #[cfg(debug_assertions)]
+    if std::env::var_os("MIHO_TEST_FAIL_OUTPUT_TRANSACTION_BEFORE_SWAP").is_some() {
+        fs::remove_dir_all(&stage)?;
+        bail!("injected output transaction failure before swap");
+    }
+
+    if !old_exists {
+        if let Err(error) = fs::rename(&stage, out) {
+            let _ = fs::remove_dir_all(&stage);
+            return Err(error.into());
+        }
+        return Ok(());
+    }
+
+    let backup = unused_transaction_sibling(parent, name, "backup")?;
+    if let Err(error) = fs::rename(out, &backup) {
+        let _ = fs::remove_dir_all(&stage);
+        return Err(error.into());
+    }
+    if let Err(install_error) = fs::rename(&stage, out) {
+        let rollback = fs::rename(&backup, out);
+        let _ = fs::remove_dir_all(&stage);
+        return match rollback {
+            Ok(()) => Err(install_error.into()),
+            Err(rollback_error) => Err(anyhow::anyhow!(
+                "output install failed ({install_error}); rollback also failed ({rollback_error}); old output remains at {}",
+                backup.display()
+            )),
+        };
+    }
+    fs::remove_dir_all(backup)?;
+    Ok(())
+}
+
+fn create_transaction_stage(parent: &Path, name: &std::ffi::OsStr) -> anyhow::Result<PathBuf> {
+    loop {
+        let stage = transaction_sibling(parent, name, "stage");
+        match fs::create_dir(&stage) {
+            Ok(()) => return Ok(stage),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn unused_transaction_sibling(
+    parent: &Path,
+    name: &std::ffi::OsStr,
+    kind: &str,
+) -> anyhow::Result<PathBuf> {
+    loop {
+        let path = transaction_sibling(parent, name, kind);
+        match fs::symlink_metadata(&path) {
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(path),
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn transaction_sibling(parent: &Path, name: &std::ffi::OsStr, kind: &str) -> PathBuf {
+    let id = NEXT_OUTPUT_TRANSACTION_ID.fetch_add(1, Ordering::Relaxed);
+    parent.join(format!(
+        ".{}.miho-{kind}-{}-{id}",
+        name.to_string_lossy(),
+        std::process::id()
+    ))
+}
+
+fn copy_directory_contents(source: &Path, destination: &Path) -> anyhow::Result<()> {
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            bail!(
+                "refusing symlink in existing output: {}",
+                source_path.display()
+            );
+        }
+        if file_type.is_dir() {
+            fs::create_dir(&destination_path)?;
+            copy_directory_contents(&source_path, &destination_path)?;
+        } else if file_type.is_file() {
+            fs::copy(&source_path, &destination_path)?;
+        } else {
+            bail!("unsupported artifact type: {}", source_path.display());
+        }
+    }
+    Ok(())
+}
+
+fn remove_staged_visualizer(stage: &Path) -> anyhow::Result<()> {
+    let path = stage.join("visualizer");
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if !metadata.file_type().is_symlink() && metadata.is_dir() => {
+            fs::remove_dir_all(path)?;
+        }
+        Ok(_) => bail!("refusing unsafe staged visualizer path: {}", path.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+fn remove_staged_manifest(stage: &Path) -> anyhow::Result<()> {
+    let path = stage.join("artifact_manifest.json");
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if !metadata.file_type().is_symlink() && metadata.is_file() => {
+            fs::remove_file(path)?;
+        }
+        Ok(_) => bail!("refusing unsafe staged manifest path: {}", path.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+fn validate_output_root(out: &Path) -> anyhow::Result<()> {
+    let metadata = fs::symlink_metadata(out)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        bail!(
+            "visualizer output is not a trusted directory: {}",
+            out.display()
+        );
+    }
+    Ok(())
+}
+
+fn validate_optional_directory(path: &Path) -> anyhow::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.file_type().is_symlink() && metadata.is_dir() => Ok(true),
+        Ok(_) => bail!("refusing unsafe directory path: {}", path.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn load_existing_output(out: &Path) -> anyhow::Result<miho_core::output::ArtifactBundle> {
+    fn visit(
+        root: &Path,
+        current: &Path,
+        bundle: &mut miho_core::output::ArtifactBundle,
+    ) -> anyhow::Result<()> {
+        for entry in fs::read_dir(current)? {
+            let entry = entry?;
+            let path = entry.path();
+            let relative = path.strip_prefix(root)?;
+            let file_type = entry.file_type()?;
+            if relative == Path::new("visualizer")
+                || relative == Path::new("artifact_manifest.json")
+            {
+                continue;
+            }
+            if file_type.is_symlink() {
+                bail!("refusing symlink in existing output: {}", path.display());
+            }
+            if file_type.is_dir() {
+                visit(root, &path, bundle)?;
+            } else if file_type.is_file() {
+                bundle.add_bytes(relative, fs::read(&path)?)?;
+            } else {
+                bail!("unsupported artifact type: {}", path.display());
+            }
+        }
+        Ok(())
+    }
+
+    let mut bundle = miho_core::output::ArtifactBundle::default();
+    visit(out, out, &mut bundle)?;
+    Ok(bundle)
+}
+
+fn read_existing_hsr_avatars(out: &Path) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+    if !validate_optional_directory(&out.join("visualizer/assets"))? {
+        return Ok(Vec::new());
+    }
+    let root = out.join("visualizer/assets/avatars");
+    if !validate_optional_directory(&root)? {
+        return Ok(Vec::new());
+    }
+    let entries = fs::read_dir(&root)?;
+    let mut avatars = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let path = entry.path();
+        if file_type.is_symlink() {
+            bail!("refusing symlink in avatar store: {}", path.display());
+        }
+        if !file_type.is_file() || path.extension().and_then(|value| value.to_str()) != Some("webp")
+        {
+            continue;
+        }
+        let slug = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| anyhow::anyhow!("avatar filename is not UTF-8: {}", path.display()))?;
+        avatars.push((slug.to_owned(), fs::read(path)?));
+    }
+    avatars.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(avatars)
+}
+
+fn hsr_visualizer_context(avatars: &[(String, Vec<u8>)]) -> anyhow::Result<VisualizerContext> {
+    let mut context = VisualizerContext::new(Local::now().date_naive());
+    for (slug, bytes) in avatars {
+        context.add_avatar_webp(slug, bytes.clone())?;
+    }
+    Ok(context)
+}
+
+fn hsr_banner_candidates(out: &Path) -> Vec<PathBuf> {
+    let mut candidates = vec![out.join("hsr_banner_plan.json")];
+    if let Some(parent) = out.parent() {
+        candidates.push(parent.join("configs/hsr_banner_plan.json"));
+    }
+    candidates.push(PathBuf::from("configs/hsr_banner_plan.json"));
+    candidates
+}
+
+fn read_json_object_candidate(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(text) => text.trim(),
+        Err(_) => return Ok(None),
+    };
+    Ok((text.starts_with('{') && text.ends_with('}')).then_some(bytes))
 }
 
 fn cache_root(game: Game, repo_id: &str, revision: &str) -> PathBuf {
@@ -592,6 +928,30 @@ mod tests {
             args.decision_baseline,
             PathBuf::from("./configs/zzz_decision_baseline.json")
         );
+    }
+
+    #[test]
+    fn hsr_visualizer_default_matches_python_contract() {
+        let cli = Cli::try_parse_from(["miho", "hsr", "visualizer"]).unwrap();
+        let GameCommand::Hsr {
+            command: HsrCommand::Visualizer(args),
+        } = cli.game
+        else {
+            panic!("expected HSR visualizer")
+        };
+        assert_eq!(
+            args.out
+                .unwrap_or_else(|| PathBuf::from("./hsr_endgame_export")),
+            PathBuf::from("./hsr_endgame_export")
+        );
+    }
+
+    #[test]
+    fn online_gate_is_lifted_only_for_hsr() {
+        assert!(online_export_gate(Game::Hsr).is_none());
+        assert!(online_export_gate(Game::Zzz)
+            .unwrap()
+            .contains("visualizer artifacts"));
     }
 
     #[tokio::test]
