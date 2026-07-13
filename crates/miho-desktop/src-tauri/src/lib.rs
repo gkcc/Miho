@@ -1,5 +1,6 @@
 use std::{fs, path::PathBuf};
 
+use miho_app::WorkspaceWriteLease;
 use miho_core::box_state::BoxState;
 use tauri::{Manager, State};
 
@@ -132,6 +133,8 @@ fn save_box_state(
         .workspaces
         .access(&workspace_id)
         .map_err(|_| "The workspace selection changed; refresh and retry.".to_owned())?;
+    let _lease = WorkspaceWriteLease::acquire(&root)
+        .map_err(|error| format!("The workspace cannot be written: {}.", error.code()))?;
     let path = checked_box_state_path(&root, &game)?;
     miho_core::box_state::save(&path, box_state.clone())
         .map_err(|_| "The Box State could not be saved.".to_owned())?;

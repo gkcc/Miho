@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     execute_task_observed_v1, AppInvocation, ExecutionControlError, ExecutionObserver,
-    TaskFailureV1, TaskOperationV1, TaskReceiptV1, TaskRequestV1, TASK_FAILURE_SCHEMA_V1,
+    TaskFailureV1, TaskOperationV1, TaskReceiptV1, TaskRequestV1, WorkspaceWriteLease,
+    TASK_FAILURE_SCHEMA_V1,
 };
 
 pub const TASK_SNAPSHOT_SCHEMA_V1: &str = "miho-task-snapshot-v1";
@@ -268,6 +269,13 @@ impl TaskExecutor for CoreTaskExecutor {
         invocation: &AppInvocation,
         observer: &dyn ExecutionObserver,
     ) -> anyhow::Result<TaskReceiptV1> {
+        let data_dir = invocation.resolve(&request.workspace.data_dir);
+        let workspace = data_dir
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .ok_or_else(|| anyhow::anyhow!("workspace.write_unavailable"))?;
+        let _lease = WorkspaceWriteLease::acquire(workspace)
+            .map_err(|error| anyhow::anyhow!(error.code()))?;
         execute_task_observed_v1(request, invocation, observer)
     }
 }

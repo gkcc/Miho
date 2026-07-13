@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::{
     contract::DatasetRef,
     hf::{parse_tree_response, HuggingFaceRepo, TreeEntry},
-    network::{CachedHttpClient, FetchMode, HttpClient},
+    network::{CachedHttpClient, FetchMode, FetchSource, FetchedText, HttpClient},
     MihoError, Result,
 };
 
@@ -24,11 +24,26 @@ pub trait SnapshotSource: Send + Sync {
     }
 }
 
+/// Controls whether an online Hugging Face source may silently use its
+/// last-good cache after a request or payload-validation failure.
+///
+/// Direct and interactive exports retain [`Self::Allow`]. Freshness-sensitive
+/// orchestration must opt into [`Self::Reject`], which turns every observed
+/// online cache fallback into a structured error before cached bytes reach the
+/// export pipeline.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum HfCacheFallbackPolicy {
+    #[default]
+    Allow,
+    Reject,
+}
+
 #[derive(Clone)]
 pub struct HfSnapshotSource {
     repo: HuggingFaceRepo,
     client: CachedHttpClient,
     mode: FetchMode,
+    cache_fallback_policy: HfCacheFallbackPolicy,
 }
 
 impl HfSnapshotSource {
@@ -42,7 +57,13 @@ impl HfSnapshotSource {
             repo,
             client: CachedHttpClient::new(http, cache_root),
             mode,
+            cache_fallback_policy: HfCacheFallbackPolicy::Allow,
         }
+    }
+
+    pub fn with_cache_fallback_policy(mut self, policy: HfCacheFallbackPolicy) -> Self {
+        self.cache_fallback_policy = policy;
+        self
     }
 
     fn tree_cache_key(path: &str) -> PathBuf {
@@ -61,21 +82,43 @@ impl HfSnapshotSource {
     fn raw_cache_key(path: &str) -> PathBuf {
         Path::new("hf").join(path.split('/').collect::<PathBuf>())
     }
+
+    fn accept_fetched(&self, fetched: FetchedText, cache_key: &Path) -> Result<String> {
+        if self.cache_fallback_policy == HfCacheFallbackPolicy::Reject
+            && self.mode == FetchMode::Online
+            && fetched.source == FetchSource::Cache
+        {
+            return Err(MihoError::CacheFallbackRejected(
+                cache_key.display().to_string(),
+            ));
+        }
+        Ok(fetched.text)
+    }
 }
 
 impl SnapshotSource for HfSnapshotSource {
     fn list_tree<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Vec<TreeEntry>> {
         Box::pin(async move {
-            let text = self
+            let cache_key = Self::tree_cache_key(path);
+            let fetched = self
                 .client
-                .get_text(
+                .get_text_validated_with_source(
                     &self.repo.tree_url(path, false),
-                    &Self::tree_cache_key(path),
+                    &cache_key,
                     self.mode,
+                    |text| {
+                        parse_tree_response(text)
+                            .map(|_| ())
+                            .map_err(|source| MihoError::Json {
+                                path: cache_key.clone(),
+                                source,
+                            })
+                    },
                 )
                 .await?;
+            let text = self.accept_fetched(fetched, &cache_key)?;
             parse_tree_response(&text).map_err(|source| MihoError::Json {
-                path: Self::tree_cache_key(path),
+                path: cache_key,
                 source,
             })
         })
@@ -84,10 +127,18 @@ impl SnapshotSource for HfSnapshotSource {
     fn read_json<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Value> {
         Box::pin(async move {
             let key = Self::raw_cache_key(path);
-            let text = self
+            let fetched = self
                 .client
-                .get_text(&self.repo.raw_url(path), &key, self.mode)
+                .get_text_validated_with_source(&self.repo.raw_url(path), &key, self.mode, |text| {
+                    serde_json::from_str::<Value>(text)
+                        .map(|_| ())
+                        .map_err(|source| MihoError::Json {
+                            path: key.clone(),
+                            source,
+                        })
+                })
                 .await?;
+            let text = self.accept_fetched(fetched, &key)?;
             serde_json::from_str(&text).map_err(|source| MihoError::Json { path: key, source })
         })
     }
@@ -117,6 +168,26 @@ mod tests {
 
     fn temp_dir(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("miho-source-{label}-{}", std::process::id()))
+    }
+
+    fn serve_responses(responses: Vec<(u16, &'static str)>) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0_u8; 2048];
+                let _ = stream.read(&mut request);
+                let reason = if status == 200 { "OK" } else { "Error" };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        (origin, server)
     }
 
     #[tokio::test]
@@ -185,6 +256,109 @@ mod tests {
         server.join().unwrap();
         assert!(root.join(".trees/root.json").is_file());
         assert!(root.join("hf/config.json").is_file());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn online_adapter_allows_last_good_cache_by_default() {
+        let root = temp_dir("online-fallback-allowed");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join(".trees")).unwrap();
+        fs::create_dir_all(root.join("hf")).unwrap();
+        fs::write(
+            root.join(".trees/root.json"),
+            r#"[{"type":"directory","path":"cached"}]"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("hf/config.json"),
+            r#"{"collect_date":"2026-07-12"}"#,
+        )
+        .unwrap();
+        let (origin, server) = serve_responses(vec![(500, "failed"), (500, "failed")]);
+        let source = HfSnapshotSource::new(
+            HuggingFaceRepo::new("owner/repo", "main").with_origin(origin),
+            HttpClient::new(Duration::from_secs(2), 0).unwrap(),
+            &root,
+            FetchMode::Online,
+        );
+
+        assert_eq!(source.list_tree("").await.unwrap()[0].path, "cached");
+        assert_eq!(
+            source.read_json("config.json").await.unwrap()["collect_date"],
+            "2026-07-12"
+        );
+
+        server.join().unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn freshness_policy_rejects_every_online_hf_cache_fallback() {
+        let root = temp_dir("online-fallback-rejected");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join(".trees")).unwrap();
+        fs::create_dir_all(root.join("hf")).unwrap();
+        fs::write(
+            root.join(".trees/root.json"),
+            r#"[{"type":"directory","path":"cached"}]"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("hf/config.json"),
+            r#"{"collect_date":"2026-07-12"}"#,
+        )
+        .unwrap();
+        let (origin, server) = serve_responses(vec![(500, "failed"), (500, "failed")]);
+        let source = HfSnapshotSource::new(
+            HuggingFaceRepo::new("owner/repo", "main").with_origin(origin),
+            HttpClient::new(Duration::from_secs(2), 0).unwrap(),
+            &root,
+            FetchMode::Online,
+        )
+        .with_cache_fallback_policy(HfCacheFallbackPolicy::Reject);
+
+        assert!(matches!(
+            source.list_tree("").await,
+            Err(MihoError::CacheFallbackRejected(key)) if key == ".trees\\root.json" || key == ".trees/root.json"
+        ));
+        assert!(matches!(
+            source.read_json("config.json").await,
+            Err(MihoError::CacheFallbackRejected(key)) if key == "hf\\config.json" || key == "hf/config.json"
+        ));
+
+        server.join().unwrap();
+        let unavailable = TcpListener::bind("127.0.0.1:0").unwrap();
+        let unavailable_origin = format!("http://{}", unavailable.local_addr().unwrap());
+        drop(unavailable);
+        let unavailable_source = HfSnapshotSource::new(
+            HuggingFaceRepo::new("owner/repo", "main").with_origin(unavailable_origin),
+            HttpClient::new(Duration::from_millis(100), 0).unwrap(),
+            &root,
+            FetchMode::Online,
+        )
+        .with_cache_fallback_policy(HfCacheFallbackPolicy::Reject);
+        assert!(matches!(
+            unavailable_source.list_tree("").await,
+            Err(MihoError::CacheFallbackRejected(key)) if key == ".trees\\root.json" || key == ".trees/root.json"
+        ));
+        let (invalid_origin, invalid_server) = serve_responses(vec![(200, "not-json")]);
+        let invalid_source = HfSnapshotSource::new(
+            HuggingFaceRepo::new("owner/repo", "main").with_origin(invalid_origin),
+            HttpClient::new(Duration::from_secs(2), 0).unwrap(),
+            &root,
+            FetchMode::Online,
+        )
+        .with_cache_fallback_policy(HfCacheFallbackPolicy::Reject);
+        assert!(matches!(
+            invalid_source.read_json("config.json").await,
+            Err(MihoError::CacheFallbackRejected(key)) if key == "hf\\config.json" || key == "hf/config.json"
+        ));
+        invalid_server.join().unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("hf/config.json")).unwrap(),
+            r#"{"collect_date":"2026-07-12"}"#
+        );
         let _ = fs::remove_dir_all(root);
     }
 }

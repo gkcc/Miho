@@ -1956,6 +1956,8 @@ dependencies = [
  "miho-core",
  "serde",
  "serde_json",
+ "sha2",
+ "tokio",
 ]
 
 [[package]]
@@ -1968,6 +1970,7 @@ dependencies = [
  "miho-app",
  "miho-core",
  "serde_json",
+ "sha2",
  "tokio",
 ]
 

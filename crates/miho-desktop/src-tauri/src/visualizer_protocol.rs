@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use miho_app::{WorkspaceWriteLease, WorkspaceWriteLeaseError};
 use miho_core::box_state::{self, BoxState};
 use tauri::http::{header, Method, Request, Response, StatusCode};
 
@@ -155,6 +156,11 @@ fn handle_box(root: &Path, game: &str, request: Request<Vec<u8>>) -> Response<Ve
         if let Err(error) = ensure_box_state_limits(&state) {
             return box_limit_error_response(error);
         }
+        let _lease = match WorkspaceWriteLease::acquire(root) {
+            Ok(lease) => lease,
+            Err(WorkspaceWriteLeaseError::Busy) => return error_response(StatusCode::CONFLICT),
+            Err(_) => return error_response(StatusCode::INTERNAL_SERVER_ERROR),
+        };
         if box_state::save(&path, state.clone()).is_err() {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR);
         }

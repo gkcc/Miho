@@ -34,13 +34,40 @@ use miho_core::{
 };
 use serde::{Deserialize, Serialize};
 
+mod export;
 mod task_manager;
+mod update;
+mod update_config;
+mod workspace_write_lease;
 
+pub use export::{
+    execute_export_observed_v1, execute_export_v1, execute_export_with_hub_v1,
+    execute_visualizer_v1, export_cache_root, ExportInvocation, ExportObserver, ExportReceiptV1,
+    ExportSourceV1, ExportTaskV1, VisualizerTaskV1,
+};
 pub use task_manager::{
     CancelOutcomeV1, CancelTaskResultV1, PublicArtifactV1, PublicTaskFailureV1,
     PublicTaskSnapshotV1, PublicTaskUpdateV1, TaskExecutor, TaskManager, TaskManagerError,
     TaskSnapshotV1, TaskSpawner, TaskStatusV1, PUBLIC_TASK_SNAPSHOT_SCHEMA_V1,
     TASK_SNAPSHOT_SCHEMA_V1,
+};
+pub use update::{
+    check_update_health_v1, run_update_v1, FileUpdateReceiptStore, NativeUpdateExecutorV1,
+    UpdateArtifactV1, UpdateGameReceiptV1, UpdateHealthV1, UpdateInvocationV1, UpdateReceiptStore,
+    UpdateReceiptV1, UpdateRequestV1, UpdateRunOutcomeV1, UpdateRunStatusV1, UpdateStateGameV1,
+    UpdateStateV1, UpdateStepContextV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
+    UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1, UPDATE_ATTEMPT_DIRECTORY,
+    UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_HEALTH_SCHEMA_V1, UPDATE_RECEIPT_SCHEMA_V1,
+    UPDATE_STATE_FILE, UPDATE_STATE_SCHEMA_V1,
+};
+pub use update_config::{
+    load_update_config_v1, load_update_config_with_digest_v1, LoadedUpdateConfigV1,
+    ResolvedGameUpdateConfigV1, ResolvedUpdateConfigV1, ResolvedZzzUpdateConfigV1, UpdateConfigV1,
+    MAX_PRYDWEN_TOP_N_V1, MAX_UPDATE_CONFIG_BYTES_V1, MAX_UPDATE_DAYS_V1, MIN_PRYDWEN_TOP_N_V1,
+    MIN_UPDATE_DAYS_V1, UPDATE_CONFIG_SCHEMA_V1,
+};
+pub use workspace_write_lease::{
+    WorkspaceWriteLease, WorkspaceWriteLeaseError, WORKSPACE_WRITE_LOCK_RELATIVE_PATH,
 };
 
 pub const TASK_REQUEST_SCHEMA_V1: &str = "miho-task-request-v1";

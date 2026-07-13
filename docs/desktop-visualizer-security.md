@@ -51,4 +51,4 @@ DevTools showed the main frame, the visualizer frame and the main isolation fram
 
 ## Explicitly deferred
 
-This gate does not claim export background tasks, task-history persistence, abrupt-kill/power-loss recovery, GUI/CLI cross-process locking, the Rust update runner, scheduled-task migration, installer/portable resource completeness, or no-Python release validation. Desktop capabilities must continue to report unsupported recovery properties as false until those later gates are implemented.
+The Rust update runner and normal managed-workspace writer exclusion are now implemented outside this original visualizer gate. Main IPC Box writes and protocol Box PUT use the same OS lease as update/direct CLI/TaskManager writes. This still does not claim export background tasks, task-history persistence, abrupt-kill/power-loss recovery, arbitrary unmanaged external-output consistency, scheduled-task migration, installer/portable resource completeness, or no-Python release validation. Desktop capabilities must continue to report unsupported recovery properties as false until those later gates are implemented.

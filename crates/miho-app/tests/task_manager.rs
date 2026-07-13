@@ -16,7 +16,8 @@ use miho_app::{
     AppInvocation, CancelOutcomeV1, EvidenceTaskV1, ExecutionObserver, PublicTaskSnapshotV1,
     PullTaskV1, TaskExecutor, TaskFailureV1, TaskManager, TaskManagerError, TaskOperationV1,
     TaskReceiptV1, TaskRequestV1, TaskSnapshotV1, TaskSpawner, TaskSpecV1, TaskStatusV1,
-    WorkspaceLayout, TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1, TASK_SNAPSHOT_SCHEMA_V1,
+    WorkspaceLayout, WorkspaceWriteLease, TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
+    TASK_SNAPSHOT_SCHEMA_V1,
 };
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -226,6 +227,21 @@ fn wait_terminal(manager: &TaskManager, task_id: &str) -> TaskSnapshotV1 {
         );
         thread::sleep(Duration::from_millis(5));
     }
+}
+
+#[test]
+fn default_task_executor_respects_the_cross_process_workspace_lease() {
+    let root = temp_root("workspace-busy");
+    let lease = WorkspaceWriteLease::acquire(&root).unwrap();
+    let manager = TaskManager::new();
+    let queued = manager.start(request(), invocation(root.clone())).unwrap();
+    let failed = wait_terminal(&manager, &queued.task_id);
+    assert_eq!(failed.status, TaskStatusV1::Failed);
+    let failure = failed.failure.unwrap();
+    assert_eq!(failure.code, "task.failed");
+    assert_eq!(failure.message, "workspace.write_busy");
+    drop(lease);
+    fs::remove_dir_all(root).unwrap();
 }
 
 fn terminal_count(snapshot: &TaskSnapshotV1) -> usize {

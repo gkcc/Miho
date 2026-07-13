@@ -347,6 +347,7 @@ impl ExportFailureV1 {
             MihoError::Yaml { .. } => "format.invalid_yaml",
             MihoError::Network(_) => "network.request_failed",
             MihoError::CacheMiss(_) => "cache.miss",
+            MihoError::CacheFallbackRejected(_) => "cache.fallback_rejected",
             MihoError::InvalidCacheKey(_) => "cache.invalid_key",
             MihoError::InvalidArtifactPath(_) => "artifact.invalid_path",
             MihoError::CsvWidth { .. } => "format.csv_width",

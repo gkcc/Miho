@@ -26,6 +26,10 @@ pub enum MihoError {
     Network(#[from] reqwest::Error),
     #[error("offline cache miss for {0}")]
     CacheMiss(String),
+    #[error(
+        "online source freshness requires a network response; cache fallback was used for {0}"
+    )]
+    CacheFallbackRejected(String),
     #[error("invalid cache key: {0}")]
     InvalidCacheKey(String),
     #[error("invalid artifact path: {0}")]

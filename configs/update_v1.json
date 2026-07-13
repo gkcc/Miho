@@ -1,0 +1,22 @@
+{
+  "schema_version": "miho-update-config-v1",
+  "days": 183,
+  "hsr": {
+    "output": "out",
+    "repo_id": "LvlUrArti/MocDataProcessed",
+    "revision": "main",
+    "modes": ["moc", "pf", "as", "aa"],
+    "prydwen_top_n": 100
+  },
+  "zzz": {
+    "output": "out_zzz",
+    "repo_id": "LvlUrArti/ShiyuDataProcessed",
+    "revision": "main",
+    "modes": ["sd", "da"],
+    "prydwen_top_n": 100,
+    "box": ".miho/zzz_box_state.json",
+    "banner_plan": "configs/zzz_banner_plan.json",
+    "mechanism_notes": "configs/zzz_mechanism_notes",
+    "decision_baseline": "configs/zzz_decision_baseline.json"
+  }
+}

@@ -1,5 +1,4 @@
 use std::{
-    fs,
     future::Future,
     path::{Component, Path, PathBuf},
     sync::Arc,
@@ -229,13 +228,17 @@ impl CachedHttpClient {
         match network.await {
             Ok(text) => {
                 if let Err(validation_error) = validate(&text) {
-                    if path.is_file() {
-                        return read_validated_cache(
-                            &path,
-                            cache_key,
-                            &validate,
-                            Some(validation_error.to_string()),
-                        );
+                    match atomic::is_safe_regular_file(&path) {
+                        Ok(true) => {
+                            return read_validated_cache(
+                                &path,
+                                cache_key,
+                                &validate,
+                                Some(validation_error.to_string()),
+                            );
+                        }
+                        Ok(false) => {}
+                        Err(error) => return Err(error),
                     }
                     return Err(validation_error);
                 }
@@ -246,11 +249,14 @@ impl CachedHttpClient {
                     fallback_reason: None,
                 })
             }
-            Err(network_error) if path.is_file() => {
-                let reason = network_error.to_string();
-                read_validated_cache(&path, cache_key, &validate, Some(reason))
-            }
-            Err(network_error) => Err(network_error),
+            Err(network_error) => match atomic::is_safe_regular_file(&path) {
+                Ok(true) => {
+                    let reason = network_error.to_string();
+                    read_validated_cache(&path, cache_key, &validate, Some(reason))
+                }
+                Ok(false) => Err(network_error),
+                Err(error) => Err(error),
+            },
         }
     }
 
@@ -286,22 +292,19 @@ where
 }
 
 fn read_cache(path: &Path, key: &Path) -> Result<String> {
-    fs::read_to_string(path).map_err(|source| {
-        if source.kind() == std::io::ErrorKind::NotFound {
-            MihoError::CacheMiss(key.display().to_string())
-        } else {
-            MihoError::Read {
-                path: path.into(),
-                source,
-            }
+    match atomic::read_to_string(path) {
+        Err(MihoError::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            Err(MihoError::CacheMiss(key.display().to_string()))
         }
-    })
+        result => result,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::{
+        fs,
         io::{Read, Write},
         net::{TcpListener, TcpStream},
         sync::{
@@ -313,6 +316,22 @@ mod tests {
 
     fn temp_dir(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("miho-network-{label}-{}", std::process::id()))
+    }
+
+    #[cfg(windows)]
+    fn create_junction(target: &Path, junction: &Path) {
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(junction)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "failed to create junction: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     fn serve(statuses: Vec<u16>) -> (String, Arc<AtomicUsize>) {
@@ -491,6 +510,68 @@ mod tests {
             .as_deref()
             .is_some_and(|reason| reason.contains("network request failed")));
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn cache_reads_reject_junctions_without_using_or_changing_external_files() {
+        let root = temp_dir("junction-root");
+        let external = temp_dir("junction-external");
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&external);
+        fs::create_dir_all(root.join(".miho")).unwrap();
+        fs::create_dir_all(&external).unwrap();
+        let cached = external.join("response.txt");
+        let canary = external.join("CANARY.txt");
+        fs::write(&cached, "external-poison").unwrap();
+        fs::write(&canary, "must remain unchanged").unwrap();
+        let junction = root.join(".miho").join("cache");
+        create_junction(&external, &junction);
+
+        let client = CachedHttpClient::new(
+            HttpClient::new(Duration::from_millis(50), 0).unwrap(),
+            &junction,
+        );
+        let offline_error = client
+            .get_text_with_source("unused", Path::new("response.txt"), FetchMode::Offline)
+            .await
+            .unwrap_err();
+        assert!(offline_error
+            .to_string()
+            .contains("symlink or reparse point"));
+
+        let fallback_error = client
+            .get_text_with_source(
+                "http://127.0.0.1:1/unavailable",
+                Path::new("response.txt"),
+                FetchMode::Online,
+            )
+            .await
+            .unwrap_err();
+        assert!(fallback_error
+            .to_string()
+            .contains("symlink or reparse point"));
+        assert_eq!(fs::read_to_string(&cached).unwrap(), "external-poison");
+        assert_eq!(
+            fs::read_to_string(&canary).unwrap(),
+            "must remain unchanged"
+        );
+        let mut entries = fs::read_dir(&external)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<Vec<_>>();
+        entries.sort();
+        assert_eq!(
+            entries,
+            vec![
+                std::ffi::OsString::from("CANARY.txt"),
+                std::ffi::OsString::from("response.txt"),
+            ]
+        );
+
+        fs::remove_dir(&junction).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(external).unwrap();
     }
 
     #[tokio::test]

@@ -115,6 +115,31 @@ fn assert_core_export(game: &str, files: &[&str]) {
 }
 
 #[test]
+fn offline_export_failure_keeps_progress_stderr_and_exit_one() {
+    let root = temp_output("export-progress-failure-root");
+    let out = root.join("out");
+    let result = Command::new(binary())
+        .args(["hsr", "export", "--out"])
+        .arg(&out)
+        .env("MIHO_OFFLINE_FIXTURE", fixture("hsr"))
+        .env(
+            "MIHO_HSR_SUPPLEMENTAL_FIXTURE",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/hsr_supplemental"),
+        )
+        .env("MIHO_TEST_FAIL_OUTPUT_TRANSACTION_BEFORE_SWAP", "1")
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    let stderr = String::from_utf8(result.stderr).unwrap();
+    let fixture_position = stderr.find("fixture mode:").unwrap();
+    let failure_position = stderr.find("export failed:").unwrap();
+    assert!(fixture_position < failure_position, "{stderr}");
+    assert!(!out.exists());
+    assert_no_transaction_residue(&root, "out");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn hsr_offline_export_writes_complete_core_set() {
     assert_core_export(
         "hsr",

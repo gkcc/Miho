@@ -1037,7 +1037,7 @@ mod tests {
         hf::HuggingFaceRepo,
         hsr_supplemental::HsrFixtureSupplementalSource,
         network::{FetchMode, HttpClient},
-        source::HfSnapshotSource,
+        source::{HfCacheFallbackPolicy, HfSnapshotSource},
         zzz_supplemental::ZzzFixtureSupplementalSource,
     };
     use chrono::{TimeZone, Utc};
@@ -2163,7 +2163,7 @@ mod tests {
         assert!(online.errors.is_empty(), "{:?}", online.errors);
 
         let offline_source = HfSnapshotSource::new(
-            repo,
+            repo.clone(),
             HttpClient::new(Duration::from_millis(50), 0).unwrap(),
             &cache,
             FetchMode::Offline,
@@ -2180,6 +2180,26 @@ mod tests {
                 artifact.path
             );
         }
+
+        let fallback_source = HfSnapshotSource::new(
+            repo.clone(),
+            HttpClient::new(Duration::from_millis(50), 0).unwrap(),
+            &cache,
+            FetchMode::Online,
+        );
+        let fallback = run_source_export(&fallback_source, &request).await.unwrap();
+        assert_eq!(online.bundle.manifest(), fallback.bundle.manifest());
+
+        let freshness_source = HfSnapshotSource::new(
+            repo,
+            HttpClient::new(Duration::from_millis(50), 0).unwrap(),
+            &cache,
+            FetchMode::Online,
+        )
+        .with_cache_fallback_policy(HfCacheFallbackPolicy::Reject);
+        assert!(run_source_export(&freshness_source, &request)
+            .await
+            .is_err());
         let _ = fs::remove_dir_all(cache);
     }
 }

@@ -387,7 +387,17 @@ fn coverage_rejects_colliding_paths_without_changing_existing_files() {
     assert!(String::from_utf8_lossy(&result.stderr).starts_with("coverage failed:"));
     assert_eq!(fs::read(&shared).unwrap(), b"old-shared");
     assert_eq!(fs::read(&aggregate).unwrap(), b"old-aggregate");
-    assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+    let entries = fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        entries,
+        [".miho", "aggregate.csv", "shared.md"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    );
     fs::remove_dir_all(root).unwrap();
 }
 

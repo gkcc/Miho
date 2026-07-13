@@ -9,12 +9,14 @@ use std::{
 use crate::{MihoError, Result};
 
 pub fn write(path: &Path, contents: &[u8]) -> Result<()> {
+    validate_output_path(path)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| MihoError::Write {
             path: parent.into(),
             source,
         })?;
     }
+    validate_output_path(path)?;
     let temp = unique_sibling(path, "tmp");
     let result = (|| {
         let mut file = OpenOptions::new()
@@ -31,6 +33,7 @@ pub fn write(path: &Path, contents: &[u8]) -> Result<()> {
                 path: temp.clone(),
                 source,
             })?;
+        validate_output_path(path)?;
         replace(&temp, path)
     })();
     if result.is_err() {
@@ -43,10 +46,32 @@ pub fn write_batch(outputs: &[(PathBuf, Vec<u8>)]) -> Result<()> {
     write_batch_inner(outputs, None)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BatchMove {
+    Backup,
+    Install,
+    Rollback,
+}
+
 fn write_batch_inner(
     outputs: &[(PathBuf, Vec<u8>)],
     fail_before_install: Option<usize>,
 ) -> Result<()> {
+    write_batch_inner_with_rename(
+        outputs,
+        fail_before_install,
+        |source, target, _operation| fs::rename(source, target),
+    )
+}
+
+fn write_batch_inner_with_rename<R>(
+    outputs: &[(PathBuf, Vec<u8>)],
+    fail_before_install: Option<usize>,
+    mut rename: R,
+) -> Result<()>
+where
+    R: FnMut(&Path, &Path, BatchMove) -> std::io::Result<()>,
+{
     let mut seen = BTreeSet::new();
     for (path, _) in outputs {
         let normalized = normalized_absolute(path)?;
@@ -58,21 +83,7 @@ fn write_batch_inner(
                 path.display()
             )));
         }
-        if path.file_name().is_none() {
-            return Err(MihoError::Unsupported(format!(
-                "batch output path has no file name: {}",
-                path.display()
-            )));
-        }
-        reject_reparse_ancestors(path)?;
-        if let Ok(metadata) = fs::symlink_metadata(path) {
-            if metadata.file_type().is_symlink() || !metadata.is_file() {
-                return Err(MihoError::Unsupported(format!(
-                    "batch output target is not a regular file: {}",
-                    path.display()
-                )));
-            }
-        }
+        validate_output_path(path)?;
     }
 
     let mut staged = Vec::with_capacity(outputs.len());
@@ -86,6 +97,7 @@ fn write_batch_inner(
                     source,
                 })?;
             }
+            validate_output_path(path)?;
             let stage = unique_sibling(path, "stage");
             staged.push((path.clone(), stage.clone()));
             let mut file = OpenOptions::new()
@@ -111,15 +123,22 @@ fn write_batch_inner(
                     path.display()
                 )));
             }
+            validate_output_path(path)?;
             if path.exists() {
                 let backup = unique_sibling(path, "backup");
-                fs::rename(path, &backup).map_err(|source| MihoError::Write {
+                install_new_with(path, &backup, |source, target| {
+                    rename(source, target, BatchMove::Backup)
+                })
+                .map_err(|source| MihoError::Write {
                     path: path.clone(),
                     source,
                 })?;
                 backups.push((path.clone(), backup));
             }
-            fs::rename(stage, path).map_err(|source| MihoError::Write {
+            install_new_with(stage, path, |source, target| {
+                rename(source, target, BatchMove::Install)
+            })
+            .map_err(|source| MihoError::Write {
                 path: path.clone(),
                 source,
             })?;
@@ -135,7 +154,9 @@ fn write_batch_inner(
         let mut rollback_failures = Vec::new();
         for (path, backup) in &backups {
             if backup.exists() {
-                if let Err(source) = fs::rename(backup, path) {
+                if let Err(source) = install_new_with(backup, path, |source, target| {
+                    rename(source, target, BatchMove::Rollback)
+                }) {
                     rollback_failures.push(format!(
                         "{} -> {}: {source}",
                         backup.display(),
@@ -165,15 +186,71 @@ fn write_batch_inner(
     Ok(())
 }
 
+pub(crate) fn read_to_string(path: &Path) -> Result<String> {
+    validate_regular_file(path)?;
+    fs::read_to_string(path).map_err(|source| MihoError::Read {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+pub(crate) fn is_safe_regular_file(path: &Path) -> Result<bool> {
+    reject_reparse_ancestors(path)?;
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if is_symlink_or_reparse(&metadata) || !metadata.is_file() => {
+            Err(unsafe_path("file target", path))
+        }
+        Ok(_) => Ok(true),
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(source) => Err(MihoError::Read {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn validate_output_path(path: &Path) -> Result<()> {
+    if path.file_name().is_none() {
+        return Err(MihoError::Unsupported(format!(
+            "atomic output path has no file name: {}",
+            path.display()
+        )));
+    }
+    reject_reparse_ancestors(path)?;
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if is_symlink_or_reparse(&metadata) || !metadata.is_file() => {
+            Err(unsafe_path("output target", path))
+        }
+        Ok(_) => Ok(()),
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(MihoError::Read {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn validate_regular_file(path: &Path) -> Result<()> {
+    reject_reparse_ancestors(path)?;
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if is_symlink_or_reparse(&metadata) || !metadata.is_file() => {
+            Err(unsafe_path("file target", path))
+        }
+        Ok(_) => Ok(()),
+        Err(source) => Err(MihoError::Read {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
 fn reject_reparse_ancestors(path: &Path) -> Result<()> {
-    let mut ancestor = path.parent();
+    let absolute = normalized_absolute(path)?;
+    let mut ancestor = absolute.parent();
     while let Some(candidate) = ancestor {
         match fs::symlink_metadata(candidate) {
             Ok(metadata) if is_symlink_or_reparse(&metadata) => {
-                return Err(MihoError::Unsupported(format!(
-                    "batch output parent is a symlink or reparse point: {}",
-                    candidate.display()
-                )));
+                return Err(unsafe_path("parent", candidate));
             }
             Ok(_) => {}
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
@@ -187,6 +264,13 @@ fn reject_reparse_ancestors(path: &Path) -> Result<()> {
         ancestor = candidate.parent();
     }
     Ok(())
+}
+
+fn unsafe_path(kind: &str, path: &Path) -> MihoError {
+    MihoError::Unsupported(format!(
+        "atomic {kind} is a symlink or reparse point: {}",
+        path.display()
+    ))
 }
 
 fn is_symlink_or_reparse(metadata: &fs::Metadata) -> bool {
@@ -288,7 +372,14 @@ fn replace(temp: &Path, target: &Path) -> Result<()> {
 }
 
 fn install_new(temp: &Path, target: &Path) -> std::io::Result<()> {
-    match fs::rename(temp, target) {
+    install_new_with(temp, target, |source, target| fs::rename(source, target))
+}
+
+fn install_new_with<R>(temp: &Path, target: &Path, mut rename: R) -> std::io::Result<()>
+where
+    R: FnMut(&Path, &Path) -> std::io::Result<()>,
+{
+    match rename(temp, target) {
         Ok(()) => Ok(()),
         Err(source) if source.kind() == std::io::ErrorKind::CrossesDevices => {
             copy_new_synced(temp, target)
@@ -319,6 +410,22 @@ fn copy_new_synced(temp: &Path, target: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    fn create_junction(target: &Path, junction: &Path) {
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(junction)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "failed to create junction: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     fn test_path(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -421,6 +528,38 @@ mod tests {
     }
 
     #[test]
+    fn batch_cross_device_fallback_covers_backup_install_and_rollback() {
+        let root = test_path("batch-cross-device-rollback");
+        fs::create_dir_all(&root).unwrap();
+        let first = root.join("first.md");
+        let second = root.join("second.md");
+        fs::write(&first, b"old-first").unwrap();
+        fs::write(&second, b"old-second").unwrap();
+        let outputs = [
+            (first.clone(), b"new-first".to_vec()),
+            (second.clone(), b"new-second".to_vec()),
+        ];
+        let mut moves = Vec::new();
+
+        let error =
+            write_batch_inner_with_rename(&outputs, Some(1), |_source, _target, operation| {
+                moves.push(operation);
+                Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices))
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("injected batch install failure"));
+        assert_eq!(
+            moves,
+            vec![BatchMove::Backup, BatchMove::Install, BatchMove::Rollback]
+        );
+        assert_eq!(fs::read(&first).unwrap(), b"old-first");
+        assert_eq!(fs::read(&second).unwrap(), b"old-second");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn batch_rejects_aliasing_symlink_parents_before_mutation() {
         let root = test_path("batch-parent-link");
         let real = root.join("real");
@@ -443,5 +582,35 @@ mod tests {
         assert!(error.to_string().contains("symlink or reparse"));
         assert!(!real_output.exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn write_rejects_junction_parent_before_creating_or_changing_external_files() {
+        let root = test_path("write-junction-root");
+        let external = test_path("write-junction-external");
+        fs::create_dir_all(root.join(".miho")).unwrap();
+        fs::create_dir_all(&external).unwrap();
+        let canary = external.join("CANARY.txt");
+        fs::write(&canary, b"must remain unchanged").unwrap();
+        let junction = root.join(".miho").join("update-attempts");
+        create_junction(&external, &junction);
+
+        let target = junction.join("attempt.json");
+        let error = write(&target, b"escaped").unwrap_err();
+
+        assert!(error.to_string().contains("symlink or reparse point"));
+        assert_eq!(fs::read(&canary).unwrap(), b"must remain unchanged");
+        assert_eq!(
+            fs::read_dir(&external)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<Vec<_>>(),
+            vec![std::ffi::OsString::from("CANARY.txt")]
+        );
+
+        fs::remove_dir(&junction).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(external).unwrap();
     }
 }

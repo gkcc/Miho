@@ -2,17 +2,25 @@
 
 - 初版生成时间：2026-07-06
 - 最近审计：2026-07-13
-- 当前结论：下述 Python 脚本描述的是旧设计能力，不是健康的生产基线。Rust CLI 已覆盖对应 export/visualizer/report 命令，但自动化尚未切换。
+- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease 与精确退出码兼容 launcher 已完成；下述 Python 编排只保留为历史说明。当前外部自动化仍未切换，已安装任务和发布包不是健康生产基线。
 
 ## 当前阻断（2026-07-13）
 
 - 已安装任务 `MiHoYoEndgameDailyUpdate` 仍指向 `C:\Users\zy958\Documents\终局内容提取\scripts\update_endgame_data.ps1`；该脚本已不存在。任务显示 Ready、迁移前上次结果为 0，不能证明当前可用。
-- `scripts/update_endgame_data.ps1` 仍包含 3 个 inline Python source probe 和 7 个 `python -m` 正式执行入口，不满足无 Python 运行时目标。
-- `Invoke-Step` 未检查 native `$LASTEXITCODE`。Windows PowerShell 5.1 不会因 native 非零码自动抛出异常，脚本可能在命令失败后继续前移 `.miho/update_source_state.json`，造成“任务显示成功、报告长期冻结”的假绿。
 - 当前 NSIS 配置未携带 `miho.exe` 与默认 configs，也没有 portable/升级/卸载/Task Scheduler/无 Python 的真实安装验收。
-- 路线已调整为：先基于 `miho-app` 建立单一 Rust update runner 和 failure receipt，再实现 fail-safe 任务安装/迁移，随后打包 NSIS+portable 并在无 Python Windows 环境验收；旧任务在替代链验证前必须禁用或明确标记为不可用。
+- `scripts/install_daily_update_task.ps1` 仍是源码路径时代的安装逻辑；尚未实现“候选 native action 运行 + health 通过后再替换旧任务”的安装/升级/卸载所有权与回滚。
+- 路线已推进为：先把 release `miho.exe` 与默认 config 放入最终安装/portable 位置，再以候选任务运行和 config-bound health 作为切换门槛；随后完成 NSIS+portable/升级/卸载/无 Python 矩阵，最后退役 Python runtime。旧任务在替代链验证前必须禁用或明确标记为不可用。
 
-## 旧脚本设计上能自动更新的部分（当前仍依赖 Python）
+## 当前 native 自动化基线（已完成，尚未安装切换）
+
+- `miho update run --workspace ... --config ...` 在一个 OS lease 内按 HSR export → ZZZ export → coverage → pull-value → review-packet 顺序运行；任一所选步骤失败均退出 1，不推进成功 state。
+- online update 对 HF 主源拒绝 last-good cache fallback；手动 direct export 仍保留兼容回退。补充来源降级继续通过结构化 diagnostic 使 update 失败，不能用旧数据伪造新完成时间。
+- `.miho/update-state-v1.json`、canonical receipt 与逐 attempt receipt 绑定精确 config SHA-256 和全部产物 hash；health 会重读 generation receipt 并逐文件验证。
+- `.miho/workspace-write-v1.lock` 由 update、direct export/report、TaskManager 与桌面 Box writer 共用；receipt/cache/产物读取在跟随 symlink/junction 前 fail closed。
+- `scripts/update_endgame_data.ps1` 现仅解析 native CLI、调用 `update run` 再调用 `update health`；不再包含 Python probe、`python -m`、旧 freshness marker 或业务编排。
+- `scripts/native_command.ps1` 在 Windows PowerShell 5.1 和 PowerShell 7（含 native error preference + EAP Stop）精确保留 native 0/2/7，真正的 launch failure 不会被伪装成 native exit。
+
+## 历史：旧 Python 脚本设计上能自动更新的部分
 
 | 项目 | 当前能力 | 证据 |
 |---|---|---|
@@ -32,7 +40,7 @@
 | HSR 目标账号 pull value | 当前 HSR 已有数据导出与方法论产物，但 pull-value CLI 先落在 ZZZ | 复用 `miho_core.evidence` 做 HSR 角色计划报告适配 |
 | 无人值守 GPT 模型评判 | 当前选择不使用 API key，因此不能做到无人值守调用 GPT | 使用 `current_gpt_pull_reviewer_packet.md` / `next_gpt_pull_reviewer_packet.md` 作为交互版；若未来要全自动，再接入 `OPENAI_API_KEY` |
 
-## 旧脚本手动入口（仅兼容/诊断，不作为生产建议）
+## 当前兼容 launcher 手动入口（需已有 native CLI）
 
 手动运行：
 
@@ -40,13 +48,13 @@
 powershell -ExecutionPolicy Bypass -File .\scripts\update_endgame_data.ps1
 ```
 
-注册每日任务（当前不要执行，安装器仍会写入源码路径）：
+注册每日任务（当前不要执行，旧安装器仍会写入源码路径）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install_daily_update_task.ps1 -At "09:30"
 ```
 
-任务每天会执行：
+以下是已退役 Python 编排过去会执行的逻辑，仅作迁移审计记录；当前 launcher 不再执行这些 signature/mtime 分支：
 
 1. 检查 HSR/ZZZ Hugging Face `config.json` 与顶层 snapshot 目录，生成源数据 signature。
 2. 若源数据 signature 与 `.miho/update_source_state.json` 记录一致，并且核心输出存在，则跳过对应游戏的 export。
