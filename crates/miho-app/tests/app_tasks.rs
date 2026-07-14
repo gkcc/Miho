@@ -9,11 +9,12 @@ use std::{
 
 use chrono::{NaiveDateTime, Timelike};
 use miho_app::{
-    execute_task_result_v1, execute_task_v1, parse_task_intent_v1, resolve_task_intent_v1,
-    AppInvocation, CoverageIntentV1, CoverageTaskV1, DecisionIntentV1, DecisionTaskV1,
-    EvidenceIntentV1, EvidenceTaskV1, NativeTaskPathsV1, PullTaskV1, PullValueIntentV1,
-    ReviewPacketIntentV1, TaskFailureV1, TaskIntentSpecV1, TaskIntentV1, TaskOperationV1,
-    TaskReceiptV1, TaskRequestV1, TaskSpecV1, WorkspaceLayout, TASK_FAILURE_SCHEMA_V1,
+    execute_task_result_v1, execute_task_v1, parse_export_task_intent_v1, parse_task_intent_v1,
+    resolve_task_intent_v1, AppInvocation, CoverageIntentV1, CoverageTaskV1, DecisionIntentV1,
+    DecisionTaskV1, EvidenceIntentV1, EvidenceTaskV1, ExportIntentV1, ExportTaskIntentSpecV1,
+    ExportTaskIntentV1, NativeTaskPathsV1, PullTaskV1, PullValueIntentV1, ReviewPacketIntentV1,
+    TaskFailureV1, TaskIntentSpecV1, TaskIntentV1, TaskOperationV1, TaskReceiptV1, TaskRequestV1,
+    TaskSpecV1, WorkspaceLayout, EXPORT_TASK_INTENT_SCHEMA_V1, TASK_FAILURE_SCHEMA_V1,
     TASK_INTENT_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
 };
 
@@ -22,6 +23,67 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn fixed_datetime() -> NaiveDateTime {
     NaiveDateTime::parse_from_str("2026-07-13T09:10:11.123456789", "%Y-%m-%dT%H:%M:%S%.f").unwrap()
+}
+
+#[test]
+fn export_intent_is_strict_versioned_and_pathless_for_both_games() {
+    for (operation, expected) in [
+        ("hsr-export", TaskOperationV1::HsrExport),
+        ("zzz-export", TaskOperationV1::ZzzExport),
+    ] {
+        let valid = serde_json::json!({
+            "schema_version": EXPORT_TASK_INTENT_SCHEMA_V1,
+            "task": {"operation": operation, "params": {}}
+        });
+        let parsed = parse_export_task_intent_v1(&serde_json::to_vec(&valid).unwrap()).unwrap();
+        assert_eq!(parsed.operation(), expected);
+        let json = serde_json::to_string(&parsed).unwrap().to_ascii_lowercase();
+        for forbidden in ["workspace", "path", "output", "cache", "repo", "revision"] {
+            assert!(!json.contains(forbidden), "{forbidden} leaked into {json}");
+        }
+
+        for pointer in ["intent", "task", "params"] {
+            let mut value = valid.clone();
+            match pointer {
+                "intent" => value["unknown"] = serde_json::json!(true),
+                "task" => value["task"]["unknown"] = serde_json::json!(true),
+                "params" => value["task"]["params"]["path"] = serde_json::json!("C:/CANARY"),
+                _ => unreachable!(),
+            }
+            let failure =
+                parse_export_task_intent_v1(&serde_json::to_vec(&value).unwrap()).unwrap_err();
+            assert_eq!(failure.code, "request.invalid");
+            assert_eq!(failure.operation, Some(expected));
+        }
+    }
+
+    let wrong_schema = serde_json::json!({
+        "schema_version": "miho-export-task-intent-v2",
+        "task": {"operation": "hsr-export", "params": {}}
+    });
+    let failure =
+        parse_export_task_intent_v1(&serde_json::to_vec(&wrong_schema).unwrap()).unwrap_err();
+    assert_eq!(failure.code, "request.unsupported_schema");
+    assert_eq!(failure.operation, Some(TaskOperationV1::HsrExport));
+
+    let unknown = serde_json::json!({
+        "schema_version": EXPORT_TASK_INTENT_SCHEMA_V1,
+        "task": {"operation": "future-export", "params": {}}
+    });
+    let failure = parse_export_task_intent_v1(&serde_json::to_vec(&unknown).unwrap()).unwrap_err();
+    assert_eq!(failure.code, "request.invalid");
+    assert_eq!(failure.operation, None);
+    assert_eq!(
+        parse_export_task_intent_v1(b"{broken").unwrap_err().code,
+        "request.invalid"
+    );
+
+    for intent in [
+        ExportTaskIntentV1::new(ExportTaskIntentSpecV1::HsrExport(ExportIntentV1::default())),
+        ExportTaskIntentV1::new(ExportTaskIntentSpecV1::ZzzExport(ExportIntentV1::default())),
+    ] {
+        assert_eq!(intent.schema_version, EXPORT_TASK_INTENT_SCHEMA_V1);
+    }
 }
 
 fn pull_fixture_datetime() -> NaiveDateTime {

@@ -6,19 +6,18 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:5173",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/verify_tauri_release_context.ps1",
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "终局数据中心", "width": 1200, "height": 820, "minWidth": 860, "minHeight": 620, "useHttpsScheme": true }],
+    "windows": [{ "title": "终局数据中心", "width": 1200, "height": 820, "minWidth": 860, "minHeight": 620, "useHttpsScheme": true, "create": false }],
     "security": {
       "pattern": { "use": "isolation", "options": { "dir": "isolation" } },
       "csp": "default-src 'self' miho-visualizer: https://miho-visualizer.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost miho-visualizer: https://miho-visualizer.localhost"
     }
   },
   "bundle": {
-    "active": true,
-    "targets": ["nsis"],
-    "windows": { "nsis": { "installMode": "currentUser" } }
+    "active": false,
+    "targets": []
   }
 }

@@ -2007,6 +2007,8 @@ dependencies = [
  "tauri-plugin-dialog",
  "thiserror 2.0.18",
  "tokio",
+ "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

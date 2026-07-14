@@ -15,7 +15,7 @@ use std::{
 };
 
 use anyhow::{bail, Context};
-use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, Utc};
 use miho_core::{
     contract::{
         DatasetRef, DateRange, Diagnostic, ExportContext, FeatureFlags, FetchPolicy, GameMode,
@@ -35,7 +35,7 @@ use miho_core::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::AppInvocation;
+use crate::{AppInvocation, ExecutionControlError, ResolvedUpdateConfigV1, TaskOperationV1};
 
 /// One wall-clock observation shared by source metadata, default ranges, and
 /// every generated visualizer timestamp in one frontend invocation.
@@ -49,8 +49,12 @@ impl ExportInvocation {
     /// Capture the process directory and wall clock exactly once.
     pub fn capture() -> anyhow::Result<Self> {
         let cwd = std::env::current_dir().context("cannot capture export working directory")?;
-        let observed_at = Local::now().fixed_offset();
-        Self::new(cwd, observed_at)
+        Self::capture_in(cwd)
+    }
+
+    /// Capture one wall-clock observation for a native-authorized workspace.
+    pub fn capture_in(cwd: PathBuf) -> anyhow::Result<Self> {
+        Self::new(cwd, Local::now().fixed_offset())
     }
 
     /// Construct an invocation from an explicitly supplied instant and local
@@ -131,6 +135,75 @@ pub struct ExportTaskV1 {
     pub source: ExportSourceV1,
 }
 
+/// Trusted native export request. This type deliberately has no serde traits:
+/// WebView callers select only an HSR/ZZZ operation, while native code resolves
+/// this request from the authorized workspace and strict update configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustedExportTaskV1 {
+    pub workspace: PathBuf,
+    pub task: ExportTaskV1,
+    pub hsr_output_directory: String,
+}
+
+impl TrustedExportTaskV1 {
+    pub fn from_update_config_v1(
+        config: &ResolvedUpdateConfigV1,
+        game: Game,
+        invocation: &ExportInvocation,
+    ) -> anyhow::Result<Self> {
+        let settings = match game {
+            Game::Hsr => &config.hsr,
+            Game::Zzz => &config.zzz.export,
+        };
+        let hsr_output_directory = config
+            .hsr
+            .output
+            .file_name()
+            .and_then(OsStr::to_str)
+            .filter(|value| !value.is_empty())
+            .context("configured HSR output directory is invalid")?
+            .to_owned();
+        let to_date = invocation.local_date();
+        let from_date = to_date - Duration::days(i64::from(config.days));
+        Ok(Self {
+            workspace: config.workspace.clone(),
+            task: ExportTaskV1 {
+                game,
+                modes: settings.modes.clone(),
+                from_date,
+                to_date,
+                output_root: settings.output.clone(),
+                repo_id: settings.repo_id.clone(),
+                revision: settings.revision.clone(),
+                features: FeatureFlags {
+                    hf_teams: true,
+                    prydwen_visible: true,
+                    prydwen_tier: true,
+                    official_names: true,
+                },
+                prydwen_top_n: settings.prydwen_top_n,
+                name_map_seed: None,
+                source: ExportSourceV1::Online {
+                    cache_root: export_cache_root(
+                        &config.workspace.join(".miho").join("cache").join("rust"),
+                        game,
+                        &settings.repo_id,
+                        &settings.revision,
+                    ),
+                },
+            },
+            hsr_output_directory,
+        })
+    }
+
+    pub fn operation(&self) -> TaskOperationV1 {
+        match self.task.game {
+            Game::Hsr => TaskOperationV1::HsrExport,
+            Game::Zzz => TaskOperationV1::ZzzExport,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportReceiptV1 {
     pub game: Game,
@@ -148,6 +221,9 @@ pub struct VisualizerTaskV1 {
 pub trait ExportObserver: Send + Sync {
     fn fixture_mode(&self, _path: &Path) {}
     fn diagnostic(&self, _diagnostic: &Diagnostic) {}
+    fn before_commit(&self) -> Result<(), ExecutionControlError> {
+        Ok(())
+    }
 }
 
 struct DirectExportObserver;
@@ -190,7 +266,7 @@ pub async fn execute_export_observed_v1(
     execute_export_observed_with_hub_v1(task, invocation, observer, "out").await
 }
 
-async fn execute_export_observed_with_hub_v1(
+pub async fn execute_export_observed_with_hub_v1(
     task: &ExportTaskV1,
     invocation: &ExportInvocation,
     observer: &dyn ExportObserver,
@@ -324,7 +400,7 @@ async fn execute_export_observed_with_hub_v1(
     for diagnostic in &run.diagnostics {
         observer.diagnostic(diagnostic);
     }
-    write_bundle_transactionally(&output_root, &run.bundle)?;
+    write_bundle_transactionally(&output_root, &run.bundle, observer)?;
     if task.game == Game::Zzz {
         write_zzz_hub(&output_root, hsr_output_directory)?;
     }
@@ -351,7 +427,7 @@ pub fn execute_visualizer_v1(
         Game::Zzz => attach_zzz_visualizer_from_output(&mut bundle, &output_root, invocation)?,
     }
     bundle.refresh_manifest("artifact_manifest.json")?;
-    write_bundle_transactionally(&output_root, &bundle)?;
+    write_bundle_transactionally(&output_root, &bundle, &DirectExportObserver)?;
     if task.game == Game::Zzz {
         write_zzz_hub(&output_root, "out")?;
     }
@@ -434,6 +510,7 @@ static NEXT_OUTPUT_TRANSACTION_ID: AtomicU64 = AtomicU64::new(0);
 fn write_bundle_transactionally(
     out: &Path,
     bundle: &miho_core::output::ArtifactBundle,
+    observer: &dyn ExportObserver,
 ) -> anyhow::Result<()> {
     let name = out.file_name().ok_or_else(|| {
         anyhow::anyhow!(
@@ -471,6 +548,10 @@ fn write_bundle_transactionally(
     if let Err(error) = prepare {
         let _ = fs::remove_dir_all(&stage);
         return Err(error);
+    }
+    if let Err(error) = observer.before_commit() {
+        fs::remove_dir_all(&stage).context("cannot remove cancelled export staging directory")?;
+        return Err(error.into());
     }
     #[cfg(debug_assertions)]
     if std::env::var_os("MIHO_TEST_FAIL_OUTPUT_TRANSACTION_BEFORE_SWAP").is_some() {
@@ -1141,6 +1222,14 @@ fn lexical_normalize(path: PathBuf) -> PathBuf {
 mod tests {
     use super::*;
 
+    struct CancelBeforeCommit;
+
+    impl ExportObserver for CancelBeforeCommit {
+        fn before_commit(&self) -> Result<(), ExecutionControlError> {
+            Err(ExecutionControlError::Cancelled)
+        }
+    }
+
     #[test]
     fn invocation_derives_utc_local_and_report_time_from_one_instant() {
         let observed_at = DateTime::parse_from_rfc3339("2026-07-13T09:30:01.123456+08:00").unwrap();
@@ -1316,6 +1405,60 @@ mod tests {
         assert!(report.contains("2026-07-13T01:30:01Z"), "{report}");
         assert!(output_root.join("visualizer/data.json").is_file());
         assert!(output_root.join("artifact_manifest.json").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn export_cancel_at_commit_permit_preserves_existing_output_and_removes_stage() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let root = std::env::temp_dir().join(format!(
+            "miho-app-export-cancel-{}-{}",
+            std::process::id(),
+            NEXT_OUTPUT_TRANSACTION_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let output_root = root.join("hsr-out");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&output_root).unwrap();
+        fs::write(output_root.join("user-marker.txt"), b"old-output").unwrap();
+        let invocation = ExportInvocation::new(
+            workspace.clone(),
+            DateTime::parse_from_rfc3339("2026-07-13T09:30:01+08:00").unwrap(),
+        )
+        .unwrap();
+        let error = execute_export_observed_v1(
+            &ExportTaskV1 {
+                game: Game::Hsr,
+                modes: vec![GameMode::HsrMoc],
+                from_date: NaiveDate::from_ymd_opt(2026, 1, 11).unwrap(),
+                to_date: NaiveDate::from_ymd_opt(2026, 7, 13).unwrap(),
+                output_root: output_root.clone(),
+                repo_id: "LvlUrArti/MocDataProcessed".to_owned(),
+                revision: "main".to_owned(),
+                features: FeatureFlags {
+                    hf_teams: true,
+                    prydwen_visible: true,
+                    prydwen_tier: true,
+                    official_names: true,
+                },
+                prydwen_top_n: 100,
+                name_map_seed: None,
+                source: ExportSourceV1::Fixture {
+                    root: workspace.join("tests/fixtures/offline_hsr"),
+                    supplemental_root: Some(workspace.join("tests/fixtures/hsr_supplemental")),
+                },
+            },
+            &invocation,
+            &CancelBeforeCommit,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.downcast_ref::<ExecutionControlError>().is_some());
+        assert_eq!(
+            fs::read(output_root.join("user-marker.txt")).unwrap(),
+            b"old-output"
+        );
+        assert!(!output_root.join("artifact_manifest.json").exists());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
         fs::remove_dir_all(root).unwrap();
     }
 }

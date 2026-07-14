@@ -30,6 +30,7 @@ pub const UPDATE_HEALTH_SCHEMA_V1: &str = "miho-update-health-v1";
 pub const UPDATE_ATTEMPT_DIRECTORY: &str = "update-attempts";
 pub const UPDATE_STATE_FILE: &str = "update-state-v1.json";
 pub const UPDATE_CANONICAL_RECEIPT_FILE: &str = "last-update-receipt-v1.json";
+pub const MAX_UPDATE_ATTEMPT_ID_BYTES_V1: usize = 96;
 
 static NEXT_ATTEMPT_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -217,7 +218,7 @@ impl UpdateInvocationV1 {
             started_at_utc.format("%Y%m%dT%H%M%S%6fZ"),
             std::process::id(),
         );
-        debug_assert!(valid_attempt_id(&attempt_id));
+        debug_assert!(is_valid_update_attempt_id_v1(&attempt_id));
         Self {
             attempt_id,
             observed_at,
@@ -228,7 +229,7 @@ impl UpdateInvocationV1 {
         attempt_id: String,
         observed_at: DateTime<FixedOffset>,
     ) -> Result<Self, UpdateStepFailureV1> {
-        if !valid_attempt_id(&attempt_id) {
+        if !is_valid_update_attempt_id_v1(&attempt_id) {
             return Err(UpdateStepFailureV1::safe(
                 "update.invalid_attempt_id",
                 "attempt identifier is invalid",
@@ -239,6 +240,10 @@ impl UpdateInvocationV1 {
             attempt_id,
             observed_at: truncate_to_microseconds(observed_at),
         })
+    }
+
+    pub fn capture_with_attempt_id(attempt_id: String) -> Result<Self, UpdateStepFailureV1> {
+        Self::new(attempt_id, Local::now().fixed_offset())
     }
 
     pub fn started_at_utc(&self) -> DateTime<Utc> {
@@ -255,9 +260,9 @@ fn truncate_to_microseconds(value: DateTime<FixedOffset>) -> DateTime<FixedOffse
     value.with_nanosecond(nanos).unwrap_or(value)
 }
 
-fn valid_attempt_id(value: &str) -> bool {
+pub fn is_valid_update_attempt_id_v1(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 96
+        && value.len() <= MAX_UPDATE_ATTEMPT_ID_BYTES_V1
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
@@ -670,6 +675,18 @@ impl UpdateReceiptStore for FileUpdateReceiptStore {
         workspace: &Path,
         current_attempt_id: &str,
     ) -> Result<(), UpdateStepFailureV1> {
+        let current_path = attempt_receipt_path(workspace, current_attempt_id);
+        match verify_metadata_path(workspace, &current_path, false) {
+            Ok(false) => {}
+            Ok(true) => {
+                return Err(UpdateStepFailureV1::safe(
+                    "update.attempt_id_collision",
+                    "the update attempt identifier already exists",
+                    false,
+                ))
+            }
+            Err(()) => return Err(receipt_history_failure()),
+        }
         let directory = metadata_root(workspace).join(UPDATE_ATTEMPT_DIRECTORY);
         match verify_metadata_path(workspace, &directory, true) {
             Ok(true) => {}
@@ -773,6 +790,23 @@ impl UpdateReceiptStore for FileUpdateReceiptStore {
         receipt: &UpdateReceiptV1,
     ) -> Result<(), UpdateStepFailureV1> {
         let path = attempt_receipt_path(workspace, &receipt.attempt_id);
+        match verify_metadata_path(workspace, &path, false) {
+            Ok(false) => {}
+            Ok(true) => {
+                return Err(UpdateStepFailureV1::safe(
+                    "update.attempt_id_collision",
+                    "the update attempt identifier already exists",
+                    false,
+                ))
+            }
+            Err(()) => {
+                return Err(UpdateStepFailureV1::safe(
+                    "update.attempt_path_unsafe",
+                    "the update attempt receipt path is unsafe",
+                    false,
+                ))
+            }
+        }
         atomic::write(&path, &json_bytes(receipt)?).map_err(|_| receipt_write_failure())
     }
 
@@ -1074,7 +1108,7 @@ fn read_canonical_receipt(workspace: &Path) -> Result<UpdateReceiptV1, UpdateSte
             false,
         ));
     }
-    if !valid_attempt_id(&receipt.attempt_id) {
+    if !is_valid_update_attempt_id_v1(&receipt.attempt_id) {
         return Err(UpdateStepFailureV1::safe(
             "update.health_receipt_invalid",
             "the canonical update receipt is invalid",
@@ -1088,7 +1122,7 @@ fn read_attempt_receipt(
     workspace: &Path,
     attempt_id: &str,
 ) -> Result<UpdateReceiptV1, UpdateStepFailureV1> {
-    if !valid_attempt_id(attempt_id) {
+    if !is_valid_update_attempt_id_v1(attempt_id) {
         return Err(health_artifact_failure("update.health_generation_invalid"));
     }
     let path = attempt_receipt_path(workspace, attempt_id);
@@ -1147,6 +1181,16 @@ pub async fn run_update_v1<E: UpdateStepExecutor, S: UpdateReceiptStore>(
     store: &S,
 ) -> UpdateRunOutcomeV1 {
     let mut receipt = initial_receipt(request, invocation);
+    if !is_valid_update_attempt_id_v1(&invocation.attempt_id) {
+        return in_memory_failure(
+            receipt,
+            UpdateStepFailureV1::safe(
+                "update.invalid_attempt_id",
+                "attempt identifier is invalid",
+                false,
+            ),
+        );
+    }
     if let Err(failure) = request.validate() {
         return in_memory_failure(receipt, failure);
     }

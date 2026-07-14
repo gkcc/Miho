@@ -38,25 +38,28 @@ mod export;
 mod task_manager;
 mod update;
 mod update_config;
+mod workspace_bootstrap;
 mod workspace_write_lease;
 
 pub use export::{
-    execute_export_observed_v1, execute_export_v1, execute_export_with_hub_v1,
-    execute_visualizer_v1, export_cache_root, ExportInvocation, ExportObserver, ExportReceiptV1,
-    ExportSourceV1, ExportTaskV1, VisualizerTaskV1,
+    execute_export_observed_v1, execute_export_observed_with_hub_v1, execute_export_v1,
+    execute_export_with_hub_v1, execute_visualizer_v1, export_cache_root, ExportInvocation,
+    ExportObserver, ExportReceiptV1, ExportSourceV1, ExportTaskV1, TrustedExportTaskV1,
+    VisualizerTaskV1,
 };
 pub use task_manager::{
-    CancelOutcomeV1, CancelTaskResultV1, PublicArtifactV1, PublicTaskFailureV1,
+    CancelOutcomeV1, CancelTaskResultV1, ExportTaskExecutor, PublicArtifactV1, PublicTaskFailureV1,
     PublicTaskSnapshotV1, PublicTaskUpdateV1, TaskExecutor, TaskManager, TaskManagerError,
     TaskSnapshotV1, TaskSpawner, TaskStatusV1, PUBLIC_TASK_SNAPSHOT_SCHEMA_V1,
     TASK_SNAPSHOT_SCHEMA_V1,
 };
 pub use update::{
-    check_update_health_v1, run_update_v1, FileUpdateReceiptStore, NativeUpdateExecutorV1,
-    UpdateArtifactV1, UpdateGameReceiptV1, UpdateHealthV1, UpdateInvocationV1, UpdateReceiptStore,
-    UpdateReceiptV1, UpdateRequestV1, UpdateRunOutcomeV1, UpdateRunStatusV1, UpdateStateGameV1,
-    UpdateStateV1, UpdateStepContextV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
-    UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1, UPDATE_ATTEMPT_DIRECTORY,
+    check_update_health_v1, is_valid_update_attempt_id_v1, run_update_v1, FileUpdateReceiptStore,
+    NativeUpdateExecutorV1, UpdateArtifactV1, UpdateGameReceiptV1, UpdateHealthV1,
+    UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1, UpdateRunOutcomeV1,
+    UpdateRunStatusV1, UpdateStateGameV1, UpdateStateV1, UpdateStepContextV1, UpdateStepExecutor,
+    UpdateStepFailureV1, UpdateStepFuture, UpdateStepKindV1, UpdateStepReceiptV1,
+    UpdateStepStatusV1, MAX_UPDATE_ATTEMPT_ID_BYTES_V1, UPDATE_ATTEMPT_DIRECTORY,
     UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_HEALTH_SCHEMA_V1, UPDATE_RECEIPT_SCHEMA_V1,
     UPDATE_STATE_FILE, UPDATE_STATE_SCHEMA_V1,
 };
@@ -66,23 +69,99 @@ pub use update_config::{
     MAX_PRYDWEN_TOP_N_V1, MAX_UPDATE_CONFIG_BYTES_V1, MAX_UPDATE_DAYS_V1, MIN_PRYDWEN_TOP_N_V1,
     MIN_UPDATE_DAYS_V1, UPDATE_CONFIG_SCHEMA_V1,
 };
+pub use workspace_bootstrap::{
+    begin_workspace_bootstrap_transaction_v1, bootstrap_workspace_v1,
+    commit_workspace_bootstrap_transaction_v1, discard_workspace_bootstrap_transaction_v1,
+    finalize_workspace_bootstrap_transaction_v1, rollback_workspace_bootstrap_transaction_v1,
+    verify_workspace_bootstrap_transaction_v1, WorkspaceBootstrapCompletedOperationV1,
+    WorkspaceBootstrapError, WorkspaceBootstrapReceiptV1, WorkspaceBootstrapRequestV1,
+    WorkspaceBootstrapTransactionOperationV1, WorkspaceBootstrapTransactionReceiptV1,
+    WorkspaceBootstrapTransactionRequestV1, MAX_RELEASE_BOOTSTRAP_STATE_BYTES_V1,
+    MAX_RELEASE_BOOTSTRAP_TARGET_BYTES_V1, MAX_RELEASE_BOOTSTRAP_TRANSACTION_MANIFEST_BYTES_V1,
+    MAX_RELEASE_BOOTSTRAP_TRANSACTION_STASH_BYTES_V1, RELEASE_BOOTSTRAP_RECEIPT_SCHEMA_V1,
+    RELEASE_BOOTSTRAP_STATE_RELATIVE_PATH, RELEASE_BOOTSTRAP_STATE_SCHEMA_V1,
+    RELEASE_BOOTSTRAP_TRANSACTION_BEFORE_DIRECTORY_V1,
+    RELEASE_BOOTSTRAP_TRANSACTION_MANIFEST_FILE_V1,
+    RELEASE_BOOTSTRAP_TRANSACTION_RECEIPT_SCHEMA_V1, RELEASE_BOOTSTRAP_TRANSACTION_SCHEMA_V1,
+    ZZZ_BOX_STATE_RELATIVE_PATH,
+};
 pub use workspace_write_lease::{
     WorkspaceWriteLease, WorkspaceWriteLeaseError, WORKSPACE_WRITE_LOCK_RELATIVE_PATH,
 };
 
 pub const TASK_REQUEST_SCHEMA_V1: &str = "miho-task-request-v1";
 pub const TASK_INTENT_SCHEMA_V1: &str = "miho-task-intent-v1";
+pub const EXPORT_TASK_INTENT_SCHEMA_V1: &str = "miho-export-task-intent-v1";
 pub const TASK_RECEIPT_SCHEMA_V1: &str = "miho-task-receipt-v1";
 pub const TASK_FAILURE_SCHEMA_V1: &str = "miho-task-failure-v1";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum TaskOperationV1 {
+    HsrExport,
+    ZzzExport,
     Decision,
     Evidence,
     Coverage,
     PullValue,
     ReviewPacket,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExportIntentV1 {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(
+    tag = "operation",
+    content = "params",
+    rename_all = "kebab-case",
+    deny_unknown_fields
+)]
+pub enum ExportTaskIntentSpecV1 {
+    HsrExport(ExportIntentV1),
+    ZzzExport(ExportIntentV1),
+}
+
+impl ExportTaskIntentSpecV1 {
+    pub fn operation(&self) -> TaskOperationV1 {
+        match self {
+            Self::HsrExport(_) => TaskOperationV1::HsrExport,
+            Self::ZzzExport(_) => TaskOperationV1::ZzzExport,
+        }
+    }
+}
+
+/// Strict pathless wire intent for starting one native-configured export.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExportTaskIntentV1 {
+    pub schema_version: String,
+    pub task: ExportTaskIntentSpecV1,
+}
+
+impl ExportTaskIntentV1 {
+    pub fn new(task: ExportTaskIntentSpecV1) -> Self {
+        Self {
+            schema_version: EXPORT_TASK_INTENT_SCHEMA_V1.to_owned(),
+            task,
+        }
+    }
+
+    pub fn operation(&self) -> TaskOperationV1 {
+        self.task.operation()
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        if self.schema_version != EXPORT_TASK_INTENT_SCHEMA_V1 {
+            bail!(
+                "unsupported export task intent schema {}; expected {}",
+                self.schema_version,
+                EXPORT_TASK_INTENT_SCHEMA_V1
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -532,9 +611,36 @@ pub fn parse_task_intent_v1(bytes: &[u8]) -> Result<TaskIntentV1, TaskFailureV1>
     Ok(intent)
 }
 
+/// Parse and validate an untrusted pathless export intent. The wire document
+/// carries only the game operation; every path and dataset setting comes from
+/// a native-resolved workspace configuration.
+pub fn parse_export_task_intent_v1(bytes: &[u8]) -> Result<ExportTaskIntentV1, TaskFailureV1> {
+    let operation = identify_export_intent_operation(bytes);
+    let intent = serde_json::from_slice::<ExportTaskIntentV1>(bytes).map_err(|error| {
+        TaskFailureV1::request_error(operation, "request.invalid", error.to_string())
+    })?;
+    intent.validate().map_err(|error| {
+        TaskFailureV1::request_error(
+            Some(intent.operation()),
+            "request.unsupported_schema",
+            error.to_string(),
+        )
+    })?;
+    Ok(intent)
+}
+
 fn identify_intent_operation(bytes: &[u8]) -> Option<TaskOperationV1> {
     let value = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
     serde_json::from_value(value.get("task")?.get("operation")?.clone()).ok()
+}
+
+fn identify_export_intent_operation(bytes: &[u8]) -> Option<TaskOperationV1> {
+    let value = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
+    match value.get("task")?.get("operation")?.as_str()? {
+        "hsr-export" => Some(TaskOperationV1::HsrExport),
+        "zzz-export" => Some(TaskOperationV1::ZzzExport),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

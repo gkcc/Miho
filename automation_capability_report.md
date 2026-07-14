@@ -1,15 +1,16 @@
 # 自更新与本地评判能力报告
 
 - 初版生成时间：2026-07-06
-- 最近审计：2026-07-13
-- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease 与精确退出码兼容 launcher 已完成；下述 Python 编排只保留为历史说明。当前外部自动化仍未切换，已安装任务和发布包不是健康生产基线。
+- 最近审计：2026-07-14
+- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease、安装/portable 候选切换事务和 hash-bound NSIS/portable 发布链均已有实现与回归证据；下述 Python 编排只保留为历史说明。当前外部自动化仍未切换，已安装任务不是健康生产基线，现有构建也只允许作为 `verification-only` 证据。
 
-## 当前阻断（2026-07-13）
+## 当前阻断（2026-07-14）
 
-- 已安装任务 `MiHoYoEndgameDailyUpdate` 仍指向 `C:\Users\zy958\Documents\终局内容提取\scripts\update_endgame_data.ps1`；该脚本已不存在。任务显示 Ready、迁移前上次结果为 0，不能证明当前可用。
-- 当前 NSIS 配置未携带 `miho.exe` 与默认 configs，也没有 portable/升级/卸载/Task Scheduler/无 Python 的真实安装验收。
-- `scripts/install_daily_update_task.ps1` 仍是源码路径时代的安装逻辑；尚未实现“候选 native action 运行 + health 通过后再替换旧任务”的安装/升级/卸载所有权与回滚。
-- 路线已推进为：先把 release `miho.exe` 与默认 config 放入最终安装/portable 位置，再以候选任务运行和 config-bound health 作为切换门槛；随后完成 NSIS+portable/升级/卸载/无 Python 矩阵，最后退役 Python runtime。旧任务在替代链验证前必须禁用或明确标记为不可用。
+- 2026-07-14 只读复查确认，已安装任务 `MiHoYoEndgameDailyUpdate` 处于 Disabled，仍调用不存在的 `C:\Users\zy958\Documents\终局内容提取\scripts\update_endgame_data.ps1`，WorkingDirectory 为空；2026-07-12 的 `LastTaskResult=0` 仍不能证明当前可用。
+- NSIS/portable 现已携带 `miho.exe`、默认 configs、ownership manifest 与计划任务脚本，并能生成反向提取验证的 content-addressed 产物；但尚未完成真实 clean install/upgrade/uninstall/Task Scheduler/无 Python 矩阵，EXE 与安装包也未签名，因此不得标为正式 active 发布。
+- `scripts/install_daily_update_task.ps1` 与共享 scheduler/installer transaction 已实现 candidate `update run` + exact-attempt `update health` 后切换、所有权、回滚和卸载边界；这些边界目前由 fixture/registry 隔离测试证明，尚未对真实已安装旧任务执行替换。
+- 默认完整构建即使源码 clean 也保持 `verification-only`；只有上述项目门禁已有留痕并经独立 `Blocker=0 / High=0` 后，操作者才能显式使用 `-ProjectGatesApproved`。dirty、`-NoBundle` 或非 Release 调用携带该批准都会失败。
+- 下一步是用最终候选包完成真实安装/升级/卸载/无 Python 矩阵，再在 config-bound health 成功后替换 Disabled 的旧任务；最后才允许 active 发布和 Python runtime 退役。
 
 ## 当前 native 自动化基线（已完成，尚未安装切换）
 
@@ -48,7 +49,7 @@
 powershell -ExecutionPolicy Bypass -File .\scripts\update_endgame_data.ps1
 ```
 
-注册每日任务（当前不要执行，旧安装器仍会写入源码路径）：
+注册每日任务（当前不要对真实旧任务执行；先完成最终候选包的安装矩阵与所有权复核）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install_daily_update_task.ps1 -At "09:30"

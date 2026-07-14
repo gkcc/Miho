@@ -114,6 +114,105 @@ fn force_flag_is_preserved_in_the_public_receipt() {
 }
 
 #[test]
+fn explicit_scheduler_attempt_id_flows_unchanged_through_receipts_state_and_health() {
+    let root = workspace("explicit-attempt-id");
+    seed_workspace(&root, true);
+    let attempt_id = "installer_candidate-20260714_001";
+    let output = run_fixture_args(&root, &["--attempt-id", attempt_id]);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains(attempt_id));
+
+    let canonical = json(&root.join(".miho/last-update-receipt-v1.json"));
+    assert_eq!(canonical["attempt_id"], attempt_id);
+    let attempt = json(
+        &root
+            .join(".miho/update-attempts")
+            .join(format!("{attempt_id}.json")),
+    );
+    assert_eq!(attempt["attempt_id"], attempt_id);
+    let state = json(&root.join(".miho/update-state-v1.json"));
+    assert_eq!(state["games"]["hsr"]["attempt_id"], attempt_id);
+    assert_eq!(state["games"]["zzz"]["attempt_id"], attempt_id);
+
+    let health = Command::new(env!("CARGO_BIN_EXE_miho"))
+        .args(["update", "health", "--workspace", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(health.status.success());
+    let health: Value = serde_json::from_slice(&health.stdout).unwrap();
+    assert_eq!(health["healthy"], true);
+    assert_eq!(health["attempt_id"], attempt_id);
+    cleanup(&root);
+}
+
+#[test]
+fn interleaved_success_proves_scheduler_must_match_the_exact_expected_attempt_id() {
+    let root = workspace("interleaved-attempt-id");
+    seed_workspace(&root, true);
+    let expected = "installer_expected_candidate";
+    let external = "external_interleaved_run";
+    assert!(run_fixture_args(&root, &["--attempt-id", expected])
+        .status
+        .success());
+    assert!(
+        run_fixture_args(&root, &["--attempt-id", external, "--force"])
+            .status
+            .success()
+    );
+
+    let health = Command::new(env!("CARGO_BIN_EXE_miho"))
+        .args(["update", "health", "--workspace", root.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(health.status.success());
+    let health: Value = serde_json::from_slice(&health.stdout).unwrap();
+    assert_eq!(health["attempt_id"], external);
+    assert_ne!(health["attempt_id"], expected);
+    assert_eq!(
+        json(
+            &root
+                .join(".miho/update-attempts")
+                .join(format!("{expected}.json"))
+        )["attempt_id"],
+        expected
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn invalid_explicit_attempt_id_is_cli_usage_error_and_collision_is_runtime_error() {
+    for (label, invalid) in [
+        ("invalid-attempt-char", "bad.value".to_owned()),
+        ("invalid-attempt-length", "a".repeat(97)),
+    ] {
+        let root = workspace(label);
+        seed_workspace(&root, true);
+        let output = run_fixture_args(&root, &["--attempt-id", &invalid]);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(!root.join(".miho/update-attempts").exists());
+        cleanup(&root);
+    }
+
+    let root = workspace("attempt-collision");
+    seed_workspace(&root, true);
+    let attempt_id = "scheduler_collision_nonce";
+    assert!(run_fixture_args(&root, &["--attempt-id", attempt_id])
+        .status
+        .success());
+    let canonical_path = root.join(".miho/last-update-receipt-v1.json");
+    let before = fs::read(&canonical_path).unwrap();
+    let collision = run_fixture_args(&root, &["--attempt-id", attempt_id, "--force"]);
+    assert_eq!(collision.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&collision.stderr).contains("update.attempt_id_collision"));
+    assert_eq!(fs::read(&canonical_path).unwrap(), before);
+    cleanup(&root);
+}
+
+#[test]
 fn custom_top_level_outputs_are_reflected_in_the_generated_hub() {
     let root = workspace("custom-output-hub");
     seed_workspace(&root, true);

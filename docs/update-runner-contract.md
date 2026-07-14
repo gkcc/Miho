@@ -127,6 +127,24 @@ HTTP query/header/body, or a raw anyhow error chain.
 
 ## Required V1 gates
 
+Scheduled-automation `exact` means cooperative-producer linearization plus
+point-in-time drift detection. Claim, release, prepare, commit, rollback,
+repair, uninstall, the installed/portable wrappers, and Desktop must acquire
+the same sibling coordinator before their first automation-root or intent
+observation; the switch lease then covers evidence validation. Desktop repeats
+the active generation membership check after the executable hash and repeats
+the clean-unbound emptiness check after authority/unbound validation. An active
+generation therefore contains exactly its recorded directory and that
+directory contains only `miho.exe`; a clean-unbound `generations` directory is
+empty at the accepted validation point.
+
+This is not a malicious same-user isolation boundary. Another process running
+as the same Windows user can also alter that user's HKCU owner value, scheduled
+task, or ACLs. Directory handles pin identities and names but are not described
+as directory-membership leases. The contract detects pre-existing/noncooperative
+drift and excludes every project-owned producer; it does not claim that an
+arbitrary same-user attacker cannot mutate state after validation.
+
 - Unit/fixture: HSR fail + ZZZ success; HSR success + ZZZ fail; each ZZZ
   derived step failure; manifest/hash failure; state/receipt install failure;
   force/skip combinations; busy and lock reacquisition; unsafe path/reparse;
@@ -137,6 +155,15 @@ HTTP query/header/body, or a raw anyhow error chain.
   workspace/working directory, and is health-checked before replacing the old
   action. Upgrade/uninstall must preserve or remove only installer-owned task
   state and support rollback.
+
+The scheduled-task install wrapper resolves a fresh omitted `-Workspace` in
+desktop order: a non-empty `MIHO_DATA_ROOT` first, then strict persisted desktop
+settings, then the installer default. An explicit `-Workspace` always wins. The
+environment value is forwarded to the ownership-aware core as an explicit
+workspace override; if an existing owned task is bound elsewhere, installation
+fails closed without changing the task or manifest. Rebinding is never implicit:
+the operator must explicitly remove/rebind the owned automation state before
+changing it to the environment-selected workspace.
 
 The runner/unit/integration portion is the gate for the native-runner commit;
 the scheduled-task paragraph is deliberately the next gate. A runner commit

@@ -7,13 +7,18 @@ use anyhow::bail;
 use chrono::{Duration, NaiveDate};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use miho_app::{
-    check_update_health_v1, execute_export_observed_v1, execute_task_v1, execute_visualizer_v1,
-    export_cache_root, load_update_config_with_digest_v1, run_update_v1, AppInvocation,
-    CoverageTaskV1, DecisionTaskV1, EvidenceTaskV1, ExportInvocation, ExportObserver,
-    ExportSourceV1, ExportTaskV1, FileUpdateReceiptStore, NativeUpdateExecutorV1, PullTaskV1,
-    TaskRequestV1, TaskSpecV1, UpdateArtifactV1, UpdateInvocationV1, UpdateRequestV1,
-    UpdateStepContextV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
-    UpdateStepKindV1, VisualizerTaskV1, WorkspaceLayout, WorkspaceWriteLease,
+    begin_workspace_bootstrap_transaction_v1, bootstrap_workspace_v1, check_update_health_v1,
+    commit_workspace_bootstrap_transaction_v1, discard_workspace_bootstrap_transaction_v1,
+    execute_export_observed_v1, execute_task_v1, execute_visualizer_v1, export_cache_root,
+    finalize_workspace_bootstrap_transaction_v1, is_valid_update_attempt_id_v1,
+    load_update_config_with_digest_v1, rollback_workspace_bootstrap_transaction_v1, run_update_v1,
+    verify_workspace_bootstrap_transaction_v1, AppInvocation, CoverageTaskV1, DecisionTaskV1,
+    EvidenceTaskV1, ExportInvocation, ExportObserver, ExportSourceV1, ExportTaskV1,
+    FileUpdateReceiptStore, NativeUpdateExecutorV1, PullTaskV1, TaskRequestV1, TaskSpecV1,
+    UpdateArtifactV1, UpdateInvocationV1, UpdateRequestV1, UpdateStepContextV1, UpdateStepExecutor,
+    UpdateStepFailureV1, UpdateStepFuture, UpdateStepKindV1, VisualizerTaskV1,
+    WorkspaceBootstrapCompletedOperationV1, WorkspaceBootstrapRequestV1,
+    WorkspaceBootstrapTransactionRequestV1, WorkspaceLayout, WorkspaceWriteLease,
 };
 use miho_core::{
     contract::{DiagnosticSeverity, FeatureFlags, GameMode},
@@ -43,12 +48,75 @@ enum GameCommand {
         #[command(subcommand)]
         command: UpdateCommand,
     },
+    Workspace {
+        #[command(subcommand)]
+        command: WorkspaceCommand,
+    },
 }
 
 #[derive(Subcommand)]
 enum UpdateCommand {
     Run(UpdateRunArgs),
     Health(UpdateHealthArgs),
+}
+
+#[derive(Subcommand)]
+enum WorkspaceCommand {
+    Bootstrap(WorkspaceBootstrapArgs),
+    #[command(name = "bootstrap-transaction")]
+    BootstrapTransaction {
+        #[command(subcommand)]
+        command: WorkspaceBootstrapTransactionCommand,
+    },
+}
+
+#[derive(Args)]
+struct WorkspaceBootstrapArgs {
+    #[arg(long)]
+    workspace: PathBuf,
+}
+
+#[derive(Subcommand)]
+enum WorkspaceBootstrapTransactionCommand {
+    Begin(WorkspaceBootstrapTransactionArgs),
+    Verify(WorkspaceBootstrapTransactionArgs),
+    Rollback(WorkspaceBootstrapTransactionArgs),
+    Commit(WorkspaceBootstrapTransactionArgs),
+    Discard(WorkspaceBootstrapTransactionArgs),
+    Finalize(WorkspaceBootstrapFinalizeArgs),
+}
+
+#[derive(Args)]
+struct WorkspaceBootstrapTransactionArgs {
+    #[arg(long)]
+    workspace: PathBuf,
+    #[arg(long)]
+    transaction: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum WorkspaceBootstrapCompletedOperationArg {
+    Commit,
+    Discard,
+}
+
+impl From<WorkspaceBootstrapCompletedOperationArg> for WorkspaceBootstrapCompletedOperationV1 {
+    fn from(value: WorkspaceBootstrapCompletedOperationArg) -> Self {
+        match value {
+            WorkspaceBootstrapCompletedOperationArg::Commit => Self::Commit,
+            WorkspaceBootstrapCompletedOperationArg::Discard => Self::Discard,
+        }
+    }
+}
+
+#[derive(Args)]
+struct WorkspaceBootstrapFinalizeArgs {
+    #[arg(long)]
+    workspace: PathBuf,
+    #[arg(long)]
+    transaction: PathBuf,
+    #[arg(long, value_enum)]
+    completed_operation: WorkspaceBootstrapCompletedOperationArg,
 }
 
 #[derive(Args)]
@@ -63,6 +131,16 @@ struct UpdateRunArgs {
     skip_zzz: bool,
     #[arg(long, action = clap::ArgAction::SetTrue)]
     force: bool,
+    #[arg(long, value_parser = parse_update_attempt_id_v1)]
+    attempt_id: Option<String>,
+}
+
+fn parse_update_attempt_id_v1(value: &str) -> Result<String, String> {
+    if is_valid_update_attempt_id_v1(value) {
+        Ok(value.to_owned())
+    } else {
+        Err("attempt ID must match [A-Za-z0-9_-]{1,96}".to_owned())
+    }
 }
 
 #[derive(Args)]
@@ -375,6 +453,10 @@ impl Cli {
             GameCommand::Update {
                 command: UpdateCommand::Run(_) | UpdateCommand::Health(_),
             } => "update",
+            GameCommand::Workspace {
+                command:
+                    WorkspaceCommand::Bootstrap(_) | WorkspaceCommand::BootstrapTransaction { .. },
+            } => "workspace",
         }
     }
 }
@@ -623,6 +705,73 @@ impl ExportObserver for CliExportObserver {
 }
 
 async fn execute(cli: Cli) -> anyhow::Result<()> {
+    if let GameCommand::Workspace {
+        command: WorkspaceCommand::Bootstrap(args),
+    } = &cli.game
+    {
+        let receipt =
+            bootstrap_workspace_v1(&WorkspaceBootstrapRequestV1::new(args.workspace.clone()))?;
+        println!("{}", serde_json::to_string(&receipt)?);
+        return Ok(());
+    }
+    if let GameCommand::Workspace {
+        command: WorkspaceCommand::BootstrapTransaction { command },
+    } = &cli.game
+    {
+        let receipt = match command {
+            WorkspaceBootstrapTransactionCommand::Begin(args) => {
+                begin_workspace_bootstrap_transaction_v1(
+                    &WorkspaceBootstrapTransactionRequestV1::new(
+                        args.workspace.clone(),
+                        args.transaction.clone(),
+                    ),
+                )?
+            }
+            WorkspaceBootstrapTransactionCommand::Verify(args) => {
+                verify_workspace_bootstrap_transaction_v1(
+                    &WorkspaceBootstrapTransactionRequestV1::new(
+                        args.workspace.clone(),
+                        args.transaction.clone(),
+                    ),
+                )?
+            }
+            WorkspaceBootstrapTransactionCommand::Rollback(args) => {
+                rollback_workspace_bootstrap_transaction_v1(
+                    &WorkspaceBootstrapTransactionRequestV1::new(
+                        args.workspace.clone(),
+                        args.transaction.clone(),
+                    ),
+                )?
+            }
+            WorkspaceBootstrapTransactionCommand::Commit(args) => {
+                commit_workspace_bootstrap_transaction_v1(
+                    &WorkspaceBootstrapTransactionRequestV1::new(
+                        args.workspace.clone(),
+                        args.transaction.clone(),
+                    ),
+                )?
+            }
+            WorkspaceBootstrapTransactionCommand::Discard(args) => {
+                discard_workspace_bootstrap_transaction_v1(
+                    &WorkspaceBootstrapTransactionRequestV1::new(
+                        args.workspace.clone(),
+                        args.transaction.clone(),
+                    ),
+                )?
+            }
+            WorkspaceBootstrapTransactionCommand::Finalize(args) => {
+                finalize_workspace_bootstrap_transaction_v1(
+                    &WorkspaceBootstrapTransactionRequestV1::new(
+                        args.workspace.clone(),
+                        args.transaction.clone(),
+                    ),
+                    args.completed_operation.into(),
+                )?
+            }
+        };
+        println!("{}", serde_json::to_string(&receipt)?);
+        return Ok(());
+    }
     if let GameCommand::Update {
         command: UpdateCommand::Run(args),
     } = &cli.game
@@ -782,7 +931,11 @@ fn check_native_update_health(args: &UpdateHealthArgs) -> anyhow::Result<()> {
 }
 
 async fn run_native_update(args: &UpdateRunArgs) -> anyhow::Result<()> {
-    let invocation = UpdateInvocationV1::capture();
+    let invocation = match &args.attempt_id {
+        Some(attempt_id) => UpdateInvocationV1::capture_with_attempt_id(attempt_id.clone())
+            .map_err(|failure| anyhow::anyhow!(failure.code))?,
+        None => UpdateInvocationV1::capture(),
+    };
     let request = UpdateRequestV1 {
         workspace: args.workspace.clone(),
         skip_hsr: args.skip_hsr,

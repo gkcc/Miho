@@ -235,6 +235,110 @@ async fn full_success_commits_state_and_canonical_receipt_last() {
 }
 
 #[tokio::test]
+async fn explicit_attempt_id_collision_exits_one_without_overwriting_receipts_or_running_steps() {
+    let root = temp_root("attempt-id-collision");
+    let executor = FakeExecutor::default();
+    let attempt_id = "scheduler_candidate-20260714_001";
+    let first = invocation_with(attempt_id, 30);
+    let first_outcome =
+        run_update_v1(&request(&root), &first, &executor, &FileUpdateReceiptStore).await;
+    assert_eq!(first_outcome.exit_code, 0);
+    let attempt_path = root
+        .join(".miho")
+        .join(UPDATE_ATTEMPT_DIRECTORY)
+        .join(format!("{attempt_id}.json"));
+    let canonical_path = root.join(".miho").join(UPDATE_CANONICAL_RECEIPT_FILE);
+    let state_path = root.join(".miho").join(UPDATE_STATE_FILE);
+    let before = [
+        fs::read(&attempt_path).unwrap(),
+        fs::read(&canonical_path).unwrap(),
+        fs::read(&state_path).unwrap(),
+    ];
+
+    let collision = run_update_v1(
+        &request(&root),
+        &invocation_with(attempt_id, 31),
+        &executor,
+        &FileUpdateReceiptStore,
+    )
+    .await;
+    assert_eq!(collision.exit_code, 1);
+    assert_eq!(
+        collision
+            .receipt
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.attempt_id_collision")
+    );
+    assert!(!collision.receipt.receipt_committed);
+    assert_eq!(executor.observed.lock().unwrap().len(), 5);
+    assert_eq!(
+        [
+            fs::read(&attempt_path).unwrap(),
+            fs::read(&canonical_path).unwrap(),
+            fs::read(&state_path).unwrap(),
+        ],
+        before
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn explicit_attempt_id_grammar_is_exact() {
+    let now = FixedOffset::east_opt(8 * 60 * 60)
+        .unwrap()
+        .with_ymd_and_hms(2026, 7, 14, 9, 30, 0)
+        .single()
+        .unwrap();
+    for invalid in ["", "contains space", "contains.dot", &"a".repeat(97)] {
+        assert_eq!(
+            UpdateInvocationV1::new(invalid.to_owned(), now)
+                .unwrap_err()
+                .code,
+            "update.invalid_attempt_id"
+        );
+    }
+    let maximum = format!("A_-{}", "z".repeat(93));
+    assert_eq!(maximum.len(), 96);
+    assert_eq!(
+        UpdateInvocationV1::new(maximum.clone(), now)
+            .unwrap()
+            .attempt_id,
+        maximum
+    );
+}
+
+#[tokio::test]
+async fn unsafe_invocation_constructed_without_the_constructor_is_runtime_failure_with_no_write() {
+    let root = temp_root("unsafe-attempt-runtime");
+    let safe = invocation();
+    let unsafe_invocation = UpdateInvocationV1 {
+        attempt_id: "../outside-canary".to_owned(),
+        observed_at: safe.observed_at,
+    };
+    let outcome = run_update_v1(
+        &request(&root),
+        &unsafe_invocation,
+        &FakeExecutor::default(),
+        &FileUpdateReceiptStore,
+    )
+    .await;
+    assert_eq!(outcome.exit_code, 1);
+    assert_eq!(
+        outcome
+            .receipt
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.invalid_attempt_id")
+    );
+    assert!(!root.join(".miho/update-attempts").exists());
+    assert!(!root.join(".miho/outside-canary.json").exists());
+    cleanup(&root);
+}
+
+#[tokio::test]
 async fn health_binds_each_split_generation_receipt_to_the_expected_config() {
     let root = temp_root("generation-config-binding");
     let executor = FakeExecutor::default();
@@ -345,8 +449,26 @@ async fn native_executor_rejects_hf_cache_fallback_and_does_not_advance_state() 
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     server_count.fetch_add(1, Ordering::Relaxed);
-                    let mut request = [0_u8; 2048];
-                    let _ = stream.read(&mut request);
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(StdDuration::from_secs(2)))
+                        .unwrap();
+                    let mut request = Vec::with_capacity(2048);
+                    let mut chunk = [0_u8; 1024];
+                    loop {
+                        let count = stream.read(&mut chunk).unwrap();
+                        if count == 0 {
+                            break;
+                        }
+                        request.extend_from_slice(&chunk[..count]);
+                        assert!(
+                            request.len() <= 64 * 1024,
+                            "freshness test request headers exceeded the bounded fixture server"
+                        );
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
                     stream
                         .write_all(
                             b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",

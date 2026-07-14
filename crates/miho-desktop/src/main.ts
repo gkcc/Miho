@@ -3,8 +3,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import "./styles.css";
 
 type Game = "hsr" | "zzz";
+type ExportOperation = "hsr-export" | "zzz-export";
 type FormalOperation = "evidence" | "coverage" | "pull-value" | "review-packet";
-type TaskOperation = FormalOperation | "decision";
+type TaskOperation = ExportOperation | FormalOperation | "decision";
 type TaskStatus =
   | "queued"
   | "running"
@@ -112,6 +113,31 @@ const OPERATIONS: ReadonlyArray<{ value: FormalOperation; label: string; descrip
   { value: "review-packet", label: "复核包", description: "生成供外部复核使用的证据载荷。" },
 ];
 
+const EXPORT_OPERATIONS: ReadonlyArray<{
+  value: ExportOperation;
+  game: Game;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "hsr-export",
+    game: "hsr",
+    label: "崩坏：星穹铁道导出",
+    description: "按本机 update_v1 配置后台更新 HSR 数据、Workbook 与 Visualizer。",
+  },
+  {
+    value: "zzz-export",
+    game: "zzz",
+    label: "绝区零导出",
+    description: "按本机 update_v1 配置后台更新 ZZZ 数据、Workbook、Visualizer 与 Hub。",
+  },
+];
+
+const CAPABILITY_OPERATIONS: ReadonlyArray<{ value: TaskOperation; label: string }> = [
+  ...EXPORT_OPERATIONS,
+  ...OPERATIONS,
+];
+
 const STATUS_LABELS: Record<TaskStatus, string> = {
   queued: "排队中",
   running: "运行中",
@@ -191,6 +217,8 @@ function splitValues(value: string): string[] {
 
 function operationLabel(operation: TaskOperation): string {
   if (operation === "decision") return "Legacy decision（兼容诊断）";
+  const exportOperation = EXPORT_OPERATIONS.find((candidate) => candidate.value === operation);
+  if (exportOperation) return exportOperation.label;
   return OPERATIONS.find((candidate) => candidate.value === operation)?.label ?? operation;
 }
 
@@ -261,6 +289,31 @@ ownedInput.spellcheck = false;
 ownedInput.setAttribute("aria-label", "已拥有角色 slug");
 const boxMessage = element("p", "notice", "");
 boxSection.append(boxHeading, ownedInput, boxActions, boxMessage);
+
+const exportSection = element("section", "panel export-panel");
+const exportHeading = element("div", "section-heading");
+const exportTitleBlock = element("div");
+exportTitleBlock.append(
+  element("p", "eyebrow", "BACKGROUND DATA EXPORTS"),
+  element("h2", undefined, "双游戏数据导出"),
+  element("p", "muted", "WebView 只提交版本化游戏意图；数据集、缓存与输出路径全部由本机工作区配置解析。"),
+);
+exportHeading.append(exportTitleBlock);
+const exportControls = element("div", "export-controls");
+const exportButtons = new Map<ExportOperation, HTMLButtonElement>();
+const exportStatuses = new Map<ExportOperation, HTMLElement>();
+for (const operation of EXPORT_OPERATIONS) {
+  const card = element("article", "export-card");
+  card.append(element("h3", undefined, operation.label), element("p", "muted", operation.description));
+  const button = makeButton("开始后台导出", "button primary", () => startExport(operation.value));
+  const status = element("p", "notice", "等待本机能力信息。");
+  exportButtons.set(operation.value, button);
+  exportStatuses.set(operation.value, status);
+  card.append(button, status);
+  exportControls.append(card);
+}
+const exportMessage = element("p", "notice", "HSR 与 ZZZ 导出共用下方同一任务状态、取消与历史入口。");
+exportSection.append(exportHeading, exportControls, exportMessage);
 
 const taskSection = element("section", "panel task-panel");
 const taskHeading = element("div", "section-heading");
@@ -374,7 +427,7 @@ visualizerFrame.addEventListener("error", () => {
 });
 visualizerSection.append(visualizerHeading, visualizerMessage, visualizerFrame);
 
-main.append(workspaceSection, boxSection, taskSection, historySection, visualizerSection);
+main.append(workspaceSection, exportSection, boxSection, taskSection, historySection, visualizerSection);
 app.replaceChildren(header, main);
 
 function updateGameUI(): void {
@@ -536,6 +589,8 @@ function renderCapabilities(): void {
   workspaceWarnings.replaceChildren();
   if (!capabilities) {
     updateBoxControls();
+    updateExportControls();
+    updateTaskForm();
     return;
   }
 
@@ -551,7 +606,7 @@ function renderCapabilities(): void {
     workspaceSummary.append(item);
   }
 
-  for (const operation of OPERATIONS) {
+  for (const operation of CAPABILITY_OPERATIONS) {
     const capability = capabilityFor(operation.value);
     const card = element("article", `capability-card ${capability?.enabled ? "ready" : "blocked"}`);
     card.append(element("strong", undefined, operation.label));
@@ -594,6 +649,7 @@ function renderCapabilities(): void {
   selectWorkspaceButton.disabled = workspaceBusy || boxSaving || !capabilities.workspace_selection_enabled || hasActiveTask();
   refreshWorkspaceButton.disabled = workspaceBusy || boxSaving;
   updateBoxControls();
+  updateExportControls();
   updateTaskForm();
 }
 
@@ -640,6 +696,60 @@ async function selectWorkspace(): Promise<void> {
   } finally {
     workspaceBusy = false;
     renderCapabilities();
+  }
+}
+
+function updateExportControls(): void {
+  for (const operation of EXPORT_OPERATIONS) {
+    const capability = capabilityFor(operation.value);
+    const button = exportButtons.get(operation.value);
+    const status = exportStatuses.get(operation.value);
+    if (!button || !status) continue;
+    button.disabled = taskBusy || hasActiveTask() || !capability?.enabled;
+    if (!capabilities) {
+      setNotice(status, "等待本机能力信息。");
+    } else if (!capability) {
+      setNotice(status, "本机后端未声明此导出能力。", "error");
+    } else if (capability.missing_inputs.length > 0) {
+      setNotice(status, `缺少输入：${capability.missing_inputs.join("、")}`, "error");
+    } else if (hasActiveTask()) {
+      setNotice(status, "已有任务运行中；导出与报告不会并行写入。", "normal");
+    } else if (!taskBusy) {
+      setNotice(status, "本机配置已通过校验。", "success");
+    }
+  }
+}
+
+function buildExportIntent(operation: ExportOperation): string {
+  return JSON.stringify({
+    schema_version: "miho-export-task-intent-v1",
+    task: { operation, params: {} },
+  });
+}
+
+async function startExport(operation: ExportOperation): Promise<void> {
+  const capability = capabilityFor(operation);
+  if (taskBusy || hasActiveTask() || !capabilities || !capability?.enabled) return;
+  taskBusy = true;
+  updateExportControls();
+  updateTaskForm();
+  setNotice(exportMessage, "正在交给全局本机后台任务管理器…");
+  try {
+    const snapshot = await invoke<PublicTaskSnapshot>("start_export_task", {
+      workspaceId: capabilities.workspace.workspace_id,
+      intentJson: buildExportIntent(operation),
+    });
+    mergeQueriedTask(snapshot);
+    setNotice(exportMessage, `${operationLabel(operation)}已开始。`, "success");
+    await queryTask(snapshot.task_id);
+  } catch (error) {
+    const failure = safeError(error);
+    setNotice(exportMessage, `导出启动失败（${failure.code}）：${failure.message}`, "error");
+    if (failure.retryable) await Promise.all([refreshCapabilities(), refreshTasks()]);
+  } finally {
+    taskBusy = false;
+    updateExportControls();
+    updateTaskForm();
   }
 }
 
@@ -708,6 +818,7 @@ async function startTask(): Promise<void> {
   const intentJson = buildIntent();
   if (!intentJson) return;
   taskBusy = true;
+  updateExportControls();
   updateTaskForm();
   setNotice(taskMessage, "正在交给本机后台任务管理器…");
   try {
@@ -724,6 +835,7 @@ async function startTask(): Promise<void> {
     if (failure.retryable) await Promise.all([refreshCapabilities(), refreshTasks()]);
   } finally {
     taskBusy = false;
+    updateExportControls();
     updateTaskForm();
   }
 }
@@ -744,7 +856,13 @@ async function queryTask(taskId: string): Promise<void> {
     const snapshot = await invoke<PublicTaskSnapshot>("get_task", { taskId });
     if (taskQueries.get(taskId) !== generation) return;
     mergeQueriedTask(snapshot);
-    if (TERMINAL_STATUSES.has(snapshot.status)) await refreshCapabilities();
+    if (TERMINAL_STATUSES.has(snapshot.status)) {
+      await refreshCapabilities();
+      const currentExport = game === "hsr" ? "hsr-export" : "zzz-export";
+      if (snapshot.status === "succeeded" && snapshot.operation === currentExport) {
+        await loadVisualizer();
+      }
+    }
   } catch (error) {
     if (taskQueries.get(taskId) !== generation) return;
     const failure = safeError(error);
@@ -840,6 +958,7 @@ function renderTasks(): void {
     taskList.append(card);
   }
   updateBoxControls();
+  updateExportControls();
   updateTaskForm();
 }
 
@@ -857,7 +976,9 @@ function isTaskStatus(value: unknown): value is TaskStatus {
 }
 
 function isTaskOperation(value: unknown): value is TaskOperation {
-  return value === "decision" || OPERATIONS.some((operation) => operation.value === value);
+  return value === "decision"
+    || EXPORT_OPERATIONS.some((operation) => operation.value === value)
+    || OPERATIONS.some((operation) => operation.value === value);
 }
 
 function isPublicArtifact(value: unknown): value is PublicArtifact {

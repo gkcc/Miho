@@ -12,9 +12,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    execute_task_observed_v1, AppInvocation, ExecutionControlError, ExecutionObserver,
-    TaskFailureV1, TaskOperationV1, TaskReceiptV1, TaskRequestV1, WorkspaceWriteLease,
-    TASK_FAILURE_SCHEMA_V1,
+    execute_export_observed_with_hub_v1, execute_task_observed_v1, AppInvocation,
+    ExecutionControlError, ExecutionObserver, ExportInvocation, ExportObserver, TaskFailureV1,
+    TaskOperationV1, TaskReceiptV1, TaskRequestV1, TrustedExportTaskV1, WorkspaceWriteLease,
+    TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
 };
 
 pub const TASK_SNAPSHOT_SCHEMA_V1: &str = "miho-task-snapshot-v1";
@@ -218,6 +219,12 @@ fn public_artifact_label(
             format!("gpt_pull_reviewer_packet_{}.md", index + 1),
             "markdown".to_owned(),
         ),
+        (TaskOperationV1::HsrExport, _) => {
+            ("hsr-export-bundle".to_owned(), "artifact-bundle".to_owned())
+        }
+        (TaskOperationV1::ZzzExport, _) => {
+            ("zzz-export-bundle".to_owned(), "artifact-bundle".to_owned())
+        }
         _ => (format!("artifact_{}", index + 1), "binary".to_owned()),
     }
 }
@@ -256,6 +263,18 @@ pub trait TaskExecutor: Send + Sync + 'static {
     ) -> anyhow::Result<TaskReceiptV1>;
 }
 
+/// Native export executor used by the same global manager as report tasks.
+/// Implementations receive only an already resolved trusted request and must
+/// request the manager's commit permit before installing final output.
+pub trait ExportTaskExecutor: Send + Sync + 'static {
+    fn execute(
+        &self,
+        request: &TrustedExportTaskV1,
+        invocation: &ExportInvocation,
+        observer: &dyn ExecutionObserver,
+    ) -> anyhow::Result<TaskReceiptV1>;
+}
+
 pub trait TaskSpawner: Send + Sync + 'static {
     fn spawn(&self, name: String, job: Box<dyn FnOnce() + Send + 'static>) -> std::io::Result<()>;
 }
@@ -280,6 +299,56 @@ impl TaskExecutor for CoreTaskExecutor {
     }
 }
 
+struct CoreExportTaskExecutor;
+
+struct ManagedExportObserver<'a> {
+    observer: &'a dyn ExecutionObserver,
+}
+
+impl ExportObserver for ManagedExportObserver<'_> {
+    fn before_commit(&self) -> Result<(), ExecutionControlError> {
+        self.observer.before_commit()
+    }
+}
+
+impl ExportTaskExecutor for CoreExportTaskExecutor {
+    fn execute(
+        &self,
+        request: &TrustedExportTaskV1,
+        invocation: &ExportInvocation,
+        observer: &dyn ExecutionObserver,
+    ) -> anyhow::Result<TaskReceiptV1> {
+        let _lease = WorkspaceWriteLease::acquire(&request.workspace)
+            .map_err(|error| anyhow::anyhow!(error.code()))?;
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        let export_observer = ManagedExportObserver { observer };
+        let receipt = runtime.block_on(execute_export_observed_with_hub_v1(
+            &request.task,
+            invocation,
+            &export_observer,
+            &request.hsr_output_directory,
+        ))?;
+        Ok(TaskReceiptV1 {
+            schema_version: TASK_RECEIPT_SCHEMA_V1.to_owned(),
+            operation: request.operation(),
+            method_version: "rust-export-v1".to_owned(),
+            output_schema: "miho-export-artifact-bundle-v1".to_owned(),
+            local_datetime: invocation
+                .local_datetime()
+                .format("%Y-%m-%dT%H:%M:%S%.f")
+                .to_string(),
+            outputs: vec![receipt.output_root.join("artifact_manifest.json")],
+            notices: receipt
+                .diagnostics
+                .into_iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect(),
+        })
+    }
+}
+
 struct ThreadTaskSpawner;
 
 impl TaskSpawner for ThreadTaskSpawner {
@@ -295,7 +364,28 @@ impl TaskSpawner for ThreadTaskSpawner {
 pub struct TaskManager {
     inner: Arc<ManagerInner>,
     executor: Arc<dyn TaskExecutor>,
+    export_executor: Arc<dyn ExportTaskExecutor>,
     spawner: Arc<dyn TaskSpawner>,
+}
+
+enum ManagedTaskWorkV1 {
+    Report {
+        request: TaskRequestV1,
+        invocation: AppInvocation,
+    },
+    Export {
+        request: TrustedExportTaskV1,
+        invocation: ExportInvocation,
+    },
+}
+
+impl ManagedTaskWorkV1 {
+    fn operation(&self) -> TaskOperationV1 {
+        match self {
+            Self::Report { request, .. } => request.operation(),
+            Self::Export { request, .. } => request.operation(),
+        }
+    }
 }
 
 struct ManagerInner {
@@ -378,7 +468,30 @@ impl TaskManager {
         Self::with_runtime(executor, Arc::new(ThreadTaskSpawner))
     }
 
+    pub fn with_export_executor(export_executor: Arc<dyn ExportTaskExecutor>) -> Self {
+        Self::with_all_runtime(
+            Arc::new(CoreTaskExecutor),
+            export_executor,
+            Arc::new(ThreadTaskSpawner),
+        )
+    }
+
+    pub fn with_executors(
+        executor: Arc<dyn TaskExecutor>,
+        export_executor: Arc<dyn ExportTaskExecutor>,
+    ) -> Self {
+        Self::with_all_runtime(executor, export_executor, Arc::new(ThreadTaskSpawner))
+    }
+
     pub fn with_runtime(executor: Arc<dyn TaskExecutor>, spawner: Arc<dyn TaskSpawner>) -> Self {
+        Self::with_all_runtime(executor, Arc::new(CoreExportTaskExecutor), spawner)
+    }
+
+    fn with_all_runtime(
+        executor: Arc<dyn TaskExecutor>,
+        export_executor: Arc<dyn ExportTaskExecutor>,
+        spawner: Arc<dyn TaskSpawner>,
+    ) -> Self {
         let epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -391,6 +504,7 @@ impl TaskManager {
                 state: Mutex::new(ManagerState::default()),
             }),
             executor,
+            export_executor,
             spawner,
         }
     }
@@ -400,7 +514,25 @@ impl TaskManager {
         request: TaskRequestV1,
         invocation: AppInvocation,
     ) -> Result<TaskSnapshotV1, TaskManagerError> {
-        let operation = request.operation();
+        self.start_work(ManagedTaskWorkV1::Report {
+            request,
+            invocation,
+        })
+    }
+
+    pub fn start_export(
+        &self,
+        request: TrustedExportTaskV1,
+        invocation: ExportInvocation,
+    ) -> Result<TaskSnapshotV1, TaskManagerError> {
+        self.start_work(ManagedTaskWorkV1::Export {
+            request,
+            invocation,
+        })
+    }
+
+    fn start_work(&self, work: ManagedTaskWorkV1) -> Result<TaskSnapshotV1, TaskManagerError> {
+        let operation = work.operation();
         let task_id = format!(
             "task-{}-{:016}",
             self.inner.task_prefix,
@@ -424,7 +556,7 @@ impl TaskManager {
         let worker_task_id = task_id.clone();
         if let Err(error) = self.spawner.spawn(
             format!("miho-{task_id}"),
-            Box::new(move || manager.run_worker(worker_task_id, request, invocation)),
+            Box::new(move || manager.run_worker(worker_task_id, work)),
         ) {
             let mut state = self.inner.lock_state();
             state.tasks.remove(&task_id);
@@ -503,7 +635,7 @@ impl TaskManager {
         }
     }
 
-    fn run_worker(&self, task_id: String, request: TaskRequestV1, invocation: AppInvocation) {
+    fn run_worker(&self, task_id: String, work: ManagedTaskWorkV1) {
         {
             let mut state = self.inner.lock_state();
             let record = state.tasks.get_mut(&task_id).expect("task record missing");
@@ -521,8 +653,17 @@ impl TaskManager {
             inner: self.inner.clone(),
             task_id: task_id.clone(),
         };
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.executor.execute(&request, &invocation, &observer)
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match work {
+            ManagedTaskWorkV1::Report {
+                request,
+                invocation,
+            } => self.executor.execute(&request, &invocation, &observer),
+            ManagedTaskWorkV1::Export {
+                request,
+                invocation,
+            } => self
+                .export_executor
+                .execute(&request, &invocation, &observer),
         }));
         let mut state = self.inner.lock_state();
         let record = state.tasks.get_mut(&task_id).expect("task record missing");

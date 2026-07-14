@@ -9,6 +9,7 @@
   "scripts": {
     "deps:install": "pnpm install --frozen-lockfile",
     "build": "pnpm --filter miho-desktop build",
-    "tauri:build:no-bundle": "pnpm --filter miho-desktop tauri build --no-bundle"
+    "tauri:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_rust_app.ps1 -Release",
+    "tauri:build:no-bundle": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_rust_app.ps1 -Release -NoBundle"
   }
 }

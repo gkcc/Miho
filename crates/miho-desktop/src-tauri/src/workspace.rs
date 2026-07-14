@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 const SETTINGS_SCHEMA_V1: &str = "miho-desktop-settings-v1";
 const WORKSPACE_SUMMARY_SCHEMA_V1: &str = "miho-workspace-summary-v1";
+const MAX_SETTINGS_BYTES_V1: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -170,8 +171,17 @@ impl WorkspaceRegistry {
             selected_workspace: root.clone(),
             revision,
         };
+        let settings_parent = self.settings_path.parent().ok_or(WorkspaceError::Persist)?;
+        ensure_safe_directory_chain(settings_parent).map_err(|_| WorkspaceError::Persist)?;
+        match fs::symlink_metadata(&self.settings_path) {
+            Ok(_) => validate_existing_file_chain(&self.settings_path)
+                .map_err(|_| WorkspaceError::Persist)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(WorkspaceError::Persist),
+        }
         miho_core::config::save_json(&self.settings_path, &settings)
             .map_err(|_| WorkspaceError::Persist)?;
+        validate_existing_file_chain(&self.settings_path).map_err(|_| WorkspaceError::Persist)?;
         *active = ActiveWorkspace {
             root,
             source: WorkspaceSourceV1::Selected,
@@ -187,6 +197,13 @@ impl WorkspaceRegistry {
             .clone()
     }
 
+    pub fn push_warning(&self, warning: impl Into<String>) {
+        self.warnings
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(warning.into());
+    }
+
     pub fn environment_locked(&self) -> bool {
         self.environment_locked
     }
@@ -197,21 +214,52 @@ impl WorkspaceRegistry {
 }
 
 fn load_settings(path: &Path) -> (Option<DesktopSettingsV1>, Option<String>) {
-    if !path.exists() {
-        return (None, None);
-    }
-    match miho_core::config::load::<DesktopSettingsV1>(path) {
-        Ok(settings) if settings.schema_version == SETTINGS_SCHEMA_V1 => (Some(settings), None),
-        Ok(_) => (
+    let metadata = match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (None, None),
+        Ok(metadata) => metadata,
+        Err(_) => {
+            return (
+                None,
+                Some(
+                    "Stored workspace settings could not be read; defaults were restored."
+                        .to_owned(),
+                ),
+            )
+        }
+    };
+    let loaded = (|| {
+        validate_existing_file_chain(path)?;
+        if !metadata.is_file() || metadata.len() > MAX_SETTINGS_BYTES_V1 {
+            return Err(());
+        }
+        let bytes = fs::read(path).map_err(|_| ())?;
+        let after = fs::symlink_metadata(path).map_err(|_| ())?;
+        if !after.is_file()
+            || after.file_type().is_symlink()
+            || is_reparse(&after)
+            || after.len() > MAX_SETTINGS_BYTES_V1
+            || bytes.len() as u64 > MAX_SETTINGS_BYTES_V1
+            || after.len() != bytes.len() as u64
+        {
+            return Err(());
+        }
+        let settings = serde_json::from_slice::<DesktopSettingsV1>(&bytes).map_err(|_| ())?;
+        if settings.schema_version != SETTINGS_SCHEMA_V1
+            || settings.revision == 0
+            || validate_selected_root(&settings.selected_workspace).is_err()
+        {
+            return Err(());
+        }
+        Ok(settings)
+    })();
+    match loaded {
+        Ok(settings) => (Some(settings), None),
+        Err(()) => (
             None,
             Some(
-                "Stored workspace settings use an unsupported schema; defaults were restored."
+                "Stored workspace settings are invalid, unsafe, or unsupported; defaults were restored."
                     .to_owned(),
             ),
-        ),
-        Err(_) => (
-            None,
-            Some("Stored workspace settings could not be read; defaults were restored.".to_owned()),
         ),
     }
 }
@@ -238,9 +286,12 @@ fn select_initial_workspace(
             revision: settings.revision.max(1),
         };
     }
-    if let Some(root) =
-        cwd.filter(|path| path.join(".miho").is_dir() && validate_selected_root(path).is_ok())
-    {
+    if let Some(root) = cwd.filter(|root| {
+        validate_selected_root(root).is_ok()
+            && fs::symlink_metadata(root.join(".miho")).is_ok_and(|metadata| {
+                metadata.is_dir() && !metadata.file_type().is_symlink() && !is_reparse(&metadata)
+            })
+    }) {
         return ActiveWorkspace {
             root,
             source: WorkspaceSourceV1::WorkingDirectory,
@@ -254,10 +305,86 @@ fn select_initial_workspace(
     }
 }
 
-fn validate_selected_root(root: &Path) -> Result<(), WorkspaceError> {
-    let metadata = fs::symlink_metadata(root).map_err(|_| WorkspaceError::InvalidSelection)?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() || is_reparse(&metadata) {
+pub(crate) fn validate_selected_root(root: &Path) -> Result<(), WorkspaceError> {
+    if !root.is_absolute()
+        || root.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::Prefix(_)
+                    | std::path::Component::RootDir
+                    | std::path::Component::Normal(_)
+            )
+        })
+    {
         return Err(WorkspaceError::InvalidSelection);
+    }
+    for candidate in root.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        if candidate.as_os_str().is_empty() {
+            continue;
+        }
+        let metadata =
+            fs::symlink_metadata(candidate).map_err(|_| WorkspaceError::InvalidSelection)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() || is_reparse(&metadata) {
+            return Err(WorkspaceError::InvalidSelection);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_existing_file_chain(path: &Path) -> Result<(), ()> {
+    if !path.is_absolute() {
+        return Err(());
+    }
+    let parent = path.parent().ok_or(())?;
+    for candidate in parent.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        if candidate.as_os_str().is_empty() {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(candidate).map_err(|_| ())?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() || is_reparse(&metadata) {
+            return Err(());
+        }
+    }
+    let metadata = fs::symlink_metadata(path).map_err(|_| ())?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || is_reparse(&metadata) {
+        return Err(());
+    }
+    Ok(())
+}
+
+pub(crate) fn ensure_safe_directory_chain(path: &Path) -> Result<(), ()> {
+    if !path.is_absolute()
+        || path.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::Prefix(_)
+                    | std::path::Component::RootDir
+                    | std::path::Component::Normal(_)
+            )
+        })
+    {
+        return Err(());
+    }
+    for candidate in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        if candidate.as_os_str().is_empty() {
+            continue;
+        }
+        match fs::symlink_metadata(candidate) {
+            Ok(metadata)
+                if metadata.is_dir()
+                    && !metadata.file_type().is_symlink()
+                    && !is_reparse(&metadata) => {}
+            Ok(_) => return Err(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir(candidate).map_err(|_| ())?;
+                let metadata = fs::symlink_metadata(candidate).map_err(|_| ())?;
+                if !metadata.is_dir() || metadata.file_type().is_symlink() || is_reparse(&metadata)
+                {
+                    return Err(());
+                }
+            }
+            Err(_) => return Err(()),
+        }
     }
     Ok(())
 }
@@ -281,6 +408,28 @@ pub(crate) fn workspace_storage_scope(root: &Path) -> Result<String, WorkspaceEr
     }
     #[cfg(not(any(windows, unix)))]
     hasher.update(canonical.to_string_lossy().as_bytes());
+    Ok(format!("storage-{:x}", hasher.finalize()))
+}
+
+pub(crate) fn workspace_storage_scope_from_identity(
+    root: &Path,
+    identity: &str,
+) -> Result<String, WorkspaceError> {
+    validate_selected_root(root)?;
+    if identity.len() != 36
+        || !identity
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| match index {
+                8 | 13 | 18 | 23 => byte == b'-',
+                _ => byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte),
+            })
+    {
+        return Err(WorkspaceError::InvalidSelection);
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"miho-portable-storage-v1\0");
+    hasher.update(identity.as_bytes());
     Ok(format!("storage-{:x}", hasher.finalize()))
 }
 
