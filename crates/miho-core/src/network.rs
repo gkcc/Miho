@@ -1,10 +1,13 @@
 use std::{
+    fmt,
     future::Future,
+    net::IpAddr,
     path::{Component, Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
 
+use curl::easy::{Easy, List};
 use reqwest::{header::HeaderMap, Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
@@ -34,9 +37,12 @@ pub struct FetchedText {
 #[derive(Clone)]
 pub struct HttpClient {
     client: Client,
+    timeout: Duration,
     retries: usize,
     backoff: Arc<[Duration]>,
 }
+
+const BROWSER_RESPONSE_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 
 impl HttpClient {
     pub fn new(timeout: Duration, retries: usize) -> Result<Self> {
@@ -45,6 +51,7 @@ impl HttpClient {
                 .timeout(timeout)
                 .user_agent("miho-endgame/0.1")
                 .build()?,
+            timeout,
             retries,
             backoff: [
                 Duration::from_millis(250),
@@ -62,6 +69,34 @@ impl HttpClient {
     pub async fn get_text_with_headers(&self, url: &str, headers: &HeaderMap) -> Result<String> {
         self.send_text(|| self.client.get(url).headers(headers.clone()))
             .await
+    }
+
+    pub async fn get_browser_text_with_headers(
+        &self,
+        url: &str,
+        headers: &HeaderMap,
+    ) -> Result<String> {
+        let mut attempt = 0;
+        loop {
+            let url = url.to_owned();
+            let headers = headers.clone();
+            let timeout = self.timeout;
+            let result = tokio::task::spawn_blocking(move || {
+                curl_get_text(&url, &headers, timeout, BROWSER_RESPONSE_LIMIT_BYTES)
+            })
+            .await
+            .map_err(|error| {
+                MihoError::BrowserNetwork(format!("browser transport worker failed: {error}"))
+            })?;
+            match result {
+                Ok(text) => return Ok(text),
+                Err(error) if attempt < self.retries && error.retryable => {
+                    sleep(self.backoff[attempt.min(self.backoff.len() - 1)]).await;
+                    attempt += 1;
+                }
+                Err(error) => return Err(MihoError::BrowserNetwork(error.to_string())),
+            }
+        }
     }
 
     pub async fn post_json<T>(&self, url: &str, headers: &HeaderMap, body: &T) -> Result<String>
@@ -92,6 +127,163 @@ impl HttpClient {
                 Err(error) => return Err(error.into()),
             }
         }
+    }
+}
+
+#[derive(Debug)]
+struct BrowserRequestError {
+    message: String,
+    retryable: bool,
+}
+
+impl BrowserRequestError {
+    fn new(message: impl Into<String>, retryable: bool) -> Self {
+        Self {
+            message: message.into(),
+            retryable,
+        }
+    }
+}
+
+impl fmt::Display for BrowserRequestError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+fn curl_get_text(
+    url: &str,
+    headers: &HeaderMap,
+    timeout: Duration,
+    response_limit: usize,
+) -> std::result::Result<String, BrowserRequestError> {
+    let mut client = Easy::new();
+    client
+        .url(url)
+        .map_err(|error| curl_configuration_error(url, error))?;
+    client
+        .follow_location(true)
+        .map_err(|error| curl_configuration_error(url, error))?;
+    client
+        .max_redirections(5)
+        .map_err(|error| curl_configuration_error(url, error))?;
+    client
+        .timeout(timeout)
+        .map_err(|error| curl_configuration_error(url, error))?;
+    client
+        .connect_timeout(timeout.min(Duration::from_secs(15)))
+        .map_err(|error| curl_configuration_error(url, error))?;
+    if is_loopback_url(url) {
+        client
+            .noproxy("*")
+            .map_err(|error| curl_configuration_error(url, error))?;
+    }
+
+    let mut header_list = List::new();
+    for (name, value) in headers {
+        let value = value.to_str().map_err(|error| {
+            BrowserRequestError::new(
+                format!("invalid HTTP header {name} for {url}: {error}"),
+                false,
+            )
+        })?;
+        header_list
+            .append(&format!("{}: {value}", browser_header_name(name)))
+            .map_err(|error| curl_configuration_error(url, error))?;
+    }
+    client
+        .http_headers(header_list)
+        .map_err(|error| curl_configuration_error(url, error))?;
+
+    let mut body = Vec::new();
+    let mut response_too_large = false;
+    let perform_result = {
+        let mut transfer = client.transfer();
+        transfer
+            .write_function(|bytes| {
+                if body.len().saturating_add(bytes.len()) > response_limit {
+                    response_too_large = true;
+                    return Ok(0);
+                }
+                body.extend_from_slice(bytes);
+                Ok(bytes.len())
+            })
+            .map_err(|error| curl_configuration_error(url, error))?;
+        transfer.perform()
+    };
+    if response_too_large {
+        return Err(BrowserRequestError::new(
+            format!("response from {url} exceeded {response_limit} bytes"),
+            false,
+        ));
+    }
+    if let Err(error) = perform_result {
+        let retryable = error.is_couldnt_resolve_proxy()
+            || error.is_couldnt_resolve_host()
+            || error.is_couldnt_connect()
+            || error.is_operation_timedout()
+            || error.is_partial_file()
+            || error.is_got_nothing()
+            || error.is_send_error()
+            || error.is_recv_error()
+            || error.is_http2_error()
+            || error.is_http2_stream_error();
+        return Err(BrowserRequestError::new(
+            format!("browser-compatible GET failed for {url}: {error}"),
+            retryable,
+        ));
+    }
+
+    let status = client
+        .response_code()
+        .map_err(|error| curl_configuration_error(url, error))?;
+    if !(200..300).contains(&status) {
+        let retryable = matches!(status, 408 | 425 | 429 | 500..=599);
+        return Err(BrowserRequestError::new(
+            format!("HTTP status {status} for url ({url})"),
+            retryable,
+        ));
+    }
+    String::from_utf8(body).map_err(|error| {
+        BrowserRequestError::new(format!("response from {url} was not UTF-8: {error}"), false)
+    })
+}
+
+fn browser_header_name(name: &reqwest::header::HeaderName) -> String {
+    name.as_str()
+        .split('-')
+        .map(|component| {
+            let mut cased = String::with_capacity(component.len());
+            for (index, character) in component.chars().enumerate() {
+                cased.push(if index == 0 {
+                    character.to_ascii_uppercase()
+                } else {
+                    character
+                });
+            }
+            cased
+        })
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn curl_configuration_error(url: &str, error: curl::Error) -> BrowserRequestError {
+    BrowserRequestError::new(
+        format!("could not configure browser-compatible GET for {url}: {error}"),
+        false,
+    )
+}
+
+fn is_loopback_url(url: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    match url.host_str() {
+        Some(host) if host.eq_ignore_ascii_case("localhost") => true,
+        Some(host) => host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback()),
+        None => false,
     }
 }
 
@@ -168,6 +360,26 @@ impl CachedHttpClient {
             cache_key,
             mode,
             self.http.get_text_with_headers(url, headers),
+            validate,
+        )
+        .await
+    }
+
+    pub async fn get_browser_text_with_headers_validated_with_source<V>(
+        &self,
+        url: &str,
+        headers: &HeaderMap,
+        cache_key: &Path,
+        mode: FetchMode,
+        validate: V,
+    ) -> Result<FetchedText>
+    where
+        V: Fn(&str) -> Result<()> + Send + Sync,
+    {
+        self.fetch_validated_with_cache(
+            cache_key,
+            mode,
+            self.http.get_browser_text_with_headers(url, headers),
             validate,
         )
         .await
@@ -449,6 +661,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn browser_get_retries_transient_status_but_not_permanent_client_error() {
+        let http = HttpClient::new(Duration::from_secs(2), 2).unwrap();
+        let headers = HeaderMap::new();
+        let (url, count) = serve(vec![500, 200]);
+        assert_eq!(
+            http.get_browser_text_with_headers(&url, &headers)
+                .await
+                .unwrap(),
+            "fixed-response"
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+
+        let (url, count) = serve(vec![404]);
+        let error = http
+            .get_browser_text_with_headers(&url, &headers)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("HTTP status 404"));
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn browser_get_rejects_response_over_limit_without_retrying() {
+        let (url, server) = serve_bodies(vec!["123456789"]);
+        let error = curl_get_text(&url, &HeaderMap::new(), Duration::from_secs(2), 8).unwrap_err();
+        assert!(!error.retryable);
+        assert!(error.to_string().contains("exceeded 8 bytes"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn offline_reads_cache_and_rejects_traversal() {
         let root = temp_dir("offline");
         let _ = fs::remove_dir_all(&root);
@@ -611,7 +854,7 @@ mod tests {
         headers.insert("referer", "https://www.prydwen.gg/".parse().unwrap());
 
         let fetched = client
-            .get_text_with_headers_validated_with_source(
+            .get_browser_text_with_headers_validated_with_source(
                 &url,
                 &headers,
                 Path::new("prydwen/page.html"),
@@ -634,6 +877,11 @@ mod tests {
         assert_eq!(requests.len(), 1);
         let request = &requests[0];
         assert!(request.starts_with("GET /fixture HTTP/1.1\r\n"));
+        assert!(request.contains("\r\nUser-Agent: Mozilla/5.0 miho-test\r\n"));
+        assert!(request.contains("\r\nAccept: text/html,application/xhtml+xml\r\n"));
+        assert!(request.contains("\r\nAccept-Language: zh-CN,zh;q=0.9\r\n"));
+        assert!(request.contains("\r\nCache-Control: no-cache\r\n"));
+        assert!(request.contains("\r\nReferer: https://www.prydwen.gg/\r\n"));
         let lower = request.to_ascii_lowercase();
         assert!(lower.contains("user-agent: mozilla/5.0 miho-test\r\n"));
         assert!(lower.contains("accept-language: zh-cn,zh;q=0.9\r\n"));

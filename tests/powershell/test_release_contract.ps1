@@ -343,6 +343,76 @@ function Assert-MihoReleaseFixtureV1 {
 $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("miho-release-contract-{0}-{1}" -f $PID, [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $temporary -ErrorAction Stop | Out-Null
 try {
+    $scratchFixture = Join-Path $temporary "scratch-cleanup"
+    $scratchBundle = Join-Path $scratchFixture "target\release\bundle"
+    $scratchWorkspace = Join-Path $scratchFixture "target\release\release-workspace\stale-build"
+    $scratchStaging = Join-Path $scratchFixture "target\release\release-staging\stale-stage"
+    foreach ($directory in @($scratchBundle, $scratchWorkspace, $scratchStaging)) {
+        New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop | Out-Null
+    }
+    Write-Utf8NoBom -LiteralPath (Join-Path $scratchBundle "keep.txt") -Text "content-addressed artifact"
+    Write-Utf8NoBom -LiteralPath (Join-Path $scratchWorkspace "cargo.bin") -Text "regenerable"
+    Write-Utf8NoBom -LiteralPath (Join-Path $scratchStaging "payload.bin") -Text "regenerable"
+    Clear-MihoReleaseScratchV1 -Root $scratchFixture
+    if ((Test-Path -LiteralPath (Join-Path $scratchFixture "target\release\release-workspace")) -or
+        (Test-Path -LiteralPath (Join-Path $scratchFixture "target\release\release-staging")) -or
+        (Get-Content -Raw -LiteralPath (Join-Path $scratchBundle "keep.txt")) -cne "content-addressed artifact") {
+        throw "Release scratch cleanup removed durable artifacts or retained regenerable trees"
+    }
+
+    $scratchExternal = Join-Path $temporary "scratch-cleanup-canary"
+    $scratchParent = Join-Path $scratchFixture "target\release\release-workspace"
+    New-Item -ItemType Directory -Path $scratchExternal -Force -ErrorAction Stop | Out-Null
+    Write-Utf8NoBom -LiteralPath (Join-Path $scratchExternal "canary.txt") -Text "preserve"
+    New-Item -ItemType Directory -Path $scratchParent -Force -ErrorAction Stop | Out-Null
+    $scratchLink = Join-Path $scratchParent "unsafe-link"
+    New-Item -ItemType Junction -Path $scratchLink -Target $scratchExternal -ErrorAction Stop | Out-Null
+    Clear-MihoReleaseScratchV1 -Root $scratchFixture
+    if ((Test-Path -LiteralPath $scratchLink) -or
+        (Test-Path -LiteralPath $scratchParent) -or
+        (Get-Content -Raw -LiteralPath (Join-Path $scratchExternal "canary.txt")) -cne "preserve") {
+        throw "Release scratch reparse cleanup followed its link or retained the link object"
+    }
+
+    $prepublicationFixture = Join-Path $temporary "prepublication-cleanup"
+    $prepublicationBundle = Join-Path $prepublicationFixture "target\release\bundle"
+    $prepublicationScratch = Join-Path $prepublicationFixture "target\release\release-workspace"
+    New-Item -ItemType Directory -Path $prepublicationBundle -Force -ErrorAction Stop | Out-Null
+    New-Item -ItemType Directory -Path $prepublicationScratch -Force -ErrorAction Stop | Out-Null
+    $activeManifest = Join-Path $prepublicationBundle "miho-release-artifacts-v1.json"
+    Write-Utf8NoBom -LiteralPath $activeManifest -Text "old-active-anchor"
+    $expectedAnchor = Get-MihoActiveReleaseAnchorStateV1 -Root $prepublicationFixture
+    $pendingManifest = Join-Path $prepublicationBundle (".miho-release-artifacts-v1.{0}.pending.json" -f [guid]::NewGuid().ToString("N"))
+    Write-Utf8NoBom -LiteralPath $pendingManifest -Text "new-active-anchor"
+    $cleanupPoison = Join-Path $prepublicationScratch "unexpected-file.txt"
+    Write-Utf8NoBom -LiteralPath $cleanupPoison -Text "must block publication"
+    Assert-ThrowsV1 -Label "prepublication cleanup failure keeps active anchor" -Action {
+        $null = Publish-MihoReleaseArtifactsAfterCleanupV1 `
+            -Root $prepublicationFixture `
+            -PendingManifest $pendingManifest `
+            -PublicationState "active" `
+            -ExpectedActiveAnchor $expectedAnchor `
+            -CalibrationPayloadRoot ""
+    }
+    if ((Get-Content -Raw -LiteralPath $activeManifest) -cne "old-active-anchor" -or
+        (Test-Path -LiteralPath $pendingManifest)) {
+        throw "Failed prepublication cleanup changed the active anchor or retained an ephemeral pending manifest"
+    }
+    Remove-Item -LiteralPath $cleanupPoison -Force -ErrorAction Stop
+    Write-Utf8NoBom -LiteralPath $pendingManifest -Text "new-active-anchor"
+    $publicationResult = Publish-MihoReleaseArtifactsAfterCleanupV1 `
+        -Root $prepublicationFixture `
+        -PendingManifest $pendingManifest `
+        -PublicationState "active" `
+        -ExpectedActiveAnchor $expectedAnchor `
+        -CalibrationPayloadRoot ""
+    if ((Get-Content -Raw -LiteralPath $activeManifest) -cne "new-active-anchor" -or
+        (Test-Path -LiteralPath $pendingManifest) -or
+        (Test-Path -LiteralPath $prepublicationScratch) -or
+        -not [bool]$publicationResult.ScratchCleaned) {
+        throw "Successful prepublication cleanup did not precede the active anchor replacement"
+    }
+
     $valid = Join-Path $temporary "valid.json"
     Write-Utf8NoBom -LiteralPath $valid -Text '{"schema_version":"test","nested":{"value":1},"files":[{"path":"a"}]}'
     $object = Read-MihoStrictJsonFileV1 -LiteralPath $valid

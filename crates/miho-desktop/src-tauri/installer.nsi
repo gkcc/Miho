@@ -100,6 +100,7 @@ Var MihoUninstallStagingRoot
 Var MihoUninstallHelper
 Var MihoUninstallWrapper
 Var MihoUninstallRecoveryMode
+Var MihoInstalledVersionComparison
 
 Name "${PRODUCTNAME}"
 BrandingText "${COPYRIGHT}"
@@ -257,6 +258,7 @@ Function PageReinstall
 
   nsis_tauri_utils::SemverCompare "${VERSION}" $R0
   Pop $R0
+  StrCpy $MihoInstalledVersionComparison $R0
   ; Reinstalling the same version
   ${If} $R0 = 0
     StrCpy $R1 "$(alreadyInstalledLong)"
@@ -456,43 +458,8 @@ FunctionEnd
 
 ; Uninstaller Pages
 ; 1. Confirm uninstall page
-Var DeleteAppDataCheckbox
-Var DeleteAppDataCheckboxState
-!define /ifndef WS_EX_LAYOUTRTL         0x00400000
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW un.ConfirmShow
-Function un.ConfirmShow ; Add add a `Delete app data` check box
-  ; $1 inner dialog HWND
-  ; $2 window DPI
-  ; $3 style
-  ; $4 x
-  ; $5 y
-  ; $6 width
-  ; $7 height
-  FindWindow $1 "#32770" "" $HWNDPARENT ; Find inner dialog
-  System::Call "user32::GetDpiForWindow(p r1) i .r2"
-  ${If} $(^RTL) = 1
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE} | ${WS_EX_LAYOUTRTL}"
-    IntOp $4 50 * $2
-  ${Else}
-    StrCpy $3 "${__NSD_CheckBox_EXSTYLE}"
-    IntOp $4 0 * $2
-  ${EndIf}
-  IntOp $5 100 * $2
-  IntOp $6 400 * $2
-  IntOp $7 25 * $2
-  IntOp $4 $4 / 96
-  IntOp $5 $5 / 96
-  IntOp $6 $6 / 96
-  IntOp $7 $7 / 96
-  System::Call 'user32::CreateWindowEx(i r3, w "${__NSD_CheckBox_CLASS}", w "$(deleteAppData)", i ${__NSD_CheckBox_STYLE}, i r4, i r5, i r6, i r7, p r1, i0, i0, i0) i .s'
-  Pop $DeleteAppDataCheckbox
-  SendMessage $HWNDPARENT ${WM_GETFONT} 0 0 $1
-  SendMessage $DeleteAppDataCheckbox ${WM_SETFONT} $1 1
-FunctionEnd
-!define MUI_PAGE_CUSTOMFUNCTION_LEAVE un.ConfirmLeave
-Function un.ConfirmLeave
-  SendMessage $DeleteAppDataCheckbox ${BM_GETCHECK} 0 0 $DeleteAppDataCheckboxState
-FunctionEnd
+; Mutable workspace, Box, config, receipts and output data are never owned by
+; the installer. Do not display a generic recursive AppData deletion option.
 !define MUI_PAGE_CUSTOMFUNCTION_PRE un.SkipIfPassive
 !insertmacro MUI_UNPAGE_CONFIRM
 
@@ -509,6 +476,10 @@ FunctionEnd
 {{/each}}
 
 Function .onInit
+  ; Page callbacks do not run for /S installs. Keep downgrade policy on a
+  ; dedicated variable instead of reading a scratch register left behind by
+  ; GetOptions or another macro when this is a true clean silent install.
+  StrCpy $MihoInstalledVersionComparison ""
   ClearErrors
   ${GetOptions} $CMDLINE "/MIHO_VERIFY_STATIC=" $MihoVerifyStaticDir
   ${IfNot} ${Errors}
@@ -550,6 +521,15 @@ Function .onInit
 
   !insertmacro SetContext
 
+  ; Establish the NSIS-installed version relation even when every page is
+  ; skipped. Interactive installs recompute the same value in PageReinstall;
+  ; a missing uninstall version deliberately remains "not installed".
+  ReadRegStr $R1 SHCTX "${UNINSTKEY}" "DisplayVersion"
+  ${If} $R1 != ""
+    nsis_tauri_utils::SemverCompare "${VERSION}" $R1
+    Pop $MihoInstalledVersionComparison
+  ${EndIf}
+
   ${If} $INSTDIR == "${PLACEHOLDER_INSTALL_DIR}"
     ; Set default install location
     !if "${INSTALLMODE}" == "perMachine"
@@ -589,7 +569,7 @@ Section EarlyChecks
   !if "${ALLOWDOWNGRADES}" == "false"
   ${If} ${Silent}
     ; If downgrading
-    ${If} $R0 = -1
+    ${If} $MihoInstalledVersionComparison = -1
       System::Call 'kernel32::AttachConsole(i -1)i.r0'
       ${If} $0 <> 0
         System::Call 'kernel32::GetStdHandle(i -11)i.r0'
@@ -698,12 +678,12 @@ Section WebView2
 SectionEnd
 
 !macro MIHO_SET_ENV NAME VALUE
-  System::Call 'kernel32::SetEnvironmentVariableW(w "${NAME}", w "${VALUE}") i.r9'
+  System::Call 'kernel32::SetEnvironmentVariableW(w "${NAME}", w "${VALUE}") i.R9'
   StrCmp $R9 0 miho_environment_failed
 !macroend
 
 !macro MIHO_CLEAR_ENV NAME
-  System::Call 'kernel32::SetEnvironmentVariableW(w "${NAME}", p 0) i.r9'
+  System::Call 'kernel32::SetEnvironmentVariableW(w "${NAME}", p 0) i.R9'
   StrCmp $R9 0 miho_environment_failed
 !macroend
 
@@ -715,11 +695,11 @@ SectionEnd
 Function MihoAcquireInstallerLease
   StrCpy $MihoInstallerLease ""
   StrCpy $R8 "$LOCALAPPDATA\com.miho.endgame.installer-v1.lock"
-  System::Call 'kernel32::CreateFileW(w rR8, i 0xC0000000, i 0, p 0, i 4, i 0x00200080, p 0) p.r0'
+  System::Call 'kernel32::CreateFileW(w R8, i 0xC0000000, i 0, p 0, i 4, i 0x00200080, p 0) p.r0'
   StrCpy $MihoInstallerLease $0
   StrCmp $MihoInstallerLease "-1" miho_installer_lease_failed
 
-  System::Call 'kernel32::GetFileAttributesW(w rR8) i.r1'
+  System::Call 'kernel32::GetFileAttributesW(w R8) i.r1'
   StrCmp $1 "-1" miho_installer_lease_close_failed
   IntOp $2 $1 & 0x00000410
   StrCmp $2 0 +2
@@ -753,10 +733,10 @@ FunctionEnd
 Function un.MihoAcquireInstallerLease
   StrCpy $MihoInstallerLease ""
   StrCpy $R8 "$LOCALAPPDATA\com.miho.endgame.installer-v1.lock"
-  System::Call 'kernel32::CreateFileW(w rR8, i 0xC0000000, i 0, p 0, i 4, i 0x00200080, p 0) p.r0'
+  System::Call 'kernel32::CreateFileW(w R8, i 0xC0000000, i 0, p 0, i 4, i 0x00200080, p 0) p.r0'
   StrCpy $MihoInstallerLease $0
   StrCmp $MihoInstallerLease "-1" un_miho_installer_lease_failed
-  System::Call 'kernel32::GetFileAttributesW(w rR8) i.r1'
+  System::Call 'kernel32::GetFileAttributesW(w R8) i.r1'
   StrCmp $1 "-1" un_miho_installer_lease_close_failed
   IntOp $2 $1 & 0x00000410
   StrCmp $2 0 +2
@@ -858,8 +838,15 @@ miho_normal_install:
       StrCpy $R6 "1"
     ${EndIf}
   ${EndIf}
-  System::Call 'kernel32::GetCurrentProcessId() i.r5'
+  ; SetEnvironmentVariable treats an empty value as deletion, so an explicit
+  ; marker carries Tauri's root-of-Programs shortcut policy to PowerShell.
+  StrCpy $R4 "0"
+  StrCmp $AppStartMenuFolder "" 0 +2
+    StrCpy $R4 "1"
+  System::Call 'kernel32::GetCurrentProcessId() i.R5'
+  Delete "$LOCALAPPDATA\com.miho.endgame.installer-last-failure-v1.json"
   !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_TRANSACTION_ROOT_V1" "$MihoInstallerTransactionRoot"
+  !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_FAILURE_RECEIPT_V1" "$LOCALAPPDATA\com.miho.endgame.installer-last-failure-v1.json"
   !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_INSTALL_ROOT_V1" "$INSTDIR"
   !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_STAGING_ROOT_V1" "$MihoInstallerStagingRoot"
   !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_COORDINATOR_PID_V1" "$R5"
@@ -868,6 +855,7 @@ miho_normal_install:
   !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_PRODUCT_VERSION_V1" "${VERSION}"
   !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_MAIN_BINARY_V1" "${MAINBINARYNAME}"
   !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_START_MENU_V1" "$AppStartMenuFolder"
+  !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_START_MENU_ROOT_V1" "$R4"
   !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_DESKTOP_SHORTCUT_V1" "$R6"
   !insertmacro MIHO_SET_ENV "MIHO_INSTALLER_NO_SHORTCUTS_V1" "$R7"
   !insertmacro MIHO_CLEAR_ENV "MIHO_INSTALLER_WORKSPACE_V1"
@@ -1074,7 +1062,7 @@ miho_install_rolled_back:
   !insertmacro MIHO_RUN_INSTALLER_HELPER "Finalize"
   Call MihoReleaseInstallerLease
   SetErrorLevel 1603
-  MessageBox MB_ICONSTOP|MB_OK "Miho Endgame setup failed during $MihoInstallerFailure. The previous installer-owned files, registry, shortcuts and scheduled task were rolled back." /SD IDOK
+  MessageBox MB_ICONSTOP|MB_OK "Miho Endgame setup failed during $MihoInstallerFailure. The previous installer-owned files, registry, shortcuts and scheduled task were rolled back. Details were saved to $LOCALAPPDATA\com.miho.endgame.installer-last-failure-v1.json." /SD IDOK
   Abort "Miho Endgame setup failed and was rolled back."
 
 miho_install_failed_without_transaction:
@@ -1161,8 +1149,7 @@ miho_uninstall_policy_staging_failed:
 miho_uninstall_policy_staged:
 
   ; Workspace, Box, config, receipts and outputs are user data. This product
-  ; never delegates their recursive deletion to the generic Tauri checkbox.
-  StrCpy $DeleteAppDataCheckboxState 0
+  ; has no recursive AppData deletion UI or uninstall branch.
 
   !ifmacrodef NSIS_HOOK_PREUNINSTALL
     !insertmacro NSIS_HOOK_PREUNINSTALL
@@ -1252,23 +1239,14 @@ miho_uninstall_policy_staged:
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   ${EndIf}
 
-  ; Delete app data if the checkbox is selected
-  ; and if not updating
-  ${If} $DeleteAppDataCheckboxState = 1
-  ${AndIf} $UpdateMode <> 1
-    ; Clear the install location $INSTDIR from registry
-    DeleteRegKey SHCTX "${MANUPRODUCTKEY}"
-    DeleteRegKey /ifempty SHCTX "${MANUKEY}"
-
-    ; Clear the install language from registry
-    DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"
-    DeleteRegKey /ifempty HKCU "${MANUPRODUCTKEY}"
-    DeleteRegKey /ifempty HKCU "${MANUKEY}"
-
-    SetShellVarContext current
-    RmDir /r "$APPDATA\${BUNDLEID}"
-    RmDir /r "$LOCALAPPDATA\${BUNDLEID}"
-  ${EndIf}
+  ; Install-location and installer-language registry values are product
+  ; metadata, not user data. Remove them even though Miho deliberately keeps
+  ; workspace/config/output AppData on uninstall.
+  DeleteRegKey SHCTX "${MANUPRODUCTKEY}"
+  DeleteRegKey /ifempty SHCTX "${MANUKEY}"
+  DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"
+  DeleteRegKey /ifempty HKCU "${MANUPRODUCTKEY}"
+  DeleteRegKey /ifempty HKCU "${MANUKEY}"
 
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL
     !insertmacro NSIS_HOOK_POSTUNINSTALL
@@ -1330,6 +1308,9 @@ Function CreateOrUpdateStartMenuShortcut
     ${EndIf}
   ${EndIf}
 
+  ; CreateShortcut derives WorkingDirectory from OutPath. The immutable
+  ; staging directory is deleted after setup, so reset it to the install root.
+  SetOutPath "$INSTDIR"
   !if "${STARTMENUFOLDER}" != ""
     CreateDirectory "$SMPROGRAMS\$AppStartMenuFolder"
     CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
@@ -1359,6 +1340,8 @@ Function CreateOrUpdateDesktopShortcut
     ${EndIf}
   ${EndIf}
 
+  ; Keep the shortcut's WorkingDirectory stable after $PLUGINSDIR is removed.
+  SetOutPath "$INSTDIR"
   CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
   !insertmacro SetLnkAppUserModelId "$DESKTOP\${PRODUCTNAME}.lnk"
 FunctionEnd

@@ -98,7 +98,7 @@ impl ZzzHttpSupplementalSource {
                 let headers = prydwen_headers();
                 let fetched = self
                     .client
-                    .get_text_with_headers_validated_with_source(
+                    .get_browser_text_with_headers_validated_with_source(
                         &source_url,
                         &headers,
                         &team_cache_key(mode),
@@ -113,7 +113,7 @@ impl ZzzHttpSupplementalSource {
                 let headers = prydwen_headers();
                 let fetched = self
                     .client
-                    .get_text_with_headers_validated_with_source(
+                    .get_browser_text_with_headers_validated_with_source(
                         &source_url,
                         &headers,
                         &tier_cache_key(),

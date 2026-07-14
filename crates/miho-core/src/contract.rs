@@ -345,7 +345,7 @@ impl ExportFailureV1 {
             MihoError::Write { .. } => "io.write_failed",
             MihoError::Json { .. } => "format.invalid_json",
             MihoError::Yaml { .. } => "format.invalid_yaml",
-            MihoError::Network(_) => "network.request_failed",
+            MihoError::Network(_) | MihoError::BrowserNetwork(_) => "network.request_failed",
             MihoError::CacheMiss(_) => "cache.miss",
             MihoError::CacheFallbackRejected(_) => "cache.fallback_rejected",
             MihoError::InvalidCacheKey(_) => "cache.invalid_key",

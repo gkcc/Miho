@@ -159,6 +159,72 @@ function Remove-MihoSafeTreeV1 {
     Remove-Item -LiteralPath $directory -Force -ErrorAction Stop
 }
 
+function Remove-MihoReleaseScratchTreeV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$LiteralPath,
+        [Parameter(Mandatory = $true)][string]$Parent
+    )
+
+    $full = Assert-PathBelow -LiteralPath $LiteralPath -Parent $Parent
+    if (-not (Test-Path -LiteralPath $full)) { return }
+    $item = Get-Item -LiteralPath $full -Force -ErrorAction Stop
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        # pnpm deliberately builds its isolated dependency graph with junctions.
+        # Delete the link object without enumerating or resolving its target.
+        $isDirectoryLink = $item.PSIsContainer -or
+            (($item.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0)
+        if ($isDirectoryLink) {
+            [System.IO.Directory]::Delete($full, $false)
+        }
+        else {
+            [System.IO.File]::Delete($full)
+        }
+        if ($null -ne (Get-Item -LiteralPath $full -Force -ErrorAction SilentlyContinue)) {
+            throw "Release scratch reparse point could not be unlinked"
+        }
+        return
+    }
+    if (-not $item.PSIsContainer) {
+        Remove-Item -LiteralPath $full -Force -ErrorAction Stop
+        return
+    }
+    foreach ($entry in @(Get-ChildItem -LiteralPath $full -Force -ErrorAction Stop)) {
+        Remove-MihoReleaseScratchTreeV1 -LiteralPath $entry.FullName -Parent $Parent
+    }
+    if (@(Get-ChildItem -LiteralPath $full -Force -ErrorAction Stop).Count -ne 0) {
+        throw "Release scratch directory is not empty"
+    }
+    [System.IO.Directory]::Delete($full, $false)
+}
+
+function Clear-MihoReleaseScratchV1 {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $workspace = Resolve-SafeDirectoryV1 -LiteralPath $Root
+    $releaseRoot = Join-Path $workspace "target\release"
+    if (-not (Test-Path -LiteralPath $releaseRoot)) { return }
+    $releaseDirectory = Resolve-SafeDirectoryV1 -LiteralPath $releaseRoot
+    foreach ($name in @("release-workspace", "release-staging")) {
+        $candidate = Assert-PathBelow -LiteralPath (Join-Path $releaseDirectory $name) -Parent $releaseDirectory
+        if (-not (Test-Path -LiteralPath $candidate)) { continue }
+        $scratch = Resolve-SafeDirectoryV1 -LiteralPath $candidate
+        foreach ($entry in @(Get-ChildItem -LiteralPath $scratch -Force -ErrorAction Stop)) {
+            if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                Remove-MihoReleaseScratchTreeV1 -LiteralPath $entry.FullName -Parent $scratch
+                continue
+            }
+            if (-not $entry.PSIsContainer) {
+                throw "Release scratch parent contains an unexpected file"
+            }
+            Remove-MihoReleaseScratchTreeV1 -LiteralPath $entry.FullName -Parent $scratch
+        }
+        if (@(Get-ChildItem -LiteralPath $scratch -Force -ErrorAction Stop).Count -ne 0) {
+            throw "Release scratch parent is not empty"
+        }
+        Remove-Item -LiteralPath $scratch -Force -ErrorAction Stop
+    }
+}
+
 function Get-MihoSafeFilesV1 {
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
 
@@ -2674,6 +2740,43 @@ function Publish-MihoReleaseArtifactsManifestV1 {
     }
 }
 
+function Publish-MihoReleaseArtifactsAfterCleanupV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$PendingManifest,
+        [Parameter(Mandatory = $true)][ValidateSet("active", "verification-only")][string]$PublicationState,
+        [Parameter(Mandatory = $true)]$ExpectedActiveAnchor,
+        [AllowNull()][AllowEmptyString()][string]$CalibrationPayloadRoot
+    )
+
+    # All fallible scratch mutation must finish before the active anchor can
+    # change. Any prepublication failure removes the ephemeral pending file
+    # while leaving the previously observed active manifest untouched.
+    try {
+        if (-not [string]::IsNullOrEmpty($CalibrationPayloadRoot) -and
+            (Test-Path -LiteralPath $CalibrationPayloadRoot)) {
+            Remove-MihoSafeTreeV1 -LiteralPath $CalibrationPayloadRoot
+        }
+        Clear-MihoReleaseScratchV1 -Root $Root
+        $published = Publish-MihoReleaseArtifactsManifestV1 `
+            -Root $Root `
+            -PendingManifest $PendingManifest `
+            -PublicationState $PublicationState `
+            -ExpectedActiveAnchor $ExpectedActiveAnchor
+        return [pscustomobject][ordered]@{
+            Manifest = $published
+            ScratchCleaned = $true
+        }
+    }
+    catch {
+        $publicationError = $_
+        if (Test-Path -LiteralPath $PendingManifest) {
+            Remove-Item -LiteralPath (Resolve-SafeFileV1 -LiteralPath $PendingManifest) -Force -ErrorAction Stop
+        }
+        throw $publicationError
+    }
+}
+
 function Assert-MihoReleaseArtifactsManifestV1 {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
@@ -3133,11 +3236,18 @@ $buildRoot = $root
 $buildDesktop = $desktop
 $toolchainRoot = $root
 $calibrationPayloadRoot = $null
+$releaseScratchCleaned = $false
+$publishedManifest = $null
+$leaseReleaseWarning = $null
 try {
     if ($Release) {
         # Creating/opening the filesystem lease is deliberately the first
         # release-specific workspace mutation and it remains held to exit.
         $releaseLease = Enter-MihoReleaseBuildLeaseV1 -Root $root
+        # A killed prior build must not leave another multi-gigabyte dependency
+        # and Cargo tree. The lease proves no live build owns these scratch
+        # roots; content-addressed bundle artifacts are deliberately excluded.
+        Clear-MihoReleaseScratchV1 -Root $root
     }
     $workspaceInputs = $null
     $buildWorkspaceInputs = $null
@@ -3608,7 +3718,6 @@ try {
             -StagingEvidence $stagingEvidence `
             -ToolchainEvidence $toolchainEvidence `
             -Publication $publication
-        $publishedManifest = $null
         try {
             $null = Assert-MihoReleaseArtifactsManifestV1 `
                 -Root $root `
@@ -3644,8 +3753,9 @@ try {
                 throw "Release executable inputs changed during final artifacts verification"
             }
 
-            # This second full assertion is the final output read. Publication
-            # below is the only remaining filesystem mutation on success.
+            # This second full assertion is the final output read from build
+            # scratch. Leave the isolated cwd and complete every fallible
+            # cleanup before publication changes the active anchor.
             $null = Assert-MihoReleaseArtifactsManifestV1 `
                 -Root $root `
                 -BuildWorkspaceRoot $buildRoot `
@@ -3660,18 +3770,26 @@ try {
                 -StagingRoot $staging.Root `
                 -NodePath $node `
                 -Manifest $pendingManifest
-            $publishedManifest = Publish-MihoReleaseArtifactsManifestV1 `
+            if ($locationPushed) {
+                Pop-Location
+                $locationPushed = $false
+            }
+            $publicationResult = Publish-MihoReleaseArtifactsAfterCleanupV1 `
                 -Root $root `
                 -PendingManifest $pendingManifest `
                 -PublicationState ([string]$publication.state) `
-                -ExpectedActiveAnchor $initialActiveAnchor
+                -ExpectedActiveAnchor $initialActiveAnchor `
+                -CalibrationPayloadRoot $calibrationPayloadRoot
+            $publishedManifest = $publicationResult.Manifest
+            $releaseScratchCleaned = [bool]$publicationResult.ScratchCleaned
+            $calibrationPayloadRoot = $null
         }
         finally {
             if ($null -eq $publishedManifest -and (Test-Path -LiteralPath $pendingManifest)) {
                 Remove-Item -LiteralPath (Resolve-SafeFileV1 -LiteralPath $pendingManifest) -Force -ErrorAction Stop
             }
         }
-        Write-Output "Immutable release staging: $($staging.Root)"
+        Write-Output "Immutable release staging digest: $($staging.TreeSha256) ($($staging.FileCount) files; scratch is removed before exit)"
         Write-Output "Static installed payload manifest: $installedManifest"
         Write-Output "Portable directory: $($portableResult.Directory)"
         Write-Output "Portable archive: $($portableResult.Archive)"
@@ -3682,9 +3800,30 @@ try {
     }
 }
 finally {
-    if ($locationPushed) { Pop-Location }
-    if ($null -ne $calibrationPayloadRoot -and (Test-Path -LiteralPath $calibrationPayloadRoot)) {
-        Remove-MihoSafeTreeV1 -LiteralPath $calibrationPayloadRoot
+    try {
+        if ($locationPushed) { Pop-Location }
+        if ($null -ne $calibrationPayloadRoot -and (Test-Path -LiteralPath $calibrationPayloadRoot)) {
+            Remove-MihoSafeTreeV1 -LiteralPath $calibrationPayloadRoot
+        }
+        if ($Release -and $null -ne $releaseLease -and -not $releaseScratchCleaned) {
+            Clear-MihoReleaseScratchV1 -Root $root
+            $releaseScratchCleaned = $true
+        }
     }
-    if ($null -ne $releaseLease) { Exit-MihoReleaseBuildLeaseV1 -Lease $releaseLease }
+    finally {
+        if ($null -ne $releaseLease) {
+            try { Exit-MihoReleaseBuildLeaseV1 -Lease $releaseLease }
+            catch {
+                if ($null -eq $publishedManifest) { throw }
+                # Publication already passed its final byte/hash read. Process
+                # teardown releases any surviving OS handle; do not turn a
+                # successful active publication into an ambiguous failed run.
+                $leaseReleaseWarning = [string]$_.Exception.Message
+            }
+        }
+    }
 }
+if (-not [string]::IsNullOrEmpty($leaseReleaseWarning)) {
+    Write-Warning "Release artifacts were published, but explicit lease disposal reported: $leaseReleaseWarning"
+}
+if ($releaseScratchCleaned) { Write-Output "Release scratch cleanup: complete" }

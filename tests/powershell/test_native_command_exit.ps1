@@ -20,7 +20,7 @@ Assert-True ($updateScript -notmatch '(?i)python|Update-DateMarker|Set-StateEntr
 $buildScript = Get-Content -LiteralPath (Join-Path $root "scripts\build_rust_app.ps1") -Raw
 Assert-True (([regex]::Matches($buildScript, 'Invoke-NativeCommand\s+-FilePath')).Count -ge 5) "Not every release/build command is guarded"
 Assert-True ($buildScript -match 'cargo.*build.*--locked.*--release.*miho-cli') "The release build does not produce the native update CLI"
-Assert-True ($buildScript -match 'target\\release\\miho\.exe') "The release build does not verify the native CLI artifact"
+Assert-True ($buildScript -match 'Resolve-SafeFileV1\s+-LiteralPath\s+\(Join-Path\s+\$tauriTarget\s+"release\\miho\.exe"\)') "The release build does not verify the isolated native CLI artifact"
 Assert-True ($buildScript -notmatch '&\s+\$node') "The desktop build still contains an unguarded Node invocation"
 Assert-True ($buildScript -notmatch '(?m)^\s*cargo\s+') "The desktop build still contains an unguarded Cargo invocation"
 

@@ -24,6 +24,8 @@ pub enum MihoError {
     },
     #[error("network request failed: {0}")]
     Network(#[from] reqwest::Error),
+    #[error("network request failed: {0}")]
+    BrowserNetwork(String),
     #[error("offline cache miss for {0}")]
     CacheMiss(String),
     #[error(

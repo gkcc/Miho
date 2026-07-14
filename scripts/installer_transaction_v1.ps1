@@ -5,6 +5,7 @@ param(
     [string]$Mode,
 
     [string]$TransactionRoot,
+    [string]$FailureReceiptPath,
 
     [string]$InstallRoot,
     [string]$StagingRoot,
@@ -55,6 +56,7 @@ $script:MihoInstallerMaximumJournalBytesV1 = 16MB
 $script:MihoInstallerMaximumManifestBytesV1 = 4MB
 
 if ([string]::IsNullOrWhiteSpace($TransactionRoot)) { $TransactionRoot = $env:MIHO_INSTALLER_TRANSACTION_ROOT_V1 }
+if ([string]::IsNullOrWhiteSpace($FailureReceiptPath)) { $FailureReceiptPath = $env:MIHO_INSTALLER_FAILURE_RECEIPT_V1 }
 if ([string]::IsNullOrWhiteSpace($InstallRoot)) { $InstallRoot = $env:MIHO_INSTALLER_INSTALL_ROOT_V1 }
 if ([string]::IsNullOrWhiteSpace($StagingRoot)) { $StagingRoot = $env:MIHO_INSTALLER_STAGING_ROOT_V1 }
 if ($CoordinatorPid -le 0 -and $env:MIHO_INSTALLER_COORDINATOR_PID_V1 -match '^[1-9][0-9]{0,18}$') {
@@ -64,7 +66,17 @@ if (-not [string]::IsNullOrWhiteSpace($env:MIHO_INSTALLER_PRODUCT_NAME_V1)) { $P
 if (-not [string]::IsNullOrWhiteSpace($env:MIHO_INSTALLER_MANUFACTURER_V1)) { $Manufacturer = $env:MIHO_INSTALLER_MANUFACTURER_V1 }
 if (-not [string]::IsNullOrWhiteSpace($env:MIHO_INSTALLER_PRODUCT_VERSION_V1)) { $ProductVersion = $env:MIHO_INSTALLER_PRODUCT_VERSION_V1 }
 if (-not [string]::IsNullOrWhiteSpace($env:MIHO_INSTALLER_MAIN_BINARY_V1)) { $MainBinaryName = $env:MIHO_INSTALLER_MAIN_BINARY_V1 }
-if ($null -ne $env:MIHO_INSTALLER_START_MENU_V1) { $StartMenuFolder = $env:MIHO_INSTALLER_START_MENU_V1 }
+$startMenuRootMarker = $env:MIHO_INSTALLER_START_MENU_ROOT_V1
+if ($null -ne $startMenuRootMarker -and $startMenuRootMarker -cnotin @("0", "1")) {
+    throw "Installer start-menu root marker is invalid."
+}
+if ($startMenuRootMarker -ceq "1") {
+    if (-not [string]::IsNullOrEmpty($env:MIHO_INSTALLER_START_MENU_V1)) {
+        throw "Installer start-menu policy is ambiguous."
+    }
+    $StartMenuFolder = ""
+}
+elseif ($null -ne $env:MIHO_INSTALLER_START_MENU_V1) { $StartMenuFolder = $env:MIHO_INSTALLER_START_MENU_V1 }
 if ($env:MIHO_INSTALLER_DESKTOP_SHORTCUT_V1 -ceq "1") { $CreateDesktopShortcut = $true }
 if ($env:MIHO_INSTALLER_NO_SHORTCUTS_V1 -ceq "1") { $NoShortcuts = $true }
 if ([string]::IsNullOrWhiteSpace($Workspace)) { $Workspace = $env:MIHO_INSTALLER_WORKSPACE_V1 }
@@ -287,16 +299,32 @@ function Write-MihoInstallerJournalV1 {
 function Read-MihoInstallerJournalV1 {
     param([Parameter(Mandatory = $true)][string]$Root)
     $path = Join-Path $Root $script:MihoInstallerJournalFileV1
-    $record = Read-MihoJsonFileV1 -Path $path -MaximumBytes $script:MihoInstallerMaximumJournalBytesV1 -ExpectedKeys @(
+    $record = Read-MihoJsonFileV1 -Path $path -MaximumBytes $script:MihoInstallerMaximumJournalBytesV1
+    $currentNames = @(
         "schema_version", "transaction_id", "phase", "owner_kind", "owner_instance_id",
-        "owner_registry_was_present", "claim_created_new_owner", "install_root", "staging_root",
+        "owner_registry_was_present", "claim_created_new_owner", "install_root", "install_root_was_present", "staging_root",
         "caller_nonce", "coordinator_pid", "handoff_path", "new_manifest_sha256",
         "old_manifest_present", "static_files", "dynamic_files", "registry_trees", "failure"
     )
     $journal = $record.Object
+    if (Test-MihoObjectPropertyV1 -Object $journal -Name "install_root_was_present") {
+        Assert-MihoObjectExactPropertyNamesV1 -Object $journal -ExpectedNames $currentNames -Label "Installer transaction journal"
+    }
+    else {
+        # Pre-field v1 journals cannot prove that the installer created the
+        # install root. Migrate them conservatively so recovery never removes it.
+        $legacyNames = @(
+            "schema_version", "transaction_id", "phase", "owner_kind", "owner_instance_id",
+            "owner_registry_was_present", "claim_created_new_owner", "install_root", "staging_root",
+            "caller_nonce", "coordinator_pid", "handoff_path", "new_manifest_sha256",
+            "old_manifest_present", "static_files", "dynamic_files", "registry_trees", "failure"
+        )
+        Assert-MihoObjectExactPropertyNamesV1 -Object $journal -ExpectedNames $legacyNames -Label "Installer transaction journal"
+        $journal | Add-Member -MemberType NoteProperty -Name "install_root_was_present" -Value $true
+    }
     Assert-MihoObjectExactPropertyNamesV1 -Object $journal -ExpectedNames @(
         "schema_version", "transaction_id", "phase", "owner_kind", "owner_instance_id",
-        "owner_registry_was_present", "claim_created_new_owner", "install_root", "staging_root",
+        "owner_registry_was_present", "claim_created_new_owner", "install_root", "install_root_was_present", "staging_root",
         "caller_nonce", "coordinator_pid", "handoff_path", "new_manifest_sha256",
         "old_manifest_present", "static_files", "dynamic_files", "registry_trees", "failure"
     ) -Label "Installer transaction journal"
@@ -308,6 +336,7 @@ function Read-MihoInstallerJournalV1 {
         ) -or $journal.owner_kind -isnot [string] -or [string]$journal.owner_kind -cne "installed" -or
         $journal.owner_instance_id -isnot [string] -or -not (Test-MihoCanonicalUuidV1 -Value ([string]$journal.owner_instance_id)) -or
         $journal.owner_registry_was_present -isnot [bool] -or $journal.claim_created_new_owner -isnot [bool] -or
+        $journal.install_root_was_present -isnot [bool] -or
         $journal.install_root -isnot [string] -or $journal.staging_root -isnot [string] -or
         $journal.caller_nonce -isnot [string] -or [string]$journal.caller_nonce -cnotmatch '^[0-9a-f]{32}$' -or
         -not (Test-MihoInstallerIntegerV1 -Value $journal.coordinator_pid) -or [int64]$journal.coordinator_pid -le 0 -or
@@ -432,7 +461,10 @@ function Export-MihoInstallerRegistryKeyCoreV1 {
         $null = $subkeys.Add([pscustomobject][ordered]@{ name = [string]$name; tree = $tree })
     }
     try {
-        $sddl = $Key.GetAccessControl().GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::All)
+        # A current-user installer can restore the DACL exactly, but setting
+        # owner/group/SACL from an All-sections descriptor requires privileges
+        # that a currentUser NSIS process deliberately does not hold.
+        $sddl = $Key.GetAccessControl().GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access)
     }
     catch { throw "Installer registry before-image security descriptor is unavailable." }
     return [pscustomobject][ordered]@{ sddl = $sddl; values = @($values); subkeys = @($subkeys) }
@@ -456,11 +488,18 @@ function Export-MihoInstallerRegistryTreeV1 {
     return [pscustomobject][ordered]@{ subkey = $SubKey; present = $true; tree = $tree }
 }
 
+function ConvertTo-MihoInstallerComparableDaclSddlV1 {
+    param([Parameter(Mandatory = $true)][string]$Sddl)
+    if ($Sddl -cnotmatch '^D:([A-Z]*)(.*)$') { throw "Installer registry DACL descriptor is invalid." }
+    return "D:" + $matches[1].Replace("AI", "") + $matches[2]
+}
+
 function Import-MihoInstallerRegistryKeyCoreV1 {
     param(
         [Parameter(Mandatory = $true)][Microsoft.Win32.RegistryKey]$Key,
         [Parameter(Mandatory = $true)]$Tree,
-        [Parameter(Mandatory = $true)][int]$Depth
+        [Parameter(Mandatory = $true)][int]$Depth,
+        [Parameter(Mandatory = $true)][string]$SubKey
     )
     if ($Depth -gt 32) { throw "Installer registry restore is too deep." }
     Assert-MihoObjectExactPropertyNamesV1 -Object $Tree -ExpectedNames @("sddl", "values", "subkeys") -Label "Installer registry tree"
@@ -486,14 +525,42 @@ function Import-MihoInstallerRegistryKeyCoreV1 {
         }
         $child = $Key.CreateSubKey([string]$record.name, $true)
         if ($null -eq $child) { throw "Installer registry subkey could not be restored." }
-        try { Import-MihoInstallerRegistryKeyCoreV1 -Key $child -Tree $record.tree -Depth ($Depth + 1) }
+        $childSubKey = $SubKey + "\" + [string]$record.name
+        try { Import-MihoInstallerRegistryKeyCoreV1 -Key $child -Tree $record.tree -Depth ($Depth + 1) -SubKey $childSubKey }
         finally { $child.Dispose() }
     }
     if ($Tree.sddl -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Tree.sddl)) { throw "Installer registry security descriptor is invalid." }
-    $security = New-Object Microsoft.Win32.RegistrySecurity
-    $security.SetSecurityDescriptorSddlForm([string]$Tree.sddl)
-    $Key.SetAccessControl($security)
     $Key.Flush()
+    $security = New-Object System.Security.AccessControl.RegistrySecurity
+    $accessSections = [System.Security.AccessControl.AccessControlSections]::Access
+    $security.SetSecurityDescriptorSddlForm([string]$Tree.sddl, $accessSections)
+    $rights = [System.Security.AccessControl.RegistryRights](
+        [int][System.Security.AccessControl.RegistryRights]::ReadKey -bor
+        [int][System.Security.AccessControl.RegistryRights]::WriteKey -bor
+        [int][System.Security.AccessControl.RegistryRights]::ChangePermissions
+    )
+    $securityKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+        $SubKey,
+        [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+        $rights
+    )
+    if ($null -eq $securityKey) { throw "Installer registry security handle is unavailable." }
+    try {
+        $securityKey.SetAccessControl($security)
+        $securityKey.Flush()
+        $expectedSddl = $security.GetSecurityDescriptorSddlForm($accessSections)
+        $actualSddl = $securityKey.GetAccessControl().GetSecurityDescriptorSddlForm($accessSections)
+        # Windows can add the DACL_AUTO_INHERITED (AI) control bit when a key
+        # is recreated below the same parent even though every ACE, protection
+        # flag and effective permission is identical. Ignore only that OS
+        # bookkeeping bit; P/AR and every ACE remain exact comparison inputs.
+        $expectedComparable = ConvertTo-MihoInstallerComparableDaclSddlV1 -Sddl $expectedSddl
+        $actualComparable = ConvertTo-MihoInstallerComparableDaclSddlV1 -Sddl $actualSddl
+        if ($actualComparable -cne $expectedComparable) {
+            throw "Installer registry access control did not restore exactly: $SubKey"
+        }
+    }
+    finally { $securityKey.Dispose() }
 }
 
 function Restore-MihoInstallerRegistryTreeV1 {
@@ -506,7 +573,7 @@ function Restore-MihoInstallerRegistryTreeV1 {
         if ($Snapshot.tree -isnot [pscustomobject]) { throw "Installer registry snapshot tree is invalid." }
         $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey([string]$Snapshot.subkey, $true)
         if ($null -eq $key) { throw "Installer registry root could not be restored." }
-        try { Import-MihoInstallerRegistryKeyCoreV1 -Key $key -Tree $Snapshot.tree -Depth 0 }
+        try { Import-MihoInstallerRegistryKeyCoreV1 -Key $key -Tree $Snapshot.tree -Depth 0 -SubKey ([string]$Snapshot.subkey) }
         finally { $key.Dispose() }
     }
 }
@@ -516,7 +583,7 @@ function Get-MihoInstallerDynamicFilePlanV1 {
         [Parameter(Mandatory = $true)][string]$Install,
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][string]$Product,
-        [Parameter(Mandatory = $true)][string]$MenuFolder,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$MenuFolder,
         [Parameter(Mandatory = $true)][bool]$StartMenuShortcut,
         [Parameter(Mandatory = $true)][bool]$DesktopShortcut
     )
@@ -655,6 +722,10 @@ function New-MihoInstallerTransactionV1 {
     if ($process.HasExited) { throw "Installer coordinator process is unavailable." }
 
     $installPath = Assert-MihoInstallerAbsolutePathV1 -Path $Install -Label "Install root"
+    $installRootWasPresent = Test-Path -LiteralPath $installPath
+    if ($installRootWasPresent) {
+        $installPath = Assert-MihoInstallerAbsolutePathV1 -Path $installPath -Label "Install root" -MustExist -Directory
+    }
     $stagingPath = Assert-MihoInstallerAbsolutePathV1 -Path $Staging -Label "Staging root" -MustExist -Directory
     $rootPath = Assert-MihoInstallerAbsolutePathV1 -Path $Root -Label "Installer transaction root"
     foreach ($pair in @(@($rootPath, $installPath), @($rootPath, $stagingPath), @($installPath, $stagingPath), @($stagingPath, $installPath))) {
@@ -710,6 +781,7 @@ function New-MihoInstallerTransactionV1 {
         owner_registry_was_present = ($null -ne $existingOwner)
         claim_created_new_owner = $false
         install_root = $installPath
+        install_root_was_present = [bool]$installRootWasPresent
         staging_root = $stagingPath
         caller_nonce = [guid]::NewGuid().ToString("N").ToLowerInvariant()
         coordinator_pid = $ParentPid
@@ -990,12 +1062,16 @@ function Get-MihoInstallerRegistrySnapshotHashV1 {
 function Test-MihoShortcutTargetV1 {
     param(
         [Parameter(Mandatory = $true)][string]$Shortcut,
-        [Parameter(Mandatory = $true)][string]$ExpectedTarget
+        [Parameter(Mandatory = $true)][string]$ExpectedTarget,
+        [Parameter(Mandatory = $true)][string]$ExpectedWorkingDirectory
     )
     try {
         $shell = New-Object -ComObject WScript.Shell
         $link = $shell.CreateShortcut($Shortcut)
-        return [string]::Equals((Get-MihoNormalizedFullPathV1 -Path ([string]$link.TargetPath)), (Get-MihoNormalizedFullPathV1 -Path $ExpectedTarget), [System.StringComparison]::OrdinalIgnoreCase)
+        return (
+            [string]::Equals((Get-MihoNormalizedFullPathV1 -Path ([string]$link.TargetPath)), (Get-MihoNormalizedFullPathV1 -Path $ExpectedTarget), [System.StringComparison]::OrdinalIgnoreCase) -and
+            [string]::Equals((Get-MihoNormalizedFullPathV1 -Path ([string]$link.WorkingDirectory)), (Get-MihoNormalizedFullPathV1 -Path $ExpectedWorkingDirectory), [System.StringComparison]::OrdinalIgnoreCase)
+        )
     }
     catch { return $false }
 }
@@ -1062,7 +1138,9 @@ function Confirm-MihoInstallerDynamicStateV1 {
     foreach ($record in @($journal.dynamic_files)) {
         Assert-MihoInstallerDynamicRecordV1 -Record $record
         $present = Test-Path -LiteralPath ([string]$record.path)
-        if ($record.expected_after_present -and -not $present) { throw "Required installer dynamic file is missing." }
+        if ($record.expected_after_present -and -not $present) {
+            throw "Required installer dynamic file '$([string]$record.label)' is missing."
+        }
         if (-not $record.expected_after_present -and [string]$record.label -like "*-shortcut") {
             if ([bool]$record.before_present -ne [bool]$present) { throw "Optional desktop shortcut changed outside its selected policy." }
             if ($present -and -not (Test-MihoInstallerFileStateV1 -Path ([string]$record.path) -Present $true -Size ([int64]$record.before_size) -Sha256 ([string]$record.before_sha256))) {
@@ -1073,8 +1151,8 @@ function Confirm-MihoInstallerDynamicStateV1 {
             Assert-MihoNoReparseChainV1 -Path ([string]$record.path)
             $item = Get-Item -LiteralPath ([string]$record.path) -Force -ErrorAction Stop
             if ($item.PSIsContainer) { throw "Installer dynamic file has the wrong type." }
-            if ([string]$record.label -like "*-shortcut" -and -not (Test-MihoShortcutTargetV1 -Shortcut ([string]$record.path) -ExpectedTarget $expectedExecutable)) {
-                throw "Installer shortcut target is invalid."
+            if ([string]$record.label -like "*-shortcut" -and -not (Test-MihoShortcutTargetV1 -Shortcut ([string]$record.path) -ExpectedTarget $expectedExecutable -ExpectedWorkingDirectory $Evidence.InstallRoot)) {
+                throw "Installer shortcut target or working directory is invalid."
             }
             $record.after_size = [int64]$item.Length
             $record.after_sha256 = Get-MihoFileSha256V1 -Path ([string]$record.path)
@@ -1174,6 +1252,14 @@ function Restore-MihoInstallerFilesV1 {
         if (Test-Path -LiteralPath $directory) {
             Assert-MihoNoReparseChainV1 -Path $directory
             if (@(Get-ChildItem -LiteralPath $directory -Force -ErrorAction Stop).Count -eq 0) { [System.IO.Directory]::Delete($directory, $false) }
+        }
+    }
+    if (-not [bool]$journal.install_root_was_present -and (Test-Path -LiteralPath $Evidence.InstallRoot)) {
+        Assert-MihoNoReparseChainV1 -Path $Evidence.InstallRoot
+        $rootItem = Get-Item -LiteralPath $Evidence.InstallRoot -Force -ErrorAction Stop
+        if (-not $rootItem.PSIsContainer) { throw "Installer rollback encountered a non-directory install root." }
+        if (@(Get-ChildItem -LiteralPath $Evidence.InstallRoot -Force -ErrorAction Stop).Count -eq 0) {
+            [System.IO.Directory]::Delete($Evidence.InstallRoot, $false)
         }
     }
 }
@@ -1513,8 +1599,40 @@ function Write-MihoInstallerPublicResultV1 {
     $Result | ConvertTo-Json -Depth 8 -Compress
 }
 
-$resolvedTransactionRoot = Assert-MihoInstallerAbsolutePathV1 -Path $TransactionRoot -Label "Installer transaction root"
-switch ($Mode) {
+function Write-MihoInstallerFailureReceiptV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$FailedMode,
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$ErrorMessage
+    )
+
+    $destination = Assert-MihoInstallerAbsolutePathV1 -Path $Path -Label "Installer failure receipt"
+    $transactionId = ""
+    $phase = ""
+    try {
+        $journalPath = Join-Path $Root $script:MihoInstallerJournalFileV1
+        if (Test-Path -LiteralPath $journalPath -PathType Leaf) {
+            $failureEvidence = Read-MihoInstallerJournalV1 -Root $Root
+            $transactionId = [string]$failureEvidence.Object.transaction_id
+            $phase = [string]$failureEvidence.Object.phase
+        }
+    }
+    catch { }
+    $receipt = [pscustomobject][ordered]@{
+        schema_version = "miho-installer-failure-v1"
+        mode = $FailedMode
+        transaction_id = $transactionId
+        phase = $phase
+        error_message = $ErrorMessage
+        occurred_at_utc = [DateTime]::UtcNow.ToString("o", [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+    Write-MihoAtomicBytesV1 -Path $destination -Bytes (ConvertTo-MihoJsonBytesV1 -Object $receipt -Depth 4) -Purpose "installer-failure-receipt"
+}
+
+try {
+    $resolvedTransactionRoot = Assert-MihoInstallerAbsolutePathV1 -Path $TransactionRoot -Label "Installer transaction root"
+    switch ($Mode) {
     "Begin" {
         if ([string]::IsNullOrWhiteSpace($InstallRoot) -or [string]::IsNullOrWhiteSpace($StagingRoot)) { throw "Begin requires install and staging roots." }
         try {
@@ -1575,4 +1693,15 @@ switch ($Mode) {
             exit 10
         }
     }
+    }
+}
+catch {
+    $installerErrorMessage = [string]$_.Exception.Message
+    if (-not [string]::IsNullOrWhiteSpace($FailureReceiptPath)) {
+        try {
+            Write-MihoInstallerFailureReceiptV1 -Path $FailureReceiptPath -FailedMode $Mode -Root $TransactionRoot -ErrorMessage $installerErrorMessage
+        }
+        catch { }
+    }
+    throw
 }

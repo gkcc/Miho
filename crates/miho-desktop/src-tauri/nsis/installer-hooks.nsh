@@ -5,10 +5,6 @@
 ; points at the application copy that an upgrade overwrites in place.
 
 !macro NSIS_HOOK_PREUNINSTALL
-  ; Box/config/output data is outside installer ownership. Keep the upstream
-  ; recursive app-data branch disabled even if its checkbox was selected.
-  StrCpy $DeleteAppDataCheckboxState 0
-
   ; The pinned template invokes an old uninstaller with /UPDATE during every
   ; upgrade. Preserve its task/generation until the new candidate has passed
   ; update run plus config-bound health and committed the task transaction.
@@ -18,14 +14,14 @@
   IfErrors miho_preuninstall_busy
   StrCpy $MihoUninstallRecoveryMode "0"
 
-  System::Call 'kernel32::SetEnvironmentVariableW(w "MIHO_INSTALLER_TRANSACTION_ROOT_V1", w "$LOCALAPPDATA\com.miho.endgame.installer-transaction-v1") i.r9'
+  System::Call 'kernel32::SetEnvironmentVariableW(w "MIHO_INSTALLER_TRANSACTION_ROOT_V1", w "$LOCALAPPDATA\com.miho.endgame.installer-transaction-v1") i.R9'
   StrCmp $R9 0 miho_preuninstall_environment_failed
-  System::Call 'kernel32::SetEnvironmentVariableW(w "MIHO_INSTALLER_INSTALL_ROOT_V1", w "$INSTDIR") i.r9'
+  System::Call 'kernel32::SetEnvironmentVariableW(w "MIHO_INSTALLER_INSTALL_ROOT_V1", w "$INSTDIR") i.R9'
   StrCmp $R9 0 miho_preuninstall_environment_failed
 
   ReadRegStr $MihoUninstallOwner HKCU "${MIHO_AUTOMATION_OWNER_REGKEY}" "${MIHO_AUTOMATION_OWNER_REGVALUE}"
   StrCmp $MihoUninstallOwner "" miho_preuninstall_owner_missing
-  System::Call 'kernel32::SetEnvironmentVariableW(w "MIHO_INSTALLER_EXPECTED_OWNER_V1", w "$MihoUninstallOwner") i.r9'
+  System::Call 'kernel32::SetEnvironmentVariableW(w "MIHO_INSTALLER_EXPECTED_OWNER_V1", w "$MihoUninstallOwner") i.R9'
   StrCmp $R9 0 miho_preuninstall_environment_failed
 
   ; Fail closed before removing the task: every manifest-owned static byte must

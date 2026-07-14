@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 chrono.workspace = true
 csv.workspace = true
+curl.workspace = true
 reqwest.workspace = true
 rust_xlsxwriter.workspace = true
 serde.workspace = true

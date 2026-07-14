@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -91,7 +91,7 @@ pub fn official_name_map(
     agents: &[OfficialNameRow],
     bangboo: &[OfficialBangbooRow],
 ) -> BTreeMap<String, OfficialMapRow> {
-    let mut output = BTreeMap::new();
+    let mut canonical_rows = BTreeMap::new();
     for (slug, en, cn, source, kind, order) in agents
         .iter()
         .map(|r| {
@@ -126,9 +126,42 @@ pub fn official_name_map(
             kind: kind.clone(),
             release_order: order.to_string(),
         };
-        output.entry(slug.clone()).or_insert_with(|| row.clone());
-        for alias in aliases {
-            output.entry(alias).or_insert_with(|| row.clone());
+        canonical_rows.entry(slug.clone()).or_insert(row);
+    }
+
+    let mut alias_owners = BTreeMap::<String, BTreeSet<String>>::new();
+    for (slug, row) in &canonical_rows {
+        alias_owners
+            .entry(slug.clone())
+            .or_default()
+            .insert(slug.clone());
+        for alias in row.aliases.split(';').filter(|alias| !alias.is_empty()) {
+            alias_owners
+                .entry(alias.to_owned())
+                .or_default()
+                .insert(slug.clone());
+        }
+    }
+    let ambiguous = alias_owners
+        .into_iter()
+        .filter_map(|(alias, owners)| (owners.len() > 1).then_some(alias))
+        .collect::<BTreeSet<_>>();
+    for row in canonical_rows.values_mut() {
+        row.aliases = row
+            .aliases
+            .split(';')
+            .filter(|alias| !alias.is_empty() && !ambiguous.contains(*alias))
+            .collect::<Vec<_>>()
+            .join(";");
+    }
+
+    let mut output = BTreeMap::new();
+    for (slug, row) in canonical_rows {
+        output.insert(slug, row.clone());
+        for alias in row.aliases.split(';').filter(|alias| !alias.is_empty()) {
+            output
+                .entry(alias.to_owned())
+                .or_insert_with(|| row.clone());
         }
     }
     for (slug, en, cn, source, kind, order) in [
@@ -646,6 +679,32 @@ mod tests {
         let mapped = official_name_map(&agents, &bangboo);
         assert_eq!(mapped["alice"].character_name_cn, "爱丽丝");
         assert_eq!(mapped["velina"].needs_manual_check, "0");
+
+        let mut classic_anby = agents[0].clone();
+        classic_anby.character_slug = "anby-demara".into();
+        classic_anby.character_name_en = "Anby Demara".into();
+        let mut soldier_zero = agents[0].clone();
+        soldier_zero.character_slug = "soldier-0-anby".into();
+        soldier_zero.character_name_en = "Soldier 0 - Anby".into();
+        let mut soldier_eleven = agents[0].clone();
+        soldier_eleven.character_slug = "soldier-11".into();
+        soldier_eleven.character_name_en = "Soldier 11".into();
+        let mapped = official_name_map(&[classic_anby, soldier_zero, soldier_eleven], &[]);
+        assert!(!mapped.contains_key("anby"));
+        assert!(!mapped.contains_key("soldier"));
+        assert_eq!(
+            mapped["anby-demara-soldier-0"].character_slug,
+            "soldier-0-anby"
+        );
+        assert_eq!(mapped["demara"].character_slug, "anby-demara");
+        assert!(!mapped["anby-demara"]
+            .aliases
+            .split(';')
+            .any(|v| v == "anby"));
+        assert!(!mapped["soldier-11"]
+            .aliases
+            .split(';')
+            .any(|v| v == "soldier"));
 
         let mut renamed = agents[0].clone();
         renamed.character_slug = "canonical-source-id".into();

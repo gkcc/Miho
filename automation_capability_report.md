@@ -1,18 +1,18 @@
 # 自更新与本地评判能力报告
 
 - 初版生成时间：2026-07-06
-- 最近审计：2026-07-14
-- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease、安装/portable 候选切换事务和 hash-bound NSIS/portable 发布链均已有实现与回归证据；下述 Python 编排只保留为历史说明。当前外部自动化仍未切换，已安装任务不是健康生产基线，现有构建也只允许作为 `verification-only` 证据。
+- 最近审计：2026-07-15
+- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease、安装/portable 候选切换事务和 hash-bound NSIS/portable 发布链均已有实现、回归与真实 Windows 矩阵证据；下述 Python 编排只保留为历史说明。真实升级、回滚、canonical Task Scheduler、portable online update 与最终卸载均在空 PATH/零 Python 下通过。当前外部状态是“产品已完整卸载、用户 AppData 原样保留”，矩阵候选仍是 `verification-only` 且 `NotSigned`；待独立终审和提交后才能从 clean HEAD 构建 active。
 
-## 当前阻断（2026-07-14）
+## 当前外部状态与剩余边界（2026-07-15）
 
-- 2026-07-14 只读复查确认，已安装任务 `MiHoYoEndgameDailyUpdate` 处于 Disabled，仍调用不存在的 `C:\Users\zy958\Documents\终局内容提取\scripts\update_endgame_data.ps1`，WorkingDirectory 为空；2026-07-12 的 `LastTaskResult=0` 仍不能证明当前可用。
-- NSIS/portable 现已携带 `miho.exe`、默认 configs、ownership manifest 与计划任务脚本，并能生成反向提取验证的 content-addressed 产物；但尚未完成真实 clean install/upgrade/uninstall/Task Scheduler/无 Python 矩阵，EXE 与安装包也未签名，因此不得标为正式 active 发布。
-- `scripts/install_daily_update_task.ps1` 与共享 scheduler/installer transaction 已实现 candidate `update run` + exact-attempt `update health` 后切换、所有权、回滚和卸载边界；这些边界目前由 fixture/registry 隔离测试证明，尚未对真实已安装旧任务执行替换。
-- 默认完整构建即使源码 clean 也保持 `verification-only`；只有上述项目门禁已有留痕并经独立 `Blocker=0 / High=0` 后，操作者才能显式使用 `-ProjectGatesApproved`。dirty、`-NoBundle` 或非 Release 调用携带该批准都会失败。
-- 下一步是用最终候选包完成真实安装/升级/卸载/无 Python 矩阵，再在 config-bound health 成功后替换 Disabled 的旧任务；最后才允许 active 发布和 Python runtime 退役。
+- 真实 failure-upgrade 在 `VerifyDynamic` 删除 Start Menu shortcut 后返回 1603，durable failure receipt 保存精确 mode；rollback 恢复静态 payload、automation owner、任务 generation、快捷方式 Target/WorkingDirectory、typed registry tree 与 DACL，随后 transaction root 正常 Finalize 删除。
+- 真实 success-upgrade 返回 0；candidate run + exact config-bound health 对 HSR/ZZZ 均 healthy，owner identity 保持不变。canonical `MiHoYoEndgameDailyUpdate` 已真实 Running→Ready，`LastTaskResult=0` 且 generation/attempt 由 Rust health 精确确认，整个矩阵未观察到 Python 进程。
+- portable 在空 PATH 下通过 CLI version/help、桌面 5 秒与 online update；最终 uninstall 返回 0，并删除安装根、任务、automation owner、产品/卸载注册表与快捷方式。`%APPDATA%\com.miho.endgame` 的 753 文件、520 目录、297,219,938 字节及整树摘要 `a650910ec18ec50542d980cd926f3ae46c5c7b9e8cc1a6e001b6f5cb689076cc` 前后不变；仅保留 0 字节 installer lease 文件。
+- 默认完整构建即使源码 clean 也保持 `verification-only`；真实矩阵虽已完成，仍须把独立 `Blocker=0 / High=0` 和主线程回应写回 `PROJECT.md` 并提交，才可从 clean HEAD 显式使用 `-ProjectGatesApproved`。dirty、`-NoBundle` 或非 Release 调用携带该批准都会失败。
+- 仍未完成且不得过度声称的边界：Authenticode 正式签名、跨账户/跨 session release lease 实测、安装过程中强杀/掉电的完整 journal recovery。它们不否定当前同账户真机可用性，但必须与最终 `NotSigned` active 产物一起明确披露。
 
-## 当前 native 自动化基线（已完成，尚未安装切换）
+## 当前 native 自动化基线（实现与真实切换已验证，最终外部状态为卸载）
 
 - `miho update run --workspace ... --config ...` 在一个 OS lease 内按 HSR export → ZZZ export → coverage → pull-value → review-packet 顺序运行；任一所选步骤失败均退出 1，不推进成功 state。
 - online update 对 HF 主源拒绝 last-good cache fallback；手动 direct export 仍保留兼容回退。补充来源降级继续通过结构化 diagnostic 使 update 失败，不能用旧数据伪造新完成时间。
@@ -49,7 +49,7 @@
 powershell -ExecutionPolicy Bypass -File .\scripts\update_endgame_data.ps1
 ```
 
-注册每日任务（当前不要对真实旧任务执行；先完成最终候选包的安装矩阵与所有权复核）：
+注册每日任务（源码级兼容入口；正式安装应优先由 installer-owned transaction 创建和管理）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install_daily_update_task.ps1 -At "09:30"

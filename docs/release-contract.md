@@ -19,6 +19,15 @@ first `target`, bundle, release-context, staging, or dependency mutation:
   working directory;
 - the file handle is the system-wide/cross-session authority and pins target
   and workspace ancestors against rename while the release is active.
+- after the lease is acquired, stale `release-workspace` and `release-staging`
+  children from a killed prior run are removed by a scratch-only walker. It
+  never traverses reparse targets: pnpm junctions are unlinked as objects, and
+  an external canary proves their targets remain untouched. On success, the
+  final frozen/output assertions run first, then every calibration and scratch
+  tree is removed before publication can change the active anchor. On failure,
+  the outer `finally` retries cleanup before lease release. Empty scratch
+  parents are removed; content-addressed files under `target/release/bundle`
+  are outside this cleanup boundary.
 
 A rejected contender must not alter target contents or directory metadata.
 The lock file is persistent; ownership is the open handle, not file presence.
@@ -32,6 +41,10 @@ hash-bound source inputs into a unique directory below
 `target` directories are excluded recursively; any other reparse point is a
 hard failure. The isolated source digest and file count must exactly equal the
 original frozen values before dependency resolution is allowed.
+The isolated source, copied dependency tree, Cargo target, and immutable
+staging are verification scratch rather than release artifacts; they are
+deleted before the wrapper exits. A published manifest therefore never relies
+on either scratch path remaining present.
 
 The wrapper validates the exact pinned `packageManager` and `engines` policy
 in both roots, requires the isolated dependency tree to be absent, and runs in
@@ -196,6 +209,58 @@ byte-for-byte identical to the ownership-bound prebuild. The ownership
 manifest, immutable staging digest, installed manifest, extracted NSIS files,
 and portable payload are all revalidated against the same final bytes.
 
+## Installer dynamic state, rollback, and uninstall boundary
+
+The static ownership manifest is only one half of the installed transaction.
+Before NSIS mutates the existing product, `installer_transaction_v1.ps1`
+captures a bounded dynamic before-image for Start Menu and optional desktop
+shortcuts, the publisher/product install-location tree, the Windows uninstall
+tree, the automation owner, and the scheduler handoff. An explicit
+`MIHO_INSTALLER_START_MENU_ROOT_V1=1` marker distinguishes Tauri's valid
+root-of-Programs policy from an absent environment variable; Windows deletes
+an environment variable when NSIS sets it to an empty string, so the folder
+string alone is not an unambiguous input.
+
+Shortcut verification requires both the target executable and
+`WorkingDirectory` to equal the final install root. NSIS resets `OutPath` to
+that root before each `CreateShortcut`; a shortcut whose working directory
+still points at immutable staging or `$PLUGINSDIR` fails `VerifyDynamic`.
+Existing shortcut bytes are hash-bound in the before-image and restored on
+rollback. A clean-install rollback removes the install root only when the
+transaction proved it did not exist beforehand and it is empty after owned
+state restoration.
+
+Registry snapshots preserve the exact recursive key/value shape, value kinds,
+bytes, and access DACL for the two product trees. Restore deletes the mutated
+tree, recreates the typed snapshot, applies the saved access descriptor with
+`ChangePermissions`, and reads it back. Windows' automatically added `AI`
+control bit is ignored only for comparison; protection/auto-inherit-request
+flags and every ACE remain exact inputs. Owner/group/SACL are deliberately
+outside the current-user installer contract because restoring those sections
+requires privileges the package does not request.
+
+Any helper exception may atomically publish
+`%LOCALAPPDATA%\com.miho.endgame.installer-last-failure-v1.json` with schema,
+failed mode, transaction ID, phase, error text, and UTC time. The transaction
+tree can then be rolled back and finalized without erasing this diagnostic;
+the next normal install deletes the old receipt before starting. Receipt
+publication is best effort and never hides the primary setup failure, while
+the setup failure message names its durable location.
+
+Uninstall always removes installer-owned product metadata, including the
+uninstall registration, publisher/product install-location and language keys,
+automation owner/task, shortcuts, and immutable installed payload. Those keys
+are not user data and are removed even when the AppData checkbox is clear.
+Conversely, `%APPDATA%\com.miho.endgame` and
+`%LOCALAPPDATA%\com.miho.endgame` are mutable user-data roots and are never
+recursively removed by this installer or uninstaller. The uninstall confirm
+page deliberately exposes no generic Delete AppData checkbox. Any future data
+deletion workflow requires a separately designed, path-bounded contract and
+new real-machine canary evidence; it must not be reintroduced as an upstream
+recursive branch. The separate zero-byte installer lease file may remain
+after uninstall; its presence is not lock ownership and it contains no user
+data.
+
 ## Pending validation and atomic commit
 
 The root artifacts manifest is first written as a same-directory randomized
@@ -230,6 +295,13 @@ rename, ordinal cross-shell record ordering, a byte-pinned deterministic
 portable container, immutable NSIS/static publication, preservation of prior active
 dependencies, verification-only isolation, active-anchor drift, superseded
 old bytes, and stale/missing root desktop targets.
+The regression also proves scratch cleanup removes only the two regenerable
+parents, preserves bundle artifacts, and unlinks a junction without touching
+its external canary. A cleanup fault injected immediately before publication
+must leave the old active anchor byte-identical and remove the ephemeral
+pending manifest; after the poison is removed and a new pending file is
+written, the same helper cleans scratch before performing the active
+replacement.
 
 This contract does not clear the project-wide installer gate. A final active
 release still requires the NSIS owner identity, upgrade recovery, rollback,

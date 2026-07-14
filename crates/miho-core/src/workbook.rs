@@ -438,15 +438,7 @@ fn hsr_cell_kind(header: &str) -> CellKind {
     }
     if matches!(
         header,
-        "sample"
-            | "sample_app_flat"
-            | "whale_count"
-            | "app_flat"
-            | "uses"
-            | "raw_index"
-            | "duplicate_count"
-            | "series_count"
-            | "point_count"
+        "raw_index" | "duplicate_count" | "series_count" | "point_count"
     ) {
         return CellKind::Integer;
     }
@@ -454,7 +446,17 @@ fn hsr_cell_kind(header: &str) -> CellKind {
         || header.contains("avg_round")
         || matches!(
             header,
-            "std_dev_round" | "q1_round" | "cons_avg" | "usage_value" | "rank" | "rating"
+            "std_dev_round"
+                | "q1_round"
+                | "cons_avg"
+                | "usage_value"
+                | "rank"
+                | "rating"
+                | "sample"
+                | "sample_app_flat"
+                | "whale_count"
+                | "app_flat"
+                | "uses"
         )
     {
         return CellKind::Number;
@@ -469,15 +471,20 @@ fn zzz_cell_kind(header: &str) -> CellKind {
     if header == "rarity" {
         return CellKind::IntegerOrText;
     }
-    if matches!(
-        header,
-        "sample" | "sample_players" | "char_level" | "w_engine_level" | "core_skill" | "raw_index"
-    ) {
+    if matches!(header, "sample" | "sample_players" | "raw_index") {
         return CellKind::Integer;
     }
     if matches!(
         header,
-        "app_rate" | "avg_score" | "avg_score_m1" | "cons_avg" | "rank" | "rating"
+        "app_rate"
+            | "avg_score"
+            | "avg_score_m1"
+            | "cons_avg"
+            | "char_level"
+            | "w_engine_level"
+            | "core_skill"
+            | "rank"
+            | "rating"
     ) {
         return CellKind::Number;
     }
@@ -622,10 +629,10 @@ mod tests {
     }
 
     #[test]
-    fn malformed_typed_cell_fails_before_artifact_insertion() {
+    fn fractional_integer_cell_fails_before_artifact_insertion() {
         let mut bundle = minimal_source_bundle(Game::Zzz, "text");
         bundle
-            .add_csv("character_usage_long.csv", &["sample"], [["not-a-number"]])
+            .add_csv("character_usage_long.csv", &["sample"], [["59.5"]])
             .unwrap();
         let mut diagnostics = vec![];
         apply_workbook_policy(
@@ -637,6 +644,39 @@ mod tests {
         assert!(bundle.get(ZZZ_WORKBOOK).is_none());
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("expected an integer"));
+    }
+
+    #[test]
+    fn workbook_numeric_fields_accept_real_source_shapes() {
+        let mut hsr = minimal_source_bundle(Game::Hsr, "text");
+        hsr.add_csv(
+            "character_usage_long.csv",
+            &["sample", "sample_app_flat"],
+            [["0.0", "20.0"]],
+        )
+        .unwrap();
+        hsr.add_csv(
+            "histograph_usage_long.csv",
+            &["whale_count", "app_flat", "uses"],
+            [["1.0", "2.0", "3.0"]],
+        )
+        .unwrap();
+        assert!(build_workbook_bytes(Game::Hsr, &hsr).is_ok());
+
+        let mut zzz = minimal_source_bundle(Game::Zzz, "text");
+        zzz.add_csv(
+            "character_usage_long.csv",
+            &[
+                "sample",
+                "sample_players",
+                "char_level",
+                "w_engine_level",
+                "core_skill",
+            ],
+            [["59", "24", "59.85", "58.98", "6.91"]],
+        )
+        .unwrap();
+        assert!(build_workbook_bytes(Game::Zzz, &zzz).is_ok());
     }
 
     #[test]

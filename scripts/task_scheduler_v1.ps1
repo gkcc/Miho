@@ -70,7 +70,28 @@ function Get-MihoSddlSemanticFingerprintV1 {
 function Get-MihoFileSha256V1 {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+    # The installed helper can be launched by Windows PowerShell 5.1 from a
+    # PowerShell 7 parent. In that case an inherited PSModulePath can suppress
+    # discovery of the Windows-only Get-FileHash module. Hash release bytes via
+    # .NET so installer correctness does not depend on module auto-loading.
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read
+        )
+        try {
+            return ([System.BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+    finally {
+        $algorithm.Dispose()
+    }
 }
 
 function ConvertTo-MihoBase64V1 {
