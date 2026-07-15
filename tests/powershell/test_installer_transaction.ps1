@@ -732,9 +732,28 @@ $productRegistryDelete = $uninstallSection.IndexOf('DeleteRegKey SHCTX "${MANUPR
 if ($productRegistryDelete -lt 0) {
     throw "NSIS does not remove installer-owned product registry metadata."
 }
+$recursiveAppDataDeletePattern = '(?im)^\s*RmDir\b(?=[^\r\n]*\s/r(?:\s|$))[^\r\n]*\$(?:APPDATA|LOCALAPPDATA)\\\$\{BUNDLEID\}(?=\\|[\s"'']|$)'
+foreach ($fixture in @(
+        'RMDir /r "$APPDATA\${BUNDLEID}"',
+        'RMDir /REBOOTOK /r "$LOCALAPPDATA\${BUNDLEID}\cache"',
+        '  RMDir /r /REBOOTOK $APPDATA\${BUNDLEID}\nested'
+    )) {
+    if ($fixture -notmatch $recursiveAppDataDeletePattern) {
+        throw "Recursive AppData deletion guard missed fixture: $fixture"
+    }
+}
+foreach ($fixture in @(
+        'RMDir "$APPDATA\${BUNDLEID}"',
+        'RMDir /r "$TEMP\${BUNDLEID}"'
+    )) {
+    if ($fixture -match $recursiveAppDataDeletePattern) {
+        throw "Recursive AppData deletion guard rejected safe fixture: $fixture"
+    }
+}
 if ($installerTemplate -match 'DeleteAppDataCheckbox|\$\(deleteAppData\)' -or
-    $uninstallSection -match '(?i)RmDir\s+/r\s+"\$(?:APPDATA|LOCALAPPDATA)\\\$\{BUNDLEID\}"' -or
-    $installerHooks -match 'DeleteAppDataCheckbox') {
+    $uninstallSection -match $recursiveAppDataDeletePattern -or
+    $installerHooks -match 'DeleteAppDataCheckbox|\$\(deleteAppData\)' -or
+    $installerHooks -match $recursiveAppDataDeletePattern) {
     throw "NSIS still exposes or executes recursive AppData deletion despite the preserve-user-data contract."
 }
 if ($installerHooks -match 'NSIS_HOOK_POSTINSTALL' -or $installerHooks -notmatch 'ExpectedOwnerInstanceId') {

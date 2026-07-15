@@ -689,7 +689,9 @@ mod tests {
         assert!(release_config["bundle"]["resources"].is_null());
         let installer = include_str!("../installer.nsi");
         assert!(installer.contains("${OrIf} $R0 <> 0"));
-        assert!(installer.contains("StrCpy $DeleteAppDataCheckboxState 0"));
+        assert!(!installer.contains("DeleteAppDataCheckbox"));
+        assert!(!installer.contains("$(deleteAppData)"));
+        assert!(!include_str!("../nsis/installer-hooks.nsh").contains("DeleteAppDataCheckbox"));
         let uninstall = installer.split("Section Uninstall").nth(1).unwrap();
         assert!(
             uninstall.find("CheckIfAppIsRunning").unwrap()

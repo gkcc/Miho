@@ -425,6 +425,15 @@
 - **磁盘治理**：删除 `target/debug`、被替代 bundle/verification artifacts、portable smoke `data/`、可再生 release 编译缓存和 Git 临时垃圾后，最终工作区实测约 0.91 GiB；只保留 active manifest、NSIS、portable 目录/ZIP 与 static manifest。
 - **阶段结论**：第十五批三目标及七阶段迁移主线完成。程序为可验证的 Windows active 内部发布版，运行时不依赖 Python；每个后续 tracked 提交仍须完成 clean active 重建才能作为“当前 HEAD”交付。`NotSigned` 和其余扩展可靠性边界仍是明确限制，不被“完成”措辞掩盖。
 
+### 发布收口补正：AppData 保留门禁纠偏（2026-07-15）
+
+- **显式提问**：本轮最有把握的证据是什么？最可能被已有门禁漏掉的点是什么？
+- **主判断—最有把握**：生产 `installer.nsi` 与 `installer-hooks.nsh` 已不包含 Delete AppData UI/token 或 AppData 递归删除，但 Rust 静态回归仍反向要求旧 token 存在。第一次定点命令因 `--exact` 少模块前缀而实际运行 0 项，没有计为通过；按完整测试名重跑后精确在旧断言处 1/1 失败。修正为 installer/hook 负向断言后，同一测试 1/1 通过，`cargo fmt --all -- --check` 与 `git diff --check` 通过。
+- **主判断—最值得质疑**：只把正向断言改成负向 token 断言仍可能漏掉不带旧 UI 变量、直接写入 hook 的 `RMDir /r`，尤其是额外 `/REBOOTOK`、flags 换序或 `${BUNDLEID}` 子路径变体；文档中“checkbox clear”的旧措辞也会重新形成第二事实源。旧 `650c3f0` active 因 tracked 修正而只能作为历史证据，不能继续交付。
+- **独立对抗判断**：Epicurus 首轮给出 `Blocker=0 / High=1`，要求同一条递归 AppData 删除正则同时扫描 Uninstall section 与 hooks，并清除不存在 checkbox 的文档表述。主线程全部接受；门禁加入三种危险反例和两种安全反例后，WinPS 5.1 启动并覆盖 PowerShell 5.1/7 的 installer transaction 测试 81.2 秒通过，旧政策 token 扫描 0 命中。二次复核为 `Blocker=0 / High=0`。
+- **主线程回应与路线微调**：测试不是天然可信的旁观者；当生产政策删除一个旧分支时，静态断言和说明文档都必须作为同级事实源反向审计。主流程因此固定为“正确测试全名确认红测 → token 与危险行为双门禁 → 恶意/安全 regex fixture → 双壳事务测试 → 独立复核清零”。本提交推进 HEAD 后必须从新 clean HEAD 重建 `ProjectGatesApproved` active，再做 NSIS AppData canary；新 commit/hash 继续只由 active manifest 留痕，不在本文预写未来产物哈希。
+- **最大困难**：最大的困难是一个仅位于 `#[cfg(test)]` 的错误断言既不会改变 release 二进制行为，却位于有界 runtime input digest 的 `crates/` 范围内；不能用“只改测试”豁免 provenance，也不能为追求 clean manifest 而保留已知红测。解决方式是接受一次新的提交、active 重建和真机 canary，并在交付后立即删除由定点 release 测试产生的可再生缓存。
+
 ## 恢复入口
 
 - 项目状态：本文件。

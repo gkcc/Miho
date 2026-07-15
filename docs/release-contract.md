@@ -269,7 +269,8 @@ the setup failure message names its durable location.
 Uninstall always removes installer-owned product metadata, including the
 uninstall registration, publisher/product install-location and language keys,
 automation owner/task, shortcuts, and immutable installed payload. Those keys
-are not user data and are removed even when the AppData checkbox is clear.
+are not user data and are removed independently of the always-preserved
+AppData roots.
 Conversely, `%APPDATA%\com.miho.endgame` and
 `%LOCALAPPDATA%\com.miho.endgame` are mutable user-data roots and are never
 recursively removed by this installer or uninstaller. The uninstall confirm
