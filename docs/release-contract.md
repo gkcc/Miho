@@ -7,6 +7,20 @@ attestation that the installer owner/upgrade/rollback and real matrix gates
 elsewhere in the project are green; it is accepted only for a clean full
 bundle. `-NoBundle`, dirty-source, and unapproved runs cannot publish active.
 
+The project gate was first exercised for clean commit
+`85ed31d6636f91f7ff24fa78724c62f508042aa6`. That active evidence recorded
+NSIS SHA-256
+`a807a21a6efe57f579c5552192661a9c4cc6918fb54b9e090c82e0db4f73f66b`
+and portable ZIP SHA-256
+`89d7b51893864c5dcf818a8aaaedb47ef134e366d86814237efc2a3dddc1b660`,
+and those bytes passed a clean install, exact health, uninstall, and AppData
+canary smoke. Any later commit included by the release-source digest requires
+a new clean active build before delivery; its exact commit and hashes are read
+only from `target/release/bundle/miho-release-artifacts-v1.json`, avoiding a
+self-referential tracked-document update. This evidence does not change the
+normative rule that the contract itself is not an approval, and the package
+remains `NotSigned` until a signing policy is supplied.
+
 ## Lease and mutation order
 
 `scripts/build_rust_app.ps1 -Release` acquires the release lease before the
@@ -303,10 +317,24 @@ pending manifest; after the poison is removed and a new pending file is
 written, the same helper cleans scratch before performing the active
 replacement.
 
+`tests/powershell/test_installer_transaction.ps1` additionally creates an
+instrumented copy of the exact installer helper solely inside its temporary
+fixture. Under both Windows PowerShell 5.1 and PowerShell 7 it terminates that
+helper after the first static payload file has been durably installed, starts
+recovery, terminates it again immediately after the `rolling-back` journal
+phase is durable, and then invokes the original unmodified helper. The final
+recovery must restore the clean before-image, release the exact owner, remove
+the install root, and finalize the transaction root. This is real process
+termination evidence for those two cut points; it is not evidence for every
+NSIS Prepare/Commit cut point or for physical power-loss persistence.
+
 This contract does not clear the project-wide installer gate. A final active
 release still requires the NSIS owner identity, upgrade recovery, rollback,
 registry/shortcut/task restoration, and real clean install/upgrade/uninstall
 matrix to have `Blocker=0 / High=0`. Cross-account or cross-session lease
-evidence should also be captured on the final release machine even though the
+evidence should also be captured on a capable release machine even though the
 filesystem handle is system-wide and the ancestor-rename regression is
-permanent.
+permanent. The current medium-integrity token can create an interactive task,
+but an S4U non-interactive task registration returned `0x80070005`; therefore
+same-session process contention is not being relabeled as cross-session
+evidence.

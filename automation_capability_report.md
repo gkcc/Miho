@@ -2,15 +2,17 @@
 
 - 初版生成时间：2026-07-06
 - 最近审计：2026-07-15
-- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease、安装/portable 候选切换事务和 hash-bound NSIS/portable 发布链均已有实现、回归与真实 Windows 矩阵证据；下述 Python 编排只保留为历史说明。真实升级、回滚、canonical Task Scheduler、portable online update 与最终卸载均在空 PATH/零 Python 下通过。当前外部状态是“产品已完整卸载、用户 AppData 原样保留”，矩阵候选仍是 `verification-only` 且 `NotSigned`；待独立终审和提交后才能从 clean HEAD 构建 active。
+- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease、安装/portable 候选切换事务和 hash-bound NSIS/portable 发布链均已有实现、回归与真实 Windows 矩阵证据；下述 Python 编排只保留为历史说明。真实升级、回滚、canonical Task Scheduler、portable online update 与最终卸载均在空 PATH/零 Python 下通过。项目门禁首次在 clean `85ed31d6636f91f7ff24fa78724c62f508042aa6` 上发布 active，最终字节又通过 clean install/health/uninstall/AppData canary；任何后续 source-digest 提交均须从新 clean HEAD 重建后再交付，当前 active 的 commit/hash 以 manifest 为准。当前外部状态是“产品已完整卸载、用户 AppData 原样保留”，安装包为 `NotSigned`。
 
 ## 当前外部状态与剩余边界（2026-07-15）
 
 - 真实 failure-upgrade 在 `VerifyDynamic` 删除 Start Menu shortcut 后返回 1603，durable failure receipt 保存精确 mode；rollback 恢复静态 payload、automation owner、任务 generation、快捷方式 Target/WorkingDirectory、typed registry tree 与 DACL，随后 transaction root 正常 Finalize 删除。
 - 真实 success-upgrade 返回 0；candidate run + exact config-bound health 对 HSR/ZZZ 均 healthy，owner identity 保持不变。canonical `MiHoYoEndgameDailyUpdate` 已真实 Running→Ready，`LastTaskResult=0` 且 generation/attempt 由 Rust health 精确确认，整个矩阵未观察到 Python 进程。
-- portable 在空 PATH 下通过 CLI version/help、桌面 5 秒与 online update；最终 uninstall 返回 0，并删除安装根、任务、automation owner、产品/卸载注册表与快捷方式。`%APPDATA%\com.miho.endgame` 的 753 文件、520 目录、297,219,938 字节及整树摘要 `a650910ec18ec50542d980cd926f3ae46c5c7b9e8cc1a6e001b6f5cb689076cc` 前后不变；仅保留 0 字节 installer lease 文件。
-- 默认完整构建即使源码 clean 也保持 `verification-only`；真实矩阵虽已完成，仍须把独立 `Blocker=0 / High=0` 和主线程回应写回 `PROJECT.md` 并提交，才可从 clean HEAD 显式使用 `-ProjectGatesApproved`。dirty、`-NoBundle` 或非 Release 调用携带该批准都会失败。
-- 仍未完成且不得过度声称的边界：Authenticode 正式签名、跨账户/跨 session release lease 实测、安装过程中强杀/掉电的完整 journal recovery。它们不否定当前同账户真机可用性，但必须与最终 `NotSigned` active 产物一起明确披露。
+- 前序 verification 矩阵的 portable 在空 PATH 下通过 CLI version/help、桌面 5 秒与 online update；该轮卸载时 `%APPDATA%\com.miho.endgame` 的 753 文件、520 目录、297,219,938 字节及整树摘要 `a650910ec18ec50542d980cd926f3ae46c5c7b9e8cc1a6e001b6f5cb689076cc` 前后不变。
+- 首次 active 最终字节又独立完成 clean install/health/uninstall：卸载前后含测试 canary 的 AppData 均为 755 文件、520 目录、297,294,737 字节，整树摘要均为 `0c0637cb2c971c96c749f3efa38112815b0c2585e30c7fbb2aef8d34242f2c28`；随后只精确删除测试 canary。当前安装根、任务、automation owner、产品/卸载注册表、快捷方式与 transaction/failure receipt 均不存在，仅允许 0 字节 installer lease 文件保留。
+- 默认完整构建即使源码 clean 也保持 `verification-only`；只有独立 `Blocker=0 / High=0` 和项目门禁留痕齐备后，clean full Release 才能显式使用 `-ProjectGatesApproved`。首次 active 的 NSIS SHA-256 为 `a807a21a6efe57f579c5552192661a9c4cc6918fb54b9e090c82e0db4f73f66b`、portable ZIP 为 `89d7b51893864c5dcf818a8aaaedb47ef134e366d86814237efc2a3dddc1b660`；后续重建不复用历史哈希，当前值只读 `target/release/bundle/miho-release-artifacts-v1.json`。dirty、`-NoBundle` 或非 Release 调用携带批准仍会硬失败。
+- installer helper 的 abrupt recovery 已补机器门禁：PowerShell 5.1/7 都在第一项静态文件完成后强杀一次、进入 durable `rolling-back` 后再强杀一次，最后由原始未插桩 helper 恢复 clean before-image、删除 owner 与事务根。该证据不外推为物理掉电或 NSIS 所有 phase 的完整恢复。
+- 仍未完成且不得过度声称的边界：Authenticode 正式签名、跨账户/跨 session release lease 实测、完整 NSIS Prepare/Commit 强杀与物理掉电 recovery。当前 medium-integrity 非提权令牌能注册 interactive task，但 S4U 非交互 task 精确返回 `0x80070005`，所以没有拿同 session 子进程冒充跨 session 证据。它们不否定当前同账户真机可用性，但必须与 `NotSigned` active 产物一起明确披露。
 
 ## 当前 native 自动化基线（实现与真实切换已验证，最终外部状态为卸载）
 

@@ -91,6 +91,123 @@ function Invoke-InstallerHelperFailureV1 {
     return [pscustomobject][ordered]@{ ExitCode = $exitCode; Output = ($output -join [Environment]::NewLine) }
 }
 
+function New-InstallerCrashFixtureV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourceHelper,
+        [Parameter(Mandatory = $true)][string]$SourceScheduler,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    [System.IO.Directory]::CreateDirectory($Destination) | Out-Null
+    Copy-Item -LiteralPath $SourceScheduler -Destination (Join-Path $Destination "task_scheduler_v1.ps1") -Force -ErrorAction Stop
+    $text = [System.IO.File]::ReadAllText($SourceHelper).Replace("`r`n", "`n")
+    $staticNeedle =
+        '                Write-MihoInstallerFileFromPathV1 -Source $source -Target $target -ExpectedSize ([int64]$record.after_size) -ExpectedSha256 ([string]$record.after_sha256)' + "`n" +
+        '            }' + "`n" +
+        '            elseif (Test-Path -LiteralPath $target) {'
+    $staticReplacement =
+        '                Write-MihoInstallerFileFromPathV1 -Source $source -Target $target -ExpectedSize ([int64]$record.after_size) -ExpectedSha256 ([string]$record.after_sha256)' + "`n" +
+        '                if ($env:MIHO_INSTALLER_CRASH_FIXTURE_POINT_V1 -ceq "after-first-static" -and' + "`n" +
+        '                    -not (Test-Path -LiteralPath $env:MIHO_INSTALLER_CRASH_FIXTURE_SIGNAL_V1)) {' + "`n" +
+        '                    [System.IO.File]::WriteAllText($env:MIHO_INSTALLER_CRASH_FIXTURE_SIGNAL_V1, "ready", (New-Object System.Text.UTF8Encoding($false)))' + "`n" +
+        '                    while ($true) { Start-Sleep -Milliseconds 250 }' + "`n" +
+        '                }' + "`n" +
+        '            }' + "`n" +
+        '            elseif (Test-Path -LiteralPath $target) {'
+    $rollbackNeedle =
+        '    $journal.phase = "rolling-back"' + "`n" +
+        '    $journal.failure = ""' + "`n" +
+        '    Write-MihoInstallerJournalV1 -Journal $journal -Root $Evidence.Root' + "`n" +
+        '    foreach ($record in @($journal.registry_trees)) { Restore-MihoInstallerRegistryTreeV1 -Snapshot $record.before }'
+    $rollbackReplacement =
+        '    $journal.phase = "rolling-back"' + "`n" +
+        '    $journal.failure = ""' + "`n" +
+        '    Write-MihoInstallerJournalV1 -Journal $journal -Root $Evidence.Root' + "`n" +
+        '    if ($env:MIHO_INSTALLER_CRASH_FIXTURE_POINT_V1 -ceq "rolling-back") {' + "`n" +
+        '        [System.IO.File]::WriteAllText($env:MIHO_INSTALLER_CRASH_FIXTURE_SIGNAL_V1, "ready", (New-Object System.Text.UTF8Encoding($false)))' + "`n" +
+        '        while ($true) { Start-Sleep -Milliseconds 250 }' + "`n" +
+        '    }' + "`n" +
+        '    foreach ($record in @($journal.registry_trees)) { Restore-MihoInstallerRegistryTreeV1 -Snapshot $record.before }'
+    foreach ($replacement in @(
+        [pscustomobject]@{ Label = "static apply"; Needle = $staticNeedle; Value = $staticReplacement },
+        [pscustomobject]@{ Label = "rollback"; Needle = $rollbackNeedle; Value = $rollbackReplacement }
+    )) {
+        $first = $text.IndexOf([string]$replacement.Needle, [StringComparison]::Ordinal)
+        if ($first -lt 0 -or $text.IndexOf([string]$replacement.Needle, $first + 1, [StringComparison]::Ordinal) -ge 0) {
+            throw "Installer $($replacement.Label) crash fixture injection point is not unique."
+        }
+        $text = $text.Replace([string]$replacement.Needle, [string]$replacement.Value)
+    }
+    $path = Join-Path $Destination "installer_transaction_crash_fixture_v1.ps1"
+    [System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))
+    return $path
+}
+
+function Invoke-InstallerHelperAbruptStopV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Shell,
+        [Parameter(Mandatory = $true)][string]$Helper,
+        [Parameter(Mandatory = $true)][hashtable]$Arguments,
+        [Parameter(Mandatory = $true)][string]$CrashPoint,
+        [Parameter(Mandatory = $true)][string]$SignalPath,
+        [Parameter(Mandatory = $true)][string]$JournalPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedPhase
+    )
+
+    if (Test-Path -LiteralPath $SignalPath) { Remove-Item -LiteralPath $SignalPath -Force -ErrorAction Stop }
+    $tokens = New-Object System.Collections.ArrayList
+    foreach ($name in $Arguments.Keys) {
+        $null = $tokens.Add("-$name")
+        if ($Arguments[$name] -is [bool]) {
+            if ($Arguments[$name]) { continue }
+            $tokens.RemoveAt($tokens.Count - 1)
+            continue
+        }
+        $value = [string]$Arguments[$name]
+        if ($value.Contains('"')) { throw "Installer crash fixture argument contains a quote." }
+        $null = $tokens.Add('"' + $value + '"')
+    }
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = $Shell
+    $start.Arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $Helper + '" ' + ($tokens -join " ")
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.EnvironmentVariables["PSModulePath"] = $script:MihoInstallerAdversarialModulePathV1
+    $start.EnvironmentVariables["MIHO_INSTALLER_TRANSACTION_TEST_V1"] = "1"
+    $start.EnvironmentVariables["MIHO_INSTALLER_CRASH_FIXTURE_POINT_V1"] = $CrashPoint
+    $start.EnvironmentVariables["MIHO_INSTALLER_CRASH_FIXTURE_SIGNAL_V1"] = $SignalPath
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $start
+    try {
+        if (-not $process.Start()) { throw "Installer crash fixture did not start." }
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $SignalPath -PathType Leaf)) {
+            if ($process.HasExited) {
+                $stdout = $process.StandardOutput.ReadToEnd()
+                $stderr = $process.StandardError.ReadToEnd()
+                throw "Installer crash fixture exited before its durable point: exit=$($process.ExitCode) output=$stdout error=$stderr"
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not (Test-Path -LiteralPath $SignalPath -PathType Leaf)) { throw "Installer crash fixture signal timed out." }
+        $journal = Get-Content -Raw -LiteralPath $JournalPath | ConvertFrom-Json -ErrorAction Stop
+        if ([string]$journal.phase -cne $ExpectedPhase) {
+            throw "Installer crash fixture paused at phase '$($journal.phase)' instead of '$ExpectedPhase'."
+        }
+        $process.Kill()
+        $process.WaitForExit()
+        if ($process.ExitCode -eq 0) { throw "Abrupt installer fixture unexpectedly exited successfully." }
+    }
+    finally {
+        if (-not $process.HasExited) {
+            try { $process.Kill(); $process.WaitForExit() } catch { }
+        }
+        $process.Dispose()
+    }
+}
+
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $helper = Join-Path $root "scripts\installer_transaction_v1.ps1"
 $shells = @()
@@ -376,6 +493,70 @@ foreach ($shell in $shells) {
         if ($null -ne $ownerKey) {
             try {
                 if ($ownerKey.GetValueNames() -contains "AutomationOwnerInstanceIdV1") { throw "Rolled-back owner registry value remains." }
+            }
+            finally { $ownerKey.Dispose() }
+        }
+
+        # Prove the durable journal with real process termination, rather than
+        # only editing a phase fixture. The instrumented copy changes no
+        # transaction behavior: it pauses after the first static byte is
+        # committed and again immediately after the rolling-back phase is
+        # durable, allowing the parent to terminate the helper at both points.
+        $crashFixtureDirectory = Join-Path $temporary "crash-fixture"
+        $crashHelper = New-InstallerCrashFixtureV1 `
+            -SourceHelper $helper `
+            -SourceScheduler (Join-Path $root "scripts\task_scheduler_v1.ps1") `
+            -Destination $crashFixtureDirectory
+        $receipt = Invoke-InstallerHelperV1 -Shell $shell -Helper $helper -Arguments $begin
+        $receipt = Invoke-InstallerHelperV1 -Shell $shell -Helper $helper -Arguments $claim
+        $journalPath = Join-Path $transaction "installer-transaction-v1.json"
+        $crashApply = @{} + $common
+        $crashApply.Mode = "ApplyStatic"
+        $applySignal = Join-Path $temporary "crash-after-first-static.signal"
+        Invoke-InstallerHelperAbruptStopV1 `
+            -Shell $shell `
+            -Helper $crashHelper `
+            -Arguments $crashApply `
+            -CrashPoint "after-first-static" `
+            -SignalPath $applySignal `
+            -JournalPath $journalPath `
+            -ExpectedPhase "applying-static"
+        $crashJournal = Get-Content -Raw -LiteralPath $journalPath | ConvertFrom-Json -ErrorAction Stop
+        $newStaticRecords = @($crashJournal.static_files | Where-Object { [bool]$_.after_present })
+        $installedAfterCrash = @($newStaticRecords | Where-Object {
+            $target = Join-Path $install ([string]$_.install_path).Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+            if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { return $false }
+            $item = Get-Item -LiteralPath $target -Force -ErrorAction Stop
+            return ([int64]$item.Length -eq [int64]$_.after_size -and
+                (Get-Sha256HexV1 -LiteralPath $target) -ceq [string]$_.after_sha256)
+        })
+        if ($installedAfterCrash.Count -ne 1 -or $newStaticRecords.Count -le 1) {
+            throw "Abrupt static apply fixture did not leave an exact one-file partial payload."
+        }
+
+        $crashRecover = @{} + $common
+        $crashRecover.Mode = "Recover"
+        $crashRecover.AutomationRoot = $automation
+        $rollbackSignal = Join-Path $temporary "crash-during-rollback.signal"
+        Invoke-InstallerHelperAbruptStopV1 `
+            -Shell $shell `
+            -Helper $crashHelper `
+            -Arguments $crashRecover `
+            -CrashPoint "rolling-back" `
+            -SignalPath $rollbackSignal `
+            -JournalPath $journalPath `
+            -ExpectedPhase "rolling-back"
+        $receipt = Invoke-InstallerHelperV1 -Shell $shell -Helper $helper -Arguments $crashRecover
+        if ($receipt.terminal_phase -cne "rolled-back" -or $receipt.cleanup_pending -or
+            (Test-Path -LiteralPath $transaction) -or (Test-Path -LiteralPath $install)) {
+            throw "Repeated abrupt installer recovery did not restore and finalize the clean before-image."
+        }
+        $ownerKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($testOwnerSubKey, $false)
+        if ($null -ne $ownerKey) {
+            try {
+                if ($ownerKey.GetValueNames() -contains "AutomationOwnerInstanceIdV1") {
+                    throw "Repeated abrupt installer recovery retained its owner identity."
+                }
             }
             finally { $ownerKey.Dispose() }
         }

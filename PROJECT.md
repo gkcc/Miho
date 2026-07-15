@@ -22,17 +22,17 @@
 - 双游戏 visualizer 产物契约已冻结并由 Rust 实现：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
 - `evidence-first-v1-20260712` 已由 Python oracle 与共享 Rust core/CLI 双实现：跨 mode 隔离、A 的 sentinel/稳定性门槛、owned/built 分离、稳定 E-ID、显式时钟、JSON/YAML/BOM、四产物黄金和任意路径整批回滚均已验收；Rust evidence/coverage 门禁已解除。
 - Python 继续作为决策/报告迁移 oracle，但安装、计划任务、portable 与桌面/CLI 运行时均已证明不启动 Python。五类报告共用 `miho-app` executor；纯 Rust TaskManager、Tauri capabilities/select/start/get/list/cancel、安全任务前端和 workspace-scoped visualizer/data/avatar/Box 协议桥已接通。单一 Rust update runner、failure receipt、config-bound health、跨进程 workspace writer lease、安装/portable 候选切换与发布事务均已接通并完成真实失败升级回滚、成功升级、计划任务 Running→Ready、portable online update、无 Python 与最终卸载矩阵。
-- NSIS 与 portable 已携带桌面 EXE、CLI、默认 configs、automation 和静态 ownership manifest，并以 frozen source/dependency/staging、反向容器提取和 content-addressed manifest 绑定。真实矩阵候选仍是 `verification-only` 且 `NotSigned`；矩阵已满足项目级 installer gate，但只有文档/独立终审提交后从 clean HEAD 显式 `-ProjectGatesApproved` 构建的新 full bundle 才能成为 active，未签名状态必须继续显式披露。
+- NSIS 与 portable 已携带桌面 EXE、CLI、默认 configs、automation 和静态 ownership manifest，并以 frozen source/dependency/staging、反向容器提取和 content-addressed manifest 绑定。项目门禁首次在 clean `85ed31d6636f91f7ff24fa78724c62f508042aa6` 上发布 active 并完成最终字节真机 smoke；后续任何进入 release source digest 的提交都必须从新 clean HEAD 重建后才能交付。当前 active 的精确 commit、路径、SHA-256、签名状态与其余 provenance 永远以 `target/release/bundle/miho-release-artifacts-v1.json` 为权威，tracked 文档不预写未来构建哈希以避免自引用；`NotSigned` 必须继续显式披露。
 
 ## 阶段路线
 
 1. **工作区治理**：完成。
-2. **兼容基线**：固化 CLI、输入输出和允许差异，建立黄金比较器。
-3. **Rust 基础内核**：完成强类型配置、规范化、解析模型、稳定标识、可靠存储与网络边界。
-4. **数据抓取与导出**：移植 Hugging Face、Prydwen、官方名称及 HSR/ZZZ 导出。
-5. **决策与报告**：完成 evidence、coverage、decision compatibility、pull-value、review-packet 的 Rust core/CLI 迁移。
-6. **Tauri 产品化**：等价迁移可视化，加入任务、进度、取消、错误和文件选择。
-7. **自动化与发布**：切换计划任务，验证 NSIS/便携版和无 Python 环境，最后退役 Python。
+2. **兼容基线**：完成；CLI、输入输出、允许差异与黄金比较器均已固化。
+3. **Rust 基础内核**：完成；强类型配置、规范化、解析模型、稳定标识、可靠存储与网络边界均已接通。
+4. **数据抓取与导出**：完成；Hugging Face、Prydwen、官方名称及 HSR/ZZZ export 均由 Rust 正式路径承担。
+5. **决策与报告**：完成；evidence、coverage、decision compatibility、pull-value、review-packet 的 Rust core/CLI 已解除门禁。
+6. **Tauri 产品化**：完成；可视化、任务、进度、取消、错误、原生目录选择与安全 workspace 协议均已验收。
+7. **自动化与发布**：完成；计划任务已切换并完成真实回滚/成功/卸载矩阵，active NSIS/便携版和无 Python runtime 已验收。Python 源码仅保留为迁移 oracle，不进入产品运行链。
 
 ## 阶段完成对抗复核门槛
 
@@ -68,13 +68,13 @@
 | Rust TaskManager 与 Tauri 薄命令 | 完成 | 主智能体、TaskManager 实现子智能体、Tauri 后端子智能体、独立对抗审查子智能体 | pathless intent、trusted workspace、共享 executor | start/get/list/cancel、capabilities、native workspace 选择、连续状态事件 | 全局单任务；commit 前取消不改输出、commit 后 too-late；A/B/C active 竞态；panic/spawn；opaque/reparse/persist；事件 1..N 补发；独立 `Blocker=0 / High=0` | 共享应用层完成 |
 | 安全前端与 visualizer 协议桥 | 完成 | 主智能体、协议/契约只读审计子智能体、独立对抗终审子智能体 | Tauri TaskManager、Box State、Rust visualizer 静态资产 | 安全任务面板、错误/诊断/产物、native workspace 选择、内嵌双游戏 visualizer | main UI 无 unsafe HTML sink；isolation + access/storage scope；有界 data/avatar/Box、A→B/Windows AppData 真机；Rust 268、Python 181、Vite/Tauri release；独立 `Blocker=0 / High=0` | TaskManager 完成 |
 
-## 第十五批三目标（进行中）
+## 第十五批三目标（已完成）
 
 | 子目标 | 状态 | 负责人 | 输入 | 输出 | 验收 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 单一 Rust native update orchestrator、failure receipt 与 writer lease | 完成 | 主智能体、runner 契约审查子智能体、两名独立 Windows/对抗终审子智能体 | 双游戏 Rust export、五类报告 executor、旧 PowerShell 自动化、workspace 安全边界 | `miho update run/health`、严格 config/state/attempt/canonical receipt、config-bound generation health、全 writer OS lease、native launcher | Rust 325、Python 181、PowerShell 5.1/7、真实双进程/cwd/junction/失败恢复/CrossesDevices；独立 `Blocker=0 / High=0` | 第十四批完成 |
 | 安装资源与计划任务候选验证后原子切换 | 完成（2026-07-15 真机验收） | 主智能体、独立安装/任务审查子智能体 | release `miho.exe`、默认 config、原 Disabled 旧路径任务 | 安装/portable 稳定资源路径、candidate run+exact health、旧任务所有权与回滚 | 真实升级失败回滚、成功升级、canonical Task Scheduler Running→Ready 与 exact health 均通过；最终卸载删除任务/owner/产品状态 | native runner 完成 |
-| NSIS/portable、无 Python 矩阵与 Python runtime 退役 | 进行中（真机矩阵完成，待 clean active 产物） | 主智能体、独立发布终审子智能体 | 候选任务切换链、安装资源 | install/upgrade/uninstall/portable 发布链与 runtime 清理 | verification-only NSIS/portable 在空 PATH、零 Python 下通过真实升级/回滚/卸载/online update；待独立终审、阶段提交和 clean `-ProjectGatesApproved` 构建；签名、跨账户/跨 session lease 与强杀恢复仍不承诺 | 计划任务切换完成 |
+| NSIS/portable、无 Python 矩阵与 Python runtime 退役 | 完成（2026-07-15 active 发布与最终 smoke） | 主智能体、独立发布终审子智能体 | 候选任务切换链、安装资源 | install/upgrade/uninstall/portable 发布链与 runtime 清理 | clean HEAD active NSIS/portable、空 PATH/零 Python、真实 upgrade/rollback、最终 clean install/health/uninstall 与 AppData canary 通过；Python 仅保留为源码 oracle，不再是安装、CLI、桌面、更新或任务 runtime | 计划任务切换完成 |
 
 ## 决策记录
 
@@ -111,6 +111,8 @@
 | 2026-07-13 | 自动更新业务收敛为单一 Rust `update run/health`，PowerShell 只作精确退出码 launcher；所有 managed workspace writer 共用一把 OS lease | online HF update 禁止 last-good cache 伪造 freshness；state/canonical/attempt/generation 均绑定精确 config digest 与产物 hash；symlink/junction/reparse fail-closed；失败不前移 state | update config/schema、产物 ownership、freshness policy、writer identity、receipt/health 协议或 crash-recovery 承诺变化时 |
 | 2026-07-14 | 发布状态不再由 clean/full 自动升级为 active；默认 clean/full 也只生成 `verification-only`，active 必须显式 `-ProjectGatesApproved` | 项目级 installer/upgrade/uninstall/真实矩阵与独立终审成为机器入口上的显式批准边界；dirty、no-bundle 或非 Release 批准硬失败 | 发布批准改由外部签名/CI attestation 承担，或项目门禁契约版本升级时 |
 | 2026-07-15 | 真实 verification-only 候选完成失败升级回滚、成功升级、canonical Task Scheduler、portable、空 PATH/零 Python 与最终卸载矩阵 | installer 项目门禁可在本阶段独立终审和提交后用于 clean full active 构建；`NotSigned` 不得被 active 状态掩盖，AppData 用户数据不属于默认卸载边界 | 最终 clean 构建与 manifest 复核失败、真实矩阵证据漂移、签名策略变化或用户数据删除策略升级时 |
+| 2026-07-15 | clean `85ed31d` 通过显式项目门禁发布 active NSIS/portable，并以最终字节重做 clean install/health/uninstall/AppData canary | 第十五批和“运行时不依赖 Python”的迁移主线完成；Python 源码继续作为黄金 oracle，不进入安装、CLI、桌面、更新或计划任务运行链；active manifest 是精确产物事实源 | runtime 代码/资源变化、active manifest 漂移、签名策略变化或任一最终 smoke 失败时重新关门 |
+| 2026-07-15 | installer recovery 增加真实 helper 进程终止门禁 | PowerShell 5.1/7 均在第一项静态 payload 已提交后强杀，并在 durable `rolling-back` 后再次强杀；原始未插桩 helper 必须恢复 clean before-image、owner 与事务根 | installer journal/phase、静态写入、rollback、scheduler handoff 或 NSIS hook 变化时 |
 
 ## 风险登记
 
@@ -124,8 +126,8 @@
 | Tauri visualizer 子 frame 获得 Wry 初始化脚本或跨 workspace 浏览器状态 | 低（当前门禁已验证） | isolation origin 校验、visualizer CSP、opaque token、动态 localStorage scope、stale 409、A→B 真机与 `docs/desktop-visualizer-security.md`；Tauri/Wry 升级时重新关门 |
 | 已安装每日任务仍指向不存在的 C 盘旧脚本 | 已清零（2026-07-15 最终卸载后任务不存在） | 真机已完成 candidate run+exact health、原子替换及 Running→Ready 重放；最终卸载复核任务、automation owner 和产品状态均不存在 |
 | PowerShell launcher 丢失 native `$LASTEXITCODE` 或业务失败后前移 state | 低（runner/launcher 与真实任务均已验证，当前产品已卸载） | PowerShell 仅调用 `update run/health`；WinPS 5.1 与 pwsh 7 EAP/退出码 0/2/7 回归；成功 state 只由 Rust 事务提交 |
-| NSIS/便携版与 active 发布可能过度声称完成 | 中（真实矩阵已完成，最终 clean active 尚未生成且未签名） | verification 候选已通过容器反向提取和真机矩阵；只允许阶段终审/提交后从 clean HEAD 使用批准门禁，并逐字披露 `NotSigned` 与剩余跨账户/强杀边界 |
-| 发布构建与验证缓存再次膨胀工作区 | 中（本轮已释放逾 12 GB，当前约 2.47 GiB） | 阶段构建只保留当前矩阵候选；最终 active 校验完成后删除被替代的 verification NSIS/portable/static manifest，并持续清理 `target/debug`、isolated scratch 和 smoke `data/`，绝不删除 AppData 用户数据 |
+| NSIS/便携版与 active 发布可能过度声称完成 | 低（active、最终字节 smoke 与独立终审已完成；仍未签名） | active manifest 绑定 clean source/container/portable；逐字披露 `NotSigned`，不得把 helper 两切点强杀外推成跨账户、完整 NSIS 强杀或物理掉电恢复 |
+| 发布构建与验证缓存再次膨胀工作区 | 低（本轮已释放逾 13 GB，当前约 0.91 GiB） | 仅保留 active NSIS/portable/static manifest；已删除被替代 verification artifacts、`target/debug`、release 编译缓存、smoke `data/` 与 Git 临时垃圾，绝不删除 AppData 用户数据 |
 | 外部数据源随时间变化 | 高 | 归档历史 raw 数据，黄金测试只用固定离线输入 |
 | 子智能体共享工作树冲突 | 中 | 并行任务划定互斥路径；公共类型由主智能体串行整合 |
 | pnpm/esbuild 构建审批或端口再次漂移 | 低（已验证） | 布尔 allowlist、packageManager/Node engines、5173 strict port 与根级复现脚本已固化；端口需避开 Windows excluded range |
@@ -410,15 +412,28 @@
 - **最大困难与路线审视**：最大困难是“通过真实矩阵的旧候选”和“来自最终 clean HEAD 的交付字节”天然不能是同一次构建：真实矩阵需要先验证改动，而文档/提交又会改变 source digest；本轮还证明，表面上“始终保留用户数据”和“构建结束会清 scratch”若仍保留相反 UI 或放在 publication 之后，就会形成第二事实源。主流程因此不循环重跑整套破坏性矩阵，也不复用旧候选：先用 content-addressed verification 候选封闭升级/回滚门禁，独立终审修正契约，再提交 clean source 构建 active；由于修复触及 uninstall UI/发布事务，最终字节必须补容器/manifest、CLI/GUI 和一次真实 clean install/uninstall+AppData canary smoke。若该 smoke 暴露 upgrade/journal/rollback 字节漂移，则升级为故障升级回滚复验，不能用路线说明豁免。
 - **下一步**：取得二次独立 `Blocker=0 / High=0` 并提交当前阶段；确认 clean 后运行 `scripts/build_rust_app.ps1 -Release -ProjectGatesApproved`，验证最终 active manifest 和未签名状态，执行最终 NSIS clean install/uninstall+AppData canary smoke，清理所有被替代 verification 产物，再交付 EXE/ZIP 路径与 SHA-256。
 
+### 第十五批完成：最终 active 发布、Python runtime 退役与强杀恢复补证（子目标 3/3，2026-07-15）
+
+- **显式提问**：本阶段我最有把握的完成证据是什么？最值得质疑、最可能被已有矩阵或 active manifest 漏掉的点是什么？
+- **主判断—最有把握**：首次 active 收口的最强证据是 clean commit `85ed31d6636f91f7ff24fa78724c62f508042aa6` 的 262 个 release inputs 与 manifest 精确绑定，workspace digest 为 `edbf6c4de848b88e1341c6e17c7ee98498fa830dab33c2e756f1a256a0a78c3a`。该次 NSIS SHA-256 `a807a21a6efe57f579c5552192661a9c4cc6918fb54b9e090c82e0db4f73f66b`、portable ZIP `89d7b51893864c5dcf818a8aaaedb47ef134e366d86814237efc2a3dddc1b660`、static manifest 与 ZIP/目录 21 项均被独立重算，publication 为 `active`，scratch/pending/verification manifest 均为 0。后续 evidence commit 的交付字节同样必须由 active manifest 自证，而不是复用这些历史哈希。
+- **最终字节真机证据**：portable 在空 PATH 下 `miho --version/--help` 返回 0、桌面存活 5 秒后正常退出且零 Python。最终 NSIS clean install 返回 0，18/18 static payload 精确匹配，Start Menu Target/WorkingDirectory、owner、canonical task 与 HSR/ZZZ exact health 全部通过且零 Python；uninstall 返回 0。卸载前后的 AppData 都是 755 文件、520 目录、297,294,737 字节，整树 SHA-256 均为 `0c0637cb2c971c96c749f3efa38112815b0c2585e30c7fbb2aef8d34242f2c28`，canary 未变；最终安装根、automation root、task、owner、产品/卸载注册表、快捷方式和 failure/transaction receipt 均不存在。
+- **主判断—最值得质疑**：active 只证明发布时刻的 clean snapshot，不应被误写成“以后任意 HEAD 都与该 EXE 相同”；正式 Authenticode、跨账户/跨 session release lease、完整 NSIS Prepare/Commit 任意切点强杀与物理掉电仍无证据。当前 medium-integrity 非提权令牌能注册 interactive task，但 S4U 非交互 task 注册精确失败为 `0x80070005`，因此没有用同 session 子进程冒充跨 session 通过。
+- **强杀恢复新增证据**：`tests/powershell/test_installer_transaction.ps1` 从生产 helper 精确生成临时插桩副本；在第一项静态文件达到精确 size/hash 后真实 `Kill/WaitForExit`，恢复进入 durable `rolling-back` 后再次强杀，最后只用原始未插桩 helper 恢复。Windows PowerShell 5.1 启动的测试在内部对 WinPS 5.1/pwsh 7 各跑一轮，82.4 秒完成并输出 `installer-transaction-tests: PASS`；恢复后 clean before-image、owner、install root 与 transaction root 全部清零。该门禁只覆盖两个精确进程终止切点，不外推成掉电、partial upgrade 或 scheduler/registry 恢复中任意位置。
+- **独立对抗判断**：最终 active 发布前，Epicurus 对 AppData 卸载边界和 prepublication cleanup 修复二次终审为 `Blocker=0 / High=0`；本次又逐行核对 fault injection、signal、journal phase、partial payload、真实进程退出与原始 helper 收口，首轮为 `Blocker=0 / High=0`。稳定四文件 full diff 终审随后给出 `Blocker=0 / High=1`：能力报告的“当前外部状态”混入前序 verification 的 753 文件摘要，与首次 active 的 755 文件摘要冲突。修复为明确区分两轮历史并说明 canary 后续清理后，最终复审为 `Blocker=0 / High=0`。
+- **主线程回应与处理**：接受“两个 crash point 不等于完整掉电恢复”的限制，也接受“两个前后各自相等的 AppData 快照仍可能在当前状态文案中互相冲突”的文档 High；能力报告现分别标记 verification 与首次 active，并把产品当前外部状态单独写为清零。跨 session 的权限失败保留为真实结果，不降级成跳过即通过。Python 退役按产品愿景定义为 runtime 退役：安装、CLI、桌面、update、health 和计划任务均不启动 Python；Python 源码继续作为黄金 oracle，避免删除可复核基准。
+- **最大困难与路线微调**：最大困难是发布后证据回填会推进 Git HEAD，而 active manifest 必须永远指向它实际构建的 immutable commit；若要求 tracked 文档同时写入“未来构建产生的哈希”并让该构建又包含这份文档，会形成不可满足的自引用循环。主流程微调为：精确 source commit/hash 永远只由 active manifest 留痕，tracked 文档记录门禁与历史证据但不预写未来值；由于 release source digest 明确包含测试和文档，本次 evidence commit 也必须在提交后从新 clean HEAD 重建 active。重建产生的新哈希直接留在 manifest，不再为抄写哈希制造第二个 dirty 文档提交。
+- **磁盘治理**：删除 `target/debug`、被替代 bundle/verification artifacts、portable smoke `data/`、可再生 release 编译缓存和 Git 临时垃圾后，最终工作区实测约 0.91 GiB；只保留 active manifest、NSIS、portable 目录/ZIP 与 static manifest。
+- **阶段结论**：第十五批三目标及七阶段迁移主线完成。程序为可验证的 Windows active 内部发布版，运行时不依赖 Python；每个后续 source-digest 提交仍须完成 clean active 重建才能交付。`NotSigned` 和其余扩展可靠性边界仍是明确限制，不被“完成”措辞掩盖。
+
 ## 恢复入口
 
 - 项目状态：本文件。
 - 当前工作区：`D:\Projects\终局内容提取`。
 - 兼容规则：`docs/migration-compatibility.md`。
 - Rust workspace：根目录 `Cargo.toml`。
-- 当前完整验证：`cargo test --workspace --locked --no-fail-fast; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo fmt --all -- --check; python -m pytest -q; python -m compileall -q hsr_endgame_exporter zzz_endgame_exporter miho_core; pnpm run build; powershell -File scripts/build_rust_app.ps1 -Release`，并在 PowerShell 5.1/7 中逐一运行 scheduler、installer transaction、native exit 与 release contract 测试。full build 默认只能生成 verification-only；真实矩阵已完成，但只有本阶段独立终审和提交后才能从 clean HEAD 传 `-ProjectGatesApproved`。
+- 当前完整验证：`cargo test --workspace --locked --no-fail-fast; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo fmt --all -- --check; python -m pytest -q; python -m compileall -q hsr_endgame_exporter zzz_endgame_exporter miho_core; pnpm run build; powershell -File scripts/build_rust_app.ps1 -Release`，并在 PowerShell 5.1/7 中逐一运行 scheduler、installer transaction、native exit 与 release contract 测试。full build 默认只能生成 verification-only；只有项目门禁与独立终审齐备的 clean full Release 才能显式传 `-ProjectGatesApproved`。当前 active 的精确 source/artifact 事实源是 `target/release/bundle/miho-release-artifacts-v1.json`。
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
 - update runner 契约：`docs/update-runner-contract.md`；外部现状与迁移阻断：`automation_capability_report.md`。
-- 最危险的未验证假设：真实矩阵已经证明同账户/同 session 的 install/upgrade/rollback/uninstall、Task Scheduler、portable 与零 Python，但尚未证明最终 clean active 字节的容器等价性、跨账户/跨 session release lease、正式签名或安装中强杀/掉电的完整 journal recovery。前端/visualizer 的 public/opaque/path/XSS/A→B/有界资源边界已完成真机与对抗复核，但直接 iframe console `invoke` probe 因 DevTools self-XSS 安全屏障未绕过，继续以 isolation Context、origin 校验和实际 frame/CSP 证据守门。
+- 最危险的未验证假设：最终 clean active 字节的容器等价性、同账户 install/upgrade/rollback/uninstall、Task Scheduler、portable 与零 Python 均已有真机证据；helper 的 partial static apply 与 durable rolling-back 两个强杀切点也已补证。尚未证明的是跨账户/跨 session release lease、正式签名、完整 NSIS Prepare/Commit 任意切点或物理掉电 journal recovery。前端/visualizer 的 public/opaque/path/XSS/A→B/有界资源边界已完成真机与对抗复核，但直接 iframe console `invoke` probe 因 DevTools self-XSS 安全屏障未绕过，继续以 isolation Context、origin 校验和实际 frame/CSP 证据守门。
