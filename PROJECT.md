@@ -113,6 +113,7 @@
 | 2026-07-15 | 真实 verification-only 候选完成失败升级回滚、成功升级、canonical Task Scheduler、portable、空 PATH/零 Python 与最终卸载矩阵 | installer 项目门禁可在本阶段独立终审和提交后用于 clean full active 构建；`NotSigned` 不得被 active 状态掩盖，AppData 用户数据不属于默认卸载边界 | 最终 clean 构建与 manifest 复核失败、真实矩阵证据漂移、签名策略变化或用户数据删除策略升级时 |
 | 2026-07-15 | clean `85ed31d` 通过显式项目门禁发布 active NSIS/portable，并以最终字节重做 clean install/health/uninstall/AppData canary | 第十五批和“运行时不依赖 Python”的迁移主线完成；Python 源码继续作为黄金 oracle，不进入安装、CLI、桌面、更新或计划任务运行链；active manifest 是精确产物事实源 | runtime 代码/资源变化、active manifest 漂移、签名策略变化或任一最终 smoke 失败时重新关门 |
 | 2026-07-15 | installer recovery 增加真实 helper 进程终止门禁 | PowerShell 5.1/7 均在第一项静态 payload 已提交后强杀，并在 durable `rolling-back` 后再次强杀；原始未插桩 helper 必须恢复 clean before-image、owner 与事务根 | installer journal/phase、静态写入、rollback、scheduler handoff 或 NSIS hook 变化时 |
+| 2026-07-15 | installed GUI 启动门禁与 portable 冒烟分离；NSIS owner 建立后必须从完整安装布局启动窗口并存活五秒 | portable marker 会绕过 installed-owner 注册表分支，不能再替代安装版启动证据；退出 101、setup-hook 错误或未建窗口一律重新关门 | installed owner schema/registry API、桌面 setup hook、安装布局或 portable 检测变化时 |
 
 ## 风险登记
 
@@ -433,6 +434,16 @@
 - **独立对抗判断**：Epicurus 首轮给出 `Blocker=0 / High=1`，要求同一条递归 AppData 删除正则同时扫描 Uninstall section 与 hooks，并清除不存在 checkbox 的文档表述。主线程全部接受；门禁加入三种危险反例和两种安全反例后，WinPS 5.1 启动并覆盖 PowerShell 5.1/7 的 installer transaction 测试 81.2 秒通过，旧政策 token 扫描 0 命中。二次复核为 `Blocker=0 / High=0`。
 - **主线程回应与路线微调**：测试不是天然可信的旁观者；当生产政策删除一个旧分支时，静态断言和说明文档都必须作为同级事实源反向审计。主流程因此固定为“正确测试全名确认红测 → token 与危险行为双门禁 → 恶意/安全 regex fixture → 双壳事务测试 → 独立复核清零”。本提交推进 HEAD 后必须从新 clean HEAD 重建 `ProjectGatesApproved` active，再做 NSIS AppData canary；新 commit/hash 继续只由 active manifest 留痕，不在本文预写未来产物哈希。
 - **最大困难**：最大的困难是一个仅位于 `#[cfg(test)]` 的错误断言既不会改变 release 二进制行为，却位于有界 runtime input digest 的 `crates/` 范围内；不能用“只改测试”豁免 provenance，也不能为追求 clean manifest 而保留已知红测。解决方式是接受一次新的提交、active 重建和真机 canary，并在交付后立即删除由定点 release 测试产生的可再生缓存。
+
+### 发布收口补正：installed owner 注册表读取与 GUI 启动门禁（2026-07-15）
+
+- **显式提问**：本轮最有把握的完成证据是什么？最值得质疑、最可能继续被已有发布门禁漏掉的点是什么？
+- **主判断—最有把握**：旧安装版 `D:\Miho Endgame\miho-desktop.exe` 在约 25 ms 后以 101 退出，stderr 精确为 `installed automation owner identity is invalid`；同一现场的 owner `9d8fbf93-afa2-45dd-8a06-5cb0da2ec3af` 在注册表、automation-owner 与 authority JSON 中完全一致。直接复刻 Win32 调用证明第一次 `RegGetValueW` 容量探测返回 76 字节，第二次成功读取返回 74 字节；旧代码把两次长度不相等误判为损坏。修复把第二次成功返回值视为实际长度，在拒绝小于 2、奇数或超出容量后截断 UTF-16 buffer，再沿用严格 `REG_SZ`、单末尾 NUL、无 embedded NUL、canonical lowercase UUID 校验。合成 76→74 回归与真实唯一 HKCU `REG_SZ` 测试均通过，真实测试键由 guard 删除且不再留下空父键。
+- **真实启动证据**：修复后的 debug 桌面与精确 `installer/task_scheduler_v1.ps1` 组成完整临时 installed-mode 布局，在保留现有 owner、task 和 AppData 的情况下建立非零主窗口，持续存活 5 秒，正常 `CloseMainWindow` 后退出 0，stdout/stderr 均为空。裸跑 `target/debug/miho-desktop.exe` 因缺少相邻 installer probe 脚本而 fail-closed，只是一个不完整布局负例，不能反向推翻完整 staging 的正向证据，也不能被包装成第二个产品 bug。
+- **主判断—最值得质疑**：当前最危险的盲区是历史发布只做 portable desktop 5 秒冒烟；portable marker 会绕过 installed-owner 注册表读取，因此可以在安装版必闪退时仍然全绿。debug staging 也不能替代最终 NSIS 字节，旧 active manifest 和已经安装的 EXE 都必须失效；只有从本轮 clean commit 构建完整 NSIS，以升级方式保留真实 owner，再从安装目录观察窗口、5 秒存活和正常退出，才可交付。
+- **独立对抗判断**：未参与实现的 `win32_registry_review` 与 `Epicurus / release_adversarial_review` 分别审查 Windows API 边界及稳定四文件 full diff，结论均为 `Blocker=0 / High=0`。两者确认第二次返回长度的下界/偶数/容量约束、truncate-before-parse、类型/NUL/UTF-16/canonical UUID fail-closed、76→74 与真实 HKCU 回归均闭环；Epicurus 另核对三份追踪文档和现有 3/3 定点、85/85 desktop lib、clippy/fmt、完整 staging 5 秒证据一致。Win32 审查只留下两个低级备注：Drop 清理原先未检查返回值，以及 `RegGetValueW` 可能给原始缺 NUL 的值补 terminator。
+- **主线程回应与路线微调**：两个低级备注均正面处理：正常测试路径现显式断言 `RegDeleteTreeW` 成功，Drop 只作 assertion-failure fallback，测试后枚举残留键为 0；release contract 改为精确声明“校验 API 返回表示”，不再过度声称拒绝注册表原始字节。主流程不把单元测试或 portable 成功外推成产品可用。`docs/release-contract.md` 已把 installed GUI 启动固定为独立项目门禁：owner/task 存在、`MIHO_DATA_ROOT` 未覆盖、完整安装布局、非零窗口、至少 5 秒存活、正常关闭与退出 0 缺一不可；退出 101 或 setup-hook 错误直接阻断交付。测试范围按改动面收敛到 owner 回归、整个 `miho-desktop` lib、严格 clippy、fmt 和真实 installed-mode 启动，不重复运行与本缺陷无关的 435 项全 workspace。
+- **最大困难**：最大的困难不是解析 UUID，而是先前“桌面能启动”的证据来自另一条 portable 分支；它看起来覆盖同一个 EXE，实际上跳过了安装身份和计划任务绑定。主流程必须把包容器正确、portable 可启动和 installed 可启动视为三个独立事实，最终 NSIS 启动不得再由 portable smoke 代证。本提交推进 HEAD 后先构建 clean full `verification-only` 候选，用其精确 NSIS 在旧安装现场完成原位升级和 installed GUI 补证；独立复核清零后，同一 clean HEAD 才能用 `-ProjectGatesApproved` 重建 active。active NSIS 必须与已测候选哈希相同，否则还要对 active 精确字节重跑 installed smoke。精确 commit、产物哈希与签名状态继续只写入 ignored manifest，避免 tracked 文档自引用。
 
 ## 恢复入口
 

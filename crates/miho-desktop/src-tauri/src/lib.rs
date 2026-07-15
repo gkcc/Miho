@@ -281,6 +281,17 @@ fn prepare_portable_desktop_state(
 
 #[cfg(windows)]
 fn read_installed_owner_instance_id_v1() -> std::io::Result<Option<String>> {
+    read_installed_owner_registry_value_at_v1(
+        INSTALLED_OWNER_REGISTRY_SUBKEY_V1,
+        INSTALLED_OWNER_REGISTRY_VALUE_V1,
+    )
+}
+
+#[cfg(windows)]
+fn read_installed_owner_registry_value_at_v1(
+    subkey_name: &str,
+    value_name: &str,
+) -> std::io::Result<Option<String>> {
     use std::{os::windows::ffi::OsStrExt, ptr};
     use windows_sys::Win32::{
         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS},
@@ -294,8 +305,8 @@ fn read_installed_owner_instance_id_v1() -> std::io::Result<Option<String>> {
             .collect()
     }
 
-    let subkey = wide(INSTALLED_OWNER_REGISTRY_SUBKEY_V1);
-    let value = wide(INSTALLED_OWNER_REGISTRY_VALUE_V1);
+    let subkey = wide(subkey_name);
+    let value = wide(value_name);
     let mut value_type = 0_u32;
     let mut byte_count = 0_u32;
     // SAFETY: the UTF-16 inputs are NUL terminated and the first call requests
@@ -338,13 +349,32 @@ fn read_installed_owner_instance_id_v1() -> std::io::Result<Option<String>> {
             &mut byte_count,
         )
     };
-    if second != ERROR_SUCCESS || byte_count as usize != buffer.len() * 2 {
+    if second != ERROR_SUCCESS {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "installed automation owner identity is invalid",
         ));
     }
+    truncate_installed_owner_registry_buffer_v1(&mut buffer, byte_count)?;
     parse_installed_owner_registry_value_v1(value_type, &buffer)
+}
+
+fn truncate_installed_owner_registry_buffer_v1(
+    buffer: &mut Vec<u16>,
+    returned_byte_count: u32,
+) -> std::io::Result<()> {
+    let returned_byte_count = returned_byte_count as usize;
+    if returned_byte_count < 2
+        || !returned_byte_count.is_multiple_of(2)
+        || returned_byte_count > buffer.len() * 2
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "installed automation owner identity is invalid",
+        ));
+    }
+    buffer.truncate(returned_byte_count / 2);
+    Ok(())
 }
 
 fn parse_installed_owner_registry_value_v1(
@@ -660,6 +690,148 @@ mod tests {
         let mut embedded_nul = encoded.clone();
         embedded_nul[4] = 0;
         assert!(parse_installed_owner_registry_value_v1(1, &embedded_nul).is_err());
+    }
+
+    #[test]
+    fn installed_owner_registry_read_accepts_a_safe_second_call_size_shrink() {
+        let canonical = "abcdef12-3456-4abc-8def-abcdef123456";
+        let mut exact = canonical.encode_utf16().collect::<Vec<_>>();
+        exact.push(0);
+        let mut sizing_probe_capacity = exact.clone();
+        sizing_probe_capacity.push(0);
+
+        assert!(parse_installed_owner_registry_value_v1(1, &sizing_probe_capacity).is_err());
+        truncate_installed_owner_registry_buffer_v1(
+            &mut sizing_probe_capacity,
+            (exact.len() * 2) as u32,
+        )
+        .unwrap();
+
+        assert_eq!(sizing_probe_capacity, exact);
+        assert_eq!(
+            parse_installed_owner_registry_value_v1(1, &sizing_probe_capacity).unwrap(),
+            Some(canonical.to_owned())
+        );
+
+        let mut invalid = exact.clone();
+        assert!(truncate_installed_owner_registry_buffer_v1(&mut invalid, 0).is_err());
+        assert!(truncate_installed_owner_registry_buffer_v1(&mut invalid, 3).is_err());
+        assert!(truncate_installed_owner_registry_buffer_v1(
+            &mut invalid,
+            (exact.len() * 2 + 2) as u32,
+        )
+        .is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn installed_owner_registry_reader_accepts_a_real_reg_sz_value() {
+        use std::{os::windows::ffi::OsStrExt, ptr};
+        use windows_sys::Win32::{
+            Foundation::ERROR_SUCCESS,
+            System::Registry::{
+                RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW, HKEY,
+                HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ,
+            },
+        };
+
+        fn wide(value: &str) -> Vec<u16> {
+            std::ffi::OsStr::new(value)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect()
+        }
+
+        struct RegistryTreeGuard(Option<Vec<u16>>);
+        impl RegistryTreeGuard {
+            fn remove(mut self) -> u32 {
+                let result = match self.0.as_ref() {
+                    Some(subkey) => {
+                        // SAFETY: the guard owns a live, NUL-terminated
+                        // absolute HKCU subkey name for the entire call.
+                        unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, subkey.as_ptr()) }
+                    }
+                    None => ERROR_SUCCESS,
+                };
+                if result == ERROR_SUCCESS {
+                    self.0 = None;
+                }
+                result
+            }
+        }
+        impl Drop for RegistryTreeGuard {
+            fn drop(&mut self) {
+                if let Some(subkey) = self.0.as_ref() {
+                    // SAFETY: the guard owns a live, NUL-terminated absolute
+                    // HKCU subkey name for the entire call. Drop is a fallback
+                    // for assertion paths; the normal path checks the result.
+                    unsafe {
+                        RegDeleteTreeW(HKEY_CURRENT_USER, subkey.as_ptr());
+                    }
+                }
+            }
+        }
+
+        struct RegistryKeyGuard(windows_sys::Win32::System::Registry::HKEY);
+        impl Drop for RegistryKeyGuard {
+            fn drop(&mut self) {
+                // SAFETY: the handle was returned by RegCreateKeyExW and is
+                // closed exactly once by this guard.
+                unsafe {
+                    RegCloseKey(self.0);
+                }
+            }
+        }
+
+        let subkey_name = format!(
+            r"Software\com.miho.endgame-registry-reader-test-{}",
+            Uuid::new_v4().simple()
+        );
+        let subkey = wide(&subkey_name);
+        let tree_guard = RegistryTreeGuard(Some(subkey.clone()));
+        let mut key: HKEY = ptr::null_mut();
+        // SAFETY: every pointer references live, NUL-terminated input or a
+        // writable output slot for the duration of the call.
+        let created = unsafe {
+            RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                subkey.as_ptr(),
+                0,
+                ptr::null(),
+                REG_OPTION_NON_VOLATILE,
+                KEY_SET_VALUE,
+                ptr::null(),
+                &mut key,
+                ptr::null_mut(),
+            )
+        };
+        assert_eq!(created, ERROR_SUCCESS);
+        let key_guard = RegistryKeyGuard(key);
+
+        let value_name = "AutomationOwnerInstanceIdV1";
+        let value = wide(value_name);
+        let owner_instance_id = Uuid::new_v4().to_string();
+        let encoded = wide(&owner_instance_id);
+        // SAFETY: the key is open for KEY_SET_VALUE and both UTF-16 buffers
+        // remain live for the complete write.
+        let written = unsafe {
+            RegSetValueExW(
+                key_guard.0,
+                value.as_ptr(),
+                0,
+                REG_SZ,
+                encoded.as_ptr().cast(),
+                (encoded.len() * 2) as u32,
+            )
+        };
+        assert_eq!(written, ERROR_SUCCESS);
+        drop(key_guard);
+
+        assert_eq!(
+            read_installed_owner_registry_value_at_v1(&subkey_name, value_name).unwrap(),
+            Some(owner_instance_id)
+        );
+        assert_eq!(tree_guard.remove(), ERROR_SUCCESS);
     }
 
     #[test]

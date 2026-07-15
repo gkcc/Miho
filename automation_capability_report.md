@@ -2,19 +2,26 @@
 
 - 初版生成时间：2026-07-06
 - 最近审计：2026-07-15
-- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease、安装/portable 候选切换事务和 hash-bound NSIS/portable 发布链均已有实现、回归与真实 Windows 矩阵证据；下述 Python 编排只保留为历史说明。真实升级、回滚、canonical Task Scheduler、portable online update 与最终卸载均在空 PATH/零 Python 下通过。项目门禁首次在 clean `85ed31d6636f91f7ff24fa78724c62f508042aa6` 上发布 active，最终字节又通过 clean install/health/uninstall/AppData canary；任何后续 tracked 提交均须从新 clean HEAD 重建后再交付，即使只改测试/文档而 runtime input digest 不变，当前 active 的 commit/hash 仍以 manifest 为准。当前外部状态是“产品已完整卸载、用户 AppData 原样保留”，安装包为 `NotSigned`。
+- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease、安装/portable 候选切换事务和 hash-bound NSIS/portable 发布链均已有实现、回归与真实 Windows 矩阵证据；下述 Python 编排只保留为历史说明。真实升级、回滚、canonical Task Scheduler、portable online update 与最终卸载均在空 PATH/零 Python 下通过。项目门禁首次在 clean `85ed31d6636f91f7ff24fa78724c62f508042aa6` 上发布 active，最终字节又通过 clean install/health/uninstall/AppData canary；任何后续 tracked 提交均须从新 clean HEAD 重建后再交付，即使只改测试/文档而 runtime input digest 不变，active 的精确 commit/hash 仍以 manifest 为准。首次 active 验收结束时产品已完整卸载且用户 AppData 原样保留；用户随后真实安装暴露了 installed-owner GUI 启动缺陷，纠偏现场与新门禁见下一节。安装包仍为 `NotSigned`。
 
-## 当前外部状态与剩余边界（2026-07-15）
+## 已验收外部矩阵与剩余边界（2026-07-15）
 
 - 真实 failure-upgrade 在 `VerifyDynamic` 删除 Start Menu shortcut 后返回 1603，durable failure receipt 保存精确 mode；rollback 恢复静态 payload、automation owner、任务 generation、快捷方式 Target/WorkingDirectory、typed registry tree 与 DACL，随后 transaction root 正常 Finalize 删除。
 - 真实 success-upgrade 返回 0；candidate run + exact config-bound health 对 HSR/ZZZ 均 healthy，owner identity 保持不变。canonical `MiHoYoEndgameDailyUpdate` 已真实 Running→Ready，`LastTaskResult=0` 且 generation/attempt 由 Rust health 精确确认，整个矩阵未观察到 Python 进程。
 - 前序 verification 矩阵的 portable 在空 PATH 下通过 CLI version/help、桌面 5 秒与 online update；该轮卸载时 `%APPDATA%\com.miho.endgame` 的 753 文件、520 目录、297,219,938 字节及整树摘要 `a650910ec18ec50542d980cd926f3ae46c5c7b9e8cc1a6e001b6f5cb689076cc` 前后不变。
-- 首次 active 最终字节又独立完成 clean install/health/uninstall：卸载前后含测试 canary 的 AppData 均为 755 文件、520 目录、297,294,737 字节，整树摘要均为 `0c0637cb2c971c96c749f3efa38112815b0c2585e30c7fbb2aef8d34242f2c28`；随后只精确删除测试 canary。当前安装根、任务、automation owner、产品/卸载注册表、快捷方式与 transaction/failure receipt 均不存在，仅允许 0 字节 installer lease 文件保留。
+- 首次 active 最终字节又独立完成 clean install/health/uninstall：卸载前后含测试 canary 的 AppData 均为 755 文件、520 目录、297,294,737 字节，整树摘要均为 `0c0637cb2c971c96c749f3efa38112815b0c2585e30c7fbb2aef8d34242f2c28`；随后只精确删除测试 canary。该轮验收结束时安装根、任务、automation owner、产品/卸载注册表、快捷方式与 transaction/failure receipt 均不存在，仅允许 0 字节 installer lease 文件保留；这不是用户后续安装后的当前状态。
 - 默认完整构建即使源码 clean 也保持 `verification-only`；只有独立 `Blocker=0 / High=0` 和项目门禁留痕齐备后，clean full Release 才能显式使用 `-ProjectGatesApproved`。首次 active 的 NSIS SHA-256 为 `a807a21a6efe57f579c5552192661a9c4cc6918fb54b9e090c82e0db4f73f66b`、portable ZIP 为 `89d7b51893864c5dcf818a8aaaedb47ef134e366d86814237efc2a3dddc1b660`；后续重建不复用历史哈希，当前值只读 `target/release/bundle/miho-release-artifacts-v1.json`。dirty、`-NoBundle` 或非 Release 调用携带批准仍会硬失败。
 - installer helper 的 abrupt recovery 已补机器门禁：PowerShell 5.1/7 都在第一项静态文件完成后强杀一次、进入 durable `rolling-back` 后再强杀一次，最后由原始未插桩 helper 恢复 clean before-image、删除 owner 与事务根。该证据不外推为物理掉电或 NSIS 所有 phase 的完整恢复。
 - 仍未完成且不得过度声称的边界：Authenticode 正式签名、跨账户/跨 session release lease 实测、完整 NSIS Prepare/Commit 强杀与物理掉电 recovery。当前 medium-integrity 非提权令牌能注册 interactive task，但 S4U 非交互 task 精确返回 `0x80070005`，所以没有拿同 session 子进程冒充跨 session 证据。它们不否定当前同账户真机可用性，但必须与 `NotSigned` active 产物一起明确披露。
 
-## 当前 native 自动化基线（实现与真实切换已验证，最终外部状态为卸载）
+## installed GUI 现场纠偏与升级保护基线（2026-07-15）
+
+- 用户随后把历史 active 安装到 `D:\Miho Endgame`。安装与首次 HSR/ZZZ update 成功，但 installed desktop 双击在约 25 ms 后以 101 退出，stderr 为 `installed automation owner identity is invalid`；WebView2 尚未进入创建阶段。现场 owner `9d8fbf93-afa2-45dd-8a06-5cb0da2ec3af` 在注册表、automation owner/authority 中完全一致，计划任务 `MihoEndgameDailyUpdate-4bfbc997e809d2ec` 为 `Ready`，因此不能删除 owner 绕过。
+- Win32 复刻证明同一合法 `REG_SZ` 的第一次 `RegGetValueW` 容量探测为 76 字节、第二次成功读取为 74 字节。旧桌面错误要求两次长度精确相等；修复改为校验第二次长度不小于 2、为偶数且不超过 buffer 后按实际长度截断，再执行原有 canonical UUID/NUL/type 校验。真实 HKCU 唯一键与 76→74 合成回归均通过，完整临时 installed-mode 布局也已建立窗口、存活 5 秒并正常退出 0。
+- 纠偏前升级保护基线：AppData 为 757 文件、521 目录（含根）、297,650,034 字节、0 reparse，规范化逐路径树摘要为 `4c7a8884bb320880a4db5bbf4b42b3581927fa125557fb03496fa7a9c7a9746a`；task XML SHA-256 为 `6651f845340dba46e5a0595eaf9911d202b494e91ee3504ff1f7c83c8beba99b`；安装根 19 文件、35,510,740 字节，17/17 static payload 精确匹配，旧 desktop SHA-256 为 `701609ad583f85faf35fc44f34286d7ff31d22ad543ed52d4906b46063afc3fc`。
+- 最终验证必须先从新 clean HEAD 构建 full `verification-only` 候选，以其精确 NSIS 原位升级这个旧版现场，保留同一 owner 并核对新 static manifest、task/authority/owner、exact update health、AppData canary 和零 transaction/failure 残留；随后从完整安装目录启动 desktop，要求非零窗口、至少 5 秒存活、正常关闭、退出 0、stderr 空和零 Python。门禁与独立复核清零后，同一 clean HEAD 才能用 `-ProjectGatesApproved` 重建 active；active NSIS 哈希若与已测候选不同，就必须对 active 精确字节重跑同一 smoke。先卸载会删除最有价值的已有 owner/task 现场，不能用 clean install 取代这条升级证据；portable smoke 也因绕过 installed-owner 分支而无资格代证。
+
+## 已验收 native 自动化基线（历史矩阵终态为卸载）
 
 - `miho update run --workspace ... --config ...` 在一个 OS lease 内按 HSR export → ZZZ export → coverage → pull-value → review-packet 顺序运行；任一所选步骤失败均退出 1，不推进成功 state。
 - online update 对 HF 主源拒绝 last-good cache fallback；手动 direct export 仍保留兼容回退。补充来源降级继续通过结构化 diagnostic 使 update 失败，不能用旧数据伪造新完成时间。

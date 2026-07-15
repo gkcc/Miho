@@ -23,6 +23,34 @@ self-referential tracked-document update. This evidence does not change the
 normative rule that the contract itself is not an approval, and the package
 remains `NotSigned` until a signing policy is supplied.
 
+Portable desktop smoke is not evidence for installed desktop startup. The
+portable marker deliberately bypasses the installed automation-owner registry
+read, so every final NSIS gate must launch the desktop from the complete
+installed layout after the owner and scheduled-task state exist, with
+`MIHO_DATA_ROOT` unset. The process must create a nonzero main-window handle,
+remain alive for at least five seconds, accept a normal close, and exit zero
+without a setup-hook error. Exit code 101 or any failure before window creation
+blocks delivery even when the portable executable starts successfully.
+
+A runtime-changing clean commit must first produce a full `verification-only`
+bundle without `-ProjectGatesApproved`. Its exact content-addressed NSIS bytes
+must pass the installed startup gate above while preserving the pre-existing
+owner and task during an upgrade. Only after that evidence and an independent
+`Blocker=0 / High=0` review may the same clean commit be rebuilt with
+`-ProjectGatesApproved`. The resulting active NSIS hash must equal the tested
+verification candidate; if it differs, the active bytes remain non-deliverable
+until the same installed startup smoke is repeated against those exact bytes.
+
+The installed owner is a canonical lowercase UUID stored as `REG_SZ`. For the
+two-call `RegGetValueW` read, the first byte count is a buffer bound rather
+than an exact second-call result: a successful second call may report fewer
+bytes. The reader rejects a returned length below one UTF-16 code unit, an odd
+length, or a length beyond the allocated buffer, then truncates to the
+successful second-call byte count. Its post-read parser rejects a changed
+non-`REG_SZ` type, a missing or embedded NUL in the API-returned representation,
+and noncanonical UUID text. A real unique HKCU key test and the malformed-value
+unit cases permanently guard this behavior.
+
 ## Lease and mutation order
 
 `scripts/build_rust_app.ps1 -Release` acquires the release lease before the
@@ -337,10 +365,11 @@ NSIS Prepare/Commit cut point or for physical power-loss persistence.
 This contract does not clear the project-wide installer gate. A final active
 release still requires the NSIS owner identity, upgrade recovery, rollback,
 registry/shortcut/task restoration, and real clean install/upgrade/uninstall
-matrix to have `Blocker=0 / High=0`. Cross-account or cross-session lease
-evidence should also be captured on a capable release machine even though the
-filesystem handle is system-wide and the ancestor-rename regression is
-permanent. The current medium-integrity token can create an interactive task,
-but an S4U non-interactive task registration returned `0x80070005`; therefore
-same-session process contention is not being relabeled as cross-session
-evidence.
+matrix to have `Blocker=0 / High=0`. That matrix includes the installed desktop
+window/alive/normal-close assertion above and may not substitute portable
+smoke for it. Cross-account or cross-session lease evidence should also be
+captured on a capable release machine even though the filesystem handle is
+system-wide and the ancestor-rename regression is permanent. The current
+medium-integrity token can create an interactive task, but an S4U
+non-interactive task registration returned `0x80070005`; therefore same-session
+process contention is not being relabeled as cross-session evidence.
