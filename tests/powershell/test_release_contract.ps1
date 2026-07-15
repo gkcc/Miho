@@ -343,6 +343,117 @@ function Assert-MihoReleaseFixtureV1 {
 $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("miho-release-contract-{0}-{1}" -f $PID, [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $temporary -ErrorAction Stop | Out-Null
 try {
+    Assert-MihoTauriCustomProtocolFeatureV1 -Root $root
+    $featureFixture = Join-Path $temporary "tauri-custom-protocol-feature"
+    $featureManifestDirectory = Join-Path $featureFixture "crates\miho-desktop\src-tauri"
+    New-Item -ItemType Directory -Path $featureManifestDirectory -Force -ErrorAction Stop | Out-Null
+    $featureManifest = Join-Path $featureManifestDirectory "Cargo.toml"
+    Write-Utf8NoBom -LiteralPath $featureManifest -Text "[features]`ncustom-protocol = [`"tauri/custom-protocol`"]`n"
+    Assert-MihoTauriCustomProtocolFeatureV1 -Root $featureFixture
+    Write-Utf8NoBom -LiteralPath $featureManifest -Text "[package]`nname = `"broken`"`n"
+    Assert-ThrowsV1 -Label "release preflight rejects a missing custom protocol feature" -Action {
+        Assert-MihoTauriCustomProtocolFeatureV1 -Root $featureFixture
+    }
+    Write-Utf8NoBom -LiteralPath $featureManifest -Text "[features]`ncustom-protocol = []`n"
+    Assert-ThrowsV1 -Label "release preflight rejects an unforwarded custom protocol feature" -Action {
+        Assert-MihoTauriCustomProtocolFeatureV1 -Root $featureFixture
+    }
+
+    $ownerRegistryTestsSubKey = "Software\com.miho.endgame\tests"
+    $ownerRegistrySubKey = "$ownerRegistryTestsSubKey\$([guid]::NewGuid().ToString('N'))"
+    $ownerRegistryKey = $null
+    try {
+        if ($null -ne (Get-MihoInstalledAutomationOwnerInstanceIdV1 -RegistrySubKey $ownerRegistrySubKey)) {
+            throw "Absent installed owner registry fixture was not absent"
+        }
+        $ownerRegistryKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($ownerRegistrySubKey, $true)
+        $fixtureOwner = "abcdef12-3456-4abc-8def-abcdef123456"
+        $ownerRegistryKey.SetValue(
+            "AutomationOwnerInstanceIdV1",
+            $fixtureOwner,
+            [Microsoft.Win32.RegistryValueKind]::String
+        )
+        $ownerRegistryKey.Flush()
+        $ownerRegistryKey.Dispose()
+        $ownerRegistryKey = $null
+        if ([string](Get-MihoInstalledAutomationOwnerInstanceIdV1 -RegistrySubKey $ownerRegistrySubKey) -cne $fixtureOwner) {
+            throw "Installed owner registry fixture was not read exactly"
+        }
+        $ownerRegistryKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($ownerRegistrySubKey, $true)
+        $ownerRegistryKey.SetValue(
+            "AutomationOwnerInstanceIdV1",
+            $fixtureOwner.ToUpperInvariant(),
+            [Microsoft.Win32.RegistryValueKind]::String
+        )
+        $ownerRegistryKey.Flush()
+        $ownerRegistryKey.Dispose()
+        $ownerRegistryKey = $null
+        Assert-ThrowsV1 -Label "installed owner selection rejects noncanonical UUID text" -Action {
+            Get-MihoInstalledAutomationOwnerInstanceIdV1 -RegistrySubKey $ownerRegistrySubKey
+        }
+        $ownerRegistryKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($ownerRegistrySubKey, $true)
+        $ownerRegistryKey.SetValue(
+            "AutomationOwnerInstanceIdV1",
+            7,
+            [Microsoft.Win32.RegistryValueKind]::DWord
+        )
+        $ownerRegistryKey.Flush()
+        $ownerRegistryKey.Dispose()
+        $ownerRegistryKey = $null
+        Assert-ThrowsV1 -Label "installed owner selection rejects a non-string registry value" -Action {
+            Get-MihoInstalledAutomationOwnerInstanceIdV1 -RegistrySubKey $ownerRegistrySubKey
+        }
+    }
+    finally {
+        if ($null -ne $ownerRegistryKey) { $ownerRegistryKey.Dispose() }
+        [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($ownerRegistrySubKey, $false)
+    }
+    $ownerRegistryTestsKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($ownerRegistryTestsSubKey, $false)
+    $removeEmptyOwnerRegistryTestsKey = $false
+    if ($null -ne $ownerRegistryTestsKey) {
+        try {
+            $removeEmptyOwnerRegistryTestsKey = (
+                $ownerRegistryTestsKey.GetSubKeyNames().Count -eq 0 -and
+                $ownerRegistryTestsKey.GetValueNames().Count -eq 0
+            )
+        }
+        finally {
+            $ownerRegistryTestsKey.Dispose()
+        }
+    }
+    if ($removeEmptyOwnerRegistryTestsKey) {
+        [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKey($ownerRegistryTestsSubKey, $false)
+    }
+    $ownerRegistryResidue = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($ownerRegistrySubKey, $false)
+    if ($null -ne $ownerRegistryResidue) {
+        $ownerRegistryResidue.Dispose()
+        throw "Installed owner registry fixture left a residual test key"
+    }
+    if ([string](Resolve-MihoPackagedGuiVerificationModeV1 `
+            -InstalledOwnerInstanceId $null `
+            -RequireInstalledMode $false) -cne "Portable" -or
+        [string](Resolve-MihoPackagedGuiVerificationModeV1 `
+            -InstalledOwnerInstanceId "abcdef12-3456-4abc-8def-abcdef123456" `
+            -RequireInstalledMode $true) -cne "Installed") {
+        throw "Packaged GUI verification mode selection is invalid"
+    }
+    Assert-ThrowsV1 -Label "active publication refuses a portable-only GUI gate" -Action {
+        Resolve-MihoPackagedGuiVerificationModeV1 `
+            -InstalledOwnerInstanceId $null `
+            -RequireInstalledMode $true
+    }
+
+    $guiStateTree = Join-Path $temporary "gui-state-tree"
+    New-Item -ItemType Directory -Path (Join-Path $guiStateTree "empty") -Force -ErrorAction Stop | Out-Null
+    Write-Utf8NoBom -LiteralPath (Join-Path $guiStateTree "state.txt") -Text "stable"
+    $guiStateBefore = Get-MihoGuiStateTreeEvidenceV1 -LiteralPath $guiStateTree
+    New-Item -ItemType Directory -Path (Join-Path $guiStateTree "new-empty") -ErrorAction Stop | Out-Null
+    $guiStateAfter = Get-MihoGuiStateTreeEvidenceV1 -LiteralPath $guiStateTree
+    if ([string]$guiStateBefore.digest -ceq [string]$guiStateAfter.digest -or
+        [int]$guiStateAfter.directory_count -ne ([int]$guiStateBefore.directory_count + 1)) {
+        throw "Installed GUI external-state evidence ignored an empty-directory mutation"
+    }
+
     $scratchFixture = Join-Path $temporary "scratch-cleanup"
     $scratchBundle = Join-Path $scratchFixture "target\release\bundle"
     $scratchWorkspace = Join-Path $scratchFixture "target\release\release-workspace\stale-build"
@@ -511,6 +622,12 @@ try {
     Write-Utf8NoBom -LiteralPath $tauriPassContext -Text '{}'
     Write-Utf8NoBom -LiteralPath $tauriPassNode -Text @'
 @echo off
+echo %* | %SystemRoot%\System32\findstr.exe /c:"--features custom-protocol" >nul 2>nul
+if errorlevel 1 exit /b 93
+echo %* | %SystemRoot%\System32\findstr.exe /c:"tauri.js build" >nul 2>nul
+if errorlevel 1 exit /b 94
+echo %* | %SystemRoot%\System32\findstr.exe /c:"--no-bundle" >nul 2>nul
+if errorlevel 1 exit /b 95
 if "%MIHO_RELEASE_CONTEXT_V1%"=="" exit /b 91
 del /f /q "%MIHO_RELEASE_CONTEXT_V1%" >nul 2>nul
 if exist "%MIHO_RELEASE_CONTEXT_V1%" exit /b 92
@@ -546,8 +663,18 @@ exit /b 0
         $failingPassContext = Join-Path $tauriPassFixture "failing-context.json"
         $failingPassNode = Join-Path $tauriPassFixture "fail-with-context.cmd"
         Write-Utf8NoBom -LiteralPath $failingPassContext -Text '{}'
-        Write-Utf8NoBom -LiteralPath $failingPassNode -Text "@echo off`nexit /b 9`n"
-        Assert-ThrowsV1 -Label "failed Tauri pass is surfaced" -Action {
+        Write-Utf8NoBom -LiteralPath $failingPassNode -Text @'
+@echo off
+echo %* | %SystemRoot%\System32\findstr.exe /c:"--features custom-protocol" >nul 2>nul
+if errorlevel 1 exit /b 93
+echo %* | %SystemRoot%\System32\findstr.exe /c:"tauri.js bundle" >nul 2>nul
+if errorlevel 1 exit /b 94
+echo %* | %SystemRoot%\System32\findstr.exe /c:"--bundles nsis" >nul 2>nul
+if errorlevel 1 exit /b 95
+exit /b 9
+'@
+        $bundleFailure = $null
+        try {
             Invoke-MihoTauriReleasePassV1 `
                 -NodePath $failingPassNode `
                 -Overlay $tauriPassOverlay `
@@ -556,6 +683,12 @@ exit /b 0
                 -StagingRoot $tauriPassStaging `
                 -CargoTarget $tauriPassTarget `
                 -PassKind "bundle"
+        }
+        catch {
+            $bundleFailure = $_
+        }
+        if ($null -eq $bundleFailure -or [int]$bundleFailure.Exception.Data["NativeExitCode"] -ne 9) {
+            throw "Failed Tauri bundle pass did not receive the production feature and bundle arguments"
         }
         if (Test-Path -LiteralPath $failingPassContext) {
             throw "Failed Tauri release pass retained a replayable context"
@@ -796,6 +929,40 @@ catch {
         -Manifest $validRelease.Manifest
     if ($validReleaseResult -ne $true) { throw "Valid product release assertion did not return true" }
 
+    $installedGuiLayout = Join-Path $temporary "installed-gui-layout"
+    $installedGuiExecutable = New-MihoInstalledGuiSmokeLayoutV1 `
+        -StagingRoot $validRelease.StagingRoot `
+        -PortableDirectory $validRelease.Portable.Directory `
+        -InstalledPayloadManifest $validRelease.InstalledPayloadManifest `
+        -ProductVersion $validRelease.ProductVersion `
+        -HostTriple $validRelease.HostTriple `
+        -Destination $installedGuiLayout
+    $installedGuiManifest = Read-MihoStrictJsonFileV1 -LiteralPath $validRelease.InstalledPayloadManifest
+    if ((Get-Sha256Hex -LiteralPath $installedGuiExecutable) -cne
+            (Get-Sha256Hex -LiteralPath (Join-Path $validRelease.Portable.Directory "miho-desktop.exe")) -or
+        @(Get-MihoSafeFilesV1 -LiteralPath $installedGuiLayout).Count -ne @($installedGuiManifest.files).Count -or
+        (Test-Path -LiteralPath (Join-Path $installedGuiLayout "miho-portable-v1.json")) -or
+        (Test-Path -LiteralPath (Join-Path $installedGuiLayout "automation"))) {
+        throw "Installed GUI smoke layout was not assembled from the exact candidate installed file set"
+    }
+    Assert-ThrowsV1 -Label "installed GUI smoke layout refuses an existing destination" -Action {
+        New-MihoInstalledGuiSmokeLayoutV1 `
+            -StagingRoot $validRelease.StagingRoot `
+            -PortableDirectory $validRelease.Portable.Directory `
+            -InstalledPayloadManifest $validRelease.InstalledPayloadManifest `
+            -ProductVersion $validRelease.ProductVersion `
+            -HostTriple $validRelease.HostTriple `
+            -Destination $installedGuiLayout
+    }
+    $buildSource = Get-Content -Raw -LiteralPath $buildScript
+    if ($buildSource -notmatch 'Get-MihoInstalledAutomationOwnerInstanceIdV1' -or
+        $buildSource -notmatch 'New-MihoInstalledGuiSmokeLayoutV1' -or
+        $buildSource -notmatch '-Mode \$verificationMode' -or
+        $buildSource -notmatch '-RequireInstalledMode \$projectGatesApprovedMode' -or
+        $buildSource -match '-Mode Portable') {
+        throw "Packaged GUI verification still hard-codes portable mode or omits installed-owner selection"
+    }
+
     $ownershipPath = Join-Path $validRelease.Portable.Directory "miho-static-ownership-v1.json"
     $ownershipExpected = @(Get-MihoExpectedStaticInstalledFilesV1 `
         -PortableDirectory $validRelease.Portable.Directory `
@@ -1029,6 +1196,53 @@ catch {
         [string]$builtOverlay.build.beforeBuildCommand -cne [string]$builtOverlay.build.beforeBundleCommand) {
         throw "Immutable staging did not gate both Tauri build and bundle passes"
     }
+    $builtFrontendDist = [string]$builtOverlay.build.frontendDist
+    $builtFrontendUri = $null
+    if ($builtOverlay.build.PSObject.Properties["frontendDist"].Value -isnot [string] -or
+        [string]::IsNullOrWhiteSpace($builtFrontendDist) -or
+        [System.IO.Path]::IsPathRooted($builtFrontendDist) -or
+        $builtFrontendDist.Contains("\") -or
+        $builtFrontendDist.StartsWith("/", [System.StringComparison]::Ordinal) -or
+        [System.Uri]::TryCreate($builtFrontendDist, [System.UriKind]::Absolute, [ref]$builtFrontendUri)) {
+        throw "Immutable staging frontendDist is absolute or URL-like"
+    }
+    $builtTauriConfigDirectory = Resolve-SafeDirectoryV1 -LiteralPath (Join-Path $stagingBuilderDesktop "src-tauri")
+    $builtFrontendDirectory = Resolve-SafeDirectoryV1 -LiteralPath (Join-Path $builtStaging.Root "frontend-dist")
+    $null = Assert-MihoTauriFrontendDistRelativeV1 `
+        -ConfigDirectory $builtTauriConfigDirectory `
+        -FrontendDist $builtFrontendDist `
+        -ExpectedDirectory $builtFrontendDirectory
+    $releaseContextVerifier = Resolve-SafeFileV1 -LiteralPath (Join-Path $root "scripts\verify_tauri_release_context.ps1")
+    $previousVerifierDefineOnly = $env:MIHO_RELEASE_CONTEXT_TEST_DEFINE_ONLY_V1
+    try {
+        $env:MIHO_RELEASE_CONTEXT_TEST_DEFINE_ONLY_V1 = "1"
+        . $releaseContextVerifier
+    }
+    finally {
+        $env:MIHO_RELEASE_CONTEXT_TEST_DEFINE_ONLY_V1 = $previousVerifierDefineOnly
+    }
+    $null = Assert-MihoReleaseContextFrontendDistV1 `
+        -ConfigDirectory $builtTauriConfigDirectory `
+        -FrontendDist $builtFrontendDist `
+        -ExpectedDirectory $builtFrontendDirectory
+    Assert-ThrowsV1 -Label "release context verifier rejects an absolute frontend directory" -Action {
+        Assert-MihoReleaseContextFrontendDistV1 `
+            -ConfigDirectory $builtTauriConfigDirectory `
+            -FrontendDist $builtFrontendDirectory `
+            -ExpectedDirectory $builtFrontendDirectory
+    }
+    Assert-ThrowsV1 -Label "release context verifier rejects a frontend URL" -Action {
+        Assert-MihoReleaseContextFrontendDistV1 `
+            -ConfigDirectory $builtTauriConfigDirectory `
+            -FrontendDist "file:///temporary/frontend-dist" `
+            -ExpectedDirectory $builtFrontendDirectory
+    }
+    Assert-ThrowsV1 -Label "release context verifier rejects the wrong relative frontend directory" -Action {
+        Assert-MihoReleaseContextFrontendDistV1 `
+            -ConfigDirectory $builtTauriConfigDirectory `
+            -FrontendDist "." `
+            -ExpectedDirectory $builtFrontendDirectory
+    }
     $builtResourceMappings = @($builtOverlay.bundle.resources.PSObject.Properties)
     $expectedBuiltDestinations = @(
         "defaults/configs",
@@ -1077,7 +1291,7 @@ catch {
             [System.StringComparison]::OrdinalIgnoreCase) -or
         (Get-Sha256Hex -LiteralPath $builtStaging.Overlay) -cne $provisionalOverlaySha256 -or
         (Get-Sha256Hex -LiteralPath $builtStaging.OwnershipManifest) -ceq $provisionalOwnershipSha256) {
-        throw "Bundle-patched ownership staging did not preserve the compiler identity"
+        throw "Bundle-patched ownership staging did not preserve the compiler identity or stable relative frontend overlay"
     }
     $reboundOwnershipSources = @(Get-MihoInstalledStaticSourceRecordsV1 `
         -StagingRoot $builtStaging.Root `

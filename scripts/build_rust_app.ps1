@@ -93,6 +93,28 @@ function Resolve-SafeDirectoryV1 {
     return $item.FullName
 }
 
+function Assert-MihoTauriCustomProtocolFeatureV1 {
+    param([Parameter(Mandatory = $true)][string]$Root)
+
+    $workspace = Resolve-SafeDirectoryV1 -LiteralPath $Root
+    $manifest = Resolve-SafeFileV1 -LiteralPath (Join-Path $workspace "crates\miho-desktop\src-tauri\Cargo.toml")
+    $text = [System.IO.File]::ReadAllText($manifest)
+    $featureTable = [System.Text.RegularExpressions.Regex]::Match(
+        $text,
+        '(?ms)^\[features\][ \t]*\r?\n(?<body>.*?)(?=^\[|\z)'
+    )
+    if (-not $featureTable.Success) {
+        throw "Desktop Cargo manifest does not declare a [features] table"
+    }
+    $customProtocol = [System.Text.RegularExpressions.Regex]::Match(
+        $featureTable.Groups["body"].Value,
+        '(?m)^custom-protocol[ \t]*=[ \t]*\[[ \t]*"tauri/custom-protocol"[ \t]*\][ \t]*(?:#.*)?$'
+    )
+    if (-not $customProtocol.Success) {
+        throw "Desktop Cargo feature custom-protocol must map exactly to tauri/custom-protocol"
+    }
+}
+
 function Ensure-SafeDirectoryV1 {
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
 
@@ -2314,7 +2336,9 @@ function Invoke-MihoTauriReleasePassV1 {
             "build",
             "--config",
             $overlayFile,
-            "--no-bundle"
+            "--no-bundle",
+            "--features",
+            "custom-protocol"
         )
     }
     else {
@@ -2324,7 +2348,9 @@ function Invoke-MihoTauriReleasePassV1 {
             "--bundles",
             "nsis",
             "--config",
-            $overlayFile
+            $overlayFile,
+            "--features",
+            "custom-protocol"
         )
     }
 
@@ -2368,6 +2394,95 @@ function Get-Sha256HexForTextV1 {
         return (($sha256.ComputeHash($utf8.GetBytes($Text)) | ForEach-Object { $_.ToString("x2") }) -join "")
     }
     finally { $sha256.Dispose() }
+}
+
+function Assert-MihoTauriFrontendDistRelativeV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigDirectory,
+        [Parameter(Mandatory = $true)][string]$FrontendDist,
+        [Parameter(Mandatory = $true)][string]$ExpectedDirectory
+    )
+
+    $configRoot = Resolve-SafeDirectoryV1 -LiteralPath $ConfigDirectory
+    $expected = Resolve-SafeDirectoryV1 -LiteralPath $ExpectedDirectory
+    $absoluteUri = $null
+    if ([string]::IsNullOrWhiteSpace($FrontendDist) -or
+        [System.IO.Path]::IsPathRooted($FrontendDist) -or
+        $FrontendDist.Contains("\") -or
+        $FrontendDist.StartsWith("/", [System.StringComparison]::Ordinal) -or
+        [System.Uri]::TryCreate($FrontendDist, [System.UriKind]::Absolute, [ref]$absoluteUri)) {
+        throw "Tauri frontendDist must be a non-URL relative directory path"
+    }
+
+    $nativeRelative = $FrontendDist.Replace("/", [string][System.IO.Path]::DirectorySeparatorChar)
+    $roundTripPath = [System.IO.Path]::GetFullPath((Join-Path $configRoot $nativeRelative))
+    $roundTrip = Resolve-SafeDirectoryV1 -LiteralPath $roundTripPath
+    if (-not [string]::Equals(
+            $roundTrip,
+            $expected,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Tauri frontendDist does not resolve to immutable frontend staging"
+    }
+    return $FrontendDist
+}
+
+function Get-MihoTauriFrontendDistRelativeV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigDirectory,
+        [Parameter(Mandatory = $true)][string]$FrontendDirectory
+    )
+
+    $configRoot = Resolve-SafeDirectoryV1 -LiteralPath $ConfigDirectory
+    $frontendRoot = Resolve-SafeDirectoryV1 -LiteralPath $FrontendDirectory
+    $configVolume = [System.IO.Path]::GetPathRoot($configRoot)
+    $frontendVolume = [System.IO.Path]::GetPathRoot($frontendRoot)
+    if ([string]::IsNullOrWhiteSpace($configVolume) -or
+        -not [string]::Equals(
+            $configVolume,
+            $frontendVolume,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Tauri config and immutable frontend staging must share a filesystem volume"
+    }
+
+    $separators = [char[]]@(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $configSegments = @($configRoot.Substring($configVolume.Length).Split(
+            $separators,
+            [System.StringSplitOptions]::RemoveEmptyEntries
+        ))
+    $frontendSegments = @($frontendRoot.Substring($frontendVolume.Length).Split(
+            $separators,
+            [System.StringSplitOptions]::RemoveEmptyEntries
+        ))
+    $commonCount = 0
+    while ($commonCount -lt $configSegments.Count -and
+        $commonCount -lt $frontendSegments.Count -and
+        [string]::Equals(
+            [string]$configSegments[$commonCount],
+            [string]$frontendSegments[$commonCount],
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        $commonCount += 1
+    }
+
+    $relativeSegments = @()
+    for ($index = $commonCount; $index -lt $configSegments.Count; $index += 1) {
+        $relativeSegments += ".."
+    }
+    for ($index = $commonCount; $index -lt $frontendSegments.Count; $index += 1) {
+        $relativeSegments += [string]$frontendSegments[$index]
+    }
+    $relative = if ($relativeSegments.Count -eq 0) {
+        "."
+    }
+    else {
+        [string]::Join("/", [string[]]$relativeSegments)
+    }
+    return Assert-MihoTauriFrontendDistRelativeV1 `
+        -ConfigDirectory $configRoot `
+        -FrontendDist $relative `
+        -ExpectedDirectory $frontendRoot
 }
 
 function New-MihoImmutableReleaseStagingV1 {
@@ -2445,6 +2560,11 @@ function New-MihoImmutableReleaseStagingV1 {
     Write-Utf8NoBom -LiteralPath $stagedInstaller -Text $installerText.Replace($verifyPlaceholder, $nonce)
     Copy-MihoSafeTreeV1 -Source (Join-Path $desktopDirectory "dist") -Destination (Join-Path $stagingRoot "frontend-dist")
     Copy-MihoSafeTreeV1 -Source (Join-Path $desktopDirectory "src-tauri\isolation") -Destination (Join-Path $stagingRoot "isolation")
+    $tauriConfigDirectory = Resolve-SafeDirectoryV1 -LiteralPath (Join-Path $desktopDirectory "src-tauri")
+    $frontendDirectory = Resolve-SafeDirectoryV1 -LiteralPath (Join-Path $stagingRoot "frontend-dist")
+    $frontendDist = Get-MihoTauriFrontendDistRelativeV1 `
+        -ConfigDirectory $tauriConfigDirectory `
+        -FrontendDirectory $frontendDirectory
 
     $releaseCliFile = Resolve-SafeFileV1 -LiteralPath $ReleaseCli
     $sidecar = Join-Path $sidecars "miho-$HostTriple.exe"
@@ -2481,7 +2601,7 @@ function New-MihoImmutableReleaseStagingV1 {
         build = [pscustomobject][ordered]@{
             beforeBuildCommand = "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encodedVerifierInvocation"
             beforeBundleCommand = "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encodedVerifierInvocation"
-            frontendDist = Resolve-SafeDirectoryV1 -LiteralPath (Join-Path $stagingRoot "frontend-dist")
+            frontendDist = $frontendDist
         }
         app = [pscustomobject][ordered]@{
             security = [pscustomobject][ordered]@{
@@ -2510,6 +2630,15 @@ function New-MihoImmutableReleaseStagingV1 {
     $overlayPath = Join-Path $stagingRoot "tauri.release.staged.conf.json"
     Write-Utf8NoBom -LiteralPath $overlayPath -Text (($overlay | ConvertTo-Json -Depth 12 -Compress) + "`n")
     $overlayPath = Resolve-SafeFileV1 -LiteralPath $overlayPath
+    $serializedOverlay = Read-MihoStrictJsonFileV1 -LiteralPath $overlayPath
+    if ($serializedOverlay.build.PSObject.Properties["frontendDist"].Value -isnot [string] -or
+        [string]$serializedOverlay.build.frontendDist -cne $frontendDist) {
+        throw "Tauri frontendDist changed during release overlay serialization"
+    }
+    $null = Assert-MihoTauriFrontendDistRelativeV1 `
+        -ConfigDirectory $tauriConfigDirectory `
+        -FrontendDist ([string]$serializedOverlay.build.frontendDist) `
+        -ExpectedDirectory $frontendDirectory
     $tree = Get-MihoTreeDigestV1 -LiteralPath $stagingRoot
     return [pscustomobject][ordered]@{
         Nonce = $nonce
@@ -3223,6 +3352,496 @@ Miho Endgame portable contract
     }
 }
 
+function Test-MihoCanonicalUuidTextV1 {
+    param([Parameter(Mandatory = $true)][string]$Value)
+
+    if ($Value -cnotmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') {
+        return $false
+    }
+    try {
+        return ([guid]::Parse($Value)).ToString() -ceq $Value
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-MihoInstalledAutomationOwnerInstanceIdV1 {
+    param([string]$RegistrySubKey = "Software\com.miho.endgame")
+
+    if ($RegistrySubKey -cne "Software\com.miho.endgame" -and
+        $RegistrySubKey -cnotmatch '^Software\\com\.miho\.endgame\\tests\\[0-9a-f]{32}$') {
+        throw "Installed GUI verification registry scope is invalid"
+    }
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($RegistrySubKey, $false)
+    if ($null -eq $key) { return $null }
+    try {
+        $valueName = "AutomationOwnerInstanceIdV1"
+        if (-not (@($key.GetValueNames()) -ccontains $valueName)) { return $null }
+        if ($key.GetValueKind($valueName) -ne [Microsoft.Win32.RegistryValueKind]::String) {
+            throw "Installed automation owner registry value has the wrong type"
+        }
+        $value = $key.GetValue(
+            $valueName,
+            $null,
+            [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames
+        )
+        if ($value -isnot [string] -or -not (Test-MihoCanonicalUuidTextV1 -Value ([string]$value))) {
+            throw "Installed automation owner registry value is invalid"
+        }
+        return [string]$value
+    }
+    finally {
+        $key.Dispose()
+    }
+}
+
+function Resolve-MihoPackagedGuiVerificationModeV1 {
+    param(
+        [AllowNull()][AllowEmptyString()][string]$InstalledOwnerInstanceId,
+        [Parameter(Mandatory = $true)][bool]$RequireInstalledMode
+    )
+
+    if ([string]::IsNullOrEmpty($InstalledOwnerInstanceId)) {
+        if ($RequireInstalledMode) {
+            throw "Active publication requires a real installed owner for the packaged GUI gate"
+        }
+        return "Portable"
+    }
+    if (-not (Test-MihoCanonicalUuidTextV1 -Value $InstalledOwnerInstanceId)) {
+        throw "Packaged GUI verification owner identity is invalid"
+    }
+    return "Installed"
+}
+
+function Get-MihoGuiStateTreeEvidenceV1 {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+
+    $rootDirectory = Resolve-SafeDirectoryV1 -LiteralPath $LiteralPath
+    $prefix = $rootDirectory.TrimEnd("\", "/") + [System.IO.Path]::DirectorySeparatorChar
+    $records = New-Object 'System.Collections.Generic.List[string]'
+    $stack = New-Object 'System.Collections.Generic.Stack[string]'
+    $stack.Push($rootDirectory)
+    $fileCount = 0
+    $directoryCount = 1
+    $totalBytes = [int64]0
+    while ($stack.Count -gt 0) {
+        $directory = $stack.Pop()
+        foreach ($entry in @(Get-ChildItem -LiteralPath $directory -Force -ErrorAction Stop)) {
+            if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Installed GUI state tree contains a reparse point"
+            }
+            $relative = $entry.FullName.Substring($prefix.Length).Replace("\", "/")
+            if ($entry.PSIsContainer) {
+                $records.Add("D:$($relative.Length):$relative")
+                $directoryCount += 1
+                $stack.Push((Resolve-SafeDirectoryV1 -LiteralPath $entry.FullName))
+            }
+            else {
+                $file = Resolve-SafeFileV1 -LiteralPath $entry.FullName
+                $hash = Get-Sha256Hex -LiteralPath $file
+                $records.Add("F:$($relative.Length):${relative}:$([int64]$entry.Length):$hash")
+                $fileCount += 1
+                $totalBytes += [int64]$entry.Length
+            }
+        }
+    }
+    $records.Sort([System.StringComparer]::Ordinal)
+    return [pscustomobject][ordered]@{
+        path = $rootDirectory
+        digest = Get-Sha256HexForTextV1 -Text ([string]::Join("`n", @($records)))
+        file_count = $fileCount
+        directory_count = $directoryCount
+        total_bytes = $totalBytes
+    }
+}
+
+function Get-MihoOptionalGuiStateTreeEvidenceV1 {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+
+    $full = Assert-NoReparseChainV1 -LiteralPath $LiteralPath
+    if (-not (Test-Path -LiteralPath $full)) {
+        return [pscustomobject][ordered]@{
+            path = [System.IO.Path]::GetFullPath($full)
+            exists = $false
+            digest = ""
+            file_count = 0
+            directory_count = 0
+            total_bytes = [int64]0
+        }
+    }
+    $tree = Get-MihoGuiStateTreeEvidenceV1 -LiteralPath $full
+    return [pscustomobject][ordered]@{
+        path = [string]$tree.path
+        exists = $true
+        digest = [string]$tree.digest
+        file_count = [int]$tree.file_count
+        directory_count = [int]$tree.directory_count
+        total_bytes = [int64]$tree.total_bytes
+    }
+}
+
+function Get-MihoInstalledGuiExternalStateV1 {
+    param([Parameter(Mandatory = $true)][string]$ExpectedOwnerInstanceId)
+
+    $owner = Get-MihoInstalledAutomationOwnerInstanceIdV1
+    if ([string]$owner -cne $ExpectedOwnerInstanceId) {
+        throw "Installed automation owner changed before GUI verification"
+    }
+    $roamingRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+    $localRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+    if ([string]::IsNullOrWhiteSpace($roamingRoot) -or [string]::IsNullOrWhiteSpace($localRoot)) {
+        throw "Installed GUI verification could not resolve AppData"
+    }
+    $appData = Resolve-SafeDirectoryV1 -LiteralPath (Join-Path $roamingRoot "com.miho.endgame")
+    $settingsPath = Join-Path $appData "desktop-settings-v1.json"
+    if (Test-Path -LiteralPath $settingsPath) {
+        $settings = Read-MihoStrictJsonFileV1 -LiteralPath (Resolve-SafeFileV1 -LiteralPath $settingsPath)
+        Assert-MihoExactObjectPropertiesV1 -Object $settings -Names @(
+            "schema_version", "selected_workspace", "revision"
+        )
+        Assert-MihoJsonValueTypeV1 -Value $settings.schema_version -Kind string -Label "desktop_settings.schema_version"
+        Assert-MihoJsonValueTypeV1 -Value $settings.selected_workspace -Kind string -Label "desktop_settings.selected_workspace"
+        Assert-MihoJsonValueTypeV1 -Value $settings.revision -Kind integer -Label "desktop_settings.revision"
+        if ([string]$settings.schema_version -cne "miho-desktop-settings-v1" -or [int64]$settings.revision -le 0) {
+            throw "Installed desktop settings are invalid"
+        }
+        $workspace = Resolve-SafeDirectoryV1 -LiteralPath ([string]$settings.selected_workspace)
+    }
+    else {
+        $workspace = $appData
+    }
+
+    $automationRoot = Resolve-SafeDirectoryV1 -LiteralPath (Join-Path $localRoot "com.miho.endgame.automation")
+    $authorityPath = Resolve-SafeFileV1 -LiteralPath (Join-Path $automationRoot "automation-authority-v1.json")
+    $authority = Read-MihoStrictJsonFileV1 -LiteralPath $authorityPath
+    Assert-MihoExactObjectPropertiesV1 -Object $authority -Names @(
+        "schema", "owner_kind", "owner_instance_id", "owner_epoch", "owner_sid",
+        "task_name", "task_path", "automation_root"
+    )
+    foreach ($field in @(
+        "schema", "owner_kind", "owner_instance_id", "owner_epoch", "owner_sid",
+        "task_name", "task_path", "automation_root"
+    )) {
+        Assert-MihoJsonValueTypeV1 -Value $authority.$field -Kind string -Label "automation_authority.$field"
+    }
+    if ([string]$authority.schema -cne "miho-automation-authority-v1" -or
+        [string]$authority.owner_kind -cne "installed" -or
+        [string]$authority.owner_instance_id -cne $ExpectedOwnerInstanceId -or
+        -not (Test-MihoCanonicalUuidTextV1 -Value ([string]$authority.owner_epoch)) -or
+        [string]$authority.owner_sid -cnotmatch '^S-1-' -or
+        [string]$authority.task_name -cnotmatch '^MihoEndgameDailyUpdate-[0-9a-f]{16}$' -or
+        [string]$authority.task_path -cne "\" -or
+        -not [string]::Equals(
+            [System.IO.Path]::GetFullPath([string]$authority.automation_root).TrimEnd("\", "/"),
+            $automationRoot.TrimEnd("\", "/"),
+            [System.StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw "Installed automation authority is invalid before GUI verification"
+    }
+
+    $service = $null
+    $folder = $null
+    $task = $null
+    try {
+        $service = New-Object -ComObject "Schedule.Service"
+        $service.Connect()
+        $folder = $service.GetFolder([string]$authority.task_path)
+        $task = $folder.GetTask([string]$authority.task_name)
+        $taskXml = [string]$task.Xml
+        $taskSddl = [string]$task.GetSecurityDescriptor(7)
+        if ([string]::IsNullOrWhiteSpace($taskXml) -or [string]::IsNullOrWhiteSpace($taskSddl)) {
+            throw "Installed scheduled task evidence is incomplete"
+        }
+        $taskEvidence = [pscustomobject][ordered]@{
+            name = [string]$authority.task_name
+            path = [string]$authority.task_path
+            xml_sha256 = Get-Sha256HexForTextV1 -Text $taskXml
+            sddl_sha256 = Get-Sha256HexForTextV1 -Text $taskSddl
+            enabled = [bool]$task.Enabled
+            state = [int]$task.State
+            last_task_result = [int]$task.LastTaskResult
+            last_run_utc_ticks = [int64]([datetime]$task.LastRunTime).ToUniversalTime().Ticks
+        }
+    }
+    finally {
+        foreach ($comObject in @($task, $folder, $service)) {
+            if ($null -ne $comObject) {
+                try { $null = [Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject) }
+                catch {}
+            }
+        }
+    }
+
+    $appDataTree = Get-MihoGuiStateTreeEvidenceV1 -LiteralPath $appData
+    $workspaceTree = if ([string]::Equals($workspace, $appData, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $appDataTree
+    }
+    else {
+        Get-MihoGuiStateTreeEvidenceV1 -LiteralPath $workspace
+    }
+    return [pscustomobject][ordered]@{
+        owner_instance_id = $owner
+        authority_sha256 = Get-Sha256Hex -LiteralPath $authorityPath
+        task = $taskEvidence
+        automation = Get-MihoGuiStateTreeEvidenceV1 -LiteralPath $automationRoot
+        app_data = $appDataTree
+        selected_workspace = $workspaceTree
+        default_webview = Get-MihoOptionalGuiStateTreeEvidenceV1 `
+            -LiteralPath (Join-Path $localRoot "com.miho.endgame")
+    }
+}
+
+function Assert-MihoInstalledGuiExternalStateUnchangedV1 {
+    param(
+        [Parameter(Mandatory = $true)]$Before,
+        [Parameter(Mandatory = $true)]$After
+    )
+
+    $beforeStable = [pscustomobject][ordered]@{
+        owner_instance_id = [string]$Before.owner_instance_id
+        authority_sha256 = [string]$Before.authority_sha256
+        task = $Before.task
+        automation = $Before.automation
+        app_data = $Before.app_data
+        selected_workspace = $Before.selected_workspace
+    }
+    $afterStable = [pscustomobject][ordered]@{
+        owner_instance_id = [string]$After.owner_instance_id
+        authority_sha256 = [string]$After.authority_sha256
+        task = $After.task
+        automation = $After.automation
+        app_data = $After.app_data
+        selected_workspace = $After.selected_workspace
+    }
+    $beforeJson = $beforeStable | ConvertTo-Json -Depth 10 -Compress
+    $afterJson = $afterStable | ConvertTo-Json -Depth 10 -Compress
+    if ($beforeJson -cne $afterJson) {
+        throw "Installed GUI verification changed owner, task, automation, workspace, or roaming AppData state"
+    }
+    $beforeWebView = $Before.default_webview
+    $afterWebView = $After.default_webview
+    if ([string]$beforeWebView.path -cne [string]$afterWebView.path -or
+        -not [bool]$afterWebView.exists -or
+        [Math]::Abs([int64]$afterWebView.total_bytes - [int64]$beforeWebView.total_bytes) -gt 134217728 -or
+        [Math]::Abs([int]$afterWebView.file_count - [int]$beforeWebView.file_count) -gt 4096 -or
+        [Math]::Abs([int]$afterWebView.directory_count - [int]$beforeWebView.directory_count) -gt 1024) {
+        throw "Installed GUI verification produced an unbounded default WebView cache change"
+    }
+}
+
+function New-MihoInstalledGuiSmokeLayoutV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$StagingRoot,
+        [Parameter(Mandatory = $true)][string]$PortableDirectory,
+        [Parameter(Mandatory = $true)][string]$InstalledPayloadManifest,
+        [Parameter(Mandatory = $true)][string]$ProductVersion,
+        [Parameter(Mandatory = $true)][string]$HostTriple,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    $staging = Resolve-SafeDirectoryV1 -LiteralPath $StagingRoot
+    $portable = Resolve-SafeDirectoryV1 -LiteralPath $PortableDirectory
+    $manifestPath = Resolve-SafeFileV1 -LiteralPath $InstalledPayloadManifest
+    $validation = Assert-MihoStaticInstalledPayloadManifestV1 `
+        -Manifest $manifestPath `
+        -PortableDirectory $portable `
+        -StagingRoot $staging `
+        -ProductVersion $ProductVersion `
+        -HostTriple $HostTriple
+    $expected = @(Get-MihoExpectedStaticInstalledFilesV1 `
+        -PortableDirectory $portable `
+        -StagingRoot $staging)
+    if ($expected.Count -ne [int]$validation.FileCount -or (Test-Path -LiteralPath $Destination)) {
+        throw "Installed GUI smoke layout destination or file set is invalid"
+    }
+    New-Item -ItemType Directory -Path $Destination -ErrorAction Stop | Out-Null
+    $destinationRoot = Resolve-SafeDirectoryV1 -LiteralPath $Destination
+    foreach ($record in $expected) {
+        $relative = [string]$record.InstallPath
+        Assert-MihoReleaseRelativePathV1 -Path $relative -Label "installed_gui_smoke.install_path"
+        $target = Assert-PathBelow -LiteralPath (Join-Path $destinationRoot $relative) -Parent $destinationRoot
+        $targetParent = Split-Path -Parent $target
+        if (-not (Test-Path -LiteralPath $targetParent)) {
+            New-Item -ItemType Directory -Path $targetParent -Force -ErrorAction Stop | Out-Null
+        }
+        $null = Resolve-SafeDirectoryV1 -LiteralPath $targetParent
+        $source = Resolve-SafeFileV1 -LiteralPath ([string]$record.Source)
+        Copy-Item -LiteralPath $source -Destination $target -ErrorAction Stop
+        $copied = Resolve-SafeFileV1 -LiteralPath $target
+        if ([int64](Get-Item -LiteralPath $copied -Force).Length -ne [int64](Get-Item -LiteralPath $source -Force).Length -or
+            (Get-Sha256Hex -LiteralPath $copied) -cne (Get-Sha256Hex -LiteralPath $source)) {
+            throw "Installed GUI smoke layout copy drifted"
+        }
+    }
+    $actual = @(Get-MihoSafeFilesV1 -LiteralPath $destinationRoot)
+    if ($actual.Count -ne $expected.Count -or
+        (Test-Path -LiteralPath (Join-Path $destinationRoot "miho-portable-v1.json"))) {
+        throw "Installed GUI smoke layout contains a missing, extra, or portable file"
+    }
+    $manifest = $validation.Manifest
+    foreach ($record in @($manifest.files)) {
+        $path = Resolve-SafeFileV1 -LiteralPath (Join-Path $destinationRoot ([string]$record.install_path))
+        if ([int64](Get-Item -LiteralPath $path -Force).Length -ne [int64]$record.size -or
+            (Get-Sha256Hex -LiteralPath $path) -cne [string]$record.sha256) {
+            throw "Installed GUI smoke layout differs from the installed payload manifest"
+        }
+    }
+    return Resolve-SafeFileV1 -LiteralPath (Join-Path $destinationRoot "miho-desktop.exe")
+}
+
+function Invoke-MihoPackagedGuiRenderVerificationV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$BuildWorkspaceRoot,
+        [Parameter(Mandatory = $true)][string]$ReleaseStagingRoot,
+        [Parameter(Mandatory = $true)][string]$PortableDirectory,
+        [Parameter(Mandatory = $true)][string]$InstalledPayloadManifest,
+        [Parameter(Mandatory = $true)][string]$ProductVersion,
+        [Parameter(Mandatory = $true)][string]$HostTriple,
+        [Parameter(Mandatory = $true)][bool]$RequireInstalledMode
+    )
+
+    $workspace = Resolve-SafeDirectoryV1 -LiteralPath $Root
+    $buildWorkspace = Resolve-SafeDirectoryV1 -LiteralPath $BuildWorkspaceRoot
+    $releaseStaging = Resolve-SafeDirectoryV1 -LiteralPath $ReleaseStagingRoot
+    $smokeParent = Resolve-SafeDirectoryV1 -LiteralPath (Split-Path -Parent $releaseStaging)
+    $portable = Resolve-SafeDirectoryV1 -LiteralPath $PortableDirectory
+    $probeScript = Resolve-SafeFileV1 -LiteralPath (Join-Path $buildWorkspace "scripts\verify_gui_render_v1.ps1")
+    $smokeRoot = Assert-PathBelow `
+        -LiteralPath (Join-Path $smokeParent ("gui-render-" + [guid]::NewGuid().ToString("N"))) `
+        -Parent $smokeParent
+    if (Test-Path -LiteralPath $smokeRoot) {
+        throw "GUI render smoke root already exists"
+    }
+    try {
+        $installedOwner = Get-MihoInstalledAutomationOwnerInstanceIdV1
+        $verificationMode = Resolve-MihoPackagedGuiVerificationModeV1 `
+            -InstalledOwnerInstanceId $installedOwner `
+            -RequireInstalledMode $RequireInstalledMode
+        $externalStateBefore = $null
+        if ($verificationMode -ceq "Installed") {
+            $smokeExecutable = New-MihoInstalledGuiSmokeLayoutV1 `
+                -StagingRoot $releaseStaging `
+                -PortableDirectory $portable `
+                -InstalledPayloadManifest $InstalledPayloadManifest `
+                -ProductVersion $ProductVersion `
+                -HostTriple $HostTriple `
+                -Destination $smokeRoot
+            $externalStateBefore = Get-MihoInstalledGuiExternalStateV1 `
+                -ExpectedOwnerInstanceId $installedOwner
+        }
+        else {
+            Copy-MihoSafeTreeV1 -Source $portable -Destination $smokeRoot
+            $smokeExecutable = Resolve-SafeFileV1 -LiteralPath (Join-Path $smokeRoot "miho-desktop.exe")
+        }
+        $probeFailure = $null
+        $stateFailure = $null
+        $rawReceipt = @()
+        try {
+            $rawReceipt = @(& $probeScript `
+                -Executable $smokeExecutable `
+                -Mode $verificationMode `
+                -TimeoutSeconds 30)
+        }
+        catch {
+            $probeFailure = $_
+        }
+        if ($verificationMode -ceq "Installed") {
+            try {
+                $externalStateAfter = Get-MihoInstalledGuiExternalStateV1 `
+                    -ExpectedOwnerInstanceId $installedOwner
+                Assert-MihoInstalledGuiExternalStateUnchangedV1 `
+                    -Before $externalStateBefore `
+                    -After $externalStateAfter
+            }
+            catch {
+                $stateFailure = $_
+            }
+        }
+        if ($null -ne $stateFailure) {
+            $probeMessage = if ($null -eq $probeFailure) { "none" } else { $probeFailure.Exception.Message }
+            throw "GUI render failure=$probeMessage; external state failure=$($stateFailure.Exception.Message)"
+        }
+        if ($null -ne $probeFailure) { throw $probeFailure }
+        $receiptText = [string]::Join("`n", @($rawReceipt | ForEach-Object { [string]$_ }))
+        $receipt = $receiptText | ConvertFrom-Json -ErrorAction Stop
+        $isInstalledVerification = $verificationMode -ceq "Installed"
+        $receipt | Add-Member `
+            -NotePropertyName "installed_owner_task_workspace_unchanged" `
+            -NotePropertyValue $isInstalledVerification `
+            -Force
+        $receipt | Add-Member `
+            -NotePropertyName "installed_default_webview_before_sha256" `
+            -NotePropertyValue $(if ($isInstalledVerification) { [string]$externalStateBefore.default_webview.digest } else { "" }) `
+            -Force
+        $receipt | Add-Member `
+            -NotePropertyName "installed_default_webview_after_sha256" `
+            -NotePropertyValue $(if ($isInstalledVerification) { [string]$externalStateAfter.default_webview.digest } else { "" }) `
+            -Force
+        $receipt | Add-Member `
+            -NotePropertyName "installed_default_webview_byte_delta" `
+            -NotePropertyValue $(if ($isInstalledVerification) {
+                [int64]$externalStateAfter.default_webview.total_bytes - [int64]$externalStateBefore.default_webview.total_bytes
+            } else { [int64]0 }) `
+            -Force
+        $continuousAudit = $receipt.PSObject.Properties["continuous_process_event_audit"]
+        $pythonObserved = $receipt.PSObject.Properties["python_identity_observed"]
+        $webViewIsolated = $receipt.PSObject.Properties["webview_data_isolated"]
+        $webViewScope = $receipt.PSObject.Properties["webview_data_scope"]
+        $webViewUserDataBound = $receipt.PSObject.Properties["webview_user_data_directory_bound"]
+        $expectedWebViewIsolation = $verificationMode -ceq "Portable"
+        $expectedWebViewScope = if ($expectedWebViewIsolation) {
+            "portable-layout"
+        }
+        else {
+            "default-installed-cache"
+        }
+        if ([string]$receipt.schema_version -cne "miho-gui-render-verification-v1" -or
+            [string]$receipt.mode -cne $verificationMode.ToLowerInvariant() -or
+            [string]$receipt.executable_sha256 -cne (Get-Sha256Hex -LiteralPath $smokeExecutable) -or
+            [string]$receipt.executable_sha256 -cne (Get-Sha256Hex -LiteralPath (Join-Path $portable "miho-desktop.exe")) -or
+            [string]$receipt.url -cne "https://tauri.localhost/#miho-app-ready-v1" -or
+            [string]$receipt.render_sentinel -cne "data-miho-app-ready=v1" -or
+            [string]$receipt.dom_ready_state -cne "complete" -or
+            [string]$receipt.dom_brand -cne "MIHO ENDGAME" -or
+            [int]$receipt.dom_app_child_count -lt 2 -or
+            -not [bool]$receipt.tauri_internals -or
+            -not [bool]$receipt.error_page_rejected -or
+            [int]$receipt.minimum_alive_seconds -lt 5 -or
+            -not [bool]$receipt.normal_exit -or
+            [int]$receipt.exit_code -ne 0 -or
+            -not [bool]$receipt.captured_descendants_cleaned -or
+            -not [bool]$receipt.debug_port_closed -or
+            -not [bool]$receipt.stdout_empty -or
+            -not [bool]$receipt.stderr_empty -or
+            [string]$receipt.process_observation -cne "bound-snapshot-sampling-200ms" -or
+            $null -eq $continuousAudit -or $continuousAudit.Value -isnot [bool] -or
+            [bool]$continuousAudit.Value -or
+            $null -eq $pythonObserved -or $pythonObserved.Value -isnot [bool] -or
+            [bool]$pythonObserved.Value -or
+            $null -eq $webViewIsolated -or $webViewIsolated.Value -isnot [bool] -or
+            [bool]$webViewIsolated.Value -ne $expectedWebViewIsolation -or
+            $null -eq $webViewScope -or $webViewScope.Value -isnot [string] -or
+            [string]$webViewScope.Value -cne $expectedWebViewScope -or
+            $null -eq $webViewUserDataBound -or $webViewUserDataBound.Value -isnot [bool] -or
+            -not [bool]$webViewUserDataBound.Value -or
+            $receipt.PSObject.Properties["installed_owner_task_workspace_unchanged"].Value -isnot [bool] -or
+            [bool]$receipt.installed_owner_task_workspace_unchanged -ne $isInstalledVerification -or
+            $receipt.PSObject.Properties["installed_default_webview_before_sha256"].Value -isnot [string] -or
+            $receipt.PSObject.Properties["installed_default_webview_after_sha256"].Value -isnot [string] -or
+            $receipt.PSObject.Properties["installed_default_webview_byte_delta"].Value -isnot [int64]) {
+            throw "Packaged GUI render verification receipt is invalid"
+        }
+        return $receipt
+    }
+    finally {
+        if (Test-Path -LiteralPath $smokeRoot) {
+            Remove-MihoReleaseScratchTreeV1 -LiteralPath $smokeRoot -Parent $smokeParent
+        }
+    }
+}
+
 if ($env:MIHO_RELEASE_CONTRACT_TEST_DEFINE_ONLY_V1 -ceq "1") {
     return
 }
@@ -3264,6 +3883,7 @@ try {
             -NoBundleMode ([bool]$NoBundle) `
             -ProjectGatesApproved $projectGatesApprovedMode
         $null = Get-MihoPackageManagerPolicyV1 -Root $root -NodePath $node
+        Assert-MihoTauriCustomProtocolFeatureV1 -Root $root
         Clear-MihoStaleReleaseContextsV1 -Root $root
         $isolatedWorkspace = New-MihoIsolatedReleaseWorkspaceV1 `
             -Root $root `
@@ -3273,6 +3893,7 @@ try {
         $buildWorkspaceInputs = $isolatedWorkspace.Inputs
         $toolchainRoot = $buildRoot
         $null = Get-MihoPackageManagerPolicyV1 -Root $buildRoot -NodePath $node
+        Assert-MihoTauriCustomProtocolFeatureV1 -Root $buildRoot
         Invoke-MihoFrozenPnpmInstallV1 -Root $buildRoot
         $toolchainEvidence = Get-MihoReleaseToolchainEvidenceV1 -Root $toolchainRoot -NodePath $node
         $baseConfigPath = Resolve-SafeFileV1 -LiteralPath (Join-Path $buildRoot "crates\miho-desktop\src-tauri\tauri.conf.json")
@@ -3323,7 +3944,7 @@ try {
         $env:CARGO_TARGET_DIR = $tauriTarget
         try {
             Invoke-NativeCommand -FilePath "cargo" -ArgumentList @("build", "--locked", "--release", "-p", "miho-cli") -FailureMessage "Native CLI release build failed"
-            Invoke-NativeCommand -FilePath "cargo" -ArgumentList @("build", "--locked", "--release", "-p", "miho-desktop") -FailureMessage "Native desktop ownership prebuild failed"
+            Invoke-NativeCommand -FilePath "cargo" -ArgumentList @("build", "--locked", "--release", "-p", "miho-desktop", "--features", "custom-protocol") -FailureMessage "Native desktop ownership prebuild failed"
         }
         finally {
             $env:CARGO_TARGET_DIR = $previousCargoTarget
@@ -3682,6 +4303,16 @@ try {
             -StagingRoot $staging.Root `
             -MainExecutable $mainExecutable `
             -ReleaseCli $sidecar
+        $guiRenderVerification = Invoke-MihoPackagedGuiRenderVerificationV1 `
+            -Root $root `
+            -BuildWorkspaceRoot $buildRoot `
+            -ReleaseStagingRoot $staging.Root `
+            -PortableDirectory $portableResult.Directory `
+            -InstalledPayloadManifest $installedManifest `
+            -ProductVersion $productVersion `
+            -HostTriple $hostTriple `
+            -RequireInstalledMode $projectGatesApprovedMode
+        Write-Output ("gui-render-verification: " + ($guiRenderVerification | ConvertTo-Json -Depth 4 -Compress))
         $stagingBeforeArtifacts = Get-MihoTreeDigestV1 -LiteralPath $staging.Root
         $desktopBeforeArtifacts = Get-Item -LiteralPath (Resolve-SafeFileV1 -LiteralPath $mainExecutable) -Force
         if ($stagingBeforeArtifacts.digest -cne $staging.TreeSha256 -or

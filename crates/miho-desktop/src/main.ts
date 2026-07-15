@@ -429,6 +429,8 @@ visualizerSection.append(visualizerHeading, visualizerMessage, visualizerFrame);
 
 main.append(workspaceSection, exportSection, boxSection, taskSection, historySection, visualizerSection);
 app.replaceChildren(header, main);
+document.documentElement.dataset.mihoAppReady = "v1";
+history.replaceState(null, "", "#miho-app-ready-v1");
 
 function updateGameUI(): void {
   for (const [value, button] of gameButtons) {

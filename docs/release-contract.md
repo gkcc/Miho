@@ -32,6 +32,43 @@ remain alive for at least five seconds, accept a normal close, and exit zero
 without a setup-hook error. Exit code 101 or any failure before window creation
 blocks delivery even when the portable executable starts successfully.
 
+Window creation alone is also not evidence that the packaged frontend exists.
+Tauri's `FrontendDist` is an untagged URL/directory/files value and attempts the
+URL form before the directory form. A Windows absolute staging path can
+therefore become a valid `file:///...` production home page instead of an
+embedded asset directory; after release scratch cleanup, that package opens a
+WebView2 `ERR_FILE_NOT_FOUND` page. The generated overlay must instead contain
+a forward-slash relative path from the isolated workspace's
+`crates/miho-desktop/src-tauri` config directory to immutable
+`frontend-dist`. Both its producer and the one-use staged verifier reject a
+rooted path, backslash form, or absolute URI and require a no-reparse
+round-trip to the exact immutable directory. The same explicit staging nonce
+must reproduce the same overlay hash.
+
+Every release desktop compilation and Tauri build/bundle pass enables the
+workspace `custom-protocol` feature, which maps exactly to
+`tauri/custom-protocol`; the release entry point refuses compilation without
+it. After container/static/portable byte binding, the packaged GUI gate starts
+the exact candidate desktop and uses its bound WebView2 debug endpoint to
+require `https://tauri.localhost/#miho-app-ready-v1`, DOM ready state
+`complete`, the `MIHO ENDGAME` brand, at least two app children, the real
+`data-miho-app-ready=v1` sentinel set by the compiled frontend, and Tauri
+internals. Edge error pages, `file:`/development URLs, PID reuse, early exit,
+nonempty stdio, Python process identity, leaked descendants, or an open debug
+port all fail closed. Installed-mode verification separately preserves and
+rechecks owner, task, authority, workspace and Roaming AppData state; expected
+default WebView cache writes are disclosed by before/after tree hashes and a
+byte delta rather than mislabeled as immutable user state.
+The probe removes an inherited `WEBVIEW2_USER_DATA_FOLDER` before launch, then
+binds the process identity that owns its exact debug listener and parses the
+single `--user-data-dir` from that real `msedgewebview2` command line. It must
+equal the expected cache's `EBWebView` child, and that observed directory is
+resolved again without reparse points after shutdown. Environment or registry
+policy redirection therefore fails the gate instead of letting an old default
+cache directory produce a false `default-installed-cache` receipt; the
+existing parent-tree before/after digest now covers the directory proven to
+have been used by the browser.
+
 A runtime-changing clean commit must first produce a full `verification-only`
 bundle without `-ProjectGatesApproved`. Its exact content-addressed NSIS bytes
 must pass the installed startup gate above while preserving the pre-existing
@@ -343,6 +380,17 @@ rename, ordinal cross-shell record ordering, a byte-pinned deterministic
 portable container, immutable NSIS/static publication, preservation of prior active
 dependencies, verification-only isolation, active-anchor drift, superseded
 old bytes, and stale/missing root desktop targets.
+It also fixes the Tauri config base to the isolated `src-tauri`, rejects
+absolute/URL/wrong relative frontend directories in both the producer and
+staged verifier, and proves same-nonce overlay stability. The separate
+`tests/powershell/test_gui_render_contract.ps1` exercises CDP target selection,
+PID/start-time binding, real DOM sentinel/brand/Tauri checks, error-page and
+development-URL rejection, process cleanup and installed/portable cache scope
+under both Windows PowerShell 5.1 and PowerShell 7. These fixture contracts do
+not replace the exact packaged-GUI run performed by every full release build.
+They also reject missing, relative, duplicate, empty, or external
+`--user-data-dir` values and prove that an inherited WebView2 data-folder
+override is removed from the child environment before launch.
 The regression also proves scratch cleanup removes only the two regenerable
 parents, preserves bundle artifacts, and unlinks a junction without touching
 its external canary. A cleanup fault injected immediately before publication

@@ -209,7 +209,8 @@ function Invoke-InstallerHelperAbruptStopV1 {
 }
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$helper = Join-Path $root "scripts\installer_transaction_v1.ps1"
+$sourceHelper = Join-Path $root "scripts\installer_transaction_v1.ps1"
+$sourceScheduler = Join-Path $root "scripts\task_scheduler_v1.ps1"
 $shells = @()
 foreach ($name in @("powershell.exe", "pwsh.exe")) {
     $command = Get-Command $name -ErrorAction SilentlyContinue
@@ -226,6 +227,7 @@ foreach ($shell in $shells) {
     $automation = Join-Path $temporary "automation"
     $product = "MihoTxnTest-" + $nonce
     $manufacturer = "MihoTxnTests-" + $nonce
+    $testTaskPrefix = "MihoEndgameTxnTest-" + $nonce
     $testOwnerSubKey = "Software\com.miho.endgame\tests\$nonce"
     $productRegistrySubKey = "Software\$manufacturer\$product"
     $uninstallRegistrySubKey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\$product"
@@ -233,6 +235,26 @@ foreach ($shell in $shells) {
     $rootStartMenuShortcut = Join-Path $programs ($product + ".lnk")
     [System.IO.Directory]::CreateDirectory($staging) | Out-Null
     try {
+        # Keep the real installed task untouched while exercising the full
+        # transaction against production helper code. Only this temporary
+        # scheduler copy substitutes a nonce-bound task prefix, which gives the
+        # test a distinct canonical task name while retaining the real SID and
+        # task principal; the helper itself remains byte-exact.
+        $testRuntime = Join-Path $temporary "test-runtime"
+        [System.IO.Directory]::CreateDirectory($testRuntime) | Out-Null
+        $helper = Join-Path $testRuntime "installer_transaction_v1.ps1"
+        $testScheduler = Join-Path $testRuntime "task_scheduler_v1.ps1"
+        Copy-Item -LiteralPath $sourceHelper -Destination $helper -Force -ErrorAction Stop
+        $schedulerText = [System.IO.File]::ReadAllText($sourceScheduler).Replace("`r`n", "`n")
+        $prefixNeedle = '$script:MihoCanonicalTaskPrefixV1 = "MihoEndgameDailyUpdate"'
+        $prefixReplacement = '$script:MihoCanonicalTaskPrefixV1 = "' + $testTaskPrefix + '"'
+        $patchedSchedulerText = $schedulerText.Replace($prefixNeedle, $prefixReplacement)
+        if ($patchedSchedulerText -ceq $schedulerText -or
+            $patchedSchedulerText.IndexOf($prefixNeedle, [System.StringComparison]::Ordinal) -ge 0) {
+            throw "Installer transaction test could not isolate its temporary task identity."
+        }
+        Write-Utf8NoBomV1 -LiteralPath $testScheduler -Text $patchedSchedulerText
+
         $payload = Join-Path $staging "miho.exe"
         [System.IO.File]::WriteAllBytes($payload, (New-Object byte[] 4096))
         $stagedInstallerDirectory = Join-Path $staging "installer"
@@ -505,7 +527,7 @@ foreach ($shell in $shells) {
         $crashFixtureDirectory = Join-Path $temporary "crash-fixture"
         $crashHelper = New-InstallerCrashFixtureV1 `
             -SourceHelper $helper `
-            -SourceScheduler (Join-Path $root "scripts\task_scheduler_v1.ps1") `
+            -SourceScheduler $testScheduler `
             -Destination $crashFixtureDirectory
         $receipt = Invoke-InstallerHelperV1 -Shell $shell -Helper $helper -Arguments $begin
         $receipt = Invoke-InstallerHelperV1 -Shell $shell -Helper $helper -Arguments $claim
@@ -681,16 +703,48 @@ foreach ($shell in $shells) {
     }
     finally {
         Remove-Item Env:MIHO_INSTALLER_TRANSACTION_TEST_V1 -ErrorAction SilentlyContinue
-        try { [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($testOwnerSubKey, $false) } catch { }
-        try { [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(("Software\" + $manufacturer), $false) } catch { }
-        try { [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($uninstallRegistrySubKey, $false) } catch { }
-        if (Test-Path -LiteralPath $rootStartMenuShortcut -PathType Leaf) {
-            Remove-Item -LiteralPath $rootStartMenuShortcut -Force -ErrorAction SilentlyContinue
+        $cleanupFailures = New-Object System.Collections.ArrayList
+        try {
+            $testTasks = @(Get-ScheduledTask -TaskName ($testTaskPrefix + "-*") -ErrorAction SilentlyContinue | Where-Object {
+                [string]$_.TaskPath -ceq "\" -and [string]$_.TaskName -like ($testTaskPrefix + "-*")
+            })
+            foreach ($testTask in $testTasks) {
+                Unregister-ScheduledTask -TaskName $testTask.TaskName -TaskPath $testTask.TaskPath -Confirm:$false -ErrorAction Stop
+            }
+            $remainingTestTasks = @(Get-ScheduledTask -TaskName ($testTaskPrefix + "-*") -ErrorAction SilentlyContinue | Where-Object {
+                [string]$_.TaskPath -ceq "\" -and [string]$_.TaskName -like ($testTaskPrefix + "-*")
+            })
+            if ($remainingTestTasks.Count -ne 0) {
+                throw "Installer transaction test left a nonce-bound scheduled task."
+            }
+        }
+        catch {
+            $null = $cleanupFailures.Add($_.Exception.Message)
+        }
+        foreach ($registrySubKey in @($testOwnerSubKey, ("Software\" + $manufacturer), $uninstallRegistrySubKey)) {
+            try { [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($registrySubKey, $false) }
+            catch { $null = $cleanupFailures.Add($_.Exception.Message) }
+        }
+        try {
+            if (Test-Path -LiteralPath $rootStartMenuShortcut -PathType Leaf) {
+                Remove-Item -LiteralPath $rootStartMenuShortcut -Force -ErrorAction Stop
+            }
+        }
+        catch {
+            $null = $cleanupFailures.Add($_.Exception.Message)
         }
         $full = [System.IO.Path]::GetFullPath($temporary)
         $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
-        if ($full.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $full)) {
-            Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+        try {
+            if ($full.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $full)) {
+                Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+            }
+        }
+        catch {
+            $null = $cleanupFailures.Add($_.Exception.Message)
+        }
+        if ($cleanupFailures.Count -ne 0) {
+            throw "Installer transaction test cleanup failed: $([string]::Join('; ', @($cleanupFailures)))"
         }
     }
 }
@@ -711,6 +765,21 @@ foreach ($marker in $orderedMarkers) {
     $index = $installerTemplate.IndexOf($marker, [System.StringComparison]::Ordinal)
     if ($index -le $previousIndex) { throw "NSIS installer transaction order is missing or invalid at '$marker'." }
     $previousIndex = $index
+}
+$prepareNotice = $installerTemplate.IndexOf("MIHO_PREPARE_LONG_RUNNING_NOTICE_V1", [System.StringComparison]::Ordinal)
+$prepareCall = $installerTemplate.IndexOf('!insertmacro MIHO_RUN_INSTALLER_HELPER "Prepare"', [System.StringComparison]::Ordinal)
+$prepareCompleted = $installerTemplate.IndexOf("MIHO_PREPARE_COMPLETED_NOTICE_V1", [System.StringComparison]::Ordinal)
+$prepareNoticeText = if ($prepareNotice -ge 0 -and $prepareCall -gt $prepareNotice) {
+    $installerTemplate.Substring($prepareNotice, $prepareCall - $prepareNotice)
+}
+else {
+    ""
+}
+if ($prepareNotice -lt 0 -or $prepareNotice -ge $prepareCall -or $prepareCompleted -le $prepareCall -or
+    -not $prepareNoticeText.Contains("DetailPrint") -or
+    -not $prepareNoticeText.Contains("HSR/ZZZ") -or
+    -not $prepareNoticeText.Contains("3-10")) {
+    throw "NSIS does not explain the long-running initial data preparation before waiting."
 }
 if ($installerTemplate -match 'miho-static-payload-backup' -or $installerTemplate -match 'Call MihoRollbackStaticPayload') {
     throw "NSIS still contains the volatile pre-transaction rollback path."

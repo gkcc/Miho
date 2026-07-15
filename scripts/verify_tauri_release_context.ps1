@@ -146,6 +146,45 @@ function Get-WorkspaceInputsDigestV1 {
     return Get-FileSetDigestV1 -BaseRoot $workspace -Files @($files)
 }
 
+function Assert-MihoReleaseContextFrontendDistV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigDirectory,
+        [Parameter(Mandatory = $true)][string]$FrontendDist,
+        [Parameter(Mandatory = $true)][string]$ExpectedDirectory
+    )
+
+    $configRoot = Resolve-SafePathV1 -LiteralPath $ConfigDirectory -Directory $true
+    $expected = Resolve-SafePathV1 -LiteralPath $ExpectedDirectory -Directory $true
+    $absoluteUri = $null
+    if ([string]::IsNullOrWhiteSpace($FrontendDist) -or
+        [System.IO.Path]::IsPathRooted($FrontendDist) -or
+        $FrontendDist.Contains("\") -or
+        $FrontendDist.StartsWith("/", [System.StringComparison]::Ordinal) -or
+        [System.Uri]::TryCreate($FrontendDist, [System.UriKind]::Absolute, [ref]$absoluteUri)) {
+        throw "Generated release overlay frontend directory must be a non-URL relative path."
+    }
+
+    try {
+        $nativeRelative = $FrontendDist.Replace("/", [string][System.IO.Path]::DirectorySeparatorChar)
+        $roundTripPath = [System.IO.Path]::GetFullPath((Join-Path $configRoot $nativeRelative))
+        $roundTrip = Resolve-SafePathV1 -LiteralPath $roundTripPath -Directory $true
+    }
+    catch {
+        throw "Generated release overlay frontend directory cannot be resolved safely."
+    }
+    if (-not [string]::Equals(
+            $roundTrip,
+            $expected,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Generated release overlay frontend directory does not resolve to immutable staging."
+    }
+    return $true
+}
+
+if ($env:MIHO_RELEASE_CONTEXT_TEST_DEFINE_ONLY_V1 -ceq "1") {
+    return
+}
+
 foreach ($name in @("MIHO_RELEASE_CONTEXT_V1", "MIHO_RELEASE_WORKSPACE_ROOT_V1", "MIHO_RELEASE_STAGING_ROOT_V1")) {
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name, [EnvironmentVariableTarget]::Process))) {
         throw "Direct 'tauri build/bundle' is unsupported. Run the release wrapper with a one-use immutable-staging context."
@@ -242,9 +281,13 @@ if (-not ([string]::Equals([string]$overlay.bundle.windows.nsis.template, (Join-
 if (-not ([string]::Equals([string]$overlay.bundle.windows.nsis.installerHooks, (Join-Path $staging "packaging\installer-hooks.nsh"), [System.StringComparison]::OrdinalIgnoreCase))) {
     throw "Generated release overlay has invalid NSIS hooks."
 }
-if (-not ([string]::Equals([string]$overlay.build.frontendDist, (Join-Path $staging "frontend-dist"), [System.StringComparison]::OrdinalIgnoreCase))) {
-    throw "Generated release overlay has an invalid frontend directory."
+if ($overlay.build.PSObject.Properties["frontendDist"].Value -isnot [string]) {
+    throw "Generated release overlay has an invalid frontend directory type."
 }
+$null = Assert-MihoReleaseContextFrontendDistV1 `
+    -ConfigDirectory (Join-Path $workspace "crates\miho-desktop\src-tauri") `
+    -FrontendDist ([string]$overlay.build.frontendDist) `
+    -ExpectedDirectory (Join-Path $staging "frontend-dist")
 $verifierPath = Join-Path $staging "packaging\verify_tauri_release_context.ps1"
 $verifierInvocation = "& '" + $verifierPath.Replace("'", "''") + "'"
 $encodedVerifierInvocation = [System.Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($verifierInvocation))

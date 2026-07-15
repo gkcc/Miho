@@ -889,10 +889,15 @@ miho_normal_install:
     Goto miho_static_apply_failed
 
   CreateDirectory "$APPDATA\${BUNDLEID}"
+  ; MIHO_PREPARE_LONG_RUNNING_NOTICE_V1: Prepare performs the first online
+  ; candidate update and may legitimately keep ExecWait busy for several minutes.
+  DetailPrint "MIHO: 正在首次下载并验证 HSR/ZZZ 数据及每日更新任务，通常需要 3-10 分钟；窗口可能暂时不刷新，请勿关闭安装程序。"
   !insertmacro MIHO_RUN_INSTALLER_HELPER "Prepare"
   IfErrors miho_prepare_failed
   StrCmp $0 "0" +2
     Goto miho_prepare_failed
+  ; MIHO_PREPARE_COMPLETED_NOTICE_V1
+  DetailPrint "MIHO: HSR/ZZZ 首次数据准备与验证已完成。"
 
   ; Create file associations
   ClearErrors

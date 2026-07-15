@@ -853,6 +853,18 @@ mod tests {
             "isolation"
         );
         assert_eq!(config["app"]["windows"][0]["create"], false);
+        let cargo_manifest = include_str!("../Cargo.toml");
+        assert!(cargo_manifest.contains("[features]"));
+        assert!(cargo_manifest.contains("custom-protocol = [\"tauri/custom-protocol\"]"));
+        let frontend = include_str!("../../src/main.ts");
+        assert!(frontend.contains("document.documentElement.dataset.mihoAppReady = \"v1\""));
+        assert!(frontend.contains("history.replaceState(null, \"\", \"#miho-app-ready-v1\")"));
+        let binary_entry = include_str!("main.rs");
+        assert!(binary_entry
+            .contains("#[cfg(all(not(debug_assertions), not(feature = \"custom-protocol\")))]"));
+        assert!(binary_entry.contains(
+            "compile_error!(\"release miho-desktop.exe requires the custom-protocol feature\")"
+        ));
         let release_config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();
         assert_eq!(release_config["bundle"]["active"], false);
