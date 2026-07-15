@@ -14,12 +14,14 @@ NSIS SHA-256
 and portable ZIP SHA-256
 `89d7b51893864c5dcf818a8aaaedb47ef134e366d86814237efc2a3dddc1b660`,
 and those bytes passed a clean install, exact health, uninstall, and AppData
-canary smoke. Any later tracked commit advances the Git identity recorded by
-the manifest and requires a new clean active build before delivery, even when
-the runtime input digest is unchanged because only tests or documentation
-changed. Its exact commit and hashes are read only from
-`target/release/bundle/miho-release-artifacts-v1.json`, avoiding a
-self-referential tracked-document update. This evidence does not change the
+canary smoke. A later change to runtime release inputs (code, configs,
+resources, build scripts, dependency manifests, or locks) requires a new clean
+active build before those changes are delivered. A commit limited to process,
+documentation, or test documentation does not alter the existing binary and
+does not invalidate its active status; it also must not be presented as a new
+program version. The deliverable active's actual build commit and hashes are
+read only from `target/release/bundle/miho-release-artifacts-v1.json`, avoiding
+a self-referential tracked-document update. This evidence does not change the
 normative rule that the contract itself is not an approval, and the package
 remains `NotSigned` until a signing policy is supplied.
 
@@ -116,11 +118,13 @@ The lock file is persistent; ownership is the open handle, not file presence.
 ## Frozen source and toolchain evidence
 
 After acquiring the lease, the wrapper first captures the original Git
-commit/status and the complete runtime release-input digest. The digest and
+commit/status and the complete runtime release-input digest. The manifest
+records that exact clean Git identity as build-time provenance. The digest and
 isolated copy deliberately cover the root Cargo/Node manifests and locks,
-`configs/`, `scripts/`, and pruned `crates/`; tests and documentation remain
-bound by the exact clean Git commit/status rather than being runtime build
-inputs. The wrapper copies the hash-bound runtime inputs into a unique
+`configs/`, `scripts/`, and pruned `crates/`; tests and documentation are not
+runtime build inputs, and a later documentation-only commit neither mutates the
+existing closure nor reassigns its recorded build commit. The wrapper copies
+the hash-bound runtime inputs into a unique
 directory below `target/release/release-workspace/`. Existing `node_modules`,
 `dist`, and `target` directories are excluded recursively; any other reparse
 point is a hard failure. The isolated source digest and file count must exactly

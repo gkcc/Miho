@@ -4,6 +4,15 @@
 
 将现有 HSR/ZZZ Python 工具完整迁移到 Tauri 2 + Rust，最终运行时不依赖 Python，同时保持 GUI、CLI、JSON/YAML/CSV、Box State v2、报告和计算语义兼容。迁移期间 Python 是行为基准；Rust 命令只有通过黄金对比后才能解除门禁。
 
+## 当前目标（完成优先）
+
+迁移与首个可用 Windows active 已完成。当前默认目标不再是继续扩张迁移流程，而是：
+
+1. 用户报告的问题先在真实使用入口形成“复现 → 最小修复 → 定点验证 → 可直接使用的交付”闭环。
+2. 完成条件是实际入口可用、相关测试通过、交付物/用法明确并完成一个本地提交；不要求顺带完成重构、性能或文档美化。
+3. 优化项在交付闭环后单独排期，不得反向阻塞已经可用的结果。
+4. 发布、安全、数据删除/迁移和权限边界仍保留高风险门禁；普通改动不默认触发全量矩阵或多轮对抗复审。
+
 ## 当前状态
 
 - 工作区已安全迁移到 `D:\Projects\终局内容提取`；6,111 个不可再生项目文件与 16,301 个归档文件逐路径 SHA-256 校验均为零差异，迁移回执保存在归档目录。
@@ -22,8 +31,8 @@
 - 双游戏 visualizer 产物契约已冻结并由 Rust 实现：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
 - `evidence-first-v1-20260712` 已由 Python oracle 与共享 Rust core/CLI 双实现：跨 mode 隔离、A 的 sentinel/稳定性门槛、owned/built 分离、稳定 E-ID、显式时钟、JSON/YAML/BOM、四产物黄金和任意路径整批回滚均已验收；Rust evidence/coverage 门禁已解除。
 - Python 继续作为决策/报告迁移 oracle，但安装、计划任务、portable 与桌面/CLI 运行时均已证明不启动 Python。五类报告共用 `miho-app` executor；纯 Rust TaskManager、Tauri capabilities/select/start/get/list/cancel、安全任务前端和 workspace-scoped visualizer/data/avatar/Box 协议桥已接通。单一 Rust update runner、failure receipt、config-bound health、跨进程 workspace writer lease、安装/portable 候选切换与发布事务均已接通并完成真实失败升级回滚、成功升级、计划任务 Running→Ready、portable online update、无 Python 与最终卸载矩阵。
-- NSIS 与 portable 已携带桌面 EXE、CLI、默认 configs、automation 和静态 ownership manifest，并以 frozen runtime inputs/dependency/staging、clean Git provenance、反向容器提取和 content-addressed manifest 绑定。项目门禁首次在 clean `85ed31d6636f91f7ff24fa78724c62f508042aa6` 上发布 active 并完成最终字节真机 smoke；后续任何推进 Git HEAD 的 tracked 提交都必须从新 clean HEAD 重建后才能交付。当前 active 的精确 commit、路径、SHA-256、签名状态与其余 provenance 永远以 `target/release/bundle/miho-release-artifacts-v1.json` 为权威，tracked 文档不预写未来构建哈希以避免自引用；`NotSigned` 必须继续显式披露。
-- 用户安装的历史 active 随后暴露两层 GUI 缺陷：installed owner 的 Win32 长度读取误判，以及绝对 `frontendDist` 被 Tauri 当作 `file:///` 首页、scratch 清理后显示 `ERR_FILE_NOT_FOUND`。修复后的 dirty verification closure 已通过真实 installed CDP/DOM/sentinel 门禁，但当前安装目录和 active 仍是旧字节；只有 clean HEAD verification 原位升级、复验和新 active 发布完成后才可交付。
+- NSIS 与 portable 已携带桌面 EXE、CLI、默认 configs、automation 和静态 ownership manifest，并以 frozen runtime inputs/dependency/staging、clean Git provenance、反向容器提取和 content-addressed manifest 绑定。项目门禁首次在 clean `85ed31d6636f91f7ff24fa78724c62f508042aa6` 上发布 active 并完成最终字节真机 smoke。只有运行时代码、配置、资源、构建脚本或依赖清单变化才要求从新 clean HEAD 重建；纯流程、说明或测试文档提交不改变现有二进制，也不冒充新的程序版本。当前 active 的实际构建 commit、路径、SHA-256、签名状态与其余 provenance 永远以 `target/release/bundle/miho-release-artifacts-v1.json` 为权威；`NotSigned` 必须继续显式披露。
+- 用户安装的历史 active 曾暴露 installed owner 读取误判和 `frontendDist` 被当作 `file:///` 首页两层 GUI 缺陷；均已在 clean `1f8352be0bbcdae3c306be603bac010338cb343c` 修复。最终 active 已原位升级到 `D:\Miho Endgame`，真实 DOM、计划任务、HSR/ZZZ health、AppData/Box/owner 保留和零 Python 检查通过；当前精确产物仍以 active manifest 为准。
 
 ## 阶段路线
 
@@ -35,15 +44,14 @@
 6. **Tauri 产品化**：完成；可视化、任务、进度、取消、错误、原生目录选择与安全 workspace 协议均已验收。
 7. **自动化与发布**：完成；计划任务已切换并完成真实回滚/成功/卸载矩阵，active NSIS/便携版和无 Python runtime 已验收。Python 源码仅保留为迁移 oracle，不进入产品运行链。
 
-## 阶段完成对抗复核门槛
+## 当前执行方式
 
-每个阶段性任务在提交前必须留下可审计记录，不能只给出“测试通过”的结论：
-
-1. **显式提问**：本阶段我最有把握的完成证据是什么？最值得质疑、最可能被现有测试漏掉的点是什么？
-2. **主判断**：分别回答把握点与质疑点，并给出文件、测试、运行结果或产物证据。
-3. **独立对抗判断**：由未参与该实现的子智能体按原始目标和实际 diff 复审，只报告 Blocker/High 或明确无阻断。
-4. **主线程回应**：逐项接受、反驳或补证；Blocker/High 未清零不得提交，也不得解除门禁。
-5. **关键留痕**：把提问、双方判断、最终处理和路线微调写回本文件对应阶段，并在提交信息中保持阶段边界清晰。
+- 普通任务：实现最小闭环 → 跑相关定点测试 → 给用户可直接使用的结果 → 本地提交。
+- 高风险任务（发布、安全、数据删除/迁移、权限、公共事务边界）：增加必要的真实路径验证和一次独立 Blocker/High 复审。
+- 只在状态、决策、证据或重要风险变化时回填追踪文档；中间探索不强制形成独立阶段或提交。
+- 全量回归只用于大范围变更或最终发布，不作为普通修复的默认前置条件。
+- 发布包只在 runtime inputs 变化时重建；纯文档提交继续使用 manifest 指向的实际 active，不触发自引用重建。
+- 完成交付后再处理非阻断优化，避免验证和文档流程本身成为关键路径。
 
 ## 第十二批三目标（已完成）
 
@@ -84,7 +92,7 @@
 | 2026-07-12 | 采用纯 Tauri + Rust，GUI 与 CLI 全兼容，分阶段替换 | Python 保留为迁移 oracle，禁止一次性切换 | 全部黄金测试通过 |
 | 2026-07-12 | 工作区采用复制、全量哈希、Git 校验后切换的方式从 C 盘迁移到 D 盘 | `D:\Projects\终局内容提取` 是后续唯一开发入口；C 盘旧源码仅作为短期回滚副本 | 再次迁盘或 D 盘健康状态异常时 |
 | 2026-07-12 | 业务资产归档到仓库外，缓存直接清除 | 工作区只保留源码、配置、测试和项目文档 | 需要恢复历史数据时使用归档清单 |
-| 2026-07-12 | 每个子目标一个本地提交，每三个子目标复盘 | 提高可回退性；不自动推送远端 | 项目规模或协作方式显著改变 |
+| 2026-07-12 | 每个子目标一个本地提交，每三个子目标复盘（历史流程，已于 2026-07-16 精简） | 迁移期提高可回退性；不自动推送远端 | 见 2026-07-16 完成优先决策 |
 | 2026-07-12 | 首发仅维护 Windows 图标和安装配置 | 删除自动生成的 Android/iOS 图标 | 正式纳入其他平台时 |
 | 2026-07-12 | Rust export 先开放 fixture/HF 核心路径，默认补充来源保持显式门禁 | 避免把缺 Prydwen/官方名称的残缺目录误报为兼容成功 | 两游戏完整目录黄金对比通过 |
 | 2026-07-12 | V1 wire 请求拒绝未知字段，运行时路径只由 Rust 构造；成功回执和失败回执分离 | 防止 CLI/Tauri 静默忽略能力或由 WebView 注入缓存/历史路径 | IPC schema 升级或新增可信输入来源时 |
@@ -96,7 +104,7 @@
 | 2026-07-12 | CLI 使用 `WorkbookPolicy::BestEffort`；成功产物进入内嵌 manifest/receipt，失败只记结构化 warning 且不留半成品 | 离线双游戏导出已包含 XLSX；在线总门禁缩小为仅等待 visualizer | visualizer 完整目录黄金对比通过时 |
 | 2026-07-12 | visualizer 契约边界定义为最终 ArtifactBundle 加显式 VisualizerContext，而非声称可由 CSV 单独逆向 | Banner/Decision sidecar、官方/raw 补充信息、clock 与头像存储必须成为 Rust API 的显式输入；两游戏 export 先落最终 CSV 再走独立重建 | Rust context/schema 升级或 sidecar 被并入正式 artifact manifest 时 |
 | 2026-07-12 | HSR visualizer 通过致密跨语言、真实 CLI 整目录与浏览器验收后解除在线 export 总门禁；ZZZ 门禁保持 | HSR 默认在线路径可直接生成 CSV、Workbook、visualizer 与最终 manifest；Python 保留为 oracle，不再是 HSR 正式运行时依赖 | HSR 完整目录出现未批准差异或外部来源协议变化时 |
-| 2026-07-12 | 每个阶段提交前增加显式信心/质疑提问与独立对抗复核 | 测试通过不再自动等于阶段完成；Blocker/High 必须修复并复验，双方判断与路线调整写回 PROJECT.md | 项目转为单人一次性原型或用户明确撤销该门槛时 |
+| 2026-07-12 | 每个阶段提交前增加显式信心/质疑提问与独立对抗复核（历史迁移门槛，已于 2026-07-16 收敛到高风险任务） | 迁移/发布期防止 fixture 假绿；普通任务不再默认执行 | 发布、安全、数据删除/迁移、权限或公共事务边界变化时 |
 | 2026-07-12 | ZZZ visualizer 通过致密跨语言、真实 CLI/Hub、浏览器与独立对抗复核后解除在线 export 总门禁 | 两游戏默认在线路径均由 Rust 生成 CSV、Workbook、visualizer、manifest；Python visualizer 降为 oracle | 完整目录出现未批准差异、来源协议变化或 sidecar schema 升级时 |
 | 2026-07-12 | legacy 无 manifest 输出只从游戏正式命名空间恢复 ownership；未知文件保留但不进入新 manifest | `raw/hf/**` 因动态 source path 被保留为 export-owned 命名空间，用户私有文件不得放入其中 | 正式 artifact schema/manifest 增加显式 ownership metadata 时 |
 | 2026-07-12 | 决策/报告以 `evidence-first-v1-20260712` 为正式方法；旧 decision 标记 `legacy-v0` | 同队不跨 mode 合并分数/置信度；A 需有效表现与稳定组件；高/中高抽取必须引用 A/B 主证据；LegacyV0 精确兼容不等于方法完成 | 证据策略/schema 升级或用户明确要求旧 heuristic 默认化时 |
@@ -116,6 +124,8 @@
 | 2026-07-15 | installer recovery 增加真实 helper 进程终止门禁 | PowerShell 5.1/7 均在第一项静态 payload 已提交后强杀，并在 durable `rolling-back` 后再次强杀；原始未插桩 helper 必须恢复 clean before-image、owner 与事务根 | installer journal/phase、静态写入、rollback、scheduler handoff 或 NSIS hook 变化时 |
 | 2026-07-15 | installed GUI 启动门禁与 portable 冒烟分离；NSIS owner 建立后必须从完整安装布局启动窗口并存活五秒 | portable marker 会绕过 installed-owner 注册表分支，不能再替代安装版启动证据；退出 101、setup-hook 错误或未建窗口一律重新关门 | installed owner schema/registry API、桌面 setup hook、安装布局或 portable 检测变化时 |
 | 2026-07-16 | 生产前端必须由相对 `frontendDist` 嵌入，并以 custom-protocol + 真实 CDP/DOM sentinel 守门 | Windows 绝对 staging 路径会被 URL-first `FrontendDist` 误解析为 `file:///`；窗口存活不再等于页面可用，Edge 错误页、开发 URL、假 sentinel 或缺 Tauri internals 均阻断发布 | Tauri config/codegen、custom-protocol feature、config parent、前端 ready sentinel、WebView2/CDP 或 staging 布局变化时 |
+| 2026-07-16 | 执行方式改为完成优先：一个可交付里程碑一次提交，定点验证默认，优化后置 | 普通任务不再强制多轮复审、全量回归或重复留痕；高风险边界继续保留真实验证与一次独立复审 | 用户要求恢复更严格流程，或普通流程再次漏掉系统性高风险缺陷时 |
+| 2026-07-16 | 发布重建改由 runtime inputs 变化触发；纯流程、说明或测试文档提交不使既有 active 失效 | 最大困难是 tracked 留痕若也强制重建会形成自引用循环；manifest 继续绑定实际构建 commit/hash，文档 HEAD 不冒充新的程序版本 | runtime inputs/digest 变化，或需要把新 HEAD 声明为新的程序版本时 |
 
 ## 风险登记
 
@@ -417,6 +427,8 @@
 
 ### 第十五批完成：最终 active 发布、Python runtime 退役与强杀恢复补证（子目标 3/3，2026-07-15）
 
+> 历史说明：本节记录迁移发布阶段当时的门禁；其中“任何 tracked 提交都重建 active”的通用规则已于 2026-07-16 被上方“当前执行方式”和决策记录取代。涉及 runtime inputs 的重建要求仍然有效。
+
 - **显式提问**：本阶段我最有把握的完成证据是什么？最值得质疑、最可能被已有矩阵或 active manifest 漏掉的点是什么？
 - **主判断—最有把握**：首次 active 收口的最强证据是 clean commit `85ed31d6636f91f7ff24fa78724c62f508042aa6` 的 262 个 release inputs 与 manifest 精确绑定，workspace digest 为 `edbf6c4de848b88e1341c6e17c7ee98498fa830dab33c2e756f1a256a0a78c3a`。该次 NSIS SHA-256 `a807a21a6efe57f579c5552192661a9c4cc6918fb54b9e090c82e0db4f73f66b`、portable ZIP `89d7b51893864c5dcf818a8aaaedb47ef134e366d86814237efc2a3dddc1b660`、static manifest 与 ZIP/目录 21 项均被独立重算，publication 为 `active`，scratch/pending/verification manifest 均为 0。后续 evidence commit 的交付字节同样必须由 active manifest 自证，而不是复用这些历史哈希。
 - **最终字节真机证据**：portable 在空 PATH 下 `miho --version/--help` 返回 0、桌面存活 5 秒后正常退出且零 Python。最终 NSIS clean install 返回 0，18/18 static payload 精确匹配，Start Menu Target/WorkingDirectory、owner、canonical task 与 HSR/ZZZ exact health 全部通过且零 Python；uninstall 返回 0。卸载前后的 AppData 都是 755 文件、520 目录、297,294,737 字节，整树 SHA-256 均为 `0c0637cb2c971c96c749f3efa38112815b0c2585e30c7fbb2aef8d34242f2c28`，canary 未变；最终安装根、automation root、task、owner、产品/卸载注册表、快捷方式和 failure/transaction receipt 均不存在。
@@ -456,6 +468,7 @@
 - **独立对抗判断**：未参与实现的 `candidate_release_review` 从本机 Tauri CLI/helpers、tauri-macros、tauri-codegen 与 tauri-utils 源码核对真实 `config_parent`、URL-first enum 和 Directory embed 分支，并在稳定脚本哈希下独立重跑 WinPS 5.1 / pwsh 7 release contract，结论 `Blocker=0 / High=0`。它随后把成功 GUI receipt 与 desktop、portable、static manifest、NSIS 18/18 closure 交叉绑定，再次给 dirty verification 阶段 `Blocker=0 / High=0`。文档首轮复审另报 `Blocker=1 / High=1`：PROJECT 尚无本阶段留痕，且 README/傻瓜说明的“最新安装包”无法在多代 bundle 中唯一定位；首轮修正清零这两项后又发现 `High=1`，因为两处恢复文字把历史首次 active 矩阵写成当前可用。统一改成“历史首次 active/既有矩阵”并明确修复版 pending 后，提交前复审一度为 `Blocker=0 / High=0`。扩大到最终 staged diff 后又发现 `High=1`：cache scope 只按 Mode 硬编码，真实 WebView2 可被环境或策略重定向到外部目录，旧默认 cache 存在时 receipt 仍可能假绿；修正后同一审查者核对 child env、实际 listener PID/start/command line、唯一绝对路径、退出后 no-reparse、build receipt 和反例，最终结论 `Blocker=0 / High=0`，仅保留已披露的 200 ms sampling/本地恶意端口竞态低级边界。
 - **主线程回应与流程微调**：接受 staged verifier 仍要求绝对路径这一首轮构建反例，改为与 producer 相同的 `src-tauri` round-trip，并加入绝对、`file:///` 和错误相对目录三类永久反例；双壳 release contract 与 GUI contract 均通过。接受文档 Blocker/High，README 和傻瓜说明改为只认本次最终交付块中的绝对路径、完整 content-addressed 文件名、SHA-256 与 `NotSigned`，禁止按时间猜“最新”；能力报告与恢复入口也不再把历史矩阵冒充当前修复版。另接受测试卫生低级意见：owner fixture 的随机叶子删除后只在 `tests` 父键确实无子键、无值时非递归删除，并断言叶子零残留；现场历史空测试键经 0/0 复核后已精确删除。最终双壳 release contract 后父键实测 absent。对 cache scope High 也全部接受：probe 先移除继承的 `WEBVIEW2_USER_DATA_FOLDER`，再绑定实际 debug listener 所属 `msedgewebview2` 进程代际，解析唯一 `--user-data-dir` 并要求精确等于受快照父树覆盖的 `EBWebView`，关闭后再做无 reparse 核验；缺失、相对、重复、空值、外部路径和恶意环境 override 反例在 WinPS 5.1/pwsh 7 GUI contract 均通过，双壳 release contract 分别 43.4/87.9 秒通过，真实 dirty installed DOM 冒烟返回 `webview_user_data_directory_bound=true`、正常退出 0。
 - **最大困难与路线微调**：最大困难是“窗口能活五秒”跨越不了 Tauri 配置反序列化、codegen 嵌入、WebView origin、真实 DOM 和浏览器副作用范围五层边界；绝对路径在 Windows 和 JSON 上看似合法，却因 untagged enum 顺序改变了产品语义，默认 cache 目录存在也不等于浏览器实际使用它。主流程由“窗口/alive/close”升级为“feature 编译保护 → 相对路径 producer/staged verifier → immutable bytes/容器绑定 → exact `tauri.localhost` → 真实 frontend sentinel/品牌/Tauri internals → error-page 拒绝 → 实际 `--user-data-dir` 绑定 → installed 外部状态差分”。dirty 候选只关闭实现盲区；提交后仍按 clean verification → 原位升级 → installed health/DOM → 独立复审 → 同 commit active 的顺序推进，不能跳步。
+- **最终收口**：clean commit `1f8352be0bbcdae3c306be603bac010338cb343c` 已发布 active，最终 NSIS 原位升级实际安装目录后重新通过 DOM、计划任务 Ready → Running → Ready、HSR/ZZZ exact health、用户数据/owner 保留和零 Python检查。当前交付已完成，后续改进按“先完成、再优化”的新流程单独处理。
 
 ## 恢复入口
 
@@ -468,4 +481,4 @@
 - 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
 - update runner 契约：`docs/update-runner-contract.md`；外部现状与迁移阻断：`automation_capability_report.md`。
-- 最危险的未验证假设：历史首次 active 的容器等价性、同账户 install/upgrade/rollback/uninstall、Task Scheduler、portable 与零 Python 已有真机证据，helper 的 partial static apply 与 durable rolling-back 两个强杀切点也已补证；这些历史证据不能替代本轮修复版仍 pending 的 clean verification → 原位升级 → 新 active。尚未证明的长期边界是跨账户/跨 session release lease、正式签名、完整 NSIS Prepare/Commit 任意切点或物理掉电 journal recovery。前端/visualizer 的 public/opaque/path/XSS/A→B/有界资源边界已有既有真机与对抗证据，本轮生产页面另由 exact `tauri.localhost`/DOM sentinel 门禁守护；直接 iframe console `invoke` probe 因 DevTools self-XSS 安全屏障未绕过，继续以 isolation Context、origin 校验和实际 frame/CSP 证据守门。
+- 当前剩余长期边界：未做 Authenticode 正式签名、跨账户/跨 session release lease 实测、完整 NSIS Prepare/Commit 任意切点强杀或物理掉电 recovery；200 ms 进程采样也不等于连续 ETW 审计。这些属于后续优化/扩展可靠性，不否定当前同账户 active 已通过的实际安装、DOM、任务和 health 闭环。

@@ -14,4 +14,4 @@
 
 ## 开发与发布
 
-项目目标、完成证据和剩余边界见 [PROJECT.md](PROJECT.md)，发布事务与门禁见 [docs/release-contract.md](docs/release-contract.md)。每个新的 tracked 提交都必须从 clean HEAD 重新构建，旧 EXE 不能自动代表新源码。
+项目目标、完成证据和剩余边界见 [PROJECT.md](PROJECT.md)，发布事务与门禁见 [docs/release-contract.md](docs/release-contract.md)。运行时代码、配置、资源、构建脚本或依赖清单变化后必须从 clean HEAD 重建；纯流程、说明或测试文档提交不改变现有 EXE，也不能冒充新的程序版本。
