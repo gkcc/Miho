@@ -2,7 +2,7 @@
 
 - 初版生成时间：2026-07-06
 - 最近审计：2026-07-15
-- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease、安装/portable 候选切换事务和 hash-bound NSIS/portable 发布链均已有实现、回归与真实 Windows 矩阵证据；下述 Python 编排只保留为历史说明。真实升级、回滚、canonical Task Scheduler、portable online update 与最终卸载均在空 PATH/零 Python 下通过。项目门禁首次在 clean `85ed31d6636f91f7ff24fa78724c62f508042aa6` 上发布 active，最终字节又通过 clean install/health/uninstall/AppData canary；任何后续 source-digest 提交均须从新 clean HEAD 重建后再交付，当前 active 的 commit/hash 以 manifest 为准。当前外部状态是“产品已完整卸载、用户 AppData 原样保留”，安装包为 `NotSigned`。
+- 当前结论：单一 Rust native update runner、配置摘要绑定的 state/receipt/health、跨进程 workspace writer lease、安装/portable 候选切换事务和 hash-bound NSIS/portable 发布链均已有实现、回归与真实 Windows 矩阵证据；下述 Python 编排只保留为历史说明。真实升级、回滚、canonical Task Scheduler、portable online update 与最终卸载均在空 PATH/零 Python 下通过。项目门禁首次在 clean `85ed31d6636f91f7ff24fa78724c62f508042aa6` 上发布 active，最终字节又通过 clean install/health/uninstall/AppData canary；任何后续 tracked 提交均须从新 clean HEAD 重建后再交付，即使只改测试/文档而 runtime input digest 不变，当前 active 的 commit/hash 仍以 manifest 为准。当前外部状态是“产品已完整卸载、用户 AppData 原样保留”，安装包为 `NotSigned`。
 
 ## 当前外部状态与剩余边界（2026-07-15）
 

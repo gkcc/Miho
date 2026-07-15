@@ -14,9 +14,11 @@ NSIS SHA-256
 and portable ZIP SHA-256
 `89d7b51893864c5dcf818a8aaaedb47ef134e366d86814237efc2a3dddc1b660`,
 and those bytes passed a clean install, exact health, uninstall, and AppData
-canary smoke. Any later commit included by the release-source digest requires
-a new clean active build before delivery; its exact commit and hashes are read
-only from `target/release/bundle/miho-release-artifacts-v1.json`, avoiding a
+canary smoke. Any later tracked commit advances the Git identity recorded by
+the manifest and requires a new clean active build before delivery, even when
+the runtime input digest is unchanged because only tests or documentation
+changed. Its exact commit and hashes are read only from
+`target/release/bundle/miho-release-artifacts-v1.json`, avoiding a
 self-referential tracked-document update. This evidence does not change the
 normative rule that the contract itself is not an approval, and the package
 remains `NotSigned` until a signing policy is supplied.
@@ -49,12 +51,15 @@ The lock file is persistent; ownership is the open handle, not file presence.
 ## Frozen source and toolchain evidence
 
 After acquiring the lease, the wrapper first captures the original Git
-commit/status and the complete release-source digest. It then copies only the
-hash-bound source inputs into a unique directory below
-`target/release/release-workspace/`. Existing `node_modules`, `dist`, and
-`target` directories are excluded recursively; any other reparse point is a
-hard failure. The isolated source digest and file count must exactly equal the
-original frozen values before dependency resolution is allowed.
+commit/status and the complete runtime release-input digest. The digest and
+isolated copy deliberately cover the root Cargo/Node manifests and locks,
+`configs/`, `scripts/`, and pruned `crates/`; tests and documentation remain
+bound by the exact clean Git commit/status rather than being runtime build
+inputs. The wrapper copies the hash-bound runtime inputs into a unique
+directory below `target/release/release-workspace/`. Existing `node_modules`,
+`dist`, and `target` directories are excluded recursively; any other reparse
+point is a hard failure. The isolated source digest and file count must exactly
+equal the original frozen values before dependency resolution is allowed.
 The isolated source, copied dependency tree, Cargo target, and immutable
 staging are verification scratch rather than release artifacts; they are
 deleted before the wrapper exits. A published manifest therefore never relies
