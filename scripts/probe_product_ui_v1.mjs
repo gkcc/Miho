@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 const args = new Map();
@@ -516,22 +516,10 @@ function comparableBox(value) {
 
 async function verifyHsrBoxExport(context) {
   if (boxExportDir === null) return null;
-  const destination = path.join(boxExportDir, "hsr_box_state.json");
-  assert(!existsSync(destination), "Box export destination is not empty", { destination });
+  const exportNamePattern = /^hsr_box_state(?: \(\d+\))?\.json$/u;
+  const exportsBefore = new Set(readdirSync(boxExportDir).filter((name) => exportNamePattern.test(name)));
   const sourceBefore = readFileSync(sourceHsrBox);
   const sourceState = JSON.parse(sourceBefore.toString("utf8"));
-  try {
-    await session.send("Browser.setDownloadBehavior", {
-      behavior: "allow",
-      downloadPath: boxExportDir,
-      eventsEnabled: true,
-    });
-  } catch {
-    await session.send("Page.setDownloadBehavior", {
-      behavior: "allow",
-      downloadPath: boxExportDir,
-    });
-  }
   const clicked = await evaluate(context.id, `(() => {
     const button = document.querySelector('#boxExportBtn');
     if (!button || button.disabled) return false;
@@ -539,10 +527,34 @@ async function verifyHsrBoxExport(context) {
     return true;
   })()`, context.sessionId, { userGesture: true });
   assert(clicked === true, "HSR Box export button could not be clicked");
-  const exportedState = await waitFor("HSR Box export file", () => {
+  const exportResult = await waitFor("HSR Box export file and visible completion state", async () => {
+    const newNames = readdirSync(boxExportDir)
+      .filter((name) => exportNamePattern.test(name) && !exportsBefore.has(name));
+    if (newNames.length !== 1) return null;
+    const destination = path.join(boxExportDir, newNames[0]);
     if (!existsSync(destination) || statSync(destination).size === 0) return null;
-    try { return JSON.parse(readFileSync(destination, "utf8")); } catch { return null; }
+    const buttonState = await evaluate(context.id, `(() => {
+      const button = document.querySelector('#boxExportBtn');
+      return button ? {
+        disabled: button.disabled,
+        text: button.textContent?.trim() ?? '',
+        title: button.getAttribute('title') ?? '',
+      } : null;
+    })()`, context.sessionId);
+    if (!buttonState || buttonState.disabled || !buttonState.text.includes('已导出到下载文件夹')) return null;
+    if (buttonState.title !== path.basename(destination)) return null;
+    try {
+      return {
+        destination,
+        buttonText: buttonState.text,
+        buttonTitle: buttonState.title,
+        state: JSON.parse(readFileSync(destination, "utf8")),
+      };
+    } catch {
+      return null;
+    }
   });
+  const { destination, buttonText, buttonTitle, state: exportedState } = exportResult;
   const sourceAfter = readFileSync(sourceHsrBox);
   assert(sha256(sourceAfter) === sha256(sourceBefore), "HSR Box export changed the saved Box state");
   assert(exportedState?.version === 2, "HSR Box export has an unexpected schema version", exportedState);
@@ -554,6 +566,8 @@ async function verifyHsrBoxExport(context) {
     sha256: sha256(readFileSync(destination)),
     owned: exportedState.owned.length,
     sourceUnchanged: true,
+    visibleCompletion: buttonText,
+    visibleFileName: buttonTitle,
   };
 }
 

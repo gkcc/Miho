@@ -1,10 +1,12 @@
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
 };
 
 use miho_app::{WorkspaceWriteLease, WorkspaceWriteLeaseError};
 use miho_core::box_state::{self, BoxState};
+use serde::{Deserialize, Serialize};
 use tauri::http::{header, Method, Request, Response, StatusCode};
 
 use crate::{
@@ -14,6 +16,8 @@ use crate::{
 pub const VISUALIZER_SCHEME: &str = "miho-visualizer";
 const MAX_VISUALIZER_DATA_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
+const BOX_EXPORT_RECEIPT_SCHEMA_V1: &str = "miho-box-export-receipt-v1";
+const MAX_BOX_EXPORT_COLLISIONS: usize = 10_000;
 const VISUALIZER_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost http://localhost:5173 http://127.0.0.1:5173";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +31,27 @@ enum Route {
     BoxApi {
         game: &'static str,
     },
+    BoxExport {
+        game: &'static str,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BoxExportDocumentV1 {
+    version: u8,
+    updated_at: String,
+    owned: Vec<String>,
+    build_slug: String,
+    builds: std::collections::BTreeMap<String, serde_json::Value>,
+    exported_at: String,
+}
+
+#[derive(Debug, Serialize)]
+struct BoxExportReceiptV1 {
+    schema_version: &'static str,
+    file_name: String,
+    bytes: usize,
 }
 
 pub fn visualizer_url(game: &str, workspace_id: &str) -> Option<String> {
@@ -57,10 +82,29 @@ pub fn visualizer_is_ready(root: &Path, game: &str) -> bool {
     avatar_references_are_ready(root, game, &value)
 }
 
+#[cfg(test)]
 pub fn handle_workspace_request(
     root: &Path,
     current_workspace_id: &str,
     storage_scope_id: &str,
+    webview_label: &str,
+    request: Request<Vec<u8>>,
+) -> Response<Vec<u8>> {
+    handle_workspace_request_with_export_directory(
+        root,
+        current_workspace_id,
+        storage_scope_id,
+        None,
+        webview_label,
+        request,
+    )
+}
+
+pub fn handle_workspace_request_with_export_directory(
+    root: &Path,
+    current_workspace_id: &str,
+    storage_scope_id: &str,
+    export_directory: Option<&Path>,
     webview_label: &str,
     request: Request<Vec<u8>>,
 ) -> Response<Vec<u8>> {
@@ -100,6 +144,7 @@ pub fn handle_workspace_request(
             response(StatusCode::OK, mime, cache, body, Some(length))
         }
         Route::BoxApi { game } => handle_box(root, game, request),
+        Route::BoxExport { game } => handle_box_export(export_directory, game, request),
     }
 }
 
@@ -178,6 +223,127 @@ fn handle_box(root: &Path, game: &str, request: Request<Vec<u8>>) -> Response<Ve
     }
 }
 
+fn handle_box_export(
+    export_directory: Option<&Path>,
+    game: &str,
+    request: Request<Vec<u8>>,
+) -> Response<Vec<u8>> {
+    if request.method() == Method::OPTIONS {
+        return response(
+            StatusCode::NO_CONTENT,
+            "text/plain; charset=utf-8",
+            "no-store",
+            Vec::new(),
+            Some(0),
+        );
+    }
+    if request.method() != Method::POST {
+        return method_not_allowed("POST, OPTIONS");
+    }
+    if request.body().len() as u64 > MAX_BOX_BYTES {
+        return error_response(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    let document = match serde_json::from_slice::<BoxExportDocumentV1>(request.body()) {
+        Ok(document) => document,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST),
+    };
+    let expected_version = if game == "hsr" { 2 } else { 3 };
+    if document.version != expected_version
+        || !valid_javascript_iso_timestamp(&document.updated_at)
+        || !valid_javascript_iso_timestamp(&document.exported_at)
+    {
+        return error_response(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let state = BoxState {
+        version: document.version,
+        updated_at: document.updated_at.clone(),
+        owned: document.owned.clone(),
+        build_slug: document.build_slug.clone(),
+        builds: document.builds.clone(),
+    };
+    if let Err(error) = ensure_box_state_limits(&state) {
+        return box_limit_error_response(error);
+    }
+    let body = match serde_json::to_vec_pretty(&document) {
+        Ok(body) if body.len() as u64 <= MAX_BOX_BYTES => body,
+        Ok(_) => return error_response(StatusCode::PAYLOAD_TOO_LARGE),
+        Err(_) => return error_response(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+    let Some(export_directory) = export_directory else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let file_name = match create_box_export_file(export_directory, game, &body) {
+        Ok(file_name) => file_name,
+        Err(_) => return error_response(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+    let receipt = BoxExportReceiptV1 {
+        schema_version: BOX_EXPORT_RECEIPT_SCHEMA_V1,
+        file_name,
+        bytes: body.len(),
+    };
+    match serde_json::to_vec(&receipt) {
+        Ok(body) => response(
+            StatusCode::CREATED,
+            "application/json; charset=utf-8",
+            "no-store",
+            body,
+            None,
+        ),
+        Err(_) => error_response(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+fn valid_javascript_iso_timestamp(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 24
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes[19] != b'.'
+        || bytes[23] != b'Z'
+    {
+        return false;
+    }
+    bytes.iter().enumerate().all(|(index, byte)| {
+        matches!(index, 4 | 7 | 10 | 13 | 16 | 19 | 23) || byte.is_ascii_digit()
+    })
+}
+
+fn create_box_export_file(directory: &Path, game: &str, bytes: &[u8]) -> std::io::Result<String> {
+    if !fs::metadata(directory)?.is_dir() {
+        return Err(std::io::Error::other("export directory is unavailable"));
+    }
+    for collision in 0..MAX_BOX_EXPORT_COLLISIONS {
+        let file_name = if collision == 0 {
+            format!("{game}_box_state.json")
+        } else {
+            format!("{game}_box_state ({collision}).json")
+        };
+        let path = directory.join(&file_name);
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        if let Err(error) = file.write_all(bytes).and_then(|_| file.sync_all()) {
+            drop(file);
+            let _ = fs::remove_file(&path);
+            return Err(error);
+        }
+        return Ok(file_name);
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "too many Box export name collisions",
+    ))
+}
+
 fn box_limit_error_response(error: BoxStateLimitError) -> Response<Vec<u8>> {
     match error {
         BoxStateLimitError::TooLarge => error_response(StatusCode::PAYLOAD_TOO_LARGE),
@@ -201,6 +367,11 @@ fn parse_route(raw_path: &str) -> Result<Route, StatusCode> {
         .any(|part| part.is_empty() || *part == "." || *part == "..")
     {
         return Err(StatusCode::BAD_REQUEST);
+    }
+    if let ["api", game, "box", "export"] = segments.as_slice() {
+        return Ok(Route::BoxExport {
+            game: parse_game(game).ok_or(StatusCode::NOT_FOUND)?,
+        });
     }
     if let ["api", game, "box"] = segments.as_slice() {
         return Ok(Route::BoxApi {
@@ -634,7 +805,10 @@ fn response(
         .header(header::REFERRER_POLICY, "no-referrer")
         .header(header::CACHE_CONTROL, cache)
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, protocol_origin())
-        .header(header::ACCESS_CONTROL_ALLOW_METHODS, "GET, PUT, OPTIONS")
+        .header(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            "GET, PUT, POST, OPTIONS",
+        )
         .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "Content-Type")
         .header(header::VARY, "Origin");
     if let Some(length) = length {
@@ -722,6 +896,15 @@ mod tests {
     fn handle_request(
         root: &Path,
         webview_label: &str,
+        request: Request<Vec<u8>>,
+    ) -> Response<Vec<u8>> {
+        handle_request_with_export_directory(root, None, webview_label, request)
+    }
+
+    fn handle_request_with_export_directory(
+        root: &Path,
+        export_directory: Option<&Path>,
+        webview_label: &str,
         mut request: Request<Vec<u8>>,
     ) -> Response<Vec<u8>> {
         let separator = if request.uri().query().is_some() {
@@ -731,7 +914,14 @@ mod tests {
         };
         let uri = format!("{}{separator}workspace={TOKEN}", request.uri());
         *request.uri_mut() = uri.parse().unwrap();
-        handle_workspace_request(root, TOKEN, STORAGE_SCOPE, webview_label, request)
+        handle_workspace_request_with_export_directory(
+            root,
+            TOKEN,
+            STORAGE_SCOPE,
+            export_directory,
+            webview_label,
+            request,
+        )
     }
 
     #[test]
@@ -761,6 +951,19 @@ mod tests {
         assert!(app.contains("url.searchParams.set('workspace',accessToken)"));
         assert!(app.contains("const prefix=`miho-desktop:${storageScope}:`"));
         assert_ne!(get.body(), b"js");
+        for (game, version) in [("hsr", "version:2"), ("zzz", "version:3")] {
+            let app = std::str::from_utf8(
+                miho_core::visualizer::visualizer_static_asset(game, "app.js").unwrap(),
+            )
+            .unwrap();
+            assert!(app.contains(version));
+            assert!(app.contains(&format!("fetch('/api/{game}/box/export'")));
+            assert!(app.contains("schema_version!=='miho-box-export-receipt-v1'"));
+            assert!(app.contains("button.textContent='已导出到下载文件夹'"));
+            assert!(app.contains("button.textContent='导出失败'"));
+            assert!(app.contains("setTimeout(()=>URL.revokeObjectURL(url),1000)"));
+            assert!(!app.contains("a.click();URL.revokeObjectURL"));
+        }
         for name in ["index.html", "styles.css"] {
             let trusted = handle_request(
                 &root,
@@ -798,6 +1001,134 @@ mod tests {
         assert!(head.body().is_empty());
         assert_eq!(head.headers()[header::CONTENT_LENGTH], "4");
         assert_eq!(head.headers()[header::CACHE_CONTROL], "no-store");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn desktop_box_export_is_strict_collision_safe_and_versioned_per_game() {
+        let root = root();
+        let downloads = root.join("downloads");
+        fs::create_dir(&downloads).unwrap();
+        fs::write(downloads.join("hsr_box_state.json"), b"existing-user-file").unwrap();
+
+        let hsr_document = serde_json::json!({
+            "version": 2,
+            "updatedAt": "2026-07-17T12:34:56.789Z",
+            "owned": ["acheron"],
+            "buildSlug": "acheron",
+            "builds": {"acheron": {"level": 80}},
+            "exportedAt": "2026-07-17T12:34:56.789Z"
+        });
+        let exported = handle_request_with_export_directory(
+            &root,
+            Some(&downloads),
+            "main",
+            request(
+                Method::POST,
+                "/api/hsr/box/export",
+                serde_json::to_vec(&hsr_document).unwrap(),
+            ),
+        );
+        assert_eq!(exported.status(), StatusCode::CREATED);
+        let receipt: serde_json::Value = serde_json::from_slice(exported.body()).unwrap();
+        assert_eq!(receipt["schema_version"], BOX_EXPORT_RECEIPT_SCHEMA_V1);
+        assert_eq!(receipt["file_name"], "hsr_box_state (1).json");
+        assert_eq!(
+            fs::read(downloads.join("hsr_box_state.json")).unwrap(),
+            b"existing-user-file"
+        );
+        let exported_path = downloads.join(receipt["file_name"].as_str().unwrap());
+        assert_eq!(
+            receipt["bytes"].as_u64().unwrap(),
+            fs::metadata(&exported_path).unwrap().len()
+        );
+        let written: serde_json::Value =
+            serde_json::from_slice(&fs::read(&exported_path).unwrap()).unwrap();
+        assert_eq!(written, hsr_document);
+
+        let zzz_document = serde_json::json!({
+            "version": 3,
+            "updatedAt": "2026-07-17T12:34:56.789Z",
+            "owned": ["astra-yao"],
+            "buildSlug": "astra-yao",
+            "builds": {},
+            "exportedAt": "2026-07-17T12:34:56.789Z"
+        });
+        let zzz_exported = handle_request_with_export_directory(
+            &root,
+            Some(&downloads),
+            "main",
+            request(
+                Method::POST,
+                "/api/zzz/box/export",
+                serde_json::to_vec(&zzz_document).unwrap(),
+            ),
+        );
+        assert_eq!(zzz_exported.status(), StatusCode::CREATED);
+        let zzz_receipt: serde_json::Value = serde_json::from_slice(zzz_exported.body()).unwrap();
+        let zzz_written: serde_json::Value = serde_json::from_slice(
+            &fs::read(downloads.join(zzz_receipt["file_name"].as_str().unwrap())).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(zzz_written, zzz_document);
+
+        let wrong_game_version = handle_request_with_export_directory(
+            &root,
+            Some(&downloads),
+            "main",
+            request(
+                Method::POST,
+                "/api/zzz/box/export",
+                serde_json::to_vec(&hsr_document).unwrap(),
+            ),
+        );
+        assert_eq!(
+            wrong_game_version.status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        let mut unknown_field = hsr_document.clone();
+        unknown_field["targetPath"] = serde_json::Value::String("outside.json".to_owned());
+        let rejected_unknown = handle_request_with_export_directory(
+            &root,
+            Some(&downloads),
+            "main",
+            request(
+                Method::POST,
+                "/api/hsr/box/export",
+                serde_json::to_vec(&unknown_field).unwrap(),
+            ),
+        );
+        assert_eq!(rejected_unknown.status(), StatusCode::BAD_REQUEST);
+
+        let mut nested = serde_json::Value::Null;
+        for _ in 0..=crate::MAX_BOX_VALUE_DEPTH {
+            nested = serde_json::Value::Array(vec![nested]);
+        }
+        let mut too_deep = hsr_document.clone();
+        too_deep["builds"]["acheron"] = nested;
+        let rejected_depth = handle_request_with_export_directory(
+            &root,
+            Some(&downloads),
+            "main",
+            request(
+                Method::POST,
+                "/api/hsr/box/export",
+                serde_json::to_vec(&too_deep).unwrap(),
+            ),
+        );
+        assert_eq!(rejected_depth.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let rejected_size = handle_request_with_export_directory(
+            &root,
+            Some(&downloads),
+            "main",
+            request(
+                Method::POST,
+                "/api/hsr/box/export",
+                vec![b'x'; MAX_BOX_BYTES as usize + 1],
+            ),
+        );
+        assert_eq!(rejected_size.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(fs::read_dir(&downloads).unwrap().count(), 3);
         fs::remove_dir_all(root).unwrap();
     }
 

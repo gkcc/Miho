@@ -27,6 +27,38 @@ function Get-MihoProbeFileSha256V1 {
     }
 }
 
+function Get-MihoPeSubsystemV1 {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+
+    $stream = [System.IO.File]::OpenRead([System.IO.Path]::GetFullPath($LiteralPath))
+    $reader = [System.IO.BinaryReader]::new($stream)
+    try {
+        if ($stream.Length -lt 512 -or $reader.ReadUInt16() -ne 0x5A4D) {
+            throw "GUI render probe requires a valid PE executable"
+        }
+        $stream.Position = 0x3C
+        $peOffset = $reader.ReadInt32()
+        if ($peOffset -lt 0 -or ([int64]$peOffset + 94) -gt $stream.Length) {
+            throw "GUI render probe found an invalid PE header offset"
+        }
+        $stream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550) {
+            throw "GUI render probe found an invalid PE signature"
+        }
+        $stream.Position = [int64]$peOffset + 24
+        $magic = $reader.ReadUInt16()
+        if ($magic -ne 0x010B -and $magic -ne 0x020B) {
+            throw "GUI render probe found an unsupported PE optional header"
+        }
+        $stream.Position = [int64]$peOffset + 24 + 68
+        return [int]$reader.ReadUInt16()
+    }
+    finally {
+        $reader.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Test-MihoRenderedTargetV1 {
     param([Parameter(Mandatory = $true)]$Target)
 
@@ -512,6 +544,9 @@ $executableItem = Get-Item -LiteralPath $fullExecutable -Force -ErrorAction Stop
 if ($executableItem.PSIsContainer -or
     ($executableItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
     throw "GUI render probe requires a normal executable file"
+}
+if ((Get-MihoPeSubsystemV1 -LiteralPath $fullExecutable) -ne 2) {
+    throw "GUI render probe requires a WINDOWS_GUI executable without a console window"
 }
 $workingDirectory = Split-Path -Parent $fullExecutable
 $portableMarker = Join-Path $workingDirectory "miho-portable-v1.json"

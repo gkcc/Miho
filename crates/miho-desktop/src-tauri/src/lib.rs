@@ -498,10 +498,12 @@ pub fn run() {
                 let Ok(storage_scope) = state.storage_scope(&root) else {
                     return visualizer_protocol::unavailable_response();
                 };
-                visualizer_protocol::handle_workspace_request(
+                let export_directory = context.app_handle().path().download_dir().ok();
+                visualizer_protocol::handle_workspace_request_with_export_directory(
                     &root,
                     &workspace.workspace_id,
                     &storage_scope,
+                    export_directory.as_deref(),
                     context.webview_label(),
                     request,
                 )
@@ -872,6 +874,8 @@ mod tests {
         assert!(binary_entry.contains(
             "compile_error!(\"release miho-desktop.exe requires the custom-protocol feature\")"
         ));
+        assert!(binary_entry.contains("all(not(debug_assertions), target_os = \"windows\")"));
+        assert!(binary_entry.contains("windows_subsystem = \"windows\""));
         let release_config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();
         assert_eq!(release_config["bundle"]["active"], false);
