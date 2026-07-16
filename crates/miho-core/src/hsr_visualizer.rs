@@ -1473,18 +1473,23 @@ fn numeric(v: &str) -> Result<Value> {
 fn scope_info(mode: &str, scope: &str) -> (String, String, u64) {
     let normalized = normalize_scope(scope);
     if matches!(normalized.as_str(), "" | "all" | "top") {
-        return ("all".into(), "全关".into(), 90);
+        return ("all".into(), "综合队伍池".into(), 90);
     }
     match (mode, normalized.as_str()) {
         ("moc", "1" | "12-1" | "stage-12-1") => ("12-1".into(), "12-1 / 上半".into(), 1),
         ("moc", "2" | "12-2" | "stage-12-2") => ("12-2".into(), "12-2 / 下半".into(), 2),
-        ("pf" | "as", "1" | "4-1" | "stage-4-1") => ("4-1".into(), "4-1 / 第1关".into(), 1),
-        ("pf" | "as", "2" | "4-2" | "stage-4-2") => ("4-2".into(), "4-2 / 第2关".into(), 2),
-        ("pf" | "as", "3" | "4-3" | "stage-4-3") => ("4-3".into(), "4-3 / 第3关".into(), 3),
-        ("aa", "1" | "1-1") => ("1-1".into(), "1-1".into(), 1),
-        ("aa", "2" | "1-2") => ("1-2".into(), "1-2".into(), 2),
-        ("aa", "3" | "1-3") => ("1-3".into(), "1-3".into(), 3),
-        ("aa", "4" | "2-1") => ("2-1".into(), "2-1".into(), 4),
+        ("moc", "3" | "12-3" | "stage-12-3") => {
+            ("12-3".into(), "12-3 / 第3战斗侧（星芒）".into(), 3)
+        }
+        ("pf" | "as", "1" | "4-1" | "stage-4-1") => ("4-1".into(), "4-1 / 第1战斗侧".into(), 1),
+        ("pf" | "as", "2" | "4-2" | "stage-4-2") => ("4-2".into(), "4-2 / 第2战斗侧".into(), 2),
+        ("pf" | "as", "3" | "4-3" | "stage-4-3") => {
+            ("4-3".into(), "4-3 / 第3战斗侧（星芒）".into(), 3)
+        }
+        ("aa", "1" | "1-1") => ("1-1".into(), "1-1 / 骑士 1".into(), 1),
+        ("aa", "2" | "1-2") => ("1-2".into(), "1-2 / 骑士 2".into(), 2),
+        ("aa", "3" | "1-3") => ("1-3".into(), "1-3 / 骑士 3".into(), 3),
+        ("aa", "4" | "2-1") => ("2-1".into(), "2-1 / 王棋".into(), 4),
         _ => (normalized, scope.to_owned(), 50),
     }
 }
@@ -1692,9 +1697,14 @@ mod tests {
             assert!(safe_link_url(seeded.3).starts_with("https://"));
         }
         assert_eq!(scope_info("moc", "stage_12_2").0, "12-2");
+        assert_eq!(
+            scope_info("moc", "stage_12_3"),
+            ("12-3".into(), "12-3 / 第3战斗侧（星芒）".into(), 3)
+        );
         assert_eq!(scope_info("pf", "stage_4_3").0, "4-3");
+        assert_eq!(scope_info("pf", "top").1, "综合队伍池");
         assert_eq!(scope_info("as", "2").0, "4-2");
-        assert_eq!(scope_info("aa", "4").0, "2-1");
+        assert_eq!(scope_info("aa", "4").1, "2-1 / 王棋");
         assert_eq!(numeric("1.0").unwrap(), json!(1));
         assert_eq!(numeric("1.25").unwrap(), json!(1.25));
         assert!(numeric("NaN").is_err());

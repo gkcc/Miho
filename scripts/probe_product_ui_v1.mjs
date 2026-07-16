@@ -610,6 +610,205 @@ async function switchProductPage(context, game, page) {
   });
 }
 
+async function verifyHsrRecommender(context) {
+  const storageKey = "hsr_endgame_recommender_v1";
+  const saved = await evaluate(context.id, `(() => ({
+    storageRaw: localStorage.getItem(${JSON.stringify(storageKey)}),
+    recState: typeof rec === 'object' ? JSON.parse(JSON.stringify(rec)) : null,
+  }))()`, context.sessionId);
+  assert(saved?.recState && typeof saved.recState === "object", "HSR recommender state could not be snapshotted", saved);
+
+  let result;
+  try {
+    result = await evaluate(context.id, `(async () => {
+      const visible = (element) => !!element && element.getClientRects().length > 0;
+      const need = (value, message) => {
+        if (!value) throw new Error(message);
+        return value;
+      };
+      const clickControl = (rootSelector, value) => {
+        const button = need(document.querySelector(rootSelector + ' button[data-value="' + value + '"]'),
+          'missing control ' + rootSelector + '=' + value);
+        button.click();
+        return button;
+      };
+      const tab = need([...document.querySelectorAll('#appTabs button, #tabs button')]
+        .find((button) => button.textContent?.trim() === '组队推荐'), 'missing recommender tab');
+      tab.click();
+      await Promise.resolve();
+      const entry = {
+        page: typeof state === 'object' ? state.page : '',
+        hash: location.hash,
+        tabActive: tab.classList.contains('active'),
+        viewVisible: visible(document.querySelector('#recommenderView')),
+      };
+
+      need(document.querySelector('#resetBtn'), 'missing current-page reset button').click();
+      for (const slot of ['custom-1', 'custom-2', 'custom-3']) {
+        delete rec.constraints?.['as|' + slot];
+        delete rec.elements?.['as|' + slot];
+      }
+      if (typeof saveRecSettings === 'function') saveRecSettings();
+      clickControl('#recModeControl', 'as');
+      clickControl('#recStrategyControl', 'custom');
+      await Promise.resolve();
+
+      const initialTeamSelect = need(document.querySelector('#recTeamCountSelect'), 'missing team-count select');
+      const initialScopeSelect = need(document.querySelector('#recScopeSelect'), 'missing recommender scope select');
+      const customPool = typeof customPoolTemplates === 'function' ? customPoolTemplates(rec.mode) : [];
+      const poolSources = [...new Set(customPool.flatMap((template) =>
+        Array.isArray(template.evidenceScopes) && template.evidenceScopes.length
+          ? template.evidenceScopes
+          : [template.scope_key]
+      ).filter(Boolean))].sort();
+      const custom = {
+        mode: rec.mode,
+        strategy: rec.strategy,
+        teamCount: initialTeamSelect.value,
+        teamCountVisible: visible(document.querySelector('#recTeamCountControl')),
+        scopeValues: [...initialScopeSelect.options].map((option) => option.value),
+        hint: document.querySelector('#recStrategyHint')?.textContent?.trim() ?? '',
+        subtitle: document.querySelector('#recSubtitle')?.textContent?.trim() ?? '',
+        poolTemplateCount: customPool.length,
+        poolSources,
+        candidateSources: [...document.querySelectorAll('#recList .rec-meta')]
+          .map((element) => element.textContent?.trim() ?? ''),
+      };
+
+      initialTeamSelect.value = '3';
+      initialTeamSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+      const threeTeamScope = need(document.querySelector('#recScopeSelect'), 'scope select disappeared');
+      const storedAfterThree = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}');
+      const threeTeams = {
+        teamCount: document.querySelector('#recTeamCountSelect')?.value ?? '',
+        scopeValues: [...threeTeamScope.options].map((option) => option.value),
+        storedTeamCount: storedAfterThree.teamCounts?.as ?? '',
+      };
+
+      const controls = {
+        select: document.querySelector('#recCharacterSelect'),
+        required: document.querySelector('#recRequireBtn'),
+        excluded: document.querySelector('#recExcludeBtn'),
+        clear: document.querySelector('#recConstraintClearBtn'),
+        requiredList: document.querySelector('#recRequiredList'),
+        excludedList: document.querySelector('#recExcludedList'),
+      };
+      Object.entries(controls).forEach(([name, element]) => need(element, 'missing constraint control ' + name));
+      const choices = [...controls.select.options].map((option) => option.value).filter(Boolean);
+      need(choices.length >= 2, 'not enough roster options to probe constraints');
+      controls.select.value = choices[0];
+      controls.required.click();
+      controls.select.value = choices[1];
+      controls.excluded.click();
+      await Promise.resolve();
+
+      const slotOneKey = rec.mode + '|' + rec.scope;
+      const storedSlotOne = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}')
+        .constraints?.[slotOneKey] ?? {};
+      const slotOne = {
+        key: slotOneKey,
+        requiredSaved: Array.isArray(storedSlotOne.required) && storedSlotOne.required.includes(choices[0]),
+        excludedSaved: Array.isArray(storedSlotOne.excluded) && storedSlotOne.excluded.includes(choices[1]),
+        requiredChipCount: document.querySelector('#recRequiredList')?.children.length ?? -1,
+        excludedChipCount: document.querySelector('#recExcludedList')?.children.length ?? -1,
+      };
+
+      const scopeSelect = need(document.querySelector('#recScopeSelect'), 'scope select disappeared after constraints');
+      scopeSelect.value = 'custom-2';
+      scopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+      const slotTwo = {
+        key: rec.mode + '|' + rec.scope,
+        requiredChipCount: document.querySelector('#recRequiredList')?.children.length ?? -1,
+        excludedChipCount: document.querySelector('#recExcludedList')?.children.length ?? -1,
+      };
+      const returnScopeSelect = need(document.querySelector('#recScopeSelect'), 'scope select disappeared on slot two');
+      returnScopeSelect.value = 'custom-1';
+      returnScopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+      const returnedSlotOne = {
+        requiredChipCount: document.querySelector('#recRequiredList')?.children.length ?? -1,
+        excludedChipCount: document.querySelector('#recExcludedList')?.children.length ?? -1,
+      };
+
+      clickControl('#recStrategyControl', 'final');
+      await Promise.resolve();
+      const final = {
+        strategy: rec.strategy,
+        elementLabel: document.querySelector('#recElementLabel')?.textContent?.trim() ?? '',
+        hint: document.querySelector('#recStrategyHint')?.textContent?.trim() ?? '',
+        subtitle: document.querySelector('#recSubtitle')?.textContent?.trim() ?? '',
+      };
+
+      return {
+        entry,
+        custom,
+        threeTeams,
+        constraints: {
+          controlsVisible: Object.values(controls).every(visible),
+          slotOne,
+          slotTwo,
+          returnedSlotOne,
+        },
+        final,
+      };
+    })()`, context.sessionId);
+
+    assert(result.entry.page === "recommender"
+      && result.entry.hash === "#recommender"
+      && result.entry.tabActive
+      && result.entry.viewVisible, "HSR recommender could not be opened through its product tab", result.entry);
+    assert(result.custom.mode === "as" && result.custom.strategy === "custom", "HSR weakness-driven scenario could not be selected", result.custom);
+    assert(result.custom.teamCount === "2"
+      && result.custom.teamCountVisible
+      && JSON.stringify(result.custom.scopeValues) === JSON.stringify(["custom-1", "custom-2"]), "HSR weakness-driven scenario does not default to two teams", result.custom);
+    assert(result.custom.poolTemplateCount > 0
+      && result.custom.poolSources.length >= 2
+      && result.custom.poolSources.some((scope) => scope !== "4-1")
+      && result.custom.hint.includes("当前模式完整实战阵容池")
+      && result.custom.subtitle.includes("跨全部具体战斗侧去重"), "HSR custom recommendations are not visibly backed by the full mode pool", result.custom);
+    assert(result.threeTeams.teamCount === "3"
+      && result.threeTeams.storedTeamCount === "3"
+      && JSON.stringify(result.threeTeams.scopeValues) === JSON.stringify(["custom-1", "custom-2", "custom-3"]), "HSR weakness-driven scenario could not switch to three teams", result.threeTeams);
+    assert(result.constraints.controlsVisible
+      && result.constraints.slotOne.key === "as|custom-1"
+      && result.constraints.slotOne.requiredSaved
+      && result.constraints.slotOne.excludedSaved
+      && result.constraints.slotOne.requiredChipCount === 1
+      && result.constraints.slotOne.excludedChipCount === 1, "HSR required/excluded constraints were not saved for the current slot", result.constraints);
+    assert(result.constraints.slotTwo.key === "as|custom-2"
+      && result.constraints.slotTwo.requiredChipCount === 0
+      && result.constraints.slotTwo.excludedChipCount === 0
+      && result.constraints.returnedSlotOne.requiredChipCount === 1
+      && result.constraints.returnedSlotOne.excludedChipCount === 1, "HSR role constraints leaked between custom team slots", result.constraints);
+    assert(result.final.strategy === "final"
+      && result.final.elementLabel.includes("仅标注")
+      && result.final.hint.includes("弱点默认不改榜")
+      && result.final.subtitle.includes("弱点默认仅标注，不参与加减分")
+      && result.final.subtitle.includes("过滤风险"), "HSR final-floor scenario does not explain the weakness-risk behavior", result.final);
+    return result;
+  } finally {
+    const restored = await evaluate(context.id, `(() => {
+      const storageRaw = ${JSON.stringify(saved.storageRaw)};
+      if (storageRaw === null) localStorage.removeItem(${JSON.stringify(storageKey)});
+      else localStorage.setItem(${JSON.stringify(storageKey)}, storageRaw);
+      const recState = ${JSON.stringify(saved.recState)};
+      if (typeof rec === 'object' && rec && recState && typeof recState === 'object') {
+        for (const key of Object.keys(rec)) delete rec[key];
+        Object.assign(rec, recState);
+        if (typeof ensureRecScope === 'function') ensureRecScope();
+        if (typeof renderRecommender === 'function' && typeof state === 'object' && state.page === 'recommender') {
+          renderRecommender();
+        }
+      }
+      return localStorage.getItem(${JSON.stringify(storageKey)}) === storageRaw;
+    })()`, context.sessionId);
+    assert(restored === true, "HSR recommender localStorage snapshot was not restored");
+    if (result) result.storageRestored = restored;
+  }
+}
+
 function verifyAnalysis(snapshot, game, mode) {
   assert(snapshot.statePage === "analysis" && snapshot.analysisVisible, `${game} endgame analysis is not visible`, snapshot);
   assert(snapshot.analysisMode === mode, `${game} endgame analysis did not switch to ${mode}`, snapshot);
@@ -738,11 +937,12 @@ try {
   verifyProduct(hsrProduct, "hsr");
   const hsrContext = await activeFrameContext("hsr");
   const hsrBoxExport = await verifyHsrBoxExport(hsrContext);
+  const hsrRecommender = await verifyHsrRecommender(hsrContext);
   const hsrAnalysis = await switchProductPage(hsrContext, "hsr", "analysis");
   const hsrAnalyses = await verifyAnalysisModes(hsrContext, "hsr", hsrAnalysis);
   const hsrBanner = await switchProductPage(hsrContext, "hsr", "banner");
   verifyBanner(hsrBanner, "hsr");
-  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxExport: hsrBoxExport, analyses: hsrAnalyses, banner: hsrBanner });
+  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxExport: hsrBoxExport, recommender: hsrRecommender, analyses: hsrAnalyses, banner: hsrBanner });
 
   await switchGame(top.id, "zzz");
   const zzzReturnOuter = await waitFor("returned ZZZ desktop shell", async () => {

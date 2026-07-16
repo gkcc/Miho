@@ -1,6 +1,22 @@
 import json
 
-from hsr_endgame_exporter.visualizer import write_visualizer_app
+from hsr_endgame_exporter.visualizer import _recommender_scope, write_visualizer_app
+
+
+def test_recommender_scope_labels_nodes_and_aggregate_pool_precisely():
+    assert _recommender_scope("as", "stage_4_1") == ("4-1", "4-1 / 第1战斗侧", 1)
+    assert _recommender_scope("pf", "stage_4_3") == (
+        "4-3",
+        "4-3 / 第3战斗侧（星芒）",
+        3,
+    )
+    assert _recommender_scope("moc", "stage_12_3") == (
+        "12-3",
+        "12-3 / 第3战斗侧（星芒）",
+        3,
+    )
+    assert _recommender_scope("aa", "4") == ("2-1", "2-1 / 王棋", 4)
+    assert _recommender_scope("as", "top") == ("all", "综合队伍池", 90)
 
 
 def test_write_visualizer_app_outputs_interactive_files(tmp_path):

@@ -11,6 +11,8 @@ const BUILD_TRACES=[['unset','未录入',0],['low','低',0.32],['mid','中',0.58
 const BUILD_RELICS=[['unset','未录入',0],['none','未刷',0.12],['ok','可用',0.58],['good','成型',0.82],['great','毕业',1]];
 const ELEMENT_ORDER=['物理','火','冰','雷','风','量子','虚数'];
 const PATH_ORDER=['毁灭','巡猎','智识','同谐','虚无','存护','丰饶','记忆','欢愉'];
+const REC_STRATEGIES=[['final','末层实战'],['custom','按弱点配队']];
+const DEFAULT_REC_TEAM_COUNTS={moc:'2',pf:'2',as:'2',aa:'2'};
 const COLORS=['#2563eb','#dc2626','#16a34a','#9333ea','#ea580c','#0891b2','#be123c','#4f46e5','#65a30d','#a16207','#0f766e','#7c3aed','#db2777','#475569'];
 const BOX_KEY='hsr_endgame_box_v1';
 const REC_KEY='hsr_endgame_recommender_v1';
@@ -19,10 +21,11 @@ const desktopMode=globalThis.__MIHO_DESKTOP__===true;
 let DATA=null;
 let state={page:PAGES.has(location.hash.slice(1))?location.hash.slice(1):'box',mode:'moc',view:'trend',role:'main_dps',tiers:new Set(TIERS),metric:'app_rate',limit:'12',search:'',avatars:true,focus:null,hover:null};
 let box={owned:new Set(),builds:{},buildSlug:'',element:'all',path:'all',role:'all',rarity:'all',status:'all',search:'',saveStatus:'浏览器缓存',exportStatus:''};
-let rec={mode:'moc',scope:'',elements:{},gap:'1',riskMode:'warn',limit:'8',search:''};
+let rec={mode:'moc',scope:'',strategy:'final',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},elements:{},constraints:{},gap:'1',riskMode:'warn',limit:'8',search:''};
 const BANNER_PHASES=[['current','当期UP'],['next','后续卡池'],['recent','历史参考'],['all','全部含已结束']];
 let banner={phase:'current',search:''};
 let boxSaveTimer=null,boxSaveRevision=0,boxSaveChain=Promise.resolve();
+let recConstraintMessage='';
 
 const $=id=>document.getElementById(id);
 const ns='http://www.w3.org/2000/svg';
@@ -102,8 +105,10 @@ function initBuildControls(){
 function initRecommenderControls(){
   const modes=MODES.filter(([mode])=>DATA.teamTemplates?.some(t=>t.mode===mode));
   if(modes.length&&!modes.some(([mode])=>mode===rec.mode))rec.mode=modes[0][0];
-  makeButtons('recModeControl',modes.length?modes:MODES,rec.mode,v=>{rec.mode=v;ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();});
-  $('recScopeSelect').onchange=e=>{rec.scope=e.target.value;saveRecSettings();syncRecControls();renderRecommender();};
+  makeButtons('recModeControl',modes.length?modes:MODES,rec.mode,v=>{rec.mode=v;recConstraintMessage='';ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();});
+  makeButtons('recStrategyControl',REC_STRATEGIES,rec.strategy,v=>{rec.strategy=v;rec.scope='';recConstraintMessage='';ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();});
+  $('recTeamCountSelect').onchange=e=>{rec.teamCounts[rec.mode]=e.target.value==='3'?'3':'2';recConstraintMessage='';ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();};
+  $('recScopeSelect').onchange=e=>{rec.scope=e.target.value;recConstraintMessage='';saveRecSettings();syncRecControls();renderRecommender();};
   const elementBox=$('recElementControl');
   elementBox.innerHTML='';
   ELEMENT_ORDER.forEach(element=>{const b=document.createElement('button');b.type='button';b.textContent=element;b.title=`${element} 推荐属性`;b.onclick=()=>{const set=recElementSet();set.has(element)?set.delete(element):set.add(element);setRecElementSet(set);saveRecSettings();syncRecControls();renderRecommender();};elementBox.appendChild(b);});
@@ -111,6 +116,9 @@ function initRecommenderControls(){
   $('recRiskSelect').onchange=e=>{rec.riskMode=e.target.value;saveRecSettings();renderRecommender();};
   $('recLimitSelect').onchange=e=>{rec.limit=e.target.value;saveRecSettings();renderRecommender();};
   $('recSearchInput').oninput=e=>{rec.search=e.target.value.trim().toLowerCase();saveRecSettings();renderRecommender();};
+  $('recRequireBtn').onclick=()=>addRecConstraint('required');
+  $('recExcludeBtn').onclick=()=>addRecConstraint('excluded');
+  $('recConstraintClearBtn').onclick=clearRecConstraints;
   ensureRecScope();
   syncRecControls();
 }
@@ -129,7 +137,8 @@ function resetCurrentPage(){
     renderBanner();return;
   }
   if(state.page==='recommender'){
-    rec={...rec,mode:'moc',scope:'',gap:'1',riskMode:'warn',limit:'8',search:''};
+    rec={mode:'moc',scope:'',strategy:'final',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},elements:rec.elements||{},constraints:rec.constraints||{},gap:'1',riskMode:'warn',limit:'8',search:''};
+    recConstraintMessage='';
     ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();return;
   }
   if(state.page==='box'){
@@ -157,6 +166,16 @@ function syncBoxControls(){
 
 function syncRecControls(){
   [...$('recModeControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===rec.mode));
+  [...$('recStrategyControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===rec.strategy));
+  const custom=rec.strategy==='custom';
+  $('recPlanControls').classList.toggle('custom',custom);
+  $('recTeamCountSelect').value=String(recTeamCount());
+  $('recTeamCountControl').classList.toggle('hidden',!custom);
+  $('recScopeLabel').textContent=custom?'目标队伍':'实战节点';
+  $('recElementLabel').textContent=custom?'敌方弱点（用于选队）':'敌方弱点（默认仅标注）';
+  $('recScopeSelect').title=custom?'每一队独立保存弱点与角色硬约束':'使用当前模式最新采样期的同节点真实队伍模板';
+  $('recElementControl').title=custom?'从当前模式全部实战阵容池中，优先寻找核心输出命中任一弱点的队伍':'同节点真实队伍排序优先；弱点只标注适配，选择“过滤风险”后才会硬筛选';
+  $('recStrategyHint').textContent=custom?'适合普通层或自定义敌人：默认 2 队，每队按弱点从当前模式完整实战阵容池找队。':'适合当前最高难度：自动跟随数据里的 2/3 个真实战斗侧；弱点默认不改榜，“过滤风险”时才参与硬筛选。';
   const options=recScopeOptions(rec.mode);
   const select=$('recScopeSelect');
   select.innerHTML=options.map(o=>`<option value="${esc(o.key)}">${esc(o.label)}</option>`).join('');
@@ -165,6 +184,7 @@ function syncRecControls(){
   const selected=recElementSet();
   [...$('recElementControl').children].forEach(b=>b.classList.toggle('active',selected.has(b.textContent)));
   $('recGapSelect').value=rec.gap;$('recRiskSelect').value=rec.riskMode||'warn';$('recLimitSelect').value=rec.limit;$('recSearchInput').value=rec.search;
+  syncRecConstraintControls();
 }
 
 function render(){
@@ -321,16 +341,29 @@ function sparkline(points){if(!points.length)return '<text x="10" y="31" class="
 function showBannerTooltip(evt,row,ins){const tt=$('bannerTooltip');tt.innerHTML=`<div class="tooltip-grid"><b>角色</b><span>${esc(row.character_name_cn||row.character_name_en||row.character_slug)}</span><b>阶段</b><span>${esc(row.phase_title||'-')}</span><b>定位</b><span>${esc([row.element_cn,row.path_cn,row.role_group_cns].filter(Boolean).join(' · ')||'未知')}</span><b>模式T档</b><span>${esc(ins.tierDetails||ins.tierText||'未分档')}</span><b>分析输入</b><span>${esc(ins.lines.join('；'))}</span></div>`;tt.hidden=false;moveBannerTooltip(evt);}
 function moveBannerTooltip(evt){const tt=$('bannerTooltip');let x=evt.clientX+16,y=evt.clientY+16;const rect=tt.getBoundingClientRect();if(x+rect.width+12>innerWidth)x=evt.clientX-rect.width-16;if(y+rect.height+12>innerHeight)y=evt.clientY-rect.height-16;tt.style.left=`${Math.max(12,x)}px`;tt.style.top=`${Math.max(12,y)}px`;}
 
-function loadRecSettings(){try{const raw=JSON.parse(localStorage.getItem(REC_KEY)||'{}');rec={...rec,...raw,elements:raw.elements||{},riskMode:raw.riskMode||'warn'};}catch{rec={...rec,elements:{},riskMode:'warn'};}ensureRecScope();}
-function saveRecSettings(){localStorage.setItem(REC_KEY,JSON.stringify({updatedAt:new Date().toISOString(),mode:rec.mode,scope:rec.scope,gap:rec.gap,riskMode:rec.riskMode||'warn',limit:rec.limit,search:rec.search,elements:rec.elements}));}
+function normalizeRecTeamCounts(raw){const input=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw:{};return Object.fromEntries(Object.entries(DEFAULT_REC_TEAM_COUNTS).map(([mode,fallback])=>[mode,String(input[mode])==='3'?'3':String(input[mode])==='2'?'2':fallback]));}
+function loadRecSettings(){try{const raw=JSON.parse(localStorage.getItem(REC_KEY)||'{}');rec={...rec,...raw,strategy:raw.strategy==='custom'?'custom':'final',teamCounts:normalizeRecTeamCounts(raw.teamCounts),elements:raw.elements&&typeof raw.elements==='object'&&!Array.isArray(raw.elements)?raw.elements:{},constraints:raw.constraints&&typeof raw.constraints==='object'&&!Array.isArray(raw.constraints)?raw.constraints:{},riskMode:raw.riskMode||'warn'};}catch{rec={...rec,strategy:'final',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},elements:{},constraints:{},riskMode:'warn'};}ensureRecScope();}
+function saveRecSettings(){localStorage.setItem(REC_KEY,JSON.stringify({updatedAt:new Date().toISOString(),mode:rec.mode,scope:rec.scope,strategy:rec.strategy,teamCounts:rec.teamCounts,gap:rec.gap,riskMode:rec.riskMode||'warn',limit:rec.limit,search:rec.search,elements:rec.elements,constraints:rec.constraints}));}
+function recTeamCount(mode=rec.mode){return String(rec.teamCounts?.[mode])==='3'?3:2}
+function isCustomScope(scope){return /^custom-[123]$/.test(String(scope||''))}
 function recSettingKey(mode=rec.mode,scope=rec.scope){return `${mode}|${scope||''}`}
 function recElementSet(mode=rec.mode,scope=rec.scope){return new Set(rec.elements[recSettingKey(mode,scope)]||[])}
 function setRecElementSet(set,mode=rec.mode,scope=rec.scope){rec.elements[recSettingKey(mode,scope)]=[...set].sort((a,b)=>ELEMENT_ORDER.indexOf(a)-ELEMENT_ORDER.indexOf(b));}
-function recScopeOptions(mode){
+function recConstraintSets(mode=rec.mode,scope=rec.scope){const raw=rec.constraints?.[recSettingKey(mode,scope)]||{};const normalize=(values,limit)=>new Set((Array.isArray(values)?values:[]).map(canonicalSlug).filter(Boolean).slice(0,limit));const required=normalize(raw.required,4),excluded=normalize(raw.excluded,160);required.forEach(slug=>excluded.delete(slug));return{required,excluded};}
+function setRecConstraintSets(sets,mode=rec.mode,scope=rec.scope){const order=(a,b)=>releaseOrder(charInfo(a))-releaseOrder(charInfo(b))||charName(a).localeCompare(charName(b));rec.constraints[recSettingKey(mode,scope)]={required:[...sets.required].sort(order),excluded:[...sets.excluded].sort(order)};}
+function constraintRosterRows(){const current=new Set(scopeTemplates(rec.mode,rec.scope).flatMap(t=>(t.chars||[]).map(canonicalSlug)));return (DATA.rosterRows||[]).slice().sort((a,b)=>Number(box.owned.has(b.character_slug))-Number(box.owned.has(a.character_slug))||Number(current.has(b.character_slug))-Number(current.has(a.character_slug))||releaseOrder(a)-releaseOrder(b)||charName(a.character_slug).localeCompare(charName(b.character_slug)));}
+function syncRecConstraintControls(){const select=$('recCharacterSelect'),previous=select.value;select.innerHTML='<option value="">选择角色…</option>'+constraintRosterRows().map(row=>`<option value="${esc(row.character_slug)}">${box.owned.has(row.character_slug)?'已拥有 · ':'未拥有 · '}${esc(charName(row.character_slug))}</option>`).join('');if([...select.options].some(option=>option.value===previous))select.value=previous;const sets=recConstraintSets();renderConstraintChips('recRequiredList',sets.required,'required');renderConstraintChips('recExcludedList',sets.excluded,'excluded');$('recConstraintMessage').textContent=recConstraintMessage;}
+function renderConstraintChips(id,values,kind){const root=$(id);root.innerHTML='';values.forEach(slug=>{const button=document.createElement('button');button.type='button';button.className='constraint-chip';button.textContent=charName(slug);button.title=`移除${kind==='required'?'必须上场':'排除'}：${charName(slug)}`;button.onclick=()=>removeRecConstraint(kind,slug);root.appendChild(button);});}
+function addRecConstraint(kind){const slug=canonicalSlug($('recCharacterSelect').value);if(!slug){recConstraintMessage='请先选择角色。';syncRecConstraintControls();return;}const sets=recConstraintSets(),target=sets[kind],other=sets[kind==='required'?'excluded':'required'];if(kind==='required'&&!target.has(slug)&&target.size>=4){recConstraintMessage='一队最多 4 人；请先移除一个必须上场角色。';syncRecConstraintControls();return;}other.delete(slug);target.add(slug);setRecConstraintSets(sets);recConstraintMessage=`${charName(slug)}已设为${kind==='required'?'必须上场':'排除'}。`;saveRecSettings();renderRecommender();}
+function removeRecConstraint(kind,slug){const sets=recConstraintSets();sets[kind].delete(canonicalSlug(slug));setRecConstraintSets(sets);recConstraintMessage='已更新当前关卡约束。';saveRecSettings();renderRecommender();}
+function clearRecConstraints(){delete rec.constraints[recSettingKey()];recConstraintMessage='已清空当前关卡的角色约束。';saveRecSettings();renderRecommender();}
+function recScopeDisplayLabel(mode,key,fallback){if(key==='all')return '综合队伍池';if((mode==='pf'||mode==='as')&&/^4-[123]$/.test(key)){const node=key.slice(-1);return `${key} / 第${node}战斗侧${node==='3'?'（星芒）':''}`;}if(mode==='moc'&&key==='12-3')return '12-3 / 第3战斗侧（星芒）';if(mode==='aa'&&/^1-[123]$/.test(key))return `${key} / 骑士 ${key.slice(-1)}`;if(mode==='aa'&&key==='2-1')return '2-1 / 王棋';return fallback||key;}
+function realRecScopeOptions(mode){
   const map=new Map();
-  (DATA.teamTemplates||[]).filter(t=>t.mode===mode).forEach(t=>{if(!map.has(t.scope_key))map.set(t.scope_key,{key:t.scope_key,label:t.scope_label||t.scope_key,order:Number(t.scope_order)||90});});
+  currentModeTemplates(mode).forEach(t=>{if(!map.has(t.scope_key))map.set(t.scope_key,{key:t.scope_key,label:recScopeDisplayLabel(mode,t.scope_key,t.scope_label),order:Number(t.scope_order)||90});});
   return [...map.values()].sort((a,b)=>a.order-b.order||a.label.localeCompare(b.label));
 }
+function recScopeOptions(mode){return rec.strategy==='custom'?Array.from({length:recTeamCount(mode)},(_,index)=>({key:`custom-${index+1}`,label:`第 ${index+1} 队`,order:index+1})):realRecScopeOptions(mode);}
 function ensureRecScope(){const options=recScopeOptions(rec.mode);if(options.length&&!options.some(o=>o.key===rec.scope))rec.scope=options[0].key;}
 
 function boxAliasMap(){const aliases=new Map();(DATA.rosterRows||[]).forEach(r=>String(r.alias_slugs||r.character_slug||'').split(';').forEach(s=>{if(s)aliases.set(s,r.character_slug);}));return aliases;}
@@ -383,7 +416,18 @@ function roleCn(row){return row.role_group_cns||roleList(row).join('/')}
 function phaseStatusLabel(status){return status==='expired'?'已过期':status==='future'?'未开始':status==='current'?'当前周期':'日期未知'}
 function templateRecencyKey(t){return `${String(t.collect_date||'')}|${String(t.phase_ver||'')}|${String(t.snapshot_id||'')}`}
 function currentModeTemplates(mode){const rows=(DATA.teamTemplates||[]).filter(t=>t.mode===mode);const usable=rows.filter(t=>!['expired','future'].includes(t.phase_status));const pool=usable.length?usable:rows;const latest=pool.reduce((m,t)=>templateRecencyKey(t)>m?templateRecencyKey(t):m,'');return pool.filter(t=>templateRecencyKey(t)===latest);}
-function scopeTemplates(mode,scope){return currentModeTemplates(mode).filter(t=>t.scope_key===scope);}
+function templatePoolKey(template){return (template.chars||[]).map(canonicalSlug).sort().join('|')}
+function preferPoolTemplate(candidate,current){const candidateRank=num(candidate.rank)??9999,currentRank=num(current.rank)??9999;if(candidateRank!==currentRank)return candidateRank<currentRank;const candidateRate=num(candidate.app_rate)??-1,currentRate=num(current.app_rate)??-1;if(candidateRate!==currentRate)return candidateRate>currentRate;return Number(candidate.scope_order||99)<Number(current.scope_order||99);}
+function customPoolTemplates(mode){
+  if(!DATA._customTeamPools)DATA._customTeamPools=new Map();
+  if(DATA._customTeamPools.has(mode))return DATA._customTeamPools.get(mode);
+  const groups=new Map();
+  currentModeTemplates(mode).filter(t=>t.scope_key!=='all').forEach(template=>{const key=templatePoolKey(template);if(!key)return;const group=groups.get(key)||{best:template,scopes:new Set()};group.scopes.add(template.scope_key);if(preferPoolTemplate(template,group.best))group.best=template;groups.set(key,group);});
+  const pool=[...groups.values()].map(group=>({...group.best,evidenceScopes:[...group.scopes].sort(),evidenceScopeCount:group.scopes.size})).sort((a,b)=>(num(a.rank)??9999)-(num(b.rank)??9999)||(num(b.app_rate)??-1)-(num(a.app_rate)??-1)||templatePoolKey(a).localeCompare(templatePoolKey(b)));
+  DATA._customTeamPools.set(mode,pool);
+  return pool;
+}
+function scopeTemplates(mode,scope){return isCustomScope(scope)?customPoolTemplates(mode):currentModeTemplates(mode).filter(t=>t.scope_key===scope);}
 function num(v){const n=Number(v);return Number.isFinite(n)?n:null}
 function canonicalSlug(slug){return charInfo(slug).character_slug||slug}
 function isCoreMember(info){return roleList(info).some(role=>CORE_ROLES.has(role))}
@@ -451,69 +495,74 @@ function teamRisk(members,selectedElements){
   const risks=[];const core=members.filter(m=>isCoreMember(m.info));
   if(selectedElements.size&&core.length){
     const coreHits=core.filter(m=>selectedElements.has(m.info.element_cn)).length;
-    const expected=Math.min(2,core.length,selectedElements.size);
-    if(coreHits===0)risks.push({type:'core-none',text:'主C/副C均未命中推荐属性',penalty:180,severe:true});
-    else if(coreHits<expected)risks.push({type:'core-low',text:`核心属性不足 ${coreHits}/${expected}`,penalty:85,severe:true});
+    if(coreHits===0)risks.push({type:'core-none',text:'核心输出未命中敌方弱点',penalty:180,severe:true});
   }
   return risks;
 }
 
 function rankedRecommendations(mode=rec.mode,scope=rec.scope,used=new Set(),options={}){
   const selected=recElementSet(mode,scope);
+  const constraints=recConstraintSets(mode,scope);
+  const reserved=new Set([...(options.reserved||[])].map(canonicalSlug));
+  const weaknessDriven=isCustomScope(scope);
   const maxGap=Number(options.maxGap??rec.gap);
   const q=options.ignoreSearch?'':rec.search;
-  return scopeTemplates(mode,scope).map(t=>scoreTemplate(t,selected,used)).filter(item=>{
+  return scopeTemplates(mode,scope).filter(t=>templateMatchesConstraints(t,constraints)).map(t=>scoreTemplate(t,selected,used,constraints,reserved,{targetScope:scope,weaknessDriven})).filter(item=>{
     if(Number.isFinite(maxGap)&&item.missingCount>maxGap)return false;
     const riskMode=options.riskMode||rec.riskMode||'warn';
     if(riskMode==='filter'&&item.risks.length)return false;
+    if(reserved.size&&item.finalChars.some(slug=>reserved.has(canonicalSlug(slug))))return false;
     if(q&&!item.searchText.includes(q))return false;
     return true;
-  }).sort((a,b)=>b.score-a.score||a.missingCount-b.missingCount||(num(a.template.rank)||9999)-(num(b.template.rank)||9999));
+  }).sort((a,b)=>weaknessDriven&&selected.size?Number(b.weaknessMatched)-Number(a.weaknessMatched)||b.score-a.score||a.missingCount-b.missingCount||(num(a.template.rank)||9999)-(num(b.template.rank)||9999):b.score-a.score||a.missingCount-b.missingCount||(num(a.template.rank)||9999)-(num(b.template.rank)||9999));
 }
 
-function scoreTemplate(template,selectedElements,used){
+function templateMatchesConstraints(template,constraints){const chars=new Set((template.chars||[]).map(canonicalSlug));return [...constraints.required].every(slug=>chars.has(slug))&&[...constraints.excluded].every(slug=>!chars.has(slug));}
+
+function scoreTemplate(template,selectedElements,used,constraints=recConstraintSets(template.mode,template.scope_key),externalReserved=new Set(),options={}){
   const chars=template.chars||[];
-  const members=chars.map(slug=>{const info=charInfo(slug);const build=buildFor(slug);const buildMeta=buildState(build);return{slug,info,build,buildState:buildMeta,owned:box.owned.has(slug),selected:selectedElements.has(info.element_cn),used:used.has(slug),core:isCoreMember(info)}});
+  const members=chars.map(slug=>{const info=charInfo(slug);const resolved=canonicalSlug(slug);const build=buildFor(resolved);const buildMeta=buildState(build);return{slug,info,build,buildState:buildMeta,owned:box.owned.has(resolved),selected:selectedElements.has(info.element_cn),used:used.has(resolved),core:isCoreMember(info)}});
   const ownedCount=members.filter(m=>m.owned).length;
   const buildReadyCount=members.filter(m=>m.owned&&m.buildState.ready).length;
   const ownedBuildScore=members.filter(m=>m.owned).reduce((sum,m)=>sum+m.buildState.score,0);
   const missing=members.filter(m=>!m.owned);
-  const conflictCount=members.filter(m=>m.owned&&m.used).length;
+  const conflictCount=members.filter(m=>m.used).length;
   const elementHits=members.filter(m=>m.selected).length;
   const coreMembers=members.filter(m=>m.core);
   const coreElementHits=coreMembers.filter(m=>m.selected).length;
   members.forEach(m=>{m.risks=memberRisk(m,template.mode);});
-  const reserved=new Set([...chars,...used]);
-  const substitutions=missing.map(m=>({missing:m,candidates:substituteCandidates(m.slug,selectedElements,reserved)}));
+  const reserved=new Set([...chars,...used,...constraints.excluded,...externalReserved].map(canonicalSlug));
+  const substitutions=[];
+  missing.forEach(member=>{const candidates=constraints.required.has(canonicalSlug(member.slug))?[]:substituteCandidates(member.slug,reserved);substitutions.push({missing:member,candidates});if(candidates[0])reserved.add(canonicalSlug(candidates[0].character_slug));});
   const fillCount=substitutions.filter(s=>s.candidates.length).length;
   const memberRisks=members.flatMap(m=>m.risks.map(r=>({...r,slug:m.slug,name:charName(m.slug)})));
   const attributeRisks=teamRisk(members,selectedElements);
   const risks=[...memberRisks,...attributeRisks];
-  const riskPenalty=(rec.riskMode==='off'?0:risks.reduce((sum,r)=>sum+(r.penalty||0),0));
+  const weaknessConfigured=selectedElements.size>0;
+  const weaknessMatched=weaknessConfigured&&coreElementHits>0;
+  const weaknessScore=options.weaknessDriven&&weaknessConfigured?(weaknessMatched?140:-220):0;
   const app=num(template.app_rate)||0;
   const rank=num(template.rank);
   const avg=num(template.avg_round);
-  let score=ownedCount*45+ownedBuildScore*90-missing.length*66-conflictCount*180+elementHits*8+coreElementHits*48+fillCount*34+Math.min(app,35)*2.2-riskPenalty;
+  let score=ownedCount*45+ownedBuildScore*90-missing.length*66-conflictCount*180+fillCount*34+Math.min(app,35)*2.2+weaknessScore;
   if(rank!=null)score+=Math.max(0,160-rank)*0.34;
   if(avg!=null&&avg<99)score-=avg*1.2;
   if(missing.length===0)score+=95;
-  if(selectedElements.size&&elementHits===0)score-=40;
-  const finalChars=members.map(m=>m.owned?m.slug:(substitutions.find(s=>s.missing.slug===m.slug)?.candidates[0]?.character_slug||m.slug));
-  const searchText=[template.phase_name_cn,template.phase_name,template.source_kind,template.scope_label,...chars, ...chars.map(charName),...risks.map(r=>r.text)].join(' ').toLowerCase();
-  return{template,members,missingCount:missing.length,ownedCount,buildReadyCount,conflictCount,elementHits,coreElementHits,substitutions,risks,score,finalChars,searchText};
+  const finalChars=members.map(m=>m.owned||constraints.required.has(canonicalSlug(m.slug))?m.slug:(substitutions.find(s=>s.missing.slug===m.slug)?.candidates[0]?.character_slug||m.slug));
+  const searchText=[template.phase_name_cn,template.phase_name,template.source_kind,template.scope_label,...(template.evidenceScopes||[]),...chars, ...chars.map(charName),...risks.map(r=>r.text)].join(' ').toLowerCase();
+  return{template,targetScope:options.targetScope||template.scope_key,weaknessDriven:Boolean(options.weaknessDriven),weaknessConfigured,weaknessMatched,members,missingCount:missing.length,ownedCount,buildReadyCount,conflictCount,elementHits,coreElementHits,substitutions,risks,score,finalChars,searchText};
 }
 
-function substituteCandidates(missingSlug,selectedElements,reserved){
+function substituteCandidates(missingSlug,reserved){
   const missing=charInfo(missingSlug);
   const missingRoles=new Set(roleList(missing));
-  return (DATA.rosterRows||[]).filter(r=>box.owned.has(r.character_slug)&&!reserved.has(r.character_slug)).map(r=>{
+  return (DATA.rosterRows||[]).filter(r=>box.owned.has(r.character_slug)&&!reserved.has(canonicalSlug(r.character_slug))).map(r=>{
     const roles=roleList(r);
     const roleOverlap=roles.some(role=>missingRoles.has(role));
     let score=0;
     if(roleOverlap)score+=58;
     if(r.path_cn&&r.path_cn===missing.path_cn)score+=18;
     if(r.element_cn&&r.element_cn===missing.element_cn)score+=18;
-    if(selectedElements.has(r.element_cn))score+=24;
     if(String(r.rarity)==='5')score+=4;
     if(missingRoles.has('sustain')&&roles.includes('sustain'))score+=24;
     if((missingRoles.has('support')||missingRoles.has('sub_dps'))&&(roles.includes('support')||roles.includes('sub_dps')))score+=12;
@@ -525,20 +574,24 @@ function renderRecommender(){
   ensureRecScope();syncRecControls();$('recTooltip').hidden=true;
   const modeLabel=MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode;
   const scope=recScopeOptions(rec.mode).find(o=>o.key===rec.scope);
+  const custom=rec.strategy==='custom';
   const templates=scopeTemplates(rec.mode,rec.scope);
   const ranked=rankedRecommendations().slice(0,Number(rec.limit)||8);
   const latest=templates[0]||{};
   const selected=[...recElementSet()];
+  const constraints=recConstraintSets();
+  const constraintMatchedCount=templates.filter(template=>templateMatchesConstraints(template,constraints)).length;
   renderPhaseMechanics(latest);
   $('recTitle').textContent=`${modeLabel} · ${scope?.label||rec.scope}`;
   const status=latest.phase_status||phaseInfoFor(latest).phase_status||'unknown';
-  const templateLabel=status==='expired'?'历史模板（源滞后）':'当前同模式同关卡模板';
-  $('recSubtitle').textContent=`${phaseLabel(latest)} · ${latest.collect_date||''} · ${phaseStatusLabel(status)} · ${templateLabel} ${templates.length} 队`;
+  const templateLabel=status==='expired'?'历史模板（源滞后）':custom?'当前模式完整实战阵容池':'当前同节点实战模板';
+  const strategyNote=custom?'跨全部具体战斗侧去重；核心输出命中任一弱点优先':'同节点实战排序优先；弱点默认仅标注，不参与加减分；选择“过滤风险”时才硬筛选';
+  $('recSubtitle').textContent=`${phaseLabel(latest)} · ${latest.collect_date||''} · ${phaseStatusLabel(status)} · ${templateLabel} ${templates.length} 队 · ${strategyNote}`;
   const riskLabel=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒';
   const tierRiskLabel=rec.riskMode==='off'?'当前模式T档不提醒':'当前模式T1及以下提醒';
-  $('recBadges').innerHTML=[selected.length?selected.join(' / '):'未选属性',`缺口 ≤ ${rec.gap}`,riskLabel,tierRiskLabel,`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');
+  $('recBadges').innerHTML=[custom?'自定义弱点池':'末层实战',selected.length?`弱点 ${selected.join(' / ')}`:'未标弱点',constraints.required.size?`必上 ${constraints.required.size}`:'未设必上',constraints.excluded.size?`排除 ${constraints.excluded.size}`:'未设排除',`缺口 ≤ ${rec.gap}`,riskLabel,tierRiskLabel,`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');
   const list=$('recList');list.innerHTML='';
-  if(!ranked.length){list.innerHTML='<div class="rec-empty">当前筛选没有可展示队伍</div>';renderRecSlate();return;}
+  if(!ranked.length){const constrained=constraints.required.size||constraints.excluded.size;const message=constrained&&!constraintMatchedCount?'当前角色硬约束没有匹配的真实队伍模板':constrained?'命中角色约束的模板被当前缺口、风险或搜索条件筛掉':'当前筛选没有可展示队伍';list.innerHTML=`<div class="rec-empty">${message}</div>`;renderRecSlate();return;}
   ranked.forEach((item,index)=>list.appendChild(recCard(item,index+1)));
   renderRecSlate();
 }
@@ -576,7 +629,8 @@ function recCard(item,index){
   card.onmousemove=moveTooltip;
   card.onmouseleave=()=>{$('recTooltip').hidden=true;};
   const missingNames=item.members.filter(m=>!m.owned).map(m=>charName(m.slug));
-  card.innerHTML=`<div class="rec-card-head"><div><h3>${index}. ${esc((t.names_cn||[]).filter(Boolean).join(' / ')||t.chars.map(charName).join(' / '))}</h3><div class="rec-meta">${esc(t.scope_label)} · Rank ${esc(t.rank??'-')} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${t.avg_round==null?'-':Number(t.avg_round).toFixed(2)}</div></div><div class="rec-score"><strong>${Math.round(item.score)}</strong><span>${item.ownedCount}/4</span></div></div><div class="rec-team">${item.members.map(m=>recMemberHtml(m,item)).join('')}</div><div class="rec-tags">${recTags(item).map(tag=>`<span class="${tag.danger?'danger':tag.warn?'warn':''}">${esc(tag.text)}</span>`).join('')}</div>${riskNoteHtml(item)}${substitutionHtml(item)}${missingNames.length?`<div class="rec-note">缺：${esc(missingNames.join('、'))}</div>`:''}`;
+  const sourceScope=recScopeDisplayLabel(t.mode,t.scope_key,t.scope_label);
+  card.innerHTML=`<div class="rec-card-head"><div><h3>${index}. ${esc((t.names_cn||[]).filter(Boolean).join(' / ')||t.chars.map(charName).join(' / '))}</h3><div class="rec-meta">${esc(item.weaknessDriven?`来源 ${sourceScope}`:sourceScope)} · Rank ${esc(t.rank??'-')} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${t.avg_round==null?'-':Number(t.avg_round).toFixed(2)}</div></div><div class="rec-score"><strong>${Math.round(item.score)}</strong><span>${item.ownedCount}/4</span></div></div><div class="rec-team">${item.members.map(m=>recMemberHtml(m,item)).join('')}</div><div class="rec-tags">${recTags(item).map(tag=>`<span class="${tag.danger?'danger':tag.warn?'warn':''}">${esc(tag.text)}</span>`).join('')}</div>${riskNoteHtml(item)}${substitutionHtml(item)}${missingNames.length?`<div class="rec-note">缺：${esc(missingNames.join('、'))}</div>`:''}`;
   return card;
 }
 
@@ -590,9 +644,10 @@ function recMemberHtml(member,item){
 
 function recTags(item){
   const t=item.template;
-  const tags=[{text:item.missingCount?`缺 ${item.missingCount}`:'可成队',warn:item.missingCount>0},{text:`属性命中 ${item.elementHits}`,warn:false},{text:t.source_kind||'source',warn:false}];
+  const tags=[{text:item.missingCount?`缺 ${item.missingCount}`:'可成队',warn:item.missingCount>0},{text:t.source_kind||'source',warn:false}];
   if(item.ownedCount)tags.push({text:`练度 ${item.buildReadyCount}/${item.ownedCount}`,warn:item.buildReadyCount<item.ownedCount});
-  if(item.coreElementHits||recElementSet(t.mode,t.scope_key).size)tags.push({text:`核心命中 ${item.coreElementHits}`,warn:item.coreElementHits===0});
+  if(recElementSet(t.mode,item.targetScope).size)tags.push({text:`弱点核心命中 ${item.coreElementHits}`,warn:item.coreElementHits===0});
+  if(item.weaknessDriven&&item.template.evidenceScopeCount)tags.push({text:`实战侧覆盖 ${item.template.evidenceScopeCount}`,warn:false});
   if(item.risks.length&&rec.riskMode!=='off')tags.push({text:`风险 ${item.risks.length}`,danger:item.risks.some(r=>r.severe),warn:true});
   if(item.conflictCount)tags.push({text:`冲突 ${item.conflictCount}`,warn:true});
   return tags;
@@ -610,26 +665,59 @@ function substitutionHtml(item){
   return `<div class="rec-subs">${rows.map(s=>`<div class="rec-subline"><b>${esc(charName(s.missing.slug))}</b>${s.candidates.map(c=>`<span class="rec-mini"><img src="${esc(c.icon_url)}" alt="">${esc(c.character_name_cn||c.character_name_en)}</span>`).join('')}</div>`).join('')}</div>`;
 }
 
-function renderRecSlate(){
-  const scopes=recScopeOptions(rec.mode).filter(o=>o.key!=='all');
-  const used=new Set();
-  const chosen=[];
-  scopes.forEach(scope=>{
-    const best=rankedRecommendations(rec.mode,scope.key,used,{ignoreSearch:true,maxGap:Number(rec.gap)}).find(item=>item.conflictCount===0);
-    if(best){chosen.push({scope,item:best});best.finalChars.forEach(slug=>{if(box.owned.has(slug))used.add(slug);});}
-    else chosen.push({scope,item:null});
+function recPlanScopes(){
+  if(rec.strategy==='custom')return recScopeOptions(rec.mode);
+  const concrete=realRecScopeOptions(rec.mode).filter(scope=>scope.key!=='all');
+  if(rec.mode==='aa'){
+    if(rec.scope==='2-1')return concrete.filter(scope=>scope.key==='2-1');
+    return concrete.filter(scope=>scope.key.startsWith('1-'));
+  }
+  return concrete;
+}
+
+function slateItemSlugs(item){return new Set(item.finalChars.map(canonicalSlug))}
+function compareSlateStates(a,b){return b.filled-a.filled||b.weaknessMatches-a.weaknessMatches||b.totalScore-a.totalScore||a.key.localeCompare(b.key)}
+function recSlateCandidateLists(scopes,limit){
+  return scopes.map((scope,index)=>{const reserved=new Set(scopes.slice(index+1).flatMap(other=>[...recConstraintSets(rec.mode,other.key).required]));return rankedRecommendations(rec.mode,scope.key,new Set(),{ignoreSearch:true,maxGap:Number(rec.gap),reserved}).slice(0,limit);});
+}
+function searchRecSlate(candidateLists,beamWidth){
+  let states=[{picks:[],used:new Set(),filled:0,weaknessMatches:0,totalScore:0,key:''}];
+  candidateLists.forEach(candidates=>{
+    const next=[];
+    states.forEach(state=>{
+      next.push({...state,picks:[...state.picks,null],key:`${state.key}|~`});
+      candidates.forEach(item=>{const slugs=slateItemSlugs(item);if([...slugs].some(slug=>state.used.has(slug)))return;const used=new Set([...state.used,...slugs]);next.push({picks:[...state.picks,item],used,filled:state.filled+1,weaknessMatches:state.weaknessMatches+Number(item.weaknessDriven&&item.weaknessConfigured&&item.weaknessMatched),totalScore:state.totalScore+item.score,key:`${state.key}|${templatePoolKey(item.template)}`});});
+    });
+    states=next.sort(compareSlateStates).slice(0,beamWidth);
   });
-  $('recSlateSubtitle').textContent=`${chosen.filter(x=>x.item).length}/${scopes.length} 队 · 不复用已拥有角色`;
+  return states.sort(compareSlateStates)[0]||{picks:candidateLists.map(()=>null),used:new Set(),filled:0,weaknessMatches:0,totalScore:0,key:''};
+}
+function bestRecSlatePlan(scopes){
+  const fast=searchRecSlate(recSlateCandidateLists(scopes,50),180);
+  if(fast.filled===scopes.length)return fast.picks;
+  const fallback=searchRecSlate(recSlateCandidateLists(scopes,240),720);
+  return (compareSlateStates(fast,fallback)<=0?fast:fallback).picks;
+}
+
+function renderRecSlate(){
+  const scopes=recPlanScopes();
+  const picks=bestRecSlatePlan(scopes);
+  const chosen=scopes.map((scope,index)=>({scope,item:picks[index]||null}));
+  const strategyLabel=rec.strategy==='custom'?'跨节点阵容池联合选队':'最高难度实战节点联合选队';
+  $('recSlateSubtitle').textContent=`${chosen.filter(x=>x.item).length}/${scopes.length} 队 · ${strategyLabel} · 遵守各队硬约束且不复用角色`;
   const boxEl=$('recSlateList');boxEl.innerHTML='';
   if(!chosen.length){boxEl.innerHTML='<div class="rec-empty">暂无当前模式关卡模板</div>';return;}
-  chosen.forEach(({scope,item})=>{const card=document.createElement('div');card.className=`rec-slate-card ${item?.risks?.length&&rec.riskMode!=='off'?'risky':''}`;if(!item){card.innerHTML=`<h3>${esc(scope.label)}</h3><div class="rec-note">没有符合缺口限制的队伍</div>`;}else{card.onmouseenter=e=>showRecTooltip(e,item);card.onmousemove=moveTooltip;card.onmouseleave=()=>{$('recTooltip').hidden=true;};card.innerHTML=`<h3>${esc(scope.label)} · ${Math.round(item.score)} · ${item.ownedCount}/4</h3><div class="rec-slate-team">${item.finalChars.map(slug=>{const r=charInfo(slug);const owned=box.owned.has(slug);const member=item.members.find(m=>m.slug===slug);const risky=rec.riskMode!=='off'&&Boolean(member?.risks?.length);return`<img class="${owned?'':'missing'} ${risky?'risky':''}" src="${esc(r.icon_url)}" title="${esc(charName(slug))}" alt="">`;}).join('')}</div>${riskNoteHtml(item)}`;}boxEl.appendChild(card);});
+  chosen.forEach(({scope,item})=>{const card=document.createElement('div');card.className=`rec-slate-card ${item?.risks?.length&&rec.riskMode!=='off'?'risky':''}`;if(!item){card.innerHTML=`<h3>${esc(scope.label)}</h3><div class="rec-note">没有同时满足缺口、角色约束与不复用要求的队伍</div>`;}else{card.onmouseenter=e=>showRecTooltip(e,item);card.onmousemove=moveTooltip;card.onmouseleave=()=>{$('recTooltip').hidden=true;};card.innerHTML=`<h3>${esc(scope.label)} · ${Math.round(item.score)} · ${item.ownedCount}/4</h3><div class="rec-slate-team">${item.finalChars.map(slug=>{const r=charInfo(slug);const owned=box.owned.has(canonicalSlug(slug));const member=item.members.find(m=>canonicalSlug(m.slug)===canonicalSlug(slug));const risky=rec.riskMode!=='off'&&Boolean(member?.risks?.length);return`<img class="${owned?'':'missing'} ${risky?'risky':''}" src="${esc(r.icon_url)}" title="${esc(charName(slug))}" alt="">`;}).join('')}</div>${riskNoteHtml(item)}`;}boxEl.appendChild(card);});
 }
 
 function showRecTooltip(evt,item){
-  const tt=$('recTooltip');const t=item.template;const selected=[...recElementSet(t.mode,t.scope_key)].join(' / ')||'未选';
+  const tt=$('recTooltip');const t=item.template;const selected=[...recElementSet(t.mode,item.targetScope)].join(' / ')||'未选';
+  const constraints=recConstraintSets(t.mode,item.targetScope);const constraintText=[constraints.required.size&&`必上 ${[...constraints.required].map(charName).join('、')}`,constraints.excluded.size&&`排除 ${[...constraints.excluded].map(charName).join('、')}`].filter(Boolean).join('；')||'无';
   const riskText=item.risks.length&&rec.riskMode!=='off'?item.risks.map(r=>r.name?`${r.name}：${r.text}`:r.text).join('；'):'无';
   const riskMode=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒';
   tt.hidden=false;
-  tt.innerHTML=`<div class="tooltip-head"><div><strong>${esc(t.mode_cn)} · ${esc(t.scope_label)}</strong><span>${esc(phaseLabel(t))} · ${esc(t.collect_date)}</span></div></div><div class="tooltip-grid"><b>当前约束</b><div>同模式 / 同关卡 / 最新采样</div><b>推荐属性</b><div>${esc(selected)}</div><b>风险模式</b><div>${esc(riskMode)}</div><b>模板表现</b><div>Rank ${esc(t.rank??'-')} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${t.avg_round==null?'-':esc(Number(t.avg_round).toFixed(2))}</div><b>Box命中</b><div>${item.ownedCount}/4，成型 ${item.buildReadyCount}/${item.ownedCount}，缺 ${item.missingCount}</div><b>属性命中</b><div>全队 ${item.elementHits} · 核心 ${item.coreElementHits}</div><b>风险</b><div>${esc(riskText)}</div><b>分数</b><div>${Math.round(item.score)}</div><b>来源</b><div>${esc(t.source_kind||'')} · ${esc(t.source_file||'')}</div></div>`;
+  const dataRange=item.weaknessDriven?`当前模式全部具体战斗侧去重池${t.evidenceScopes?.length?`（${t.evidenceScopes.join(' / ')}）`:''}`:'同模式 / 同战斗侧 / 最新采样';
+  const weaknessUse=item.weaknessDriven?'用于匹配核心输出':rec.riskMode==='filter'?'默认仅标注；当前“过滤风险”会硬筛':'仅标注，不参与加减分';
+  tt.innerHTML=`<div class="tooltip-head"><div><strong>${esc(t.mode_cn)} · ${esc(recScopeDisplayLabel(t.mode,t.scope_key,t.scope_label))}</strong><span>${esc(phaseLabel(t))} · ${esc(t.collect_date)}</span></div></div><div class="tooltip-grid"><b>数据范围</b><div>${esc(dataRange)}</div><b>角色硬约束</b><div>${esc(constraintText)}</div><b>敌方弱点</b><div>${esc(selected)}（${esc(weaknessUse)}）</div><b>风险模式</b><div>${esc(riskMode)}</div><b>模板表现</b><div>Rank ${esc(t.rank??'-')} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${t.avg_round==null?'-':esc(Number(t.avg_round).toFixed(2))}</div><b>Box命中</b><div>${item.ownedCount}/4，成型 ${item.buildReadyCount}/${item.ownedCount}，缺 ${item.missingCount}</div><b>弱点命中</b><div>全队 ${item.elementHits} · 核心 ${item.coreElementHits}</div><b>风险</b><div>${esc(riskText)}</div><b>分数</b><div>${Math.round(item.score)}</div><b>来源</b><div>${esc(t.source_kind||'')} · ${esc(t.source_file||'')}</div></div>`;
   moveTooltip(evt);
 }

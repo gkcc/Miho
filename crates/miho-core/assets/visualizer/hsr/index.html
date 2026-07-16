@@ -111,14 +111,35 @@
     </section>
 
     <section id="recommenderView" class="hidden">
+      <section class="rec-plan-controls" id="recPlanControls" aria-label="推荐场景">
+        <div class="control-group"><label>推荐场景</label><div class="segmented" id="recStrategyControl"></div></div>
+        <div class="control-group compact" id="recTeamCountControl"><label>方案队数</label><select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></div>
+        <p id="recStrategyHint"></p>
+      </section>
       <section class="rec-controls" aria-label="组队推荐控制">
         <div class="control-group"><label>模式</label><div class="segmented" id="recModeControl"></div></div>
-        <div class="control-group compact"><label>关卡</label><select id="recScopeSelect" title="只使用当前模式最新采样期的同关卡队伍模板"></select></div>
-        <div class="control-group"><label>推荐属性</label><div class="tier-checks" id="recElementControl"></div></div>
+        <div class="control-group compact"><label id="recScopeLabel">实战节点</label><select id="recScopeSelect"></select></div>
+        <div class="control-group"><label id="recElementLabel">敌方弱点（仅标注）</label><div class="tier-checks" id="recElementControl"></div></div>
         <div class="control-group compact"><label>缺口</label><select id="recGapSelect" title="限制缺少角色数量"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="2">最多缺2人</option><option value="4">显示全部</option></select></div>
         <div class="control-group compact"><label>风险</label><select id="recRiskSelect" title="当前模式 T1及以下、近期走弱或核心属性不匹配时的处理方式"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></div>
         <div class="control-group compact"><label>数量</label><select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></div>
         <div class="control-group search"><label>搜索</label><input id="recSearchInput" type="search" placeholder="角色 / 队伍 / 来源" /></div>
+      </section>
+      <section class="rec-constraints" aria-label="角色硬约束">
+        <div class="constraint-picker">
+          <label for="recCharacterSelect">角色硬约束 <span>按当前模式与节点/队伍保存</span></label>
+          <div class="constraint-picker-row">
+            <select id="recCharacterSelect" title="选择要加入当前关卡约束的角色"></select>
+            <button id="recRequireBtn" type="button">必须上场</button>
+            <button id="recExcludeBtn" type="button">排除</button>
+            <button id="recConstraintClearBtn" type="button" class="quiet">清空本关</button>
+          </div>
+          <p id="recConstraintMessage" aria-live="polite"></p>
+        </div>
+        <div class="constraint-groups">
+          <div><strong>必须上场</strong><div id="recRequiredList" class="constraint-chips"></div></div>
+          <div><strong>排除</strong><div id="recExcludedList" class="constraint-chips excluded"></div></div>
+        </div>
       </section>
       <section class="phase-mechanics" id="phaseMechanicsPanel">
         <div>

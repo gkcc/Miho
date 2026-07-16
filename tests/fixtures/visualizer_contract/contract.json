@@ -30,14 +30,14 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "9a2303a4ade4c93b63710119fbe8ac875e4cf8b5751ff5e4100aea1effce458b",
-      "index.html": "aecfb66d6f6b4821b835e520d7e91f64d453b8b543a022a6da266c0d05e83a4e",
-      "styles.css": "e47a2030c782251bc1b75436ac848ae167013f8b8b53659f6ff65f6c57e5df88"
+      "app.js": "50de54cfbd0926d0ec2811d7e3acb2e7f36df89aeff70f766e0cd379317deab7",
+      "index.html": "7f3397fd70ed3bf686110f4e81f9724ff99d9eedacf8ada195bd20481778dcfd",
+      "styles.css": "7f3d347bb596f9e2a18ef206fa0c4b4896a67c01a273ececa47776b8d4eb7a23"
     },
     "zzz": {
-      "app.js": "556771f9a709e3cf91030c76301b69f6de37ee184ca65dc0730a44dfacc9c394",
-      "index.html": "97132c1c66f8f71590b1c36f34d3c31e356f46af62fe431ae8546b402f613123",
-      "styles.css": "3f1154c808509dba1b9af6f6b3845e0b3e73e68d02f28283763e89a89afa247a"
+      "app.js": "ea6ad80c8551d80bf9eb240c27937648cf6764a100ed0cdb093b28bf96ec338d",
+      "index.html": "2564af4058ae31af35a499020a71bc4980b6006a0f421b6a929aee64d6ffca75",
+      "styles.css": "9164edfaa3653033cf4f1e8679115eab4671994e1779d9f0ccbf86b9c3cea572"
     },
     "hub": {
       "app.js": "45043faae8d788fb9557335a1fffbf7f36f7f5c0778c489a85560f2c5ef2def0",
