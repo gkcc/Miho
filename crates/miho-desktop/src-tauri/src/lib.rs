@@ -861,6 +861,9 @@ mod tests {
         assert!(frontend.contains("history.replaceState(null, \"\", \"#miho-app-ready-v1\")"));
         assert!(frontend.contains("main.append(visualizerSection, utilities)"));
         assert!(frontend.contains("pageUrl.hash = \"box\""));
+        assert!(frontend.contains(
+            "visualizerFrame.setAttribute(\"sandbox\", \"allow-scripts allow-same-origin allow-downloads\")"
+        ));
         assert!(!frontend.contains("save_box_state"));
         assert!(!frontend.contains("ownedInput"));
         let binary_entry = include_str!("main.rs");

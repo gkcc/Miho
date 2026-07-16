@@ -371,7 +371,7 @@ visualizerHeading.append(visualizerTitleBlock, reloadVisualizerButton);
 const visualizerMessage = element("p", "notice", "正在向本机后端请求 Visualizer 地址…");
 const visualizerFrame = element("iframe", "visualizer-frame");
 visualizerFrame.title = "终局数据 Visualizer";
-visualizerFrame.setAttribute("sandbox", "allow-scripts allow-same-origin");
+visualizerFrame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
 visualizerFrame.referrerPolicy = "no-referrer";
 visualizerFrame.hidden = true;
 visualizerFrame.addEventListener("error", () => {

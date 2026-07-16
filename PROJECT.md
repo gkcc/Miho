@@ -499,6 +499,12 @@
 - **独立发布与 post-install 对抗判断**：安装前只读终审独立重算 active NSIS、portable、static manifest 及 ZIP 20 项闭包，核对 clean source、Box/备份、无半成品和安装前进程，结论 `Blocker=0 / High=0`。安装后独立对抗复审又实际覆盖 ZZZ 两模式、HSR 四模式、空搜索、双卡池图片/名称、正常退出和 Box 零漂移，结论仍为 `Blocker=0 / High=0`；它提出的持久探针 computed visibility/图表/角色列表、全模式和唯一 frame 绑定 Medium 已由上项逐一固化。逐张头像是否符合人工审美仍不是 DOM 自动化能证明的事项，不把它伪装成机器已验收。
 - **空间清理**：在解析 active manifest 并确认候选绝对路径均位于工作区、无 reparse、且不包含 active 闭包后，删除 `target/debug`、空 scratch、3 套旧 NSIS、3 套旧 portable 目录/ZIP、旧 verification/superseded/static manifests，共 17 项、4,319,268,436 逻辑字节；D 盘实测空闲增加 3,729,780,736 字节，`target` 降至 88,745,346 字节（0.083 GiB），D 盘空闲 283.906 GiB。清理后 active manifest 仍为 `active`，NSIS/portable SHA-256 仍为 `3bd32aa2…` / `cecc1cb0…`；安装目录、AppData、Box/recovery、owner、任务和 automation generation 均未进入删除集合。
 
+### Box 导出下载补正（2026-07-17，源码已修复）
+
+- **根因与修复**：Visualizer 内的“导出Box”使用 Blob 与 `<a download>`，但桌面 iframe 的 sandbox 缺少 `allow-downloads`，当前 active WebView2 因而静默拦截下载；后台更新、Box 持久化和计划任务均正常。桌面入口现只新增该最小 sandbox 权限，并以 Rust 静态契约锁定。
+- **定点验证**：`cargo test -p miho-desktop generated_context_uses_isolation_with_identity_hook --locked`、`pnpm --filter miho-desktop build`、`cargo fmt --all -- --check` 与 `git diff --check` 通过；生成的 Vite bundle 已确认包含 `allow-scripts allow-same-origin allow-downloads`，且不再包含旧 sandbox 值。
+- **发布边界**：现有 active manifest 与安装版仍绑定 `7f670774…`，尚不包含本修复。根据本工作区禁止桌面控制的执行政策，本轮不运行会启动并操控 WebView2 的 GUI 发布门禁；clean active 重建、原位升级及真实点击生成 `hsr_box_state.json` 留作维护者手工验收，未把源码/编译验证冒充为已安装完成。
+
 ## 恢复入口
 
 - 项目状态：本文件。
