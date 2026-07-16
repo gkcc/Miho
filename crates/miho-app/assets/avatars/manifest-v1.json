@@ -1,0 +1,765 @@
+{
+  "schema_version": "miho-bundled-avatar-manifest-v1",
+  "source": "archived-visualizer-20260712-005035",
+  "games": {
+    "hsr": [
+      {
+        "slug": "acheron",
+        "sha256": "fa5d77730a686deba044ab7ab34037a0e760082f77b90126680b115d211764e0",
+        "bytes": 10626
+      },
+      {
+        "slug": "aglaea",
+        "sha256": "af85b8c2d99c39a0c90683f2b4e12b4afa215c95088b7480576ef21b03a46945",
+        "bytes": 11838
+      },
+      {
+        "slug": "anaxa",
+        "sha256": "5db65d5ce5950a1d346b1562ae97cbe42c361b01c9fce33a2d31ebd915ff1c79",
+        "bytes": 11622
+      },
+      {
+        "slug": "archer",
+        "sha256": "6add13f5d9fa44b37be04454ac8757b293119d1fd8189c6a59cabb78c983eefe",
+        "bytes": 10138
+      },
+      {
+        "slug": "argenti",
+        "sha256": "19262714814f3e5896fe8eaa99e853c7e90548796d250253376e89267310994d",
+        "bytes": 9518
+      },
+      {
+        "slug": "arlan",
+        "sha256": "1663dc2621e72f1e80fc487f802a67c87175d962e49e7ca683e41ea148719940",
+        "bytes": 10984
+      },
+      {
+        "slug": "ashveil",
+        "sha256": "9e939cc2d424d0907e13ad4459fc3a67c28a1f076398919a4331334c4c86735f",
+        "bytes": 11744
+      },
+      {
+        "slug": "asta",
+        "sha256": "98e3de517d6f7eb9e4bc79673a9afd0b776abccb0d9194cf4bb5cc6d0735ef10",
+        "bytes": 10026
+      },
+      {
+        "slug": "aventurine-waveflair",
+        "sha256": "c6edf70786456878c39393454a06ccd55f6cd929c59fe48990ecce313808d81e",
+        "bytes": 10790
+      },
+      {
+        "slug": "aventurine",
+        "sha256": "63728be24647d9cd32ef84a2a5547a1f6db87742adcd7d5fa6f0d35908d45d98",
+        "bytes": 9240
+      },
+      {
+        "slug": "bailu",
+        "sha256": "9725a593de2bd7bd20a757f84f5a7d8dec3a0e6d06226f6dce599b63a11e1ad1",
+        "bytes": 10908
+      },
+      {
+        "slug": "black-swan",
+        "sha256": "f72f9c1312331cbda840294bdb97c5b811f84c6a83ec90a0f3e32e713e93b22a",
+        "bytes": 9546
+      },
+      {
+        "slug": "blade",
+        "sha256": "9cc52f14d2762d7a400ebf6353a669b6c342d3b61bda6719d9fa97a710ca9860",
+        "bytes": 9592
+      },
+      {
+        "slug": "boothill",
+        "sha256": "1ff5997ae751bb8d6e64ba7fee7b03c0864749d897aa641c69a4c5e329c468d9",
+        "bytes": 10670
+      },
+      {
+        "slug": "bronya",
+        "sha256": "83d30f8b0632c7d296e2f553e722c1a0598d2ef1a3499dec31176b4b6835e56b",
+        "bytes": 11064
+      },
+      {
+        "slug": "castorice",
+        "sha256": "9bda1468637f6f1b5bb354eb5956d8593044458f221352b53b3fc5c0461ce0f0",
+        "bytes": 11168
+      },
+      {
+        "slug": "cerydra",
+        "sha256": "ca57a73bf399f0465190c552c784bdee0277d00599b5d84b4d5e398ee728e608",
+        "bytes": 12882
+      },
+      {
+        "slug": "cipher",
+        "sha256": "caaf0879d88f08d2b34e1f09379976b8659b15864823789b120bc225d3c8c4a6",
+        "bytes": 12048
+      },
+      {
+        "slug": "clara",
+        "sha256": "65de90b5f030f6a2be68e6431a4e9bbb78e38b1e3a138a7e4d347ac0e7d6e4c8",
+        "bytes": 9690
+      },
+      {
+        "slug": "cyrene",
+        "sha256": "d25b4d749504e45e40f5dbda497c72185d89fb464e99d89a1125a251191e8c0b",
+        "bytes": 11902
+      },
+      {
+        "slug": "dan-heng-imbibitor-lunae",
+        "sha256": "362d76a7483a34f384da877189b3b506b370d12f4c1bb41170245e072044d163",
+        "bytes": 9092
+      },
+      {
+        "slug": "dan-heng-permansor-terrae",
+        "sha256": "770fad9682f663f1a31357cbf1ae98d4992f559d766bc5997455eb735025d346",
+        "bytes": 8610
+      },
+      {
+        "slug": "dan-heng",
+        "sha256": "0bd61ad8a47dc5d7dc61e3ae39f9906e081f6d65ed0c4c0e73a22ef787fce7f9",
+        "bytes": 9614
+      },
+      {
+        "slug": "dr-ratio",
+        "sha256": "235df5dd900dacfb08a05dd90e54f6ab93ac765371f817226f6779de0aa0daed",
+        "bytes": 9042
+      },
+      {
+        "slug": "evanescia",
+        "sha256": "7871a676b4d1d39292c9ee5b3bf53985699cc77c50526b8831ca1961b88608c0",
+        "bytes": 13338
+      },
+      {
+        "slug": "evernight",
+        "sha256": "c936f9976fd206a3ae4553aa3d0d169a1788f2ca0253938fa23085c7f8fb99a4",
+        "bytes": 12886
+      },
+      {
+        "slug": "feixiao",
+        "sha256": "d013b633364dff2b85efc894e97fbc7c2e001b08eda670cc4d28864628644a52",
+        "bytes": 12566
+      },
+      {
+        "slug": "firefly",
+        "sha256": "76e9270953e1426e5ad03473ccd15e8b8cce5c52a735ca27c7b129c6379cfb70",
+        "bytes": 11066
+      },
+      {
+        "slug": "fu-xuan",
+        "sha256": "b21a5efc7c6b3778989e6bd7715bb412e94ca561f08fec80c811e53dcab152e1",
+        "bytes": 12220
+      },
+      {
+        "slug": "fugue",
+        "sha256": "bf2bfcfb09ada0f49d6e7901c0775faa09d3b90a75530e1927d7d5fef661f246",
+        "bytes": 9244
+      },
+      {
+        "slug": "gallagher",
+        "sha256": "36542d6c6caf5bdaa952c64c210531a08b5e787333e0482654202eb3334feff6",
+        "bytes": 9234
+      },
+      {
+        "slug": "gepard",
+        "sha256": "b3eb4740fb92bbbca2e487c3cc2bb0c532a8282c91798157417e03383bc3b328",
+        "bytes": 10560
+      },
+      {
+        "slug": "gilgamesh",
+        "sha256": "00f3bb0ae0fa9488bca70a375326d2bc5af8bcf439f4ec271483012a2d569f68",
+        "bytes": 7406
+      },
+      {
+        "slug": "guinaifen",
+        "sha256": "06d3c90c0b3d23bbac82ba9511ee1494b32fdfa8fa17b216db899e7f31097ff1",
+        "bytes": 12428
+      },
+      {
+        "slug": "hanya",
+        "sha256": "d54161de3a02ba28f5366e86c136bc9a1d6044fd8cdfd2cc46beff3b9b56f416",
+        "bytes": 9056
+      },
+      {
+        "slug": "herta",
+        "sha256": "618fc04056284fd849b4eb4f13b4fa67786c147e87661e633d0d6f431167fd94",
+        "bytes": 10328
+      },
+      {
+        "slug": "himeko-nova",
+        "sha256": "e10f5e585dfe4c5e89b7e38f9e54b3933f6e06c259fd4b51ff0210aecc8836c5",
+        "bytes": 10244
+      },
+      {
+        "slug": "himeko",
+        "sha256": "ced393428cff9286b247f681382dcd116a829e4bce60ca8d1d0b5d98e743ce03",
+        "bytes": 11692
+      },
+      {
+        "slug": "hook",
+        "sha256": "b90e2ee75c0d39f3769784d05c9b6294319949100c0dadb228bd3e4db4dc8ad9",
+        "bytes": 11098
+      },
+      {
+        "slug": "huohuo",
+        "sha256": "01284e31174a9289fd707f34b776a9079e9d0ffe48568db937e314c6709f1b4e",
+        "bytes": 10938
+      },
+      {
+        "slug": "hyacine",
+        "sha256": "ce80cc471b8579b1a4dc2cd968377879bceda8a3850db115d1b449e7143a3b27",
+        "bytes": 12906
+      },
+      {
+        "slug": "hysilens",
+        "sha256": "eeb51e78702d836a527de065c0e8e5a50dd62ee357deef3ee2028346a2520a92",
+        "bytes": 12638
+      },
+      {
+        "slug": "jade",
+        "sha256": "45d600506ec24061881f895ed28fc9537816ea563257c27082c9119db1049773",
+        "bytes": 11262
+      },
+      {
+        "slug": "jiaoqiu",
+        "sha256": "b25592d1d25d6904f1504267d9b120d4865326009015d9cc8a9af202c32a52f5",
+        "bytes": 11274
+      },
+      {
+        "slug": "jing-yuan",
+        "sha256": "02b465cda39fa71f1e009c16cc1012aeaf22c113f129072bc55dd7153533e130",
+        "bytes": 12374
+      },
+      {
+        "slug": "jingliu",
+        "sha256": "562b721d37cd1dcd7f901e74e833437fe0c5fc94b4a5000f0bb7f095d2c85acd",
+        "bytes": 11560
+      },
+      {
+        "slug": "kafka",
+        "sha256": "2f9bdcb14623ff931acee2a0ee600c5ddfe5d145912ff07ce79e3bcb6415113a",
+        "bytes": 9152
+      },
+      {
+        "slug": "lingsha",
+        "sha256": "851564e732d86d16bd45b7fe4452e85134f780f4c3253e7f8971a808c9240122",
+        "bytes": 9512
+      },
+      {
+        "slug": "luka",
+        "sha256": "527268a118be81d42a75fe7452de69ecb140bf15399ea92d8ab25fc740117b45",
+        "bytes": 10012
+      },
+      {
+        "slug": "luocha",
+        "sha256": "bfc6b6b15de87bf43b3caca5d8aeb1baab59b018cdbe991aa364c5446c5fa7c8",
+        "bytes": 11364
+      },
+      {
+        "slug": "lynx",
+        "sha256": "4168da4614de4ecc9007272812d66e6043df03b7d5f634f15468e6ff467e8349",
+        "bytes": 10412
+      },
+      {
+        "slug": "march-7th-the-hunt",
+        "sha256": "6dea497b422f5f8392d51c3fc5c86728e47c0b89b31c13d85aafaf2fa9ea6783",
+        "bytes": 11184
+      },
+      {
+        "slug": "march-7th",
+        "sha256": "8479ea152e0e82dbc4ad9b7d5514d9d0a2d9696320ce1ce5d914d1f2e3318484",
+        "bytes": 12918
+      },
+      {
+        "slug": "misha",
+        "sha256": "ed058a96c3b94cc798cbc6c314b3d5eb75231c874b15bb6e4b9d0da29e0c12ba",
+        "bytes": 10092
+      },
+      {
+        "slug": "mortenax-blade",
+        "sha256": "48f2673cc2b17e7a27f67d093fe1d4be393f1bf142820ed1343684ce398e3bab",
+        "bytes": 11400
+      },
+      {
+        "slug": "moze",
+        "sha256": "3d5f20d4fa315679591001aae5428626fe7bbaf3b0e72b13b94e9097319334e8",
+        "bytes": 8200
+      },
+      {
+        "slug": "mydei",
+        "sha256": "d5fa2485ec0ce421d055687bd7786ba9708d4496162206868d70dd47da38d3de",
+        "bytes": 10428
+      },
+      {
+        "slug": "natasha",
+        "sha256": "f8ed38d080b1b3bf543dbfff9fc62bbaa3221e7f63b9e579933608938d741277",
+        "bytes": 10420
+      },
+      {
+        "slug": "pela",
+        "sha256": "5fcdf953cec7fb7dbc748a3e9280ecef28fbc8116bd4348fba0f43f6a90c99e9",
+        "bytes": 10048
+      },
+      {
+        "slug": "phainon",
+        "sha256": "06257b0fc932f926f46211bea3bb67866fce25b2403bbce678583f2decdb3c4e",
+        "bytes": 11994
+      },
+      {
+        "slug": "qingque",
+        "sha256": "f4581eb39b1aa86553b51a76d9ebdc662871d69d845979439972befe479ee9aa",
+        "bytes": 10532
+      },
+      {
+        "slug": "rappa",
+        "sha256": "4a3efac5091a9a31ab34aa83946595879510047137c76070e6121ceb4ce4e706",
+        "bytes": 12446
+      },
+      {
+        "slug": "rin-tohsaka",
+        "sha256": "342b34833d00d6990e42f3acaf37e118d40d59bd0e2f97208519b741735df3ec",
+        "bytes": 6044
+      },
+      {
+        "slug": "robin-summeretto",
+        "sha256": "b56da7fd48925480e060f43b581d41cc4aeaee653705849267cdd33e6e9b2b47",
+        "bytes": 11064
+      },
+      {
+        "slug": "robin",
+        "sha256": "234c00a06ce4cc7be5f7b71e6263cb55c073aa1fd24c85651cf3b4f6bff10eb5",
+        "bytes": 11054
+      },
+      {
+        "slug": "ruan-mei",
+        "sha256": "b8fa7fa4dc1017709e7be4a115060d152677e0c4fb8e19dcc9cd6b3c49b10541",
+        "bytes": 9302
+      },
+      {
+        "slug": "saber",
+        "sha256": "311d945302656905cdb8967f65c6e68bec1e1bfdcf2f2b3d4aa1acef669d7dcf",
+        "bytes": 11172
+      },
+      {
+        "slug": "sampo",
+        "sha256": "160a5ec1b79e0b83b1361422c3825116c59e6a27ec91202c4b2d7acb8d31a0ef",
+        "bytes": 10846
+      },
+      {
+        "slug": "seele",
+        "sha256": "e634ae19d892478925327125122ac984bed8e1f4934477f85ba3f2b8245ee0ca",
+        "bytes": 9284
+      },
+      {
+        "slug": "serval",
+        "sha256": "6598adf31c08b5d9255c3d652829af0b5952cbd16990e3a0cdc271a31e02fb1a",
+        "bytes": 10840
+      },
+      {
+        "slug": "silver-wolf-lv999",
+        "sha256": "ec2d69050278cfe5db9436285cdc121ec96f51b01a2b8a13df039632f5a37f26",
+        "bytes": 12730
+      },
+      {
+        "slug": "silver-wolf",
+        "sha256": "9e13003caa245857c644313208805c0c0078b3427facfad754a1ed9101441cc0",
+        "bytes": 12966
+      },
+      {
+        "slug": "sparkle",
+        "sha256": "ecb915e8def56b560cb46b54e55b9d9a29e1b017be592d13ae56e6909f860194",
+        "bytes": 11530
+      },
+      {
+        "slug": "sparxie",
+        "sha256": "d5c744f2dac36faaf02620c98719aaa105fcb37b6dbd7d18131ada1f33d70e96",
+        "bytes": 14304
+      },
+      {
+        "slug": "sunday",
+        "sha256": "c00f475a821648a00113c1a7bdcb0c078fdfc27b329065425461dae57692a9be",
+        "bytes": 13000
+      },
+      {
+        "slug": "sushang",
+        "sha256": "bee3eebbff3a24394782758a5c43cde2a3f26e750640cf316c5a937b3d874b7a",
+        "bytes": 11798
+      },
+      {
+        "slug": "the-dahlia",
+        "sha256": "528e5e1a991da458769aefe8c54ad3b78927dcf34ad7f57e349558972828aebd",
+        "bytes": 12710
+      },
+      {
+        "slug": "the-herta",
+        "sha256": "4ec4532188f1fc7eb81f526dae8396067e20697131e5ea8502752c2d3e48fca3",
+        "bytes": 9412
+      },
+      {
+        "slug": "tingyun",
+        "sha256": "62cd2053a08a1bae2a6fef6f58eb7c59b6fb8b478ff1a9c419c8c2f056b1f547",
+        "bytes": 10858
+      },
+      {
+        "slug": "topaz-and-numby",
+        "sha256": "bf772eeec464d2ec42e46ebed595e53e1c01228c8bde1a820b457e83662fcfac",
+        "bytes": 10576
+      },
+      {
+        "slug": "trailblazer-elation",
+        "sha256": "b44121595445383aa4ee0a7cf9d7b46fe727359931eddebe44fcdb5374b966ca",
+        "bytes": 9678
+      },
+      {
+        "slug": "trailblazer-remembrance",
+        "sha256": "8f92e7a9e0fdb703b504cfbf51aa5c376194f3b76b81e93722b9e03c3c797fda",
+        "bytes": 9952
+      },
+      {
+        "slug": "trailblazer-the-destruction",
+        "sha256": "532f994848dd96bdeb9cdbab8f87f8fd7060f4deb609f7bdbd5dd65e29fcdd50",
+        "bytes": 10740
+      },
+      {
+        "slug": "trailblazer-the-harmony",
+        "sha256": "57ce51b3e987cccef3292102ef016f29ea7424863d0f2ec279b7f9281a739f3e",
+        "bytes": 9720
+      },
+      {
+        "slug": "trailblazer-the-preservation",
+        "sha256": "f4b6dece77dd974bccd4641826e150ddbdabeaacc22386a601af29af016944a6",
+        "bytes": 11312
+      },
+      {
+        "slug": "tribbie",
+        "sha256": "a465a6ed5c7e9f768c0fa1f98aa34f04b56d9d767718c69aae08d318a6e9fb20",
+        "bytes": 12018
+      },
+      {
+        "slug": "welt",
+        "sha256": "606b543b040225e7a116fc7629680bbccdecdf201bc746952f6c8a72cd69b52f",
+        "bytes": 9344
+      },
+      {
+        "slug": "xueyi",
+        "sha256": "b0b7777e028ad7d93afad24881abb58555e288c4848781b1e890910c17288a76",
+        "bytes": 8792
+      },
+      {
+        "slug": "yanqing",
+        "sha256": "ab0d811a6b54b7b61aa7cddfd0bd933dcec7ddab7633e0346b8c8cc7ace42bd7",
+        "bytes": 11638
+      },
+      {
+        "slug": "yao-guang",
+        "sha256": "d7b8e4644b1e16b7356a94115508fc3757c4cf17d10f117ba2810b823715a9bf",
+        "bytes": 11658
+      },
+      {
+        "slug": "yukong",
+        "sha256": "015cb1930c2040eb957e0550df14e9daf91768adb60a88f82e0fe25fa2fa11f4",
+        "bytes": 10618
+      },
+      {
+        "slug": "yunli",
+        "sha256": "1bd898901b85f27d9889f82c90541725e04833cf45867206100e142eeb7017d7",
+        "bytes": 11302
+      }
+    ],
+    "zzz": [
+      {
+        "slug": "alice",
+        "sha256": "a9c7062c38c72375932fadfe280e602338e75d15efb6fdafd52ce7bfdfe18f1f",
+        "bytes": 8314
+      },
+      {
+        "slug": "anby-demara-soldier-0",
+        "sha256": "e3382f2ce7f2a9c371737b4706e489a083415dd42f7b0e99a2ec9a21ad748a74",
+        "bytes": 10420
+      },
+      {
+        "slug": "anby-demara",
+        "sha256": "d8710436d7c4bab5352529ac142140f88510b3ae6fd5f12069e4c42778f4b8df",
+        "bytes": 9920
+      },
+      {
+        "slug": "anton",
+        "sha256": "b1202b92e83f2eb53a3e400e262dc077aa69ebd807fcd25b6a415620ce8f95cc",
+        "bytes": 9118
+      },
+      {
+        "slug": "aria",
+        "sha256": "728ca4ad80cd7caae3362128cd79e5c6240975568a2a8e8e3198214272850ae2",
+        "bytes": 11786
+      },
+      {
+        "slug": "astra-yao",
+        "sha256": "88ef21a56184fbbd7e012984ab3f8a0b93cbd03328431fc6484bac6800978811",
+        "bytes": 8874
+      },
+      {
+        "slug": "banyue",
+        "sha256": "a38057674aa9807a93d63d19cb93a6f9d196e4456ca6593718e7b0c658f97064",
+        "bytes": 10204
+      },
+      {
+        "slug": "ben",
+        "sha256": "7e19c6224fd8c865676b88570b53f494a5680fc5d641a07e4e164b853d82dc70",
+        "bytes": 5932
+      },
+      {
+        "slug": "billy-kid",
+        "sha256": "14e538df5e82e9769f6c55f8affd95a526032393071913c3c51a51139cbcaf80",
+        "bytes": 10164
+      },
+      {
+        "slug": "billy-starlight",
+        "sha256": "d260c9fe86cb7071782bec9145c99a8e5b533756f99dd2613cdb4e1fba5aa150",
+        "bytes": 9228
+      },
+      {
+        "slug": "burnice",
+        "sha256": "8ad84469f0a9a493e1994cc614f1e2549539394b346b81add35b25202cf88daf",
+        "bytes": 10470
+      },
+      {
+        "slug": "caesar",
+        "sha256": "1293df9472cc3d54ab976f08fca0bea120688034daf8faa9dcedf6b5fe8956da",
+        "bytes": 8222
+      },
+      {
+        "slug": "cissia",
+        "sha256": "43a5d63036bf2693f90e9cadb64110c1afba4315a9dbe97e555c8b997495bf6c",
+        "bytes": 12222
+      },
+      {
+        "slug": "corin",
+        "sha256": "9cd9805ecae8f30931755e1bae4f250bf281adf3b22a0b1ee9889c76d8b21c5c",
+        "bytes": 10864
+      },
+      {
+        "slug": "dialyn",
+        "sha256": "0ccdb724446f040219bcb3fdf25042e053de245bbca157f8f623c002792e4442",
+        "bytes": 11708
+      },
+      {
+        "slug": "ellen",
+        "sha256": "d9da5eeda484e1d2e373cf6c60712eb1563897af1403b316f5e76296ded8ca5e",
+        "bytes": 9416
+      },
+      {
+        "slug": "evelyn",
+        "sha256": "7f4e1d8f208ce1fa86656e24d519b95c74bdc3d1da0631123144d3094069f4c8",
+        "bytes": 9420
+      },
+      {
+        "slug": "grace-howard",
+        "sha256": "10d166c1b0312815fc77ace589a961d29f0beafdcabc74a00b805f4f549ac4fc",
+        "bytes": 9384
+      },
+      {
+        "slug": "harumasa",
+        "sha256": "57b89b8da9e16f97ff4c0c418c519b702943cdb2cb8f05604dc924e344975e21",
+        "bytes": 8682
+      },
+      {
+        "slug": "hugo",
+        "sha256": "5e52bc811b3cdb98c1620d41cea8565e34e54e9d2dd12738bd1eaac7b6e6523d",
+        "bytes": 9808
+      },
+      {
+        "slug": "jane-doe",
+        "sha256": "91c5d2f3166404ca9ca42143c1557355a48ca58c29471ddf584b2e114886401d",
+        "bytes": 8000
+      },
+      {
+        "slug": "ju-fufu",
+        "sha256": "e3bc151ce196c816cb9aeda0d2316b77c8c8d842da08f513a105a79f07af1d1e",
+        "bytes": 11358
+      },
+      {
+        "slug": "koleda",
+        "sha256": "7d092d7957c9153e8485420793b3b41b3ce423ceec5cab49b823d030ea6b29f6",
+        "bytes": 11822
+      },
+      {
+        "slug": "lighter",
+        "sha256": "f2d7595d210a5db81a73769b4b3867b5927969a560126cdae63c55eb0c0eb4a2",
+        "bytes": 7026
+      },
+      {
+        "slug": "lucia",
+        "sha256": "da2458b0d1365a768290dcf202ff242112e94f669ead61dfb7b17972baa7405a",
+        "bytes": 9608
+      },
+      {
+        "slug": "lucy",
+        "sha256": "4bde4a582d8e43de41a6c7c648ce0048852a5ed5fcee5f6b7f1bb034f89e6640",
+        "bytes": 9906
+      },
+      {
+        "slug": "lycaon",
+        "sha256": "11d2de3bf1830f58ee8da1cf3c3f7b5382da5f4f3ba515733564c1f5bd0e0e1e",
+        "bytes": 8980
+      },
+      {
+        "slug": "manato",
+        "sha256": "e38042118826544b2e8e4ef8b0e4853c14a00f11618acb24ddcd0257efabd44a",
+        "bytes": 8762
+      },
+      {
+        "slug": "miyabi",
+        "sha256": "5b17a06b044863c0ba966183b5495e1e2453427b489aa2e9e33494045b4030ae",
+        "bytes": 8254
+      },
+      {
+        "slug": "nangong-yu",
+        "sha256": "11c4cd9c5c68961196402e53da55ae4e64b6f526183594b17dc26cc1235af488",
+        "bytes": 11594
+      },
+      {
+        "slug": "nekomata",
+        "sha256": "e7adfbf5901133e6533f6f0af47adedb2b24ee9167ce4ce4a59f80c0cc9a63bf",
+        "bytes": 10906
+      },
+      {
+        "slug": "nicole-demara",
+        "sha256": "56de754ab37739eaacba35748cbf27c8b5aba4e885445e5b069869562e3fed6d",
+        "bytes": 10876
+      },
+      {
+        "slug": "nom",
+        "sha256": "693a1dd56d8cb25b46d02bfb5de42b0580aefe531f500713a9e3350972be8b93",
+        "bytes": 12176
+      },
+      {
+        "slug": "norma",
+        "sha256": "29994d99ac7479aa67fe828f0ba3df51f7ebcf58e6f95f53973dd6f10eaa2ce3",
+        "bytes": 9244
+      },
+      {
+        "slug": "orphie-and-magus",
+        "sha256": "3f13bf3aac111be497961534375f52c1b02382ffbeedc851ff0395e253f2928f",
+        "bytes": 10374
+      },
+      {
+        "slug": "pan-yinhu",
+        "sha256": "2be3abf1f4a53bac65bbc385028110a8936df785766f9e2ba8ea0f96e1df576f",
+        "bytes": 9228
+      },
+      {
+        "slug": "piper",
+        "sha256": "9547270adfe4a3c02abd5aaacb07036bf7b001b5c7f7f6151b523c86f89a9256",
+        "bytes": 9440
+      },
+      {
+        "slug": "promeia",
+        "sha256": "27c8dc72dbfe342cafac20745f2838724e62471a6cab8cc80d79fe4d1399ddd3",
+        "bytes": 9006
+      },
+      {
+        "slug": "pulchra",
+        "sha256": "2b415549dc44400e302bef3cb4527c1a883b5176cc7bce8b5085f258fdf94940",
+        "bytes": 11246
+      },
+      {
+        "slug": "pyrois",
+        "sha256": "053be21ea0ee555e9c4f64679c7b4c659e9ff35733a96f6a414b4f62c7b5bfcb",
+        "bytes": 7864
+      },
+      {
+        "slug": "qingyi",
+        "sha256": "386394a97c68348f3638f3b9fb4a381bfeafb6d25a628a71b8a211be1af829a1",
+        "bytes": 8788
+      },
+      {
+        "slug": "remiel",
+        "sha256": "7875634b5a1b0df5c7552adadcec2ee11f41f2a8e9371073c8b67321547e0edb",
+        "bytes": 10066
+      },
+      {
+        "slug": "rina",
+        "sha256": "138d139f9be3b9472bbdf478c80f63d881bb9b48ba4fd59e1b74a19b7d3d04f4",
+        "bytes": 9840
+      },
+      {
+        "slug": "seed",
+        "sha256": "815e8e255e1150153ebf112d830b0f2be9daacf419cd91d773f68db3c348ec0e",
+        "bytes": 9188
+      },
+      {
+        "slug": "seth",
+        "sha256": "f515d578505d587c275014dde4c313d0052e659795c39155dda124a3c186b207",
+        "bytes": 8606
+      },
+      {
+        "slug": "sigrid",
+        "sha256": "ea498eb1a19866c016e3aa3dc085245937a73519a63f4b1af35abcaaab64eba3",
+        "bytes": 14664
+      },
+      {
+        "slug": "soldier-11",
+        "sha256": "2dedaa1a16032bf1ba344bd7e5a2a7e8bf6489ddebe8060a247354dc61039fad",
+        "bytes": 9124
+      },
+      {
+        "slug": "soukaku",
+        "sha256": "5c881480284996895f5e03afa37f205bd4ea9f058a35e7456db1996ca6c5ebf1",
+        "bytes": 12252
+      },
+      {
+        "slug": "sunna",
+        "sha256": "5e81f8351021d5f9129efe064b9153a85432532db10478f67478119984d7ab1d",
+        "bytes": 10626
+      },
+      {
+        "slug": "trigger",
+        "sha256": "5c5f13d1df8a0a4733e0474fffb126e3cec7532a86cca4a0129856c7b245d501",
+        "bytes": 9862
+      },
+      {
+        "slug": "ukinami-yuzuha",
+        "sha256": "99c2ff7540b7753c6ddb78f9edd5ffd390fc58b70b8c80285d08b7eaf25b7f48",
+        "bytes": 9290
+      },
+      {
+        "slug": "velina",
+        "sha256": "41aadafc33b6819b7dc0549bc8360fd9115b71dca219213de2f5c4ee6c767e49",
+        "bytes": 10556
+      },
+      {
+        "slug": "vivian",
+        "sha256": "5b4996421655fc3eb5fe223236e6e16d9f7c1cb503280348fc28030357b28b14",
+        "bytes": 9006
+      },
+      {
+        "slug": "yanagi",
+        "sha256": "3e5a4329ecff14ae9b3e241b412deaa3072f7866346c3532be5f3180d2c38bdb",
+        "bytes": 8092
+      },
+      {
+        "slug": "ye-shunguang",
+        "sha256": "c2a8c777d8c7d1bc044c5d27d14ba5a76a2918106369a57cc5f307fc32e78458",
+        "bytes": 10412
+      },
+      {
+        "slug": "yidhari",
+        "sha256": "64ee3b94ff30d23050f55c3bd6409c8230749148efb346b750a79f384c76d727",
+        "bytes": 9862
+      },
+      {
+        "slug": "yixuan",
+        "sha256": "2006da6d43dc79ae225496388ebeced132c4f2bd1672a0641fedf721eca92833",
+        "bytes": 11088
+      },
+      {
+        "slug": "zhao",
+        "sha256": "b184fe70436b1ad0884ff9c820d97ca7533947de9133c864ff27e0b9494220ff",
+        "bytes": 9692
+      },
+      {
+        "slug": "zhu-yuan",
+        "sha256": "1eceaeda950a4adb13d232639bf5e461da5172766f4bc1cad6108a7a0d07c63f",
+        "bytes": 10408
+      }
+    ]
+  }
+}

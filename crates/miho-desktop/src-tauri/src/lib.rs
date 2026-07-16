@@ -859,6 +859,10 @@ mod tests {
         let frontend = include_str!("../../src/main.ts");
         assert!(frontend.contains("document.documentElement.dataset.mihoAppReady = \"v1\""));
         assert!(frontend.contains("history.replaceState(null, \"\", \"#miho-app-ready-v1\")"));
+        assert!(frontend.contains("main.append(visualizerSection, utilities)"));
+        assert!(frontend.contains("pageUrl.hash = \"box\""));
+        assert!(!frontend.contains("save_box_state"));
+        assert!(!frontend.contains("ownedInput"));
         let binary_entry = include_str!("main.rs");
         assert!(binary_entry
             .contains("#[cfg(all(not(debug_assertions), not(feature = \"custom-protocol\")))]"));

@@ -35,7 +35,9 @@ use miho_core::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::{AppInvocation, ExecutionControlError, ResolvedUpdateConfigV1, TaskOperationV1};
+use crate::{
+    bundled_avatars, AppInvocation, ExecutionControlError, ResolvedUpdateConfigV1, TaskOperationV1,
+};
 
 /// One wall-clock observation shared by source metadata, default ranges, and
 /// every generated visualizer timestamp in one frontend invocation.
@@ -463,7 +465,7 @@ fn attach_hsr_visualizer_from_output(
         let Some(bytes) = read_json_object_candidate(&path)? else {
             continue;
         };
-        let mut context = visualizer_context(&avatars, invocation)?;
+        let mut context = visualizer_context(Game::Hsr, &avatars, invocation)?;
         context.add_sidecar_bytes("hsr_banner_plan.json", bytes)?;
         match attach_hsr_visualizer(bundle, &context) {
             Ok(()) => return Ok(()),
@@ -471,7 +473,7 @@ fn attach_hsr_visualizer_from_output(
             Err(error) => return Err(error.into()),
         }
     }
-    let context = visualizer_context(&avatars, invocation)?;
+    let context = visualizer_context(Game::Hsr, &avatars, invocation)?;
     attach_hsr_visualizer(bundle, &context)?;
     Ok(())
 }
@@ -484,7 +486,7 @@ fn attach_zzz_visualizer_from_output(
     validate_optional_directory(out)?;
     validate_optional_directory(&out.join("visualizer"))?;
     let avatars = read_existing_visualizer_avatars(out)?;
-    let mut context = visualizer_context(&avatars, invocation)?;
+    let mut context = visualizer_context(Game::Zzz, &avatars, invocation)?;
     if let Some(bytes) =
         first_valid_phase_override_candidate(&zzz_phase_override_candidates(out, invocation))?
     {
@@ -1048,12 +1050,19 @@ fn read_existing_visualizer_avatars(out: &Path) -> anyhow::Result<Vec<(String, V
 }
 
 fn visualizer_context(
+    game: Game,
     avatars: &[(String, Vec<u8>)],
     invocation: &ExportInvocation,
 ) -> anyhow::Result<VisualizerContext> {
     let mut context = VisualizerContext::new_with_local_datetime(invocation.local_datetime());
     for (slug, bytes) in avatars {
         context.add_avatar_webp(slug, bytes.clone())?;
+    }
+    // Known release-owned slugs are authoritative so a stale or mismatched
+    // cache cannot silently bind one character to another. Unknown cached
+    // slugs remain available for future roster additions.
+    for (slug, bytes) in bundled_avatars::for_game(game) {
+        context.add_avatar_webp(slug, *bytes)?;
     }
     Ok(context)
 }
@@ -1246,6 +1255,41 @@ mod tests {
             invocation.app_invocation().unwrap().local_datetime(),
             invocation.local_datetime()
         );
+    }
+
+    #[test]
+    fn cold_start_visualizer_context_contains_keyed_release_avatars() {
+        let observed_at = DateTime::parse_from_rfc3339("2026-07-16T12:00:00+08:00").unwrap();
+        let invocation = ExportInvocation::new(PathBuf::from("."), observed_at).unwrap();
+        for game in [Game::Hsr, Game::Zzz] {
+            let context = visualizer_context(game, &[], &invocation).unwrap();
+            for (slug, expected) in bundled_avatars::for_game(game) {
+                assert_eq!(
+                    context.avatar_webp(slug),
+                    Some(*expected),
+                    "{game:?}/{slug}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn release_avatar_overrides_mismatched_known_cache_but_keeps_unknown_slug() {
+        let observed_at = DateTime::parse_from_rfc3339("2026-07-16T12:00:00+08:00").unwrap();
+        let invocation = ExportInvocation::new(PathBuf::from("."), observed_at).unwrap();
+        let expected = bundled_avatars::for_game(Game::Hsr)
+            .iter()
+            .find(|(slug, _)| *slug == "acheron")
+            .unwrap()
+            .1;
+        let other = bundled_avatars::for_game(Game::Zzz)[0].1;
+        let cached = vec![
+            ("acheron".to_owned(), other.to_vec()),
+            ("future-agent".to_owned(), other.to_vec()),
+        ];
+        let context = visualizer_context(Game::Hsr, &cached, &invocation).unwrap();
+        assert_eq!(context.avatar_webp("acheron"), Some(expected));
+        assert_eq!(context.avatar_webp("future-agent"), Some(other));
     }
 
     #[test]

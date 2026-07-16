@@ -34,6 +34,7 @@ use miho_core::{
 };
 use serde::{Deserialize, Serialize};
 
+mod bundled_avatars;
 mod export;
 mod task_manager;
 mod update;

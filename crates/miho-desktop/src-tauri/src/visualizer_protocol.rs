@@ -360,6 +360,7 @@ const DESKTOP_APP_BOOTSTRAP: &str = r#"(()=>{
 'use strict';
 const accessToken='__MIHO_WORKSPACE_TOKEN__';
 const storageScope='__MIHO_STORAGE_SCOPE__';
+Object.defineProperty(globalThis,'__MIHO_DESKTOP__',{value:true,writable:false,configurable:false});
 const nativeFetch=globalThis.fetch.bind(globalThis);
 globalThis.fetch=(input,init)=>{
   let target=input;
@@ -756,6 +757,7 @@ mod tests {
         let app = String::from_utf8_lossy(get.body());
         assert!(app.contains("const accessToken='workspace-test-session-0001'"));
         assert!(app.contains(&format!("const storageScope='{STORAGE_SCOPE}'")));
+        assert!(app.contains("Object.defineProperty(globalThis,'__MIHO_DESKTOP__',{value:true"));
         assert!(app.contains("url.searchParams.set('workspace',accessToken)"));
         assert!(app.contains("const prefix=`miho-desktop:${storageScope}:`"));
         assert_ne!(get.body(), b"js");

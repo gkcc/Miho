@@ -30,12 +30,12 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "da85ebc4efb3b784ac07356802dd175c41a1b92ecd774ddf609de454761fe2cb",
+      "app.js": "22ef3849607a564e342fdce6084d9bb6f55870608af108c8fbca394a1f638479",
       "index.html": "aecfb66d6f6b4821b835e520d7e91f64d453b8b543a022a6da266c0d05e83a4e",
       "styles.css": "e47a2030c782251bc1b75436ac848ae167013f8b8b53659f6ff65f6c57e5df88"
     },
     "zzz": {
-      "app.js": "fc92b87497bcdd10db64828cba169bd63925caa5cfa9219e3d961db332c9964a",
+      "app.js": "7e7fb67eb63d7c4bd1990b575f46b6e3de4a5cdb2fa2cf9da262c1519389473d",
       "index.html": "97132c1c66f8f71590b1c36f34d3c31e356f46af62fe431ae8546b402f613123",
       "styles.css": "3f1154c808509dba1b9af6f6b3845e0b3e73e68d02f28283763e89a89afa247a"
     },

@@ -470,6 +470,18 @@
 - **最大困难与路线微调**：最大困难是“窗口能活五秒”跨越不了 Tauri 配置反序列化、codegen 嵌入、WebView origin、真实 DOM 和浏览器副作用范围五层边界；绝对路径在 Windows 和 JSON 上看似合法，却因 untagged enum 顺序改变了产品语义，默认 cache 目录存在也不等于浏览器实际使用它。主流程由“窗口/alive/close”升级为“feature 编译保护 → 相对路径 producer/staged verifier → immutable bytes/容器绑定 → exact `tauri.localhost` → 真实 frontend sentinel/品牌/Tauri internals → error-page 拒绝 → 实际 `--user-data-dir` 绑定 → installed 外部状态差分”。dirty 候选只关闭实现盲区；提交后仍按 clean verification → 原位升级 → installed health/DOM → 独立复审 → 同 commit active 的顺序推进，不能跳步。
 - **最终收口**：clean commit `1f8352be0bbcdae3c306be603bac010338cb343c` 已发布 active，最终 NSIS 原位升级实际安装目录后重新通过 DOM、计划任务 Ready → Running → Ready、HSR/ZZZ exact health、用户数据/owner 保留和零 Python检查。当前交付已完成，后续改进按“先完成、再优化”的新流程单独处理。
 
+### 产品入口补正：Box、Visualizer 与角色头像（2026-07-16，发布待收口）
+
+- **显式提问**：本轮最有把握的修复证据是什么？最值得质疑、最容易被“页面能打开”掩盖的点是什么？
+- **现场原因**：旧桌面把工作区、导出、slug 文本框、报告和技术任务历史放在 Visualizer 之前；桌面 textarea 与 iframe 又会写同一 Box，存在用旧 `builds` 覆盖新修改的竞态。生产 HSR/ZZZ visualizer 分别有 92/59 个 roster，但头像 URL 为 0/92、0/59，头像目录也不存在；此前 readiness 对零头像引用空集通过，因此“health 通过”没有证明头像可用。
+- **Box 恢复**：从业务归档的 `.miho` 恢复并与现场安全合并，当前 HSR 为 57 人、SHA-256 `66C6A38D762EB0D3D1392EBD31FCBC3F30B603B9FEC597D54AF2C9A1A495245F`，ZZZ 为 20 人、SHA-256 `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。回执位于 `%APPDATA%\com.miho.endgame\.miho\recovery\20260716-081526Z-box-recovery-v1\receipt.json`；正式更新、冷启动、双游戏切换和重启后哈希均零漂移。
+- **最小产品修复**：Visualizer 成为首屏并默认进入“我的 Box”；旧 slug textarea 和第二个 `save_box_state` 写入口删除；更新、报告、运行记录与工作区进入默认关闭的“更新数据、生成报告与设置”。任务改成人话，运行编号、状态流水和 artifact kind 收入“技术详情”。desktop Box 采用 server-first：本机 API 成功读取后才初始化可编辑 UI，desktop localStorage 不再自动反写磁盘；用户修改按 revision 串行 PUT，失败明确显示“保存失败，请重试”。静态独立 Visualizer 仍保留浏览器缓存模式。
+- **头像生产修复**：release 内置按 `game + canonical slug + SHA-256` 固定的 151 张权威 WebP seed（HSR 92、ZZZ 59）。每次正式导出重建都会注入；已知 slug 的错误旧缓存由 seed 覆盖，未来未知 slug 仍可保留。当前生产更新已重建到 HSR 92/92、ZZZ 59/59 非空本地 URL，151 个文件哈希互异且路径 basename 与角色 slug 一致。
+- **定点证据**：Vite desktop build、头像 Rust 3 项、visualizer core 23 项、desktop lib 85 项、相关 Python 11 项、PowerShell GUI contract、严格 clippy/fmt 与 `git diff --check` 均通过。installed-mode staging 的跨源 iframe 深测连续两次冷启动通过：首屏/折叠工具区/默认 `#box` 正确，HSR 57/92、ZZZ 20/59，151 张图全部实际解码，basename/slug 零错配、无空图片，ZZZ → HSR → ZZZ 不串 Box，正常退出且调试端口无残留。按完成优先规则未重复运行与改动面无关的全 workspace 435 项和 Python 181 项。
+- **主判断—最有把握**：旧 Box 已有可复核来源、独立回执、精确人数和稳定哈希；头像缺失生产者和双 Box 写入口也都有源码与生产目录直接证据，修复后的深层 DOM 验收覆盖真实角色卡、图片解码和游戏切换，不是仅凭编译成功推断。
+- **主判断—最值得质疑**：仓库 staging 成功不能外推为用户开始菜单里的程序已更新；当前 active manifest 和 `D:\Miho Endgame` 仍是上一版。还必须从本里程碑 clean HEAD 构建 verification-only，用其精确 NSIS 原位升级，重新验证实际安装目录、Box 哈希、151 头像、计划任务 exact health、owner/AppData 和零 Python，再经独立 Blocker/High 复审后从同一 commit 发布 active。
+- **独立对抗判断**：首轮 Box 复审报 `Blocker=0 / High=3`：一项针对旧的异步启动顺序，另两项针对一次性恢复脚本的并发与双文件失败安全。当前两套 app.js 已逐项证明在 `init/render` 前 await 权威 GET，desktop 不从 localStorage 反写；恢复脚本随后从交付面删除，只保留成功回执与哈希证据。二次复审为 `Blocker=0 / High=0`。只把 iframe 移到顶部或用文字占位仍会留下数据竞争和 cold-start 头像复发，不能算完成；最终发布还必须做实际安装路径复测，在这之前不向用户宣称旧快捷方式已经可用。
+
 ## 恢复入口
 
 - 项目状态：本文件。

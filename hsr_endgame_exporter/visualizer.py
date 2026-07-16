@@ -1245,12 +1245,14 @@ const PATH_ORDER=['毁灭','巡猎','智识','同谐','虚无','存护','丰饶'
 const COLORS=['#2563eb','#dc2626','#16a34a','#9333ea','#ea580c','#0891b2','#be123c','#4f46e5','#65a30d','#a16207','#0f766e','#7c3aed','#db2777','#475569'];
 const BOX_KEY='hsr_endgame_box_v1';
 const REC_KEY='hsr_endgame_recommender_v1';
+const PAGES=new Set(['analysis','banner','box','recommender']);
+const desktopMode=globalThis.__MIHO_DESKTOP__===true;
 let DATA=null;
-let state={page:'analysis',mode:'moc',view:'trend',role:'main_dps',tiers:new Set(TIERS),metric:'app_rate',limit:'12',search:'',avatars:true,focus:null,hover:null};
+let state={page:PAGES.has(location.hash.slice(1))?location.hash.slice(1):'box',mode:'moc',view:'trend',role:'main_dps',tiers:new Set(TIERS),metric:'app_rate',limit:'12',search:'',avatars:true,focus:null,hover:null};
 let box={owned:new Set(),builds:{},buildSlug:'',element:'all',path:'all',role:'all',rarity:'all',status:'all',search:'',saveStatus:'浏览器缓存'};
 let rec={mode:'moc',scope:'',elements:{},gap:'1',riskMode:'warn',limit:'8',search:''};
 let banner={phase:'current',search:''};
-let boxSaveTimer=null;
+let boxSaveTimer=null,boxSaveRevision=0,boxSaveChain=Promise.resolve();
 
 const $=id=>document.getElementById(id);
 const ns='http://www.w3.org/2000/svg';
@@ -1263,13 +1265,13 @@ function safeLinkUrl(v){const text=String(v??'').trim();if(!text||text.includes(
 function safeAvatarUrl(v){return safeRelativeUrl(v,true)}
 
 fetch(`./data.json?v=${Date.now()}`,{cache:'no-store'})
-  .then(r=>r.json())
-  .then(data=>{DATA=data;loadBox();loadRecSettings();init();render();syncBoxFromServer();})
-  .catch(err=>{document.body.innerHTML=`<main class="app-shell"><h1>数据加载失败</h1><p>${esc(err.message)}</p></main>`;});
+  .then(r=>r.ok?r.json():Promise.reject(new Error(`数据请求失败（${r.status}）`)))
+  .then(async data=>{DATA=data;loadRecSettings();if(desktopMode)await syncBoxFromServer();else loadBox();init();render();})
+  .catch(err=>{const guard=desktopMode?'为保护你的 Box，本次没有启用编辑；请重启应用后再试。':'';document.body.innerHTML=`<main class="app-shell"><h1>应用启动失败</h1><p>${esc(err.message)}</p><p>${esc(guard)}</p></main>`;});
 
 function init(){
   $('metaLine').textContent=`Prydwen T榜更新：${DATA.meta.tierUpdatedAt||DATA.meta.tierUpdatedDate||'未知'} · 本地数据生成：${DATA.meta.generatedAt||'未知'} · Box 自动保存`;
-  makeButtons('appTabs',[['analysis','趋势分析'],['banner','卡池情报'],['box','我的Box'],['recommender','组队推荐']],state.page,v=>{state.page=v;render();});
+  makeButtons('appTabs',[['box','我的 Box'],['analysis','终局分析'],['banner','卡池'],['recommender','组队推荐']],state.page,v=>{state.page=v;history.replaceState(null,'',`#${v}`);render();});
   makeButtons('modeControl',MODES,state.mode,v=>{state.mode=v;state.focus=null;state.hover=null;render();});
   makeButtons('viewControl',VIEWS,state.view,v=>{state.view=v;state.focus=null;state.hover=null;render();});
   makeButtons('roleControl',ROLES,state.role,v=>{state.role=v;state.focus=null;state.hover=null;render();});
@@ -1563,11 +1565,9 @@ function readableBoxRaw(raw={}){if(!raw||typeof raw!=='object'||Array.isArray(ra
 function applyBoxRaw(raw){raw=readableBoxRaw(raw);const aliases=boxAliasMap();const owned=rawOwnedList(raw);box.owned=new Set(owned.map(s=>aliases.get(s)||s).filter(Boolean));box.builds={};Object.entries(raw.builds||{}).forEach(([slug,build])=>{const resolved=aliases.get(slug)||slug;if(resolved)box.builds[resolved]=normalizeBuild(build);});box.buildSlug=aliases.get(raw.buildSlug)||raw.buildSlug||'';if(box.buildSlug&&!box.owned.has(box.buildSlug))box.buildSlug='';box.saveStatus=raw.fromServer?'本机自动保存':'浏览器缓存';}
 function loadBox(){try{applyBoxRaw(readBoxRaw());}catch{box.owned=new Set();box.builds={};box.buildSlug='';box.saveStatus='浏览器缓存';}}
 function boxPayload(){const builds={};Object.entries(box.builds||{}).forEach(([slug,build])=>{const normalized=normalizeBuild(build);if(buildRecorded(normalized))builds[slug]=normalized;});return{version:2,updatedAt:new Date().toISOString(),owned:[...box.owned].sort(),buildSlug:box.buildSlug||'',builds};}
-function saveBox(){const payload=boxPayload();localStorage.setItem(BOX_KEY,JSON.stringify(payload));box.saveStatus='已保存到浏览器';clearTimeout(boxSaveTimer);boxSaveTimer=setTimeout(()=>saveBoxToServer(payload),180);if(state.page==='box'||state.page==='banner')requestAnimationFrame(()=>{if(state.page==='box')renderBox();else renderBanner();});}
-function hasBoxData(raw){return Boolean(rawOwnedList(raw).length||Object.keys(raw.builds||{}).length);}
-function boxTime(raw){const t=Date.parse(raw.updatedAt||raw.exportedAt||'');return Number.isFinite(t)?t:0;}
-function syncBoxFromServer(){fetch('/api/hsr/box',{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject(new Error('no api'))).then(server=>{const local=readBoxRaw();server.fromServer=true;const serverWins=Boolean(server.updatedAt)&&boxTime(server)>=boxTime(local);if(serverWins||(hasBoxData(server)&&(!hasBoxData(local)||boxTime(server)>=boxTime(local)))){applyBoxRaw(server);localStorage.setItem(BOX_KEY,JSON.stringify(server));box.saveStatus='本机自动保存';render();}else if(hasBoxData(local)){saveBoxToServer(boxPayload());}else{box.saveStatus='本机自动保存';render();}}).catch(()=>{box.saveStatus='浏览器缓存';if(state.page==='box'||state.page==='banner')render();});}
-function saveBoxToServer(payload){fetch('/api/hsr/box',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.ok?r.json():Promise.reject(new Error('save failed'))).then(()=>{box.saveStatus='本机自动保存';if(state.page==='box'||state.page==='banner')render();}).catch(()=>{box.saveStatus='浏览器缓存';if(state.page==='box'||state.page==='banner')render();});}
+function saveBox(){const payload=boxPayload();clearTimeout(boxSaveTimer);if(!desktopMode){localStorage.setItem(BOX_KEY,JSON.stringify(payload));box.saveStatus='已保存到浏览器';}else{const revision=++boxSaveRevision;box.saveStatus='正在保存到本机';boxSaveTimer=setTimeout(()=>{boxSaveChain=boxSaveChain.then(()=>revision===boxSaveRevision?saveBoxToServer(payload,revision):undefined);},180);}if(state.page==='box'||state.page==='banner')requestAnimationFrame(()=>{if(state.page==='box')renderBox();else renderBanner();});}
+function syncBoxFromServer(){return fetch('/api/hsr/box',{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject(new Error(`Box 读取失败（${r.status}）`))).then(server=>{server.fromServer=true;applyBoxRaw(server);localStorage.setItem(BOX_KEY,JSON.stringify(server));box.saveStatus='本机自动保存';});}
+function saveBoxToServer(payload,revision){return fetch('/api/hsr/box',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.ok?r.json():Promise.reject(new Error(`Box 保存失败（${r.status}）`))).then(saved=>{if(revision!==boxSaveRevision)return;localStorage.setItem(BOX_KEY,JSON.stringify(saved));box.saveStatus='本机自动保存';if(state.page==='box'||state.page==='banner')render();}).catch(()=>{if(revision!==boxSaveRevision)return;box.saveStatus='保存失败，请重试';if(state.page==='box'||state.page==='banner')render();});}
 function releaseOrder(row){const n=Number(row.release_order);return Number.isFinite(n)?n:99999}
 function matchesBoxStatus(row){if(box.status==='all')return true;if(box.status==='owned')return box.owned.has(row.character_slug);if(box.status==='missing')return !box.owned.has(row.character_slug);if(box.status.startsWith('banner_'))return String(row.banner_statuses||'').split(';').includes(box.status.replace('banner_',''));return true}
 function boxStatusLabel(){return{all:'全部状态',owned:'已拥有',missing:'未拥有',banner_current:'当期UP',banner_next:'后续卡池',banner_recent:'历史参考'}[box.status]||box.status}

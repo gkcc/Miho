@@ -15,14 +15,6 @@ type TaskStatus =
   | "cancelling"
   | "cancelled";
 
-type BoxState = {
-  version: number;
-  updatedAt: string;
-  owned: string[];
-  buildSlug: string;
-  builds: Record<string, unknown>;
-};
-
 type WorkspaceSummary = {
   schema_version: string;
   workspace_id: string;
@@ -83,14 +75,6 @@ type TaskUpdate = {
 
 type CancelOutcome = "requested" | "too_late" | "already_terminal" | "not_found";
 
-type BoxScopeToken = {
-  workspaceId: string;
-  revision: number;
-  game: Game;
-  epoch: number;
-  requestGeneration: number;
-};
-
 type CommandFailure = {
   code: string;
   message: string;
@@ -107,10 +91,10 @@ type TaskFormState = {
 };
 
 const OPERATIONS: ReadonlyArray<{ value: FormalOperation; label: string; description: string }> = [
-  { value: "evidence", label: "证据池", description: "重建当前证据摘要与数据质量边界。" },
-  { value: "coverage", label: "队伍覆盖", description: "生成当前与规划 Box 的覆盖报告。" },
-  { value: "pull-value", label: "抽取价值", description: "生成 current / next 抽取价值报告。" },
-  { value: "review-packet", label: "复核包", description: "生成供外部复核使用的证据载荷。" },
+  { value: "evidence", label: "整理可用证据", description: "汇总当前公开数据，并标出证据是否足够可靠。" },
+  { value: "coverage", label: "检查队伍覆盖", description: "查看当前 Box 和规划角色能覆盖哪些终局队伍。" },
+  { value: "pull-value", label: "分析抽卡价值", description: "结合当前 Box 分析当期和后续角色的补强价值。" },
+  { value: "review-packet", label: "生成复核材料", description: "整理一份可交给外部复核的分析材料。" },
 ];
 
 const EXPORT_OPERATIONS: ReadonlyArray<{
@@ -122,14 +106,14 @@ const EXPORT_OPERATIONS: ReadonlyArray<{
   {
     value: "hsr-export",
     game: "hsr",
-    label: "崩坏：星穹铁道导出",
-    description: "按本机 update_v1 配置后台更新 HSR 数据、Workbook 与 Visualizer。",
+    label: "更新星穹铁道数据",
+    description: "获取最新公开数据并刷新星铁 Box、卡池和终局分析页面。",
   },
   {
     value: "zzz-export",
     game: "zzz",
-    label: "绝区零导出",
-    description: "按本机 update_v1 配置后台更新 ZZZ 数据、Workbook、Visualizer 与 Hub。",
+    label: "更新绝区零数据",
+    description: "获取最新公开数据并刷新绝区零 Box、卡池和终局分析页面。",
   },
 ];
 
@@ -139,12 +123,12 @@ const CAPABILITY_OPERATIONS: ReadonlyArray<{ value: TaskOperation; label: string
 ];
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
-  queued: "排队中",
-  running: "运行中",
-  committing: "写入中",
-  succeeded: "已完成",
-  failed: "失败",
-  cancelling: "取消中",
+  queued: "等待开始",
+  running: "正在处理",
+  committing: "正在保存",
+  succeeded: "完成",
+  failed: "未完成",
+  cancelling: "正在取消",
   cancelled: "已取消",
 };
 
@@ -156,7 +140,6 @@ if (!app) {
 }
 
 let game: Game = "zzz";
-let boxState: BoxState = emptyBoxState();
 let capabilities: DesktopCapabilities | null = null;
 let taskForm: TaskFormState = {
   operation: "evidence",
@@ -166,11 +149,6 @@ let taskForm: TaskFormState = {
   minRate: "10.0",
   includeMissing: false,
 };
-let boxLoading = false;
-let boxSaving = false;
-let boxScopeEpoch = 0;
-let boxRequestGeneration = 0;
-let loadedBoxScopeKey: string | null = null;
 let capabilitiesRequestGeneration = 0;
 let workspaceBusy = false;
 let taskBusy = false;
@@ -181,10 +159,6 @@ const tasks = new Map<string, PublicTaskSnapshot>();
 const authoritativeTaskSequences = new Map<string, number>();
 const eventTaskSequences = new Map<string, number>();
 const taskQueries = new Map<string, number>();
-
-function emptyBoxState(): BoxState {
-  return { version: 2, updatedAt: "", owned: [], buildSlug: "", builds: {} };
-}
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -216,7 +190,7 @@ function splitValues(value: string): string[] {
 }
 
 function operationLabel(operation: TaskOperation): string {
-  if (operation === "decision") return "Legacy decision（兼容诊断）";
+  if (operation === "decision") return "旧版兼容检查";
   const exportOperation = EXPORT_OPERATIONS.find((candidate) => candidate.value === operation);
   if (exportOperation) return exportOperation.label;
   return OPERATIONS.find((candidate) => candidate.value === operation)?.label ?? operation;
@@ -242,11 +216,10 @@ gameNav.setAttribute("aria-label", "游戏选择");
 const gameButtons = new Map<Game, HTMLButtonElement>();
 for (const [value, label] of [["hsr", "崩坏：星穹铁道"], ["zzz", "绝区零"]] as const) {
   const button = makeButton(label, "game-button", async () => {
-    if (game === value || workspaceBusy || boxSaving) return;
-    invalidateBoxScope("正在切换游戏…");
+    if (game === value || workspaceBusy) return;
     game = value;
     updateGameUI();
-    await Promise.all([loadBox(), loadVisualizer()]);
+    await loadVisualizer();
   });
   gameButtons.set(value, button);
   gameNav.append(button);
@@ -271,32 +244,13 @@ const runtimeLimits = element("div", "runtime-limits");
 const workspaceWarnings = element("div", "warning-list");
 workspaceSection.append(workspaceHeading, workspaceSummary, capabilityGrid, runtimeLimits, workspaceWarnings, workspaceMessage);
 
-const boxSection = element("section", "panel box-panel");
-const boxHeading = element("div", "section-heading");
-const boxTitleBlock = element("div");
-const boxKicker = element("p", "eyebrow", "LOCAL BOX STATE");
-const boxTitle = element("h2", undefined, "绝区零 Box");
-const boxCount = element("p", "muted", "0 名已拥有角色");
-boxTitleBlock.append(boxKicker, boxTitle, boxCount);
-const boxActions = element("div", "button-row");
-const reloadBoxButton = makeButton("重新读取", "button secondary", loadBox);
-const saveBoxButton = makeButton("保存到本机", "button primary", saveBox);
-boxActions.append(reloadBoxButton, saveBoxButton);
-boxHeading.append(boxTitleBlock, boxActions);
-const ownedInput = element("textarea", "owned-input");
-ownedInput.placeholder = "每行一个角色 slug";
-ownedInput.spellcheck = false;
-ownedInput.setAttribute("aria-label", "已拥有角色 slug");
-const boxMessage = element("p", "notice", "");
-boxSection.append(boxHeading, ownedInput, boxActions, boxMessage);
-
 const exportSection = element("section", "panel export-panel");
 const exportHeading = element("div", "section-heading");
 const exportTitleBlock = element("div");
 exportTitleBlock.append(
-  element("p", "eyebrow", "BACKGROUND DATA EXPORTS"),
-  element("h2", undefined, "双游戏数据导出"),
-  element("p", "muted", "WebView 只提交版本化游戏意图；数据集、缓存与输出路径全部由本机工作区配置解析。"),
+  element("p", "eyebrow", "DATA UPDATE"),
+  element("h2", undefined, "更新公开数据"),
+  element("p", "muted", "需要刷新角色、卡池或终局数据时再运行；更新会在后台完成。"),
 );
 exportHeading.append(exportTitleBlock);
 const exportControls = element("div", "export-controls");
@@ -305,23 +259,23 @@ const exportStatuses = new Map<ExportOperation, HTMLElement>();
 for (const operation of EXPORT_OPERATIONS) {
   const card = element("article", "export-card");
   card.append(element("h3", undefined, operation.label), element("p", "muted", operation.description));
-  const button = makeButton("开始后台导出", "button primary", () => startExport(operation.value));
+  const button = makeButton("立即更新", "button primary", () => startExport(operation.value));
   const status = element("p", "notice", "等待本机能力信息。");
   exportButtons.set(operation.value, button);
   exportStatuses.set(operation.value, status);
   card.append(button, status);
   exportControls.append(card);
 }
-const exportMessage = element("p", "notice", "HSR 与 ZZZ 导出共用下方同一任务状态、取消与历史入口。");
+const exportMessage = element("p", "notice", "更新进度会显示在下方“本次运行进度”中。");
 exportSection.append(exportHeading, exportControls, exportMessage);
 
 const taskSection = element("section", "panel task-panel");
 const taskHeading = element("div", "section-heading");
 const taskTitleBlock = element("div");
 taskTitleBlock.append(
-  element("p", "eyebrow", "BACKGROUND REPORT TASKS"),
-  element("h2", undefined, "正式报告任务"),
-  element("p", "muted", "任务意图不接收文件路径；路径只由本机工作区解析。"),
+  element("p", "eyebrow", "ADVANCED REPORTS"),
+  element("h2", undefined, "生成分析报告（高级）"),
+  element("p", "muted", "只有需要导出专项分析时才使用；日常维护 Box 不需要运行这些操作。"),
 );
 const taskRefreshButton = makeButton("刷新任务", "button secondary", refreshTasks);
 taskHeading.append(taskTitleBlock, taskRefreshButton);
@@ -401,8 +355,8 @@ taskSection.append(taskHeading, taskFormElement, diagnostic);
 const historySection = element("section", "panel history-panel");
 const historyHeading = element("div", "section-heading");
 const historyTitleBlock = element("div");
-historyTitleBlock.append(element("p", "eyebrow", "AUTHORITATIVE TASK QUERY"), element("h2", undefined, "任务状态与历史"));
-const historyMeta = element("p", "muted", "事件用于唤醒查询；显示结果以本机查询为准。");
+historyTitleBlock.append(element("p", "eyebrow", "CURRENT SESSION"), element("h2", undefined, "本次运行进度"));
+const historyMeta = element("p", "muted", "这些不是你的待办，只是本次打开程序后进行的数据更新和报告生成记录。");
 historyHeading.append(historyTitleBlock, historyMeta);
 const taskList = element("div", "task-list");
 historySection.append(historyHeading, taskList);
@@ -410,8 +364,8 @@ historySection.append(historyHeading, taskList);
 const visualizerSection = element("section", "panel visualizer-panel");
 const visualizerHeading = element("div", "section-heading");
 const visualizerTitleBlock = element("div");
-const visualizerTitle = element("h2", undefined, "绝区零 Visualizer");
-visualizerTitleBlock.append(element("p", "eyebrow", "READ-ONLY VISUALIZER"), visualizerTitle);
+const visualizerTitle = element("h2", undefined, "绝区零 · 我的 Box 与终局分析");
+visualizerTitleBlock.append(element("p", "eyebrow", "MY BOX"), visualizerTitle);
 const reloadVisualizerButton = makeButton("重新载入", "button secondary", loadVisualizer);
 visualizerHeading.append(visualizerTitleBlock, reloadVisualizerButton);
 const visualizerMessage = element("p", "notice", "正在向本机后端请求 Visualizer 地址…");
@@ -422,12 +376,23 @@ visualizerFrame.referrerPolicy = "no-referrer";
 visualizerFrame.hidden = true;
 visualizerFrame.addEventListener("error", () => {
   visualizerFrame.hidden = true;
+  visualizerMessage.hidden = false;
+  utilities.open = true;
   visualizerMessage.textContent = "Visualizer 页面加载失败。请刷新或检查本机生成状态。";
   visualizerMessage.className = "notice error";
 });
+visualizerFrame.addEventListener("load", () => {
+  if (visualizerFrame.src) visualizerMessage.hidden = true;
+});
 visualizerSection.append(visualizerHeading, visualizerMessage, visualizerFrame);
 
-main.append(workspaceSection, exportSection, boxSection, taskSection, historySection, visualizerSection);
+const utilities = element("details", "utilities");
+const utilitiesSummary = element("summary", undefined, "更新数据、生成报告与设置");
+const utilitiesContent = element("div", "utilities-content");
+utilitiesContent.append(exportSection, taskSection, historySection, workspaceSection);
+utilities.append(utilitiesSummary, utilitiesContent);
+
+main.append(visualizerSection, utilities);
 app.replaceChildren(header, main);
 document.documentElement.dataset.mihoAppReady = "v1";
 history.replaceState(null, "", "#miho-app-ready-v1");
@@ -439,9 +404,7 @@ function updateGameUI(): void {
     button.setAttribute("aria-pressed", String(active));
   }
   const gameName = game === "zzz" ? "绝区零" : "崩坏：星穹铁道";
-  boxTitle.textContent = `${gameName} Box`;
-  visualizerTitle.textContent = `${gameName} Visualizer`;
-  updateBoxControls();
+  visualizerTitle.textContent = `${gameName} · 我的 Box 与终局分析`;
 }
 
 function setNotice(target: HTMLElement, message: string, kind: "normal" | "error" | "success" = "normal"): void {
@@ -449,135 +412,12 @@ function setNotice(target: HTMLElement, message: string, kind: "normal" | "error
   target.className = kind === "normal" ? "notice" : `notice ${kind}`;
 }
 
-function boxScopeKey(token?: Omit<BoxScopeToken, "requestGeneration">): string | null {
-  const workspace = token ?? (capabilities ? {
-    workspaceId: capabilities.workspace.workspace_id,
-    revision: capabilities.workspace.revision,
-    game,
-    epoch: boxScopeEpoch,
-  } : null);
-  return workspace
-    ? `${workspace.workspaceId}\u0000${workspace.revision}\u0000${workspace.game}\u0000${workspace.epoch}`
-    : null;
-}
-
-function nextBoxScopeToken(): BoxScopeToken | null {
-  if (!capabilities) return null;
-  return {
-    workspaceId: capabilities.workspace.workspace_id,
-    revision: capabilities.workspace.revision,
-    game,
-    epoch: boxScopeEpoch,
-    requestGeneration: ++boxRequestGeneration,
-  };
-}
-
-function boxTokenIsCurrent(token: BoxScopeToken): boolean {
-  return token.requestGeneration === boxRequestGeneration
-    && token.epoch === boxScopeEpoch
-    && token.game === game
-    && token.workspaceId === capabilities?.workspace.workspace_id
-    && token.revision === capabilities.workspace.revision;
-}
-
-async function nativeBoxScopeStillMatches(token: BoxScopeToken): Promise<boolean> {
-  if (!boxTokenIsCurrent(token)) return false;
-  const native = await invoke<DesktopCapabilities>("get_capabilities");
-  return boxTokenIsCurrent(token)
-    && native.workspace.workspace_id === token.workspaceId
-    && native.workspace.revision === token.revision;
-}
-
-function updateBoxControls(): void {
-  const loaded = loadedBoxScopeKey !== null && loadedBoxScopeKey === boxScopeKey();
-  reloadBoxButton.disabled = workspaceBusy || boxSaving || !capabilities;
-  saveBoxButton.disabled = workspaceBusy || boxSaving || boxLoading || !loaded;
-  ownedInput.disabled = workspaceBusy || boxSaving || boxLoading || !loaded;
-  for (const button of gameButtons.values()) button.disabled = workspaceBusy || boxSaving;
+function updateWorkspaceControls(): void {
+  for (const button of gameButtons.values()) button.disabled = workspaceBusy;
   selectWorkspaceButton.disabled = workspaceBusy
-    || boxSaving
     || capabilities?.workspace_selection_enabled === false
     || hasActiveTask();
-  refreshWorkspaceButton.disabled = workspaceBusy || boxSaving;
-}
-
-function invalidateBoxScope(message: string): void {
-  boxScopeEpoch += 1;
-  boxRequestGeneration += 1;
-  boxLoading = false;
-  loadedBoxScopeKey = null;
-  boxState = emptyBoxState();
-  ownedInput.value = "";
-  boxCount.textContent = "Box 尚未载入";
-  setNotice(boxMessage, message);
-  updateBoxControls();
-}
-
-async function loadBox(): Promise<void> {
-  const token = nextBoxScopeToken();
-  if (!token || boxSaving) {
-    updateBoxControls();
-    return;
-  }
-  boxLoading = true;
-  loadedBoxScopeKey = null;
-  updateBoxControls();
-  setNotice(boxMessage, "正在读取 Box…");
-  try {
-    const loaded = await invoke<BoxState>("load_box_state", {
-      game: token.game,
-      workspaceId: token.workspaceId,
-    });
-    if (!await nativeBoxScopeStillMatches(token)) return;
-    boxState = loaded;
-    loadedBoxScopeKey = boxScopeKey(token);
-    ownedInput.value = loaded.owned.join("\n");
-    boxCount.textContent = `${loaded.owned.length} 名已拥有角色`;
-    setNotice(boxMessage, "已从当前工作区读取。", "success");
-  } catch (error) {
-    if (!boxTokenIsCurrent(token)) return;
-    const failure = safeError(error);
-    setNotice(boxMessage, `读取失败（${failure.code}）：${failure.message}`, "error");
-  } finally {
-    if (boxTokenIsCurrent(token)) boxLoading = false;
-    updateBoxControls();
-  }
-}
-
-async function saveBox(): Promise<void> {
-  const expectedScope = boxScopeKey();
-  if (boxSaving || boxLoading || !expectedScope || loadedBoxScopeKey !== expectedScope) return;
-  const token = nextBoxScopeToken();
-  if (!token) return;
-  boxSaving = true;
-  updateBoxControls();
-  setNotice(boxMessage, "正在保存…");
-  const nextState: BoxState = {
-    ...boxState,
-    owned: splitValues(ownedInput.value),
-    updatedAt: new Date().toISOString(),
-  };
-  try {
-    const saved = await invoke<BoxState>("save_box_state", {
-      game: token.game,
-      workspaceId: token.workspaceId,
-      state: nextState,
-    });
-    if (!boxTokenIsCurrent(token)) return;
-    boxState = saved;
-    loadedBoxScopeKey = boxScopeKey(token);
-    ownedInput.value = saved.owned.join("\n");
-    boxCount.textContent = `${saved.owned.length} 名已拥有角色`;
-    setNotice(boxMessage, "已保存到当前工作区。", "success");
-    await refreshCapabilities();
-  } catch (error) {
-    if (!boxTokenIsCurrent(token)) return;
-    const failure = safeError(error);
-    setNotice(boxMessage, `保存失败（${failure.code}）：${failure.message}`, "error");
-  } finally {
-    boxSaving = false;
-    updateBoxControls();
-  }
+  refreshWorkspaceButton.disabled = workspaceBusy;
 }
 
 function capabilityFor(operation: TaskOperation): OperationCapability | undefined {
@@ -590,7 +430,7 @@ function renderCapabilities(): void {
   runtimeLimits.replaceChildren();
   workspaceWarnings.replaceChildren();
   if (!capabilities) {
-    updateBoxControls();
+    updateWorkspaceControls();
     updateExportControls();
     updateTaskForm();
     return;
@@ -641,16 +481,14 @@ function renderCapabilities(): void {
     item.append(element("span", "muted", label), element("strong", enabled ? yes : no));
     runtimeLimits.append(item);
   }
-  historyMeta.textContent = capabilities.task_queries_are_authoritative
-    ? `事件仅唤醒权威查询；任务历史${capabilities.task_history_persistent ? "会" : "不会"}跨应用重启保留。`
-    : "当前后端未声明权威任务查询；请谨慎使用状态结果。";
+  historyMeta.textContent = capabilities.task_history_persistent
+    ? "这些不是你的待办，只显示数据更新和报告生成的运行记录。"
+    : "这些不是你的待办，只显示本次打开程序后的数据更新和报告生成记录。";
 
   for (const warning of capabilities.warnings) {
     workspaceWarnings.append(element("p", "notice warning", warning));
   }
-  selectWorkspaceButton.disabled = workspaceBusy || boxSaving || !capabilities.workspace_selection_enabled || hasActiveTask();
-  refreshWorkspaceButton.disabled = workspaceBusy || boxSaving;
-  updateBoxControls();
+  updateWorkspaceControls();
   updateExportControls();
   updateTaskForm();
 }
@@ -661,10 +499,6 @@ async function refreshCapabilities(): Promise<void> {
   try {
     const next = await invoke<DesktopCapabilities>("get_capabilities");
     if (request !== capabilitiesRequestGeneration) return;
-    const workspaceChanged = capabilities !== null
-      && (capabilities.workspace.workspace_id !== next.workspace.workspace_id
-        || capabilities.workspace.revision !== next.workspace.revision);
-    if (workspaceChanged) invalidateBoxScope("工作区已变化，Box 等待重新读取。");
     capabilities = next;
     renderCapabilities();
     setNotice(workspaceMessage, "能力与缺失输入已刷新。", "success");
@@ -678,7 +512,7 @@ async function refreshCapabilities(): Promise<void> {
 }
 
 async function selectWorkspace(): Promise<void> {
-  if (workspaceBusy || boxSaving || hasActiveTask()) return;
+  if (workspaceBusy || hasActiveTask()) return;
   workspaceBusy = true;
   renderCapabilities();
   setNotice(workspaceMessage, "请选择可信的本机工作区…");
@@ -688,10 +522,9 @@ async function selectWorkspace(): Promise<void> {
       setNotice(workspaceMessage, "未更改工作区；现有 Box 保持不变。");
       return;
     }
-    invalidateBoxScope("工作区已切换，Box 等待重新读取。");
     setNotice(workspaceMessage, "工作区已切换，正在刷新…", "success");
     await refreshCapabilities();
-    await Promise.all([loadBox(), refreshTasks(), loadVisualizer()]);
+    await Promise.all([refreshTasks(), loadVisualizer()]);
   } catch (error) {
     const failure = safeError(error);
     setNotice(workspaceMessage, `切换失败（${failure.code}）：${failure.message}`, "error");
@@ -914,34 +747,47 @@ function renderTasks(): void {
   taskList.replaceChildren();
   const ordered = [...tasks.values()].sort((left, right) => right.task_id.localeCompare(left.task_id));
   if (ordered.length === 0) {
-    taskList.append(element("p", "empty-state", "当前会话还没有任务。"));
+    taskList.append(element("p", "empty-state", "还没有进行数据更新或报告生成。"));
   }
   for (const task of ordered) {
     const card = element("article", `task-card status-${task.status}`);
     const titleRow = element("div", "task-title-row");
     const title = element("div");
-    title.append(element("h3", undefined, operationLabel(task.operation)), element("p", "task-id", task.task_id));
+    title.append(element("h3", undefined, operationLabel(task.operation)));
     const badge = element("span", `status-badge ${task.status}`, STATUS_LABELS[task.status]);
     titleRow.append(title, badge);
-    card.append(titleRow);
+    const outcome = task.status === "succeeded"
+      ? "操作已经完成，相关页面或报告已刷新。"
+      : task.status === "failed"
+        ? "操作没有完成，请查看下方原因。"
+        : task.status === "cancelled"
+          ? "操作已取消，没有继续写入。"
+          : task.status === "committing"
+            ? "处理完成，正在安全保存结果。"
+            : "正在后台处理，可以继续查看 Box。";
+    card.append(titleRow, element("p", "task-summary muted", outcome));
 
+    const technical = element("details", "technical-details");
+    technical.append(element("summary", undefined, "技术详情"), element("p", "task-id", `运行编号：${task.task_id}`));
     const timeline = element("ol", "status-history");
     for (const status of task.status_history) timeline.append(element("li", undefined, STATUS_LABELS[status]));
-    card.append(timeline);
+    technical.append(timeline);
 
     if (task.failure) {
       const failure = element("div", "failure-box");
       failure.append(
-        element("strong", undefined, task.failure.code),
+        element("strong", undefined, "没有完成"),
         element("p", undefined, task.failure.message),
-        element("span", "muted", task.failure.retryable ? "可重试" : "不可重试"),
+        element("span", "muted", task.failure.retryable ? "可以稍后重试" : "请根据错误说明检查输入"),
       );
       card.append(failure);
+      technical.append(element("p", "task-id", `错误代码：${task.failure.code}`));
     }
 
     if (task.artifacts.length > 0) {
+      card.append(element("p", "task-summary", `已生成 ${task.artifacts.length} 个结果文件。`));
       const artifacts = element("div", "artifacts");
-      artifacts.append(element("h4", undefined, "输出（逻辑名称）"));
+      artifacts.append(element("h4", undefined, "结果文件"));
       const list = element("ul");
       for (const artifact of task.artifacts) {
         const item = element("li");
@@ -949,7 +795,11 @@ function renderTasks(): void {
         list.append(item);
       }
       artifacts.append(list);
-      card.append(artifacts);
+      technical.append(artifacts);
+    }
+
+    if (task.status === "succeeded" && (task.operation === "hsr-export" || task.operation === "zzz-export")) {
+      card.append(makeButton("查看 Box 和分析", "button secondary", () => visualizerSection.scrollIntoView({ behavior: "smooth" })));
     }
 
     if (!TERMINAL_STATUSES.has(task.status) && capabilities?.supports_cancel) {
@@ -957,9 +807,10 @@ function renderTasks(): void {
       cancel.disabled = task.cancellation_requested || task.status === "committing";
       card.append(cancel);
     }
+    card.append(technical);
     taskList.append(card);
   }
-  updateBoxControls();
+  updateWorkspaceControls();
   updateExportControls();
   updateTaskForm();
 }
@@ -1059,6 +910,7 @@ async function loadVisualizer(): Promise<void> {
   reloadVisualizerButton.disabled = true;
   visualizerFrame.hidden = true;
   visualizerFrame.removeAttribute("src");
+  visualizerMessage.hidden = false;
   setNotice(visualizerMessage, "正在向本机后端请求 Visualizer 地址…");
   try {
     const result = await invoke<unknown>("get_visualizer_url", { game });
@@ -1068,12 +920,15 @@ async function loadVisualizer(): Promise<void> {
       setNotice(visualizerMessage, "Visualizer 暂不可用；后端未返回受支持的地址。", "error");
       return;
     }
-    visualizerFrame.src = url;
+    const pageUrl = new URL(url);
+    pageUrl.hash = "box";
+    visualizerFrame.src = pageUrl.toString();
     visualizerFrame.hidden = false;
     setNotice(visualizerMessage, "Visualizer 由本机后端提供，并在受限 iframe 中运行。", "success");
   } catch (error) {
     if (request !== visualizerRequest) return;
     const failure = safeError(error);
+    utilities.open = true;
     setNotice(visualizerMessage, `Visualizer 不可用（${failure.code}）：${failure.message}`, "error");
   } finally {
     if (request === visualizerRequest) reloadVisualizerButton.disabled = false;
@@ -1081,12 +936,12 @@ async function loadVisualizer(): Promise<void> {
 }
 
 async function refreshAll(): Promise<void> {
-  if (workspaceBusy || boxSaving) return;
+  if (workspaceBusy) return;
   workspaceBusy = true;
   renderCapabilities();
   try {
     await refreshCapabilities();
-    await Promise.all([refreshTasks(), loadBox(), loadVisualizer()]);
+    await Promise.all([refreshTasks(), loadVisualizer()]);
   } finally {
     workspaceBusy = false;
     renderCapabilities();

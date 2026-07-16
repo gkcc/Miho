@@ -64,6 +64,20 @@ _UID_RE = re.compile(r"(?<!\d)\d{9,12}(?!\d)")
 LOCAL_DATETIME = "2026-07-12T13:00:00"
 
 
+@pytest.mark.parametrize("game", ["hsr", "zzz"])
+def test_desktop_box_bootstrap_uses_server_before_enabling_ui(game: str) -> None:
+    app = (
+        ROOT / "crates" / "miho-core" / "assets" / "visualizer" / game / "app.js"
+    ).read_text(encoding="utf-8")
+
+    assert "const desktopMode=globalThis.__MIHO_DESKTOP__===true" in app
+    assert "if(desktopMode)await syncBoxFromServer();else loadBox();init();render();" in app
+    assert f"function syncBoxFromServer(){{return fetch('/api/{game}/box'" in app
+    assert "if(!desktopMode){localStorage.setItem" in app
+    assert "loadBox();loadRec" not in app
+    assert "render();syncBoxFromServer();" not in app
+
+
 class _FixedLocalDateTime(datetime):
     @classmethod
     def now(cls, tz: object = None) -> "_FixedLocalDateTime":
