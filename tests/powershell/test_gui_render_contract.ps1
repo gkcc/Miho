@@ -10,6 +10,20 @@ finally {
     $env:MIHO_GUI_RENDER_TEST_DEFINE_ONLY_V1 = $previousDefineOnly
 }
 
+$hashFixture = Join-Path ([System.IO.Path]::GetTempPath()) ("miho-gui-hash-" + [guid]::NewGuid().ToString("N"))
+try {
+    [System.IO.File]::WriteAllBytes($hashFixture, [System.Text.Encoding]::UTF8.GetBytes("abc"))
+    if ((Get-MihoProbeFileSha256V1 -LiteralPath $hashFixture) -cne
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") {
+        throw "GUI render receipt SHA-256 no longer matches the executable bytes"
+    }
+}
+finally {
+    if ([System.IO.File]::Exists($hashFixture)) {
+        [System.IO.File]::Delete($hashFixture)
+    }
+}
+
 $valid = [pscustomobject]@{
     type = "page"
     title = "MIHO"
@@ -238,6 +252,7 @@ if ($scriptSource -notmatch 'Desktop process wrote unexpected stdout/stderr afte
     $scriptSource -notmatch 'Set-MihoGuiRenderChildEnvironmentV1 -StartInfo \$startInfo -DebugPort \$port' -or
     $scriptSource -notmatch 'Assert-MihoBoundWebViewUserDataDirectoryV1' -or
     $scriptSource -notmatch 'Get-MihoExitedProcessDiagnosticV1 -Process \$process -WaitMilliseconds 250' -or
+    $scriptSource -match 'Get-FileHash' -or
     $scriptSource -match 'Get-MihoDescendantProcessIdsV1' -or
     $scriptSource -match 'Get-MihoOwnedDebugPortProcessIdsV1') {
     throw "GUI render script does not fail closed on process output or still uses unbound descendant PIDs"

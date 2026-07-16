@@ -13,6 +13,20 @@ param(
 $ErrorActionPreference = "Stop"
 $readyUrl = "https://tauri.localhost/#miho-app-ready-v1"
 
+function Get-MihoProbeFileSha256V1 {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+
+    $stream = [System.IO.File]::OpenRead([System.IO.Path]::GetFullPath($LiteralPath))
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return (($sha256.ComputeHash($stream) | ForEach-Object { $_.ToString("x2") }) -join "")
+    }
+    finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Test-MihoRenderedTargetV1 {
     param([Parameter(Mandatory = $true)]$Target)
 
@@ -746,7 +760,7 @@ try {
         schema_version = "miho-gui-render-verification-v1"
         mode = $Mode.ToLowerInvariant()
         executable = $fullExecutable
-        executable_sha256 = (Get-FileHash -LiteralPath $fullExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
+        executable_sha256 = Get-MihoProbeFileSha256V1 -LiteralPath $fullExecutable
         title = [string]$readyTarget.title
         url = [string]$renderedDom.href
         render_sentinel = "data-miho-app-ready=v1"
