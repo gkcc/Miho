@@ -41,6 +41,10 @@ const RELEASE_BOOTSTRAP_TRANSACTION_DISCARD_COMPLETION_PREFIX_V1: &str =
     ".miho-bootstrap-discard-completed-v1-";
 const TRANSACTION_DIRECTORY_PATHS_V1: &[&str] =
     &[".miho", "configs", "configs/zzz_mechanism_notes"];
+// Accepted only while reading a state written by an older release. The
+// canonical seed is `norma.yaml`; a successful bootstrap retires this state
+// entry without deleting or rewriting the legacy file itself.
+const LEGACY_MANAGED_CONFIG_PATHS_V1: &[&str] = &["configs/zzz_mechanism_notes/nom.yaml"];
 static NEXT_TRANSACTION_STAGE_ID_V1: AtomicU64 = AtomicU64::new(0);
 
 const CONFIG_SEEDS: &[SeedFile<'static>] = &[
@@ -69,8 +73,8 @@ const CONFIG_SEEDS: &[SeedFile<'static>] = &[
         include_bytes!("../../../configs/zzz_decision_baseline.json"),
     ),
     SeedFile::config(
-        "configs/zzz_mechanism_notes/nom.yaml",
-        include_bytes!("../../../configs/zzz_mechanism_notes/nom.yaml"),
+        "configs/zzz_mechanism_notes/norma.yaml",
+        include_bytes!("../../../configs/zzz_mechanism_notes/norma.yaml"),
     ),
     SeedFile::config(
         "configs/zzz_mechanism_notes/sunna.yaml",
@@ -259,7 +263,9 @@ impl ReleaseBootstrapStateV1 {
         if self.schema_version != RELEASE_BOOTSTRAP_STATE_SCHEMA_V1 {
             return Err(WorkspaceBootstrapError::InvalidState);
         }
-        let allowlist = seed_paths().collect::<BTreeSet<_>>();
+        let allowlist = seed_paths()
+            .chain(LEGACY_MANAGED_CONFIG_PATHS_V1.iter().copied())
+            .collect::<BTreeSet<_>>();
         for (path, hash) in &self.managed_files {
             if !allowlist.contains(path.as_str()) || !is_lower_sha256(hash) {
                 return Err(WorkspaceBootstrapError::InvalidState);
@@ -485,6 +491,9 @@ fn plan_workspace_bootstrap_v1(
     let mut desired_state = loaded_state
         .clone()
         .unwrap_or_else(ReleaseBootstrapStateV1::empty);
+    for legacy_path in LEGACY_MANAGED_CONFIG_PATHS_V1 {
+        desired_state.managed_files.remove(*legacy_path);
+    }
     let mut outputs = Vec::<(PathBuf, Vec<u8>)>::new();
     let mut files = Vec::<PlannedBootstrapFileV1>::new();
     let mut receipt = WorkspaceBootstrapReceiptV1 {

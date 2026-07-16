@@ -498,6 +498,157 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+async function zzzPersistenceSnapshot(context) {
+  const snapshot = await evaluate(context.id, `(() => {
+    const normalize = (value) => {
+      if (Array.isArray(value)) return value.map(normalize);
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.keys(value).sort().map((key) => [key, normalize(value[key])]));
+      }
+      return value;
+    };
+    if (typeof box !== 'object' || !(box?.owned instanceof Set)) return null;
+    const storageEntries = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith('zzz_')) storageEntries.push([key, localStorage.getItem(key)]);
+    }
+    storageEntries.sort(([left], [right]) => left.localeCompare(right));
+    const boxState = normalize({
+      owned: [...box.owned].sort(),
+      buildSlug: box.buildSlug ?? '',
+      builds: box.builds ?? {},
+    });
+    return {
+      boxState: JSON.stringify(boxState),
+      localStorageState: JSON.stringify(storageEntries),
+      ownedCount: box.owned.size,
+      localStorageKeys: storageEntries.map(([key]) => key),
+    };
+  })()`, context.sessionId);
+  assert(snapshot?.boxState && typeof snapshot.localStorageState === "string", "ZZZ state could not be snapshotted", snapshot);
+  return {
+    ...snapshot,
+    boxSha256: sha256(snapshot.boxState),
+    localStorageSha256: sha256(snapshot.localStorageState),
+  };
+}
+
+function zzzPersistenceReceipt(snapshot) {
+  return {
+    boxSha256: snapshot.boxSha256,
+    localStorageSha256: snapshot.localStorageSha256,
+    ownedCount: snapshot.ownedCount,
+    localStorageKeys: snapshot.localStorageKeys,
+  };
+}
+
+function verifyZzzPersistence(before, after) {
+  assert(after.boxState === before.boxState, "ZZZ Box state changed during the product probe", {
+    before: before.boxSha256,
+    after: after.boxSha256,
+  });
+  assert(after.localStorageState === before.localStorageState, "ZZZ localStorage changed during the product probe", {
+    before: before.localStorageSha256,
+    after: after.localStorageSha256,
+    beforeKeys: before.localStorageKeys,
+    afterKeys: after.localStorageKeys,
+  });
+  return {
+    ...zzzPersistenceReceipt(after),
+    boxUnchanged: true,
+    localStorageUnchanged: true,
+  };
+}
+
+async function verifyZzzBoxRoster(context) {
+  const snapshot = await evaluate(context.id, `(() => {
+    const rosterRows = typeof DATA === 'object' && Array.isArray(DATA?.rosterRows) ? DATA.rosterRows : [];
+    const rosterBySlug = new Map(rosterRows.map((row) => [row.character_slug, row]));
+    const slugByName = new Map(rosterRows.map((row) => [
+      String(row.character_name_cn || row.character_name_en || row.character_slug || '').trim(),
+      row.character_slug || '',
+    ]));
+    const statuses = (row) => String(row?.banner_statuses || '').split(';').filter(Boolean);
+    const cards = [...document.querySelectorAll('#boxGrid .box-card')].map((card, index) => {
+      const displayName = card.querySelector('.box-name, .name')?.textContent?.trim() ?? '';
+      const slug = card.dataset.slug || slugByName.get(displayName) || '';
+      return { index, slug, displayName, statuses: statuses(rosterBySlug.get(slug)) };
+    });
+    const isNorma = (row) => {
+      const slug = String(row?.character_slug || '').toLowerCase();
+      const nameCn = String(row?.character_name_cn || '');
+      const nameEn = String(row?.character_name_en || '').toLowerCase();
+      return slug === 'norma' || slug === 'nom' || nameCn.includes('诺姆') || nameEn === 'norma' || nameEn === 'nom';
+    };
+    const normaRoster = rosterRows.filter(isNorma).map((row) => ({
+      slug: row.character_slug || '',
+      name: row.character_name_cn || row.character_name_en || '',
+    }));
+    const normaCards = cards.filter((card) => card.slug === 'norma'
+      || card.slug === 'nom'
+      || card.displayName.includes('诺姆')
+      || card.displayName.toLowerCase() === 'norma'
+      || card.displayName.toLowerCase() === 'nom');
+    const current = cards.filter((card) => card.statuses.includes('current'));
+    const next = cards.filter((card) => card.statuses.includes('next'));
+    const satellite = cards.filter((card) => card.statuses.includes('satellite'));
+    const priority = cards.filter((card) => card.statuses.includes('current') || card.statuses.includes('satellite'));
+    const ordinaryOrPrevious = cards.filter((card) => !card.statuses.includes('current')
+      && !card.statuses.includes('satellite')
+      && (card.statuses.length === 0 || card.statuses.includes('previous')));
+    const statusRank = (card) => card.statuses.includes('current') ? 0
+      : card.statuses.includes('next') ? 1
+        : card.statuses.includes('satellite') ? 2
+          : 3;
+    const orderingRanks = cards.map(statusRank);
+    const orderingViolations = orderingRanks.flatMap((rank, index) => (
+      index > 0 && orderingRanks[index - 1] > rank
+        ? [{ index, previousRank: orderingRanks[index - 1], rank, card: cards[index] }]
+        : []
+    ));
+    return {
+      cardCount: cards.length,
+      normaRoster,
+      normaCards,
+      currentCount: current.length,
+      nextCount: next.length,
+      satelliteCount: satellite.length,
+      priorityIndices: priority.map((card) => card.index),
+      ordinaryOrPreviousIndices: ordinaryOrPrevious.map((card) => card.index),
+      orderingRanks,
+      orderingViolations,
+      leadingCards: cards.slice(0, Math.max(12, priority.length + 2)),
+    };
+  })()`, context.sessionId);
+  assert(snapshot.normaRoster.length === 1 && snapshot.normaRoster[0].slug === "norma", "ZZZ roster does not contain exactly one canonical Norma row", snapshot.normaRoster);
+  assert(snapshot.normaCards.length === 1 && snapshot.normaCards[0].slug === "norma", "ZZZ Box does not render exactly one canonical Norma card", snapshot.normaCards);
+  assert(snapshot.currentCount > 0 && snapshot.satelliteCount > 0, "ZZZ Box is missing current or satellite roster cards", snapshot);
+  assert(snapshot.ordinaryOrPreviousIndices.length > 0, "ZZZ Box has no ordinary/previous cards for the ordering check", snapshot);
+  assert(snapshot.orderingViolations.length === 0, "ZZZ Box does not follow current/next/satellite/other ordering", {
+    ranks: snapshot.orderingRanks,
+    violations: snapshot.orderingViolations,
+    leadingCards: snapshot.leadingCards,
+  });
+  const lastPriority = Math.max(...snapshot.priorityIndices);
+  const firstOrdinaryOrPrevious = Math.min(...snapshot.ordinaryOrPreviousIndices);
+  assert(lastPriority < firstOrdinaryOrPrevious, "ZZZ current/satellite cards are not ordered before ordinary/previous cards", {
+    lastPriority,
+    firstOrdinaryOrPrevious,
+    leadingCards: snapshot.leadingCards,
+  });
+  return {
+    normaSlug: snapshot.normaCards[0].slug,
+    normaCardCount: snapshot.normaCards.length,
+    currentCount: snapshot.currentCount,
+    nextCount: snapshot.nextCount,
+    satelliteCount: snapshot.satelliteCount,
+    lastPriorityIndex: lastPriority,
+    firstOrdinaryOrPreviousIndex: firstOrdinaryOrPrevious,
+    orderingVerified: true,
+  };
+}
+
 function comparableBox(value) {
   const normalize = (item) => {
     if (Array.isArray(item)) return item.map(normalize);
@@ -921,11 +1072,21 @@ try {
   const zzzInitial = await productSnapshot("zzz");
   verifyProduct(zzzInitial, "zzz");
   const zzzContext = await activeFrameContext("zzz");
+  const zzzStateBefore = await zzzPersistenceSnapshot(zzzContext);
+  const zzzBoxRoster = await verifyZzzBoxRoster(zzzContext);
   const zzzAnalysis = await switchProductPage(zzzContext, "zzz", "analysis");
   const zzzAnalyses = await verifyAnalysisModes(zzzContext, "zzz", zzzAnalysis);
   const zzzBanner = await switchProductPage(zzzContext, "zzz", "banner");
   verifyBanner(zzzBanner, "zzz");
-  receipt.sequence.push({ game: "zzz", outer: initialOuter, product: zzzInitial, analyses: zzzAnalyses, banner: zzzBanner });
+  receipt.sequence.push({
+    game: "zzz",
+    outer: initialOuter,
+    product: zzzInitial,
+    boxRoster: zzzBoxRoster,
+    persistenceBefore: zzzPersistenceReceipt(zzzStateBefore),
+    analyses: zzzAnalyses,
+    banner: zzzBanner,
+  });
 
   await switchGame(top.id, "hsr");
   const hsrOuter = await waitFor("HSR desktop shell", async () => {
@@ -952,7 +1113,17 @@ try {
   verifyOuter(zzzReturnOuter, "zzz");
   const zzzReturn = await productSnapshot("zzz");
   verifyProduct(zzzReturn, "zzz");
-  receipt.sequence.push({ game: "zzz", outer: zzzReturnOuter, product: zzzReturn });
+  const zzzReturnContext = await activeFrameContext("zzz");
+  const zzzReturnBoxRoster = await verifyZzzBoxRoster(zzzReturnContext);
+  const zzzStateAfter = await zzzPersistenceSnapshot(zzzReturnContext);
+  const zzzPersistence = verifyZzzPersistence(zzzStateBefore, zzzStateAfter);
+  receipt.sequence.push({
+    game: "zzz",
+    outer: zzzReturnOuter,
+    product: zzzReturn,
+    boxRoster: zzzReturnBoxRoster,
+    persistence: zzzPersistence,
+  });
 
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
 } finally {

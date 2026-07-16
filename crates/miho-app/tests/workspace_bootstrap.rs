@@ -32,7 +32,7 @@ const CONFIG_PATHS: &[&str] = &[
     "configs/zzz_endgame_phase_overrides.json",
     "configs/zzz_decision_rules.yaml",
     "configs/zzz_decision_baseline.json",
-    "configs/zzz_mechanism_notes/nom.yaml",
+    "configs/zzz_mechanism_notes/norma.yaml",
     "configs/zzz_mechanism_notes/sunna.yaml",
     "configs/zzz_mechanism_notes/velina.yaml",
     "configs/zzz_mechanism_notes/ye-shunguang.yaml",
@@ -172,6 +172,83 @@ fn workspace_bootstrap_fresh_install_is_exact_and_idempotent() {
     assert_eq!(snapshot_managed_files(&root), before);
 
     cleanup(&root);
+}
+
+#[test]
+fn workspace_bootstrap_retires_legacy_nom_seed_without_touching_legacy_file() {
+    let root = temp_root("legacy-nom-seed");
+    let legacy_path = "configs/zzz_mechanism_notes/nom.yaml";
+    let canonical_path = "configs/zzz_mechanism_notes/norma.yaml";
+    let legacy_bytes = b"user-owned legacy nom note\n";
+    fs::create_dir_all(root.join("configs/zzz_mechanism_notes")).unwrap();
+    fs::write(root.join(legacy_path), legacy_bytes).unwrap();
+    write_state(
+        &root,
+        BTreeMap::from([(legacy_path.to_owned(), hash(legacy_bytes))]),
+    );
+
+    let first = bootstrap(&root).unwrap();
+    assert!(first.installed.contains(&canonical_path.to_owned()));
+    assert!(!first.installed.contains(&legacy_path.to_owned()));
+    assert!(first.state_updated);
+    assert_eq!(fs::read(root.join(legacy_path)).unwrap(), legacy_bytes);
+    assert_eq!(
+        fs::read(root.join(canonical_path)).unwrap(),
+        source_config(canonical_path)
+    );
+    let state = read_state(&root);
+    assert!(state["managed_files"].get(legacy_path).is_none());
+    assert_eq!(
+        state["managed_files"][canonical_path],
+        hash(&source_config(canonical_path))
+    );
+
+    let second = bootstrap(&root).unwrap();
+    assert!(!second.state_updated);
+    assert_eq!(fs::read(root.join(legacy_path)).unwrap(), legacy_bytes);
+
+    cleanup(&root);
+}
+
+#[test]
+fn workspace_bootstrap_transaction_round_trips_legacy_nom_seed() {
+    let base = temp_root("transaction-legacy-nom-seed");
+    let workspace = base.join("workspace");
+    let transaction = base.join("transaction");
+    let legacy_path = "configs/zzz_mechanism_notes/nom.yaml";
+    let canonical_path = "configs/zzz_mechanism_notes/norma.yaml";
+    let legacy_bytes = b"user-owned legacy nom note\n";
+    fs::create_dir(&workspace).unwrap();
+    fs::create_dir_all(workspace.join("configs/zzz_mechanism_notes")).unwrap();
+    fs::write(workspace.join(legacy_path), legacy_bytes).unwrap();
+    write_state(
+        &workspace,
+        BTreeMap::from([(legacy_path.to_owned(), hash(legacy_bytes))]),
+    );
+    let request = transaction_request(&workspace, &transaction);
+
+    let begun = begin_workspace_bootstrap_transaction_v1(&request).unwrap();
+    assert!(begun
+        .bootstrap
+        .as_ref()
+        .unwrap()
+        .installed
+        .contains(&canonical_path.to_owned()));
+    assert_eq!(fs::read(workspace.join(legacy_path)).unwrap(), legacy_bytes);
+    assert!(read_state(&workspace)["managed_files"]
+        .get(legacy_path)
+        .is_none());
+
+    rollback_workspace_bootstrap_transaction_v1(&request).unwrap();
+    assert_eq!(fs::read(workspace.join(legacy_path)).unwrap(), legacy_bytes);
+    assert!(!workspace.join(canonical_path).exists());
+    assert_eq!(
+        read_state(&workspace)["managed_files"][legacy_path],
+        hash(legacy_bytes)
+    );
+    discard_workspace_bootstrap_transaction_v1(&request).unwrap();
+
+    cleanup(&base);
 }
 
 #[test]

@@ -74,7 +74,7 @@ const HSR_HARNESS = String.raw`
 const ZZZ_HARNESS = String.raw`
 ;globalThis.__recommenderContract = {
   reset(data, settings = {}, owned = [], builds = {}) {
-    DATA = data;
+    DATA = normalizeVisualizerData(data);
     rec = {
       mode: settings.mode || 'sd',
       scope: settings.scope || 's1',
@@ -98,6 +98,26 @@ const ZZZ_HARNESS = String.raw`
       score: item.score,
       risks: item.risks.map(risk => risk.text),
     }));
+  },
+  identityView(data, settings = {}) {
+    DATA = normalizeVisualizerData(data);
+    banner = {...banner, phase: settings.bannerPhase || 'all', search: settings.bannerSearch || ''};
+    box = {...box, element: settings.element || 'all', style: settings.style || 'all', status: settings.boxStatus || 'all', search: settings.boxSearch || ''};
+    return {
+      roster: DATA.rosterRows.map(row => ({slug: row.character_slug, name: row.character_name_cn, statuses: row.banner_statuses || ''})),
+      boxOrder: filteredRoster().map(row => row.character_slug),
+      bannerOrder: bannerRows().map(row => ({slug: row.character_slug, phase: row.phase_id, status: row.phase_status})),
+    };
+  },
+  migrateBox(raw) {
+    applyBoxRaw(raw);
+    const payload = boxPayload();
+    return {owned: [...box.owned].sort(), buildSlug: box.buildSlug, builds: box.builds, payload: {owned: payload.owned, buildSlug: payload.buildSlug, builds: payload.builds}};
+  },
+  migrateRec(raw) {
+    localStorage.setItem(REC_KEY, JSON.stringify(raw));
+    loadRec();
+    return rec.constraints;
   },
 };
 `;
@@ -651,4 +671,91 @@ test('ZZZ hard constraints are scope-isolated and reserved characters remove con
     'reserved-next',
     'ZZZ reserved characters must remove a conflicting first choice and expose the next team',
   );
+});
+
+test('ZZZ normalizes the stale Nom alias and orders active banner stages before the ordinary roster', () => {
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const rosterRows = [
+    {...zzzCharacter('ordinary', 'support', 10), character_name_cn: '普通代理人'},
+    {...zzzCharacter('nom', 'support', 10_000), character_name_cn: '诺姆·霍洛维尔', source: 'banner_plan', tier: '未分档', banner_statuses: 'current', banner_phase_titles: '当期'},
+    {...zzzCharacter('previous', 'support', 11), banner_statuses: 'previous'},
+    {...zzzCharacter('satellite-a', 'support', 10_001), banner_statuses: 'satellite'},
+    {...zzzCharacter('satellite-b', 'support', 10_002), banner_statuses: 'satellite'},
+    {...zzzCharacter('next', 'support', 10_003), banner_statuses: 'next'},
+    {...zzzCharacter('norma', 'support', 0), character_name_cn: '诺姆·霍洛维尔', character_name_en: 'Norma Hollowell', tier: 'T0', banner_statuses: 'previous'},
+  ];
+  const bannerRows = [
+    {phase_id: 'previous-phase', phase_status: 'previous', character_slug: 'previous', analysis_tags: []},
+    {phase_id: 'satellite-phase', phase_status: 'satellite', character_slug: 'satellite-a', analysis_tags: []},
+    {phase_id: 'current-phase', phase_status: 'current', character_slug: 'nom', character_name_cn: '诺姆·霍洛维尔', analysis_tags: []},
+    {phase_id: 'current-phase', phase_status: 'current', character_slug: 'norma', character_name_cn: '诺姆·霍洛维尔', analysis_tags: []},
+    {phase_id: 'satellite-phase', phase_status: 'satellite', character_slug: 'satellite-b', analysis_tags: []},
+    {phase_id: 'next-phase', phase_status: 'next', character_slug: 'next', analysis_tags: []},
+  ];
+  const data = {rosterRows, bannerRows, teamTemplates: [], tierRows: [], usageRows: []};
+
+  const view = plain(api.identityView(data));
+  assert.deepEqual(
+    view.roster.filter(row => row.name === '诺姆·霍洛维尔'),
+    [{slug: 'norma', name: '诺姆·霍洛维尔', statuses: 'current;previous'}],
+    'the real Norma row and the stale banner-only nom row must merge into one identity',
+  );
+  assert.deepEqual(
+    view.boxOrder,
+    ['norma', 'next', 'satellite-a', 'satellite-b', 'ordinary', 'previous'],
+    'Box ordering must be current, next, satellite, then the stable ordinary/previous tail',
+  );
+  assert.deepEqual(
+    view.bannerOrder,
+    [
+      {slug: 'norma', phase: 'current-phase', status: 'current'},
+      {slug: 'next', phase: 'next-phase', status: 'next'},
+      {slug: 'satellite-a', phase: 'satellite-phase', status: 'satellite'},
+      {slug: 'satellite-b', phase: 'satellite-phase', status: 'satellite'},
+      {slug: 'previous', phase: 'previous-phase', status: 'previous'},
+    ],
+    'banner all must use stage priority, preserve order within a stage, and dedupe one phase/identity',
+  );
+
+  const satelliteOnly = plain(api.identityView(data, {boxStatus: 'banner_satellite', bannerPhase: 'satellite'}));
+  assert.deepEqual(satelliteOnly.boxOrder, ['satellite-a', 'satellite-b'], 'the existing Box stage filter must remain exact');
+  assert.deepEqual(
+    satelliteOnly.bannerOrder.map(row => row.slug),
+    ['satellite-a', 'satellite-b'],
+    'the existing banner stage filter must remain exact and stable',
+  );
+});
+
+test('ZZZ migrates legacy Nom Box state and scoped recommendation constraints without losing progress', () => {
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const migratedBox = plain(api.migrateBox({
+    owned: ['nom', 'norma', 'ally', '__codex_test__'],
+    buildSlug: 'nom',
+    builds: {
+      nom: {level: 60, engine: 0, mindscape: 1, signature: 'yes', skills: 'high', discs: 'unset'},
+      norma: {level: 40, engine: 60, mindscape: 0, signature: 'no', skills: 'max', discs: 'great'},
+    },
+  }));
+  const expectedBuild = {level: 60, engine: 60, mindscape: 1, signature: 'yes', skills: 'max', discs: 'great'};
+  assert.deepEqual(migratedBox.owned, ['ally', 'norma']);
+  assert.equal(migratedBox.buildSlug, 'norma');
+  assert.deepEqual(migratedBox.builds, {norma: expectedBuild});
+  assert.deepEqual(
+    migratedBox.payload,
+    {owned: ['ally', 'norma'], buildSlug: 'norma', builds: {norma: expectedBuild}},
+    'the next Box save/export must contain only the canonical identity',
+  );
+
+  const migratedConstraints = plain(api.migrateRec({
+    mode: 'sd',
+    scope: 's1',
+    constraints: {
+      'sd|s1': {required: ['nom', 'norma'], excluded: ['nom', 'other']},
+      'sd|s2': {required: [], excluded: ['nom']},
+    },
+  }));
+  assert.deepEqual(migratedConstraints, {
+    'sd|s1': {required: ['norma'], excluded: ['other']},
+    'sd|s2': {required: [], excluded: ['norma']},
+  });
 });

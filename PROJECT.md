@@ -516,6 +516,13 @@
 - **验证与直接交付**：推荐器逻辑 11 项、离线跨语言精确对照 4 项、`miho-core` 176 项、静态/文件集相关 7 项和 `pnpm run tauri:build` 通过。两项 live CLI 完整目录测试仍因项目既有的托帕头像别名与 ZZZ 在线补入 59 张头像而失败，未误报为通过，且与本次推荐静态逻辑无关。新 EXE 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，与构建产物 SHA-256 同为 `1590E6060CDFCBEC2F6EC77B4FDEF4CAAA1ED95A763E4A7919F6899FF1AE1FB2`，未生成安装器。
 - **真实入口证据**：后台 DOM 实际完成 ZZZ → HSR → 组队推荐，点击“按弱点配队”、2 队切 3 队、在 `as|custom-1` 添加必上/排除并切换 `custom-2` 验证隔离，再切回末层实战核对弱点提示。回执显示 1,990 套跨三侧池、设置快照已恢复、HSR/ZZZ Box 哈希不变、程序正常退出、stdout/stderr 为空且调试端口关闭。
 
+### ZZZ 卫星排序与诺姆身份归一（2026-07-17，已交付）
+
+- **根因与产品修复**：官方 roster/Prydwen 已使用 `norma`，卡池计划、决策基线和机制笔记仍使用旧 `nom`；Visualizer 只按精确 slug 合并，因此生成两张“诺姆·霍洛维尔”。卫星又是 banner-only 角色，原始 `release_order` 被追加到尾部，而前端直接沿用该顺序。生产配置现统一为 `norma`；Box 与卡池“全部”只调整展示为 `current → next → satellite → other/previous`，不篡改发布日期或证据顺序。
+- **旧状态兼容**：前端加载时归一 stale `nom → norma`，合并 roster/banner 同身份行，并迁移 Box owned、builds、buildSlug 及按关卡保存的必上/排除约束；若两份练度同时存在则逐字段保留更完整进度。Workspace bootstrap 新种子为 `norma.yaml`，旧受管 `nom.yaml` 从 ownership 退役但不删除或改写用户文件。Rust/Python 两套 ZZZ `app.js` 字节一致，静态 SHA-256 为 `1b97c038ca6203993ecfe5b3eebb8f50b3daa2e9e0bb2d852695d900d49190a8`。
+- **生产数据与真实入口证据**：本机受管配置升级后重新生成 ZZZ visualizer，原始 roster 从 59 降为 58；诺姆唯一为 `norma/current`，卫星 `remiel/sigrid` 均保留，`data.json` SHA-256 为 `889E2E669B998DF6EB46BECC54706288149C52A0AB37C74D073AA80BF68BFEAC`。隐藏窗口 CDP/DOM 实跑 ZZZ → HSR → ZZZ：诺姆卡片始终 1 张；当期 4 人位于索引 0–3、卫星 2 人位于 4–5、普通/已结束从 6 开始；两次检查排序均通过，全部分析模式、卡池与图片门禁同时通过，程序正常退出且 stdout/stderr 为空。
+- **验证与直接交付**：推荐/身份契约 13/13、workspace bootstrap 34/34、pull-value 25/25、Rust/Python 静态契约与 visualizer 定点测试、JS/Python 语法、Rust fmt、Vite 和 `pnpm run tauri:build` 均通过；完整 live CLI oracle 仍只受项目既有“多 59 个内置头像”文件集漂移影响，未冒充通过。`target/release/miho-desktop.exe` 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 均为 `4ED9342312A12A0C5CE1698D0B9D78558B306C5B115F677F9537194D0F13F64F`，未生成安装器。验收前后 ZZZ Box SHA-256 均为 `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`，HSR Box 均为 `146CDBFD582F39080DE2DFAEB15B3892EF64FC1110B7509811350F47A09A785E`。
+
 ## 恢复入口
 
 - 项目状态：本文件。
