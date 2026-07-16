@@ -19,6 +19,22 @@ const expectedTotal = {
   hsr: Number(args.get("expected-hsr-total")),
   zzz: Number(args.get("expected-zzz-total")),
 };
+const expectedBannerCount = {
+  hsr: args.has("expected-hsr-banner-count")
+    ? Number(args.get("expected-hsr-banner-count"))
+    : null,
+  zzz: args.has("expected-zzz-banner-count")
+    ? Number(args.get("expected-zzz-banner-count"))
+    : null,
+};
+const expectedBannerNames = {
+  hsr: (args.get("expected-hsr-banner-names") ?? "").split("|").filter(Boolean),
+  zzz: (args.get("expected-zzz-banner-names") ?? "").split("|").filter(Boolean),
+};
+const expectedAnalysisModes = {
+  hsr: ["moc", "pf", "as", "aa"],
+  zzz: ["sd", "da"],
+};
 const timeoutMs = Number(args.get("timeout-ms") ?? "30000");
 
 if (!webSocketUrl) throw new Error("--ws is required");
@@ -28,6 +44,14 @@ for (const game of ["hsr", "zzz"]) {
   }
   if (!Number.isSafeInteger(expectedTotal[game]) || expectedTotal[game] <= 0) {
     throw new Error(`--expected-${game}-total must be a positive integer`);
+  }
+  if (expectedBannerCount[game] !== null
+    && (!Number.isSafeInteger(expectedBannerCount[game]) || expectedBannerCount[game] <= 0)) {
+    throw new Error(`--expected-${game}-banner-count must be a positive integer`);
+  }
+  if (expectedBannerNames[game].length > 0
+    && expectedBannerNames[game].length !== expectedBannerCount[game]) {
+    throw new Error(`--expected-${game}-banner-names must match the expected banner count`);
   }
 }
 if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 5000 || timeoutMs > 120000) {
@@ -165,21 +189,49 @@ const outerExpression = `(() => {
 })()`;
 
 const productExpression = `(async () => {
+  const visualState = (element) => {
+    if (!element) return { visible: false, display: '', visibility: '', opacity: null, rectCount: 0 };
+    const own = getComputedStyle(element);
+    let visible = element.getClientRects().length > 0;
+    for (let current = element; current; current = current.parentElement) {
+      const style = getComputedStyle(current);
+      const opacity = Number.parseFloat(style.opacity);
+      if (style.display === 'none'
+        || style.visibility === 'hidden'
+        || style.visibility === 'collapse'
+        || (Number.isFinite(opacity) && opacity <= 0)) {
+        visible = false;
+        break;
+      }
+    }
+    const opacity = Number.parseFloat(own.opacity);
+    return {
+      visible,
+      display: own.display,
+      visibility: own.visibility,
+      opacity: Number.isFinite(opacity) ? opacity : null,
+      rectCount: element.getClientRects().length,
+    };
+  };
+  const visible = (element) => visualState(element).visible;
+  const settleImages = async (items) => {
+    for (const image of items) image.loading = 'eager';
+    await Promise.all(items.map(async (image) => {
+      if (!image.complete) {
+        await Promise.race([
+          new Promise((resolve) => {
+            image.addEventListener('load', resolve, { once: true });
+            image.addEventListener('error', resolve, { once: true });
+          }),
+          new Promise((resolve) => setTimeout(resolve, 10000)),
+        ]);
+      }
+      try { await image.decode(); } catch {}
+    }));
+  };
   const cards = [...document.querySelectorAll('#boxGrid .box-card')];
   const images = cards.map((card) => card.querySelector('img')).filter(Boolean);
-  for (const image of images) image.loading = 'eager';
-  await Promise.all(images.map(async (image) => {
-    if (!image.complete) {
-      await Promise.race([
-        new Promise((resolve) => {
-          image.addEventListener('load', resolve, { once: true });
-          image.addEventListener('error', resolve, { once: true });
-        }),
-        new Promise((resolve) => setTimeout(resolve, 10000)),
-      ]);
-    }
-    try { await image.decode(); } catch {}
-  }));
+  await settleImages(images);
   const basename = (value) => {
     try {
       const name = decodeURIComponent(new URL(value, location.href).pathname.split('/').pop() ?? '');
@@ -187,7 +239,9 @@ const productExpression = `(async () => {
     } catch { return ''; }
   };
   const rosterRows = typeof DATA === 'object' && Array.isArray(DATA?.rosterRows) ? DATA.rosterRows : [];
+  const usageRows = typeof DATA === 'object' && Array.isArray(DATA?.usageRows) ? DATA.usageRows : [];
   const statePage = typeof state === 'object' ? state?.page ?? '' : '';
+  const analysisMode = typeof state === 'object' ? state?.mode ?? '' : '';
   const ownedStateCount = typeof box === 'object' && box?.owned instanceof Set ? box.owned.size : -1;
   const slugByDisplayName = new Map(rosterRows.map((row) => [
     String(row?.character_name_cn || row?.character_name_en || row?.character_slug || '').trim(),
@@ -214,6 +268,41 @@ const productExpression = `(async () => {
     text: button.textContent?.trim() ?? '',
     active: button.classList.contains('active'),
   }));
+  const visibleText = [];
+  const textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let node = textWalker.nextNode(); node; node = textWalker.nextNode()) {
+    const value = node.nodeValue?.trim() ?? '';
+    if (value && visible(node.parentElement)) visibleText.push(value);
+  }
+  const bannerCards = [...document.querySelectorAll('#bannerGrid .banner-card')].filter(visible);
+  const currentBannerRows = typeof DATA === 'object' && Array.isArray(DATA?.bannerRows)
+    ? DATA.bannerRows.filter((row) => row?.phase_status === 'current')
+    : [];
+  const bannerImages = bannerCards.map((card) => card.querySelector('img')).filter(Boolean);
+  await settleImages(bannerImages);
+  const bannerBrokenImages = bannerImages.flatMap((image) => image.complete && image.naturalWidth > 0
+    ? []
+    : [{ src: image.getAttribute('src') ?? '', complete: image.complete, naturalWidth: image.naturalWidth }]);
+  const bannerSlugByName = new Map(currentBannerRows.map((row) => [
+    String(row?.character_name_cn || row?.character_name_en || row?.character_slug || '').trim(),
+    row?.character_slug ?? '',
+  ]));
+  const bannerMappingErrors = bannerCards.flatMap((card) => {
+    const displayName = card.querySelector('h3')?.textContent?.trim() ?? '';
+    const slug = bannerSlugByName.get(displayName) ?? '';
+    const actual = basename(card.querySelector('img')?.getAttribute('src') ?? '');
+    return slug && actual === slug ? [] : [{ displayName, slug, actual }];
+  });
+  const analysisElement = document.querySelector('#analysisView');
+  const chart = document.querySelector('#chart');
+  const characterList = document.querySelector('#characterList');
+  const characterCards = [...document.querySelectorAll('#characterList .character-card')].filter(visible);
+  const characterImages = characterCards.map((card) => card.querySelector('img')).filter(Boolean);
+  await settleImages(characterImages);
+  const characterBrokenImages = characterImages.flatMap((image) => image.complete && image.naturalWidth > 0
+    ? []
+    : [{ src: image.getAttribute('src') ?? '', complete: image.complete, naturalWidth: image.naturalWidth }]);
+  const chartMarks = [...(chart?.querySelectorAll('path, line, rect, circle, image, text') ?? [])];
   return {
     href: location.href,
     readyState: document.readyState,
@@ -231,6 +320,34 @@ const productExpression = `(async () => {
     emptyImages,
     mappingErrors,
     dataMappingErrors,
+    usageRowCount: usageRows.length,
+    analysisMode,
+    analysisModeUsageRowCount: usageRows.filter((row) => (row?.tier_mode ?? row?.mode) === analysisMode).length,
+    analysisVisualState: visualState(analysisElement),
+    analysisVisible: visible(analysisElement),
+    analysisTitle: document.querySelector('#chartTitle')?.textContent?.trim() ?? '',
+    analysisSubtitle: document.querySelector('#chartSubtitle')?.textContent?.trim() ?? '',
+    chartVisualState: visualState(chart),
+    chartChildCount: chart?.querySelectorAll('*').length ?? 0,
+    chartMarkCount: chartMarks.length,
+    chartVisibleMarkCount: chartMarks.filter(visible).length,
+    characterListVisualState: visualState(characterList),
+    characterCardCount: characterCards.length,
+    characterCardNames: characterCards.map((card) => card.querySelector('.name')?.textContent?.trim() ?? ''),
+    characterImageCount: characterImages.length,
+    characterBrokenImages,
+    bannerVisible: visible(document.querySelector('#bannerView')),
+    bannerTitle: document.querySelector('#bannerTitle')?.textContent?.trim() ?? '',
+    bannerBadges: document.querySelector('#bannerBadges')?.textContent?.trim() ?? '',
+    bannerPhase: typeof banner === 'object' ? banner?.phase ?? '' : '',
+    bannerAllRowCount: typeof DATA === 'object' && Array.isArray(DATA?.bannerRows) ? DATA.bannerRows.length : 0,
+    bannerCurrentRowCount: currentBannerRows.length,
+    bannerCardCount: bannerCards.length,
+    bannerCardNames: bannerCards.map((card) => card.querySelector('h3')?.textContent?.trim() ?? ''),
+    bannerImageCount: bannerImages.length,
+    bannerBrokenImages,
+    bannerMappingErrors,
+    visibleMissingMessages: visibleText.filter((text) => /卡池数据未生成|该模式数据未生成|缺数据/.test(text)),
   };
 })()`;
 
@@ -268,7 +385,7 @@ async function activeFrameContext(game) {
   const expectedPath = `/${game}/index.html`;
   return waitFor(`${game} Visualizer frame`, async () => {
     const tree = await session.send("Page.getFrameTree");
-    const frame = flattenFrames(tree.frameTree).find((candidate) => {
+    const frames = flattenFrames(tree.frameTree).filter((candidate) => {
       try {
         const url = new URL(candidate.url);
         return url.hostname === "miho-visualizer.localhost"
@@ -278,6 +395,8 @@ async function activeFrameContext(game) {
         return false;
       }
     });
+    assert(frames.length <= 1, `${game} has multiple matching Visualizer frames`, frames);
+    const frame = frames[0];
     if (frame) {
       const context = [...contexts.values()].find((candidate) => candidate.auxData?.isDefault === true
         && candidate.auxData?.frameId === frame.id);
@@ -285,7 +404,7 @@ async function activeFrameContext(game) {
     }
 
     const targets = await session.send("Target.getTargets");
-    const target = (targets.targetInfos ?? []).find((candidate) => {
+    const matchingTargets = (targets.targetInfos ?? []).filter((candidate) => {
       try {
         const url = new URL(candidate.url);
         return candidate.type === "iframe"
@@ -296,6 +415,8 @@ async function activeFrameContext(game) {
         return false;
       }
     });
+    assert(matchingTargets.length <= 1, `${game} has multiple matching Visualizer targets`, matchingTargets);
+    const target = matchingTargets[0];
     if (!target) return null;
     let childSessionId = attachedTargets.get(target.targetId);
     if (!childSessionId) {
@@ -373,6 +494,110 @@ function verifyProduct(snapshot, game) {
   assert(snapshot.mappingErrors.length === 0 && snapshot.dataMappingErrors.length === 0, `${game} character images do not match character slugs`, snapshot);
 }
 
+async function switchProductPage(context, game, page) {
+  const labels = {
+    analysis: "终局分析",
+    banner: "卡池",
+  };
+  const label = labels[page];
+  assert(label, `unsupported ${game} product page`, { game, page });
+  const clicked = await evaluate(context.id, `(() => {
+    const button = [...document.querySelectorAll('#appTabs button, #tabs button')]
+      .find((candidate) => candidate.textContent?.trim() === ${JSON.stringify(label)});
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`, context.sessionId);
+  assert(clicked === true, `could not switch ${game} Visualizer to ${page}`);
+  return waitFor(`${game} ${page} product DOM`, async () => {
+    const snapshot = await evaluate(context.id, productExpression, context.sessionId);
+    const pageVisible = page === "analysis" ? snapshot?.analysisVisible : snapshot?.bannerVisible;
+    return snapshot?.readyState === "complete" && snapshot?.statePage === page && pageVisible
+      ? snapshot
+      : null;
+  });
+}
+
+function verifyAnalysis(snapshot, game, mode) {
+  assert(snapshot.statePage === "analysis" && snapshot.analysisVisible, `${game} endgame analysis is not visible`, snapshot);
+  assert(snapshot.analysisMode === mode, `${game} endgame analysis did not switch to ${mode}`, snapshot);
+  assert(snapshot.usageRowCount > 0, `${game} endgame usage data is absent`, snapshot);
+  assert(snapshot.analysisModeUsageRowCount > 0, `${game} ${mode} endgame data is absent`, snapshot);
+  assert(snapshot.analysisVisualState.display !== "none"
+    && snapshot.analysisVisualState.visibility === "visible"
+    && snapshot.analysisVisualState.opacity > 0, `${game} ${mode} endgame container is visually suppressed`, snapshot);
+  assert(snapshot.analysisTitle.length > 0, `${game} ${mode} endgame title is absent`, snapshot);
+  assert(snapshot.analysisSubtitle.includes("最新采样 "), `${game} endgame sample date is not displayed`, snapshot);
+  assert(!snapshot.analysisSubtitle.includes("最新采样 未知"), `${game} endgame sample date is unknown`, snapshot);
+  assert(/当前周期|历史样本|周期未知/.test(snapshot.analysisSubtitle), `${game} endgame freshness label is absent`, snapshot);
+  assert(!/该模式数据未生成|缺数据/.test(snapshot.analysisSubtitle), `${game} endgame analysis falsely reports missing data`, snapshot);
+  assert(snapshot.chartVisualState.visible
+    && snapshot.chartVisualState.visibility === "visible"
+    && snapshot.chartVisualState.opacity > 0
+    && snapshot.chartChildCount > 0
+    && snapshot.chartMarkCount > 0
+    && snapshot.chartVisibleMarkCount > 0, `${game} ${mode} endgame chart is not visibly rendered`, snapshot);
+  assert(snapshot.characterListVisualState.visible
+    && snapshot.characterListVisualState.visibility === "visible"
+    && snapshot.characterListVisualState.opacity > 0
+    && snapshot.characterCardCount > 0
+    && snapshot.characterCardNames.every(Boolean), `${game} ${mode} endgame character list is not visibly rendered`, snapshot);
+  assert(snapshot.characterImageCount === snapshot.characterCardCount
+    && snapshot.characterBrokenImages.length === 0, `${game} ${mode} endgame character images are broken`, snapshot);
+  assert(snapshot.visibleMissingMessages.length === 0, `${game} endgame page exposes a missing-data warning`, snapshot);
+}
+
+async function verifyAnalysisModes(context, game, initialSnapshot) {
+  const snapshots = [];
+  for (const mode of expectedAnalysisModes[game]) {
+    let snapshot = initialSnapshot?.analysisMode === mode ? initialSnapshot : null;
+    if (!snapshot) {
+      const clicked = await evaluate(context.id, `(() => {
+        const button = [...document.querySelectorAll('#modeControl button')]
+          .find((candidate) => candidate.dataset.value === ${JSON.stringify(mode)});
+        if (!button || button.disabled) return false;
+        button.click();
+        return true;
+      })()`, context.sessionId);
+      assert(clicked === true, `could not switch ${game} endgame analysis to ${mode}`);
+      snapshot = await waitFor(`${game} ${mode} endgame DOM`, async () => {
+        const value = await evaluate(context.id, productExpression, context.sessionId);
+        return value?.readyState === "complete"
+          && value?.statePage === "analysis"
+          && value?.analysisMode === mode
+          && value?.analysisVisible
+          ? value
+          : null;
+      });
+    }
+    verifyAnalysis(snapshot, game, mode);
+    snapshots.push(snapshot);
+  }
+  return snapshots;
+}
+
+function verifyBanner(snapshot, game) {
+  assert(snapshot.statePage === "banner" && snapshot.bannerVisible, `${game} banner page is not visible`, snapshot);
+  assert(snapshot.bannerTitle === "卡池情报", `${game} banner title is absent`, snapshot);
+  assert(snapshot.bannerAllRowCount > 0 && snapshot.bannerCurrentRowCount > 0, `${game} current banner data is absent`, snapshot);
+  assert(snapshot.bannerPhase === "current", `${game} banner page did not select the current populated phase`, snapshot);
+  assert(snapshot.bannerCardCount > 0 && snapshot.bannerCardNames.every(Boolean), `${game} current banner cards are absent`, snapshot);
+  assert(snapshot.bannerImageCount === snapshot.bannerCardCount
+    && snapshot.bannerBrokenImages.length === 0
+    && snapshot.bannerMappingErrors.length === 0, `${game} current banner images are broken or mismatched`, snapshot);
+  assert(snapshot.bannerBadges.includes(`Box ${expectedOwned[game]}`), `${game} banner page lost the current Box`, snapshot);
+  assert(snapshot.visibleMissingMessages.length === 0, `${game} banner page exposes a missing-data warning`, snapshot);
+  if (expectedBannerCount[game] !== null) {
+    assert(snapshot.bannerCurrentRowCount === expectedBannerCount[game], `${game} current banner data count changed`, snapshot);
+    assert(snapshot.bannerCardCount === expectedBannerCount[game], `${game} rendered current banner count changed`, snapshot);
+  }
+  if (expectedBannerNames[game].length > 0) {
+    const actual = [...snapshot.bannerCardNames].sort();
+    const expected = [...expectedBannerNames[game]].sort();
+    assert(JSON.stringify(actual) === JSON.stringify(expected), `${game} rendered current banner names changed`, { actual, expected });
+  }
+}
+
 async function switchGame(topId, game) {
   const label = game === "hsr" ? "崩坏：星穹铁道" : "绝区零";
   const clicked = await evaluate(topId, `(() => {
@@ -404,7 +629,12 @@ try {
   verifyOuter(initialOuter, "zzz");
   const zzzInitial = await productSnapshot("zzz");
   verifyProduct(zzzInitial, "zzz");
-  receipt.sequence.push({ game: "zzz", outer: initialOuter, product: zzzInitial });
+  const zzzContext = await activeFrameContext("zzz");
+  const zzzAnalysis = await switchProductPage(zzzContext, "zzz", "analysis");
+  const zzzAnalyses = await verifyAnalysisModes(zzzContext, "zzz", zzzAnalysis);
+  const zzzBanner = await switchProductPage(zzzContext, "zzz", "banner");
+  verifyBanner(zzzBanner, "zzz");
+  receipt.sequence.push({ game: "zzz", outer: initialOuter, product: zzzInitial, analyses: zzzAnalyses, banner: zzzBanner });
 
   await switchGame(top.id, "hsr");
   const hsrOuter = await waitFor("HSR desktop shell", async () => {
@@ -414,7 +644,12 @@ try {
   verifyOuter(hsrOuter, "hsr");
   const hsrProduct = await productSnapshot("hsr");
   verifyProduct(hsrProduct, "hsr");
-  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct });
+  const hsrContext = await activeFrameContext("hsr");
+  const hsrAnalysis = await switchProductPage(hsrContext, "hsr", "analysis");
+  const hsrAnalyses = await verifyAnalysisModes(hsrContext, "hsr", hsrAnalysis);
+  const hsrBanner = await switchProductPage(hsrContext, "hsr", "banner");
+  verifyBanner(hsrBanner, "hsr");
+  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, analyses: hsrAnalyses, banner: hsrBanner });
 
   await switchGame(top.id, "zzz");
   const zzzReturnOuter = await waitFor("returned ZZZ desktop shell", async () => {
