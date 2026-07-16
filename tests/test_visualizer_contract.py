@@ -78,6 +78,27 @@ def test_desktop_box_bootstrap_uses_server_before_enabling_ui(game: str) -> None
     assert "render();syncBoxFromServer();" not in app
 
 
+@pytest.mark.parametrize("game", ["hsr", "zzz"])
+def test_visualizer_distinguishes_stale_samples_from_missing_data(game: str) -> None:
+    app = (
+        ROOT / "crates" / "miho-core" / "assets" / "visualizer" / game / "app.js"
+    ).read_text(encoding="utf-8")
+
+    assert "function ensureBannerPhase()" in app
+    assert "卡池数据未生成或为空" in app
+    assert "卡池数据已载入 ${allRows.length} 条" in app
+    assert "最新采样 ${sample.date} · ${sample.label}" in app
+    assert "status==='current'?'当前周期':status==='expired'?'历史样本':'周期未知'" in app
+    assert "当前筛选无匹配" in app
+    assert "该模式数据未生成" in app
+    assert "当前数据包尚未包含新周期统计，以下队伍仅作历史参考" in app
+    assert "上游尚未发布新周期统计" not in app
+    assert "请和我对话手动更新" not in app
+
+    if game == "hsr":
+        assert "status==='recent'||status==='previous'" in app
+
+
 class _FixedLocalDateTime(datetime):
     @classmethod
     def now(cls, tz: object = None) -> "_FixedLocalDateTime":

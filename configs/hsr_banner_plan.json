@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-05",
+  "updated_at": "2026-07-16",
   "notes": "星铁卡池情报用于可视化分析输入，不作为自动抽卡结论。官方后续跃迁公告变更时，以最新公告为准。",
   "sources": [
     {
@@ -15,6 +15,10 @@
       "url": "https://www.miyoushe.com/sr/article/76423172"
     },
     {
+      "label": "米游社官方：4.4版本活动跃迁（其一）",
+      "url": "https://www.miyoushe.com/sr/article/76661906"
+    },
+    {
       "label": "米游社官方：Fate[UBW]联动跃迁说明",
       "url": "https://www.miyoushe.com/sr/article/76423940"
     },
@@ -26,7 +30,7 @@
   "phases": [
     {
       "id": "4.3-second-half",
-      "status": "current",
+      "status": "previous",
       "title": "4.3 下半跃迁",
       "subtitle": "当期 UP",
       "date_range": "2026-06-24 12:00 至 2026-07-14 15:00",
@@ -49,12 +53,12 @@
     },
     {
       "id": "4.4-full-version-himeko",
-      "status": "next",
+      "status": "current",
       "title": "4.4 拓星启明 & 流光定影",
       "subtitle": "新角色 / 新光锥",
-      "date_range": "持续整个 4.4 版本",
-      "source_label": "米游社官方4.4前瞻回顾长图",
-      "source_url": "https://www.miyoushe.com/sr/article/76423172",
+      "date_range": "2026-07-15 至 2026-08-25 15:00",
+      "source_label": "米游社官方：4.4版本活动跃迁（其一）",
+      "source_url": "https://www.miyoushe.com/sr/article/76661906",
       "characters": [
         {
           "slug": "himeko-nova",
@@ -66,12 +70,12 @@
     },
     {
       "id": "4.4-first-half",
-      "status": "next",
+      "status": "current",
       "title": "4.4 第一期活动跃迁",
       "subtitle": "铭心之萃 & 真意之汇",
-      "date_range": "4.4 第一期，具体起止以活动跃迁公告为准",
-      "source_label": "米游社官方4.4前瞻回顾长图",
-      "source_url": "https://www.miyoushe.com/sr/article/76423172",
+      "date_range": "2026-07-15 至 2026-08-05 11:59",
+      "source_label": "米游社官方：4.4版本活动跃迁（其一）",
+      "source_url": "https://www.miyoushe.com/sr/article/76661906",
       "characters": [
         {
           "slug": "sparxie",

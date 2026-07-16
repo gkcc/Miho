@@ -20,6 +20,7 @@ let DATA=null;
 let state={page:PAGES.has(location.hash.slice(1))?location.hash.slice(1):'box',mode:'moc',view:'trend',role:'main_dps',tiers:new Set(TIERS),metric:'app_rate',limit:'12',search:'',avatars:true,focus:null,hover:null};
 let box={owned:new Set(),builds:{},buildSlug:'',element:'all',path:'all',role:'all',rarity:'all',status:'all',search:'',saveStatus:'浏览器缓存'};
 let rec={mode:'moc',scope:'',elements:{},gap:'1',riskMode:'warn',limit:'8',search:''};
+const BANNER_PHASES=[['current','当期UP'],['next','后续卡池'],['recent','历史参考'],['all','全部含已结束']];
 let banner={phase:'current',search:''};
 let boxSaveTimer=null,boxSaveRevision=0,boxSaveChain=Promise.resolve();
 
@@ -57,7 +58,8 @@ function init(){
 }
 
 function initBannerControls(){
-  makeButtons('bannerPhaseControl',[['current','当期UP'],['next','后续卡池'],['recent','历史参考'],['all','全部含已结束']],banner.phase,v=>{banner.phase=v;renderBanner();});
+  ensureBannerPhase();
+  makeButtons('bannerPhaseControl',BANNER_PHASES,banner.phase,v=>{banner.phase=v;renderBanner();});
   $('bannerSearchInput').oninput=e=>{banner.search=e.target.value.trim().toLowerCase();renderBanner();};
 }
 
@@ -121,6 +123,7 @@ function makeButtons(id,items,current,onClick){
 function resetCurrentPage(){
   if(state.page==='banner'){
     banner={phase:'current',search:''};
+    ensureBannerPhase();
     [...$('bannerPhaseControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===banner.phase));
     $('bannerSearchInput').value='';
     renderBanner();return;
@@ -207,6 +210,16 @@ function groupSeries(rows){
 
 function limitSeries(series){return state.limit==='all'?series:series.slice(0,Number(state.limit)||12)}
 
+function latestSampleMeta(rows,mode){
+  const dated=rows.filter(r=>r.collect_date).slice().sort((a,b)=>String(a.collect_date).localeCompare(String(b.collect_date)));
+  const latest=dated[dated.length-1]||{};
+  const date=latest.collect_date||'';
+  const phases=(DATA.phaseInfoRows||[]).filter(r=>r.mode===mode);
+  const info=phases.find(r=>r.collect_date===date&&(!latest.phase_ver||r.phase_ver===latest.phase_ver))||phases.find(r=>r.phase_ver===latest.phase_ver)||{};
+  const status=info.phase_status||latest.phase_status||'unknown';
+  return{date:date||'未知',label:status==='current'?'当前周期':status==='expired'?'历史样本':'周期未知'};
+}
+
 function renderAnalysis(){
   hideTooltip();
   const rows=filteredRows();
@@ -215,9 +228,12 @@ function renderAnalysis(){
   const modeLabel=MODES.find(x=>x[0]===state.mode)?.[1]||state.mode;
   const roleLabel=ROLES.find(x=>x[0]===state.role)?.[1]||state.role;
   const viewLabel=VIEWS.find(x=>x[0]===state.view)?.[1]||state.view;
+  const modeRows=sourceRows().filter(r=>r.tier_mode===state.mode);
+  const sample=latestSampleMeta(modeRows,state.mode);
   $('chartTitle').textContent=`${modeLabel} · ${roleLabel} · ${viewLabel}`;
   const aaNote=state.mode==='aa'?' · AA 为全 Boss / 未拆分本地数据':'';
-  $('chartSubtitle').textContent=`展示 ${series.length}/${allSeries.length} 个角色，${rows.length} 个采样点${aaNote}`;
+  const emptyNote=rows.length?'':modeRows.length?' · 当前筛选无匹配':' · 该模式数据未生成';
+  $('chartSubtitle').textContent=`展示 ${series.length}/${allSeries.length} 个角色，${rows.length} 个采样点 · 最新采样 ${sample.date} · ${sample.label}${emptyNote}${aaNote}`;
   $('summaryBadges').innerHTML=[`${[...state.tiers].join(' / ')||'未选T档'}`,state.metric==='app_rate'?'出场率':'平均值',state.limit==='all'?'全量':`Top ${state.limit}`].map(x=>`<span>${esc(x)}</span>`).join('');
   if(state.view==='latest')renderLatest(series);else if(state.view==='heatmap')renderHeatmap(series);else renderTrend(series,rows);
   renderCharacters(series);
@@ -290,8 +306,10 @@ function renderCharacters(series){
 
 function renderChangelog(series){const slugs=new Set(series.map(s=>s.slug));const boxEl=$('changelogList');boxEl.innerHTML='';const related=DATA.changelogRows.filter(r=>String(r.character_slugs||'').split(';').some(s=>slugs.has(s)));const rows=(related.length?related:DATA.changelogRows).slice(0,8);rows.forEach(r=>{const item=document.createElement('div');item.className='changelog-item';const text=String(r.text||'');item.innerHTML=`<time>${esc(r.changelog_date)}</time><p>${esc(text).slice(0,420)}${text.length>420?'...':''}</p>`;boxEl.appendChild(item);});}
 
-function bannerRows(){const q=banner.search;return (DATA.bannerRows||[]).filter(r=>(banner.phase==='all'||r.phase_status===banner.phase)&&(!q||[r.character_slug,r.character_name_cn,r.character_name_en,r.banner_role,r.element_cn,r.path_cn,r.role_group_cns,...(r.analysis_tags||[])].some(x=>String(x||'').toLowerCase().includes(q))));}
-function renderBanner(){const rows=bannerRows();$('bannerTitle').textContent='卡池情报';$('bannerSubtitle').textContent='这里只做数据提炼：复刻看历史趋势和组队占用，新角色/联动角色只做公开信息与 Box 关系识别。';$('bannerBadges').innerHTML=[`角色 ${rows.length}`,`Box ${box.owned.size}`,'趋势仅供参考'].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('bannerGrid');grid.innerHTML='';if(!rows.length){grid.innerHTML='<div class="rec-empty">暂无卡池情报；可更新 configs/hsr_banner_plan.json</div>';return;}const phases=[...new Map(rows.map(r=>[r.phase_id,{id:r.phase_id,title:r.phase_title,subtitle:r.phase_subtitle,date:r.date_range,source:r.source_label,url:r.source_url,status:r.phase_status}])).values()];phases.forEach(phase=>{const section=document.createElement('section');section.className='banner-section';section.innerHTML=`<div class="banner-section-head"><div><h3>${esc(phase.title||'卡池')}</h3><p>${esc(phase.subtitle||'')} · ${esc(phase.date||'时间待确认')}</p></div>${phase.url?`<a href="${esc(phase.url)}" target="_blank" rel="noreferrer">${esc(phase.source||'来源')}</a>`:''}</div><div class="banner-card-grid"></div>`;const inner=section.querySelector('.banner-card-grid');rows.filter(r=>r.phase_id===phase.id).forEach(row=>inner.appendChild(bannerCard(row)));grid.appendChild(section);});}
+function bannerPhaseMatches(status,phase){return phase==='all'||(phase==='recent'?status==='recent'||status==='previous':status===phase)}
+function ensureBannerPhase(){const rows=DATA.bannerRows||[];if(!rows.length)return;if(!rows.some(r=>bannerPhaseMatches(r.phase_status,banner.phase)))banner.phase=BANNER_PHASES.map(([value])=>value).find(value=>value!=='all'&&rows.some(r=>bannerPhaseMatches(r.phase_status,value)))||'all';}
+function bannerRows(){const q=banner.search;return (DATA.bannerRows||[]).filter(r=>bannerPhaseMatches(r.phase_status,banner.phase)&&(!q||[r.character_slug,r.character_name_cn,r.character_name_en,r.banner_role,r.element_cn,r.path_cn,r.role_group_cns,...(r.analysis_tags||[])].some(x=>String(x||'').toLowerCase().includes(q))));}
+function renderBanner(){const allRows=DATA.bannerRows||[],rows=bannerRows();$('bannerTitle').textContent='卡池情报';$('bannerSubtitle').textContent='这里只做数据提炼：复刻看历史趋势和组队占用，新角色/联动角色只做公开信息与 Box 关系识别。';$('bannerBadges').innerHTML=[`角色 ${rows.length}`,`Box ${box.owned.size}`,'趋势仅供参考'].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('bannerGrid');grid.innerHTML='';if(!allRows.length){grid.innerHTML='<div class="rec-empty">卡池数据未生成或为空；终局统计与 Box 数据不受影响</div>';return;}if(!rows.length){const phaseLabel=BANNER_PHASES.find(([value])=>value===banner.phase)?.[1]||'当前阶段';grid.innerHTML=`<div class="rec-empty">${banner.search?'当前搜索与阶段没有匹配角色':`${esc(phaseLabel)}暂无记录`}；卡池数据已载入 ${allRows.length} 条</div>`;return;}const phases=[...new Map(rows.map(r=>[r.phase_id,{id:r.phase_id,title:r.phase_title,subtitle:r.phase_subtitle,date:r.date_range,source:r.source_label,url:r.source_url,status:r.phase_status}])).values()];phases.forEach(phase=>{const section=document.createElement('section'),phaseUrl=safeLinkUrl(phase.url);section.className='banner-section';section.innerHTML=`<div class="banner-section-head"><div><h3>${esc(phase.title||'卡池')}</h3><p>${esc(phase.subtitle||'')} · ${esc(phase.date||'时间待确认')}</p></div>${phaseUrl?`<a href="${esc(phaseUrl)}" target="_blank" rel="noopener noreferrer">${esc(phase.source||'来源')}</a>`:''}</div><div class="banner-card-grid"></div>`;const inner=section.querySelector('.banner-card-grid');rows.filter(r=>r.phase_id===phase.id).forEach(row=>inner.appendChild(bannerCard(row)));grid.appendChild(section);});}
 function bannerCard(row){const slug=row.character_slug,info={...charInfo(slug),...row},ins=bannerInsight(row);const card=document.createElement('article');card.className=`banner-card ${box.owned.has(slug)?'owned':''} ${row.phase_status}`;const tags=(row.analysis_tags||[]).slice(0,5).map(t=>`<span>${esc(t)}</span>`).join('');const name=info.character_name_cn||info.character_name_en||slug;const roleText=info.role_group_cns||roleCn(info)||'未分类';card.innerHTML=`<div class="banner-art">${info.icon_url?`<img src="${esc(info.icon_url)}" alt="" loading="lazy" decoding="async">`:`<div class="avatar-fallback">${esc(name.slice(0,2))}</div>`}<button class="mini-owned" type="button">${box.owned.has(slug)?'已拥有':'加入Box'}</button></div><div class="banner-body"><div class="banner-kicker">${esc(row.banner_role||row.phase_subtitle||'卡池角色')}</div><h3>${esc(name)}</h3><p class="banner-meta">${esc(info.rarity?`${info.rarity}星`:'-')} · ${esc(info.element_cn||'属性未知')} · ${esc(info.path_cn||'命途未知')} · ${esc(roleText)} · ${esc(ins.tierText)}</p><svg class="spark" viewBox="0 0 220 54">${sparkline(ins.points)}</svg><div class="rec-tags">${tags}</div><div class="banner-facts">${ins.lines.slice(0,4).map(x=>`<p>${esc(x)}</p>`).join('')}</div><div class="banner-relations">${ins.relations.slice(0,6).map(x=>`<span class="${x.owned?'owned':''}">${esc(x.name)}${x.count?` ×${x.count}`:''}</span>`).join('')||'<span>暂无历史组合</span>'}</div></div>`;card.querySelector('.mini-owned').onclick=e=>{e.stopPropagation();box.owned.has(slug)?box.owned.delete(slug):box.owned.add(slug);box.buildSlug=slug;saveBox();renderBanner();};card.addEventListener('mouseenter',e=>showBannerTooltip(e,row,ins));card.addEventListener('mousemove',moveBannerTooltip);card.addEventListener('mouseleave',()=>{$('bannerTooltip').hidden=true;});return card;}
 function bannerInsight(row){const slug=row.character_slug,info={...charInfo(slug),...row};const grouped=new Map();(DATA.usageRows||DATA.trendRows||[]).filter(r=>r.character_slug===slug&&(r.sub_mode==='all'||r.sub_mode==='all_bosses'||!r.sub_mode)).forEach(r=>{const key=`${r.tier_mode||r.mode}|${r.collect_date||r.tier_updated_date||''}`;const current=grouped.get(key);if(!current||Number(r.app_rate||0)>Number(current.app_rate||0))grouped.set(key,r);});const usage=[...grouped.values()].sort((a,b)=>String(a.collect_date||a.tier_updated_date).localeCompare(String(b.collect_date||b.tier_updated_date)));const points=usage.map(r=>({date:r.collect_date||r.tier_updated_date,value:number(r.app_rate)||0,mode:r.tier_mode_cn||r.mode_cn||r.tier_mode||r.mode}));const tierText=tierSummaryFor(slug),tierDetails=tierDetailsFor(slug);const teams=(DATA.teamTemplates||[]).filter(t=>(t.chars||[]).includes(slug));const relations=relationRows(slug,teams);const ownedRelation=relations.filter(r=>r.owned).slice(0,4).map(r=>r.name).join('、');const lines=[`T档：Prydwen 按模式分档，${tierText}。`];if(points.length){const latest=points[points.length-1],recent=points.slice(-3),avg=recent.reduce((s,p)=>s+p.value,0)/recent.length,delta=points.length>1?latest.value-points[0].value:0;lines.push(`历史：${points.length} 个样本点，最新 ${latest.value.toFixed(2)}%，近三期均值 ${avg.toFixed(2)}%，首尾变化 ${delta.toFixed(2)}%。`);}else lines.push('历史：本地高难暂无完整样本，不能用趋势替代实测。');if(teams.length){const bestRank=Math.min(...teams.map(t=>number(t.rank)||9999));lines.push(`组队：历史模板 ${teams.length} 条，最好 Rank ${bestRank}，常见队友见下方关系。`);}else lines.push('组队：暂无可回溯历史队伍，等待实测或人工分析。');if(ownedRelation)lines.push(`Box关系：你已有角色中，历史上相关度较高的是 ${ownedRelation}。`);else lines.push('Box关系：暂未发现与你已有 Box 的直接历史组合；需要看属性、命途与队友缺口。');if(row.phase_status==='next'||!points.length)lines.push('未知项：技能组、倍率、光锥价值、实战轴和环境适配仍需外部分析确认。');if(row.focus)lines.push(`关注点：${row.focus}`);return{points,relations,lines,tierText,tierDetails};}
 function tierRowsFor(slug){const resolved=canonicalSlug(slug);return (DATA.tierRows||[]).filter(r=>canonicalSlug(r.character_slug)===resolved);}
@@ -541,7 +559,7 @@ function renderPhaseMechanics(template){
   const status=info.phase_status||template.phase_status||'unknown';
   const dates=[phaseStatusLabel(status),info.start_date&&`开始 ${info.start_date}`,info.end_date&&`结束 ${info.end_date}`,info.collect_date&&`采样 ${info.collect_date}`].filter(Boolean).join(' · ');
   $('phaseMechanicsSubtitle').textContent=dates||'期名来自本地 phase_index';
-  const expiredText=status==='expired'?`本地最新 ${modeLabel} 数据已于 ${info.end_date||'上一周期'} 结束；上游尚未提供新周期队伍数据。请和我对话手动更新至少活动范围，再把当前推荐当作正式参考。`:'';
+  const expiredText=status==='expired'?`本地最新 ${modeLabel} 数据已于 ${info.end_date||'上一周期'} 结束；当前数据包尚未包含新周期统计，以下队伍仅作历史参考。`:'';
   const mechanicName=expiredText?'源滞后 / 历史模板':(info.mechanic_name||'机制效果待维护');
   const mechanicText=expiredText||info.mechanic_text||'当前本地数据只识别到了期名和采样日期，尚未维护这一期的环境效果。这个状态会明确显示，避免把未知效果误当成已匹配。';
   $('phaseMechanicsText').textContent=`${mechanicName}：${mechanicText}`;
