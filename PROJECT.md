@@ -2,7 +2,7 @@
 
 ## 产品愿景
 
-将现有 HSR/ZZZ Python 工具完整迁移到 Tauri 2 + Rust，最终运行时不依赖 Python，同时保持 GUI、CLI、JSON/YAML/CSV、Box State v2、报告和计算语义兼容。迁移期间 Python 是行为基准；Rust 命令只有通过黄金对比后才能解除门禁。
+将现有 HSR/ZZZ Python 工具完整迁移到 Tauri 2 + Rust，最终运行时不依赖 Python，并持续打磨美观、易用的高质量前端，同时保持 GUI、CLI、JSON/YAML/CSV、Box State v2、报告和计算语义兼容。迁移期间 Python 是行为基准；Rust 命令只有通过黄金对比后才能解除门禁。
 
 ## 当前目标（完成优先）
 
@@ -12,6 +12,7 @@
 2. 完成条件是实际入口可用、相关测试通过、交付物/用法明确并完成一个本地提交；不要求顺带完成重构、性能或文档美化。
 3. 优化项在交付闭环后单独排期，不得反向阻塞已经可用的结果。
 4. 发布、安全、数据删除/迁移和权限边界仍保留高风险门禁；普通改动不默认触发全量矩阵或多轮对抗复审。
+5. 默认交付是直接构建并更新当前 Tauri EXE；NSIS、安装器、portable 和发布包只在用户明确要求时进入范围。
 
 ## 当前状态
 
@@ -31,8 +32,8 @@
 - 双游戏 visualizer 产物契约已冻结并由 Rust 实现：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
 - `evidence-first-v1-20260712` 已由 Python oracle 与共享 Rust core/CLI 双实现：跨 mode 隔离、A 的 sentinel/稳定性门槛、owned/built 分离、稳定 E-ID、显式时钟、JSON/YAML/BOM、四产物黄金和任意路径整批回滚均已验收；Rust evidence/coverage 门禁已解除。
 - Python 继续作为决策/报告迁移 oracle，但安装、计划任务、portable 与桌面/CLI 运行时均已证明不启动 Python。五类报告共用 `miho-app` executor；纯 Rust TaskManager、Tauri capabilities/select/start/get/list/cancel、安全任务前端和 workspace-scoped visualizer/data/avatar/Box 协议桥已接通。单一 Rust update runner、failure receipt、config-bound health、跨进程 workspace writer lease、安装/portable 候选切换与发布事务均已接通并完成真实失败升级回滚、成功升级、计划任务 Running→Ready、portable online update、无 Python 与最终卸载矩阵。
-- NSIS 与 portable 已携带桌面 EXE、CLI、默认 configs、automation 和静态 ownership manifest，并以 frozen runtime inputs/dependency/staging、clean Git provenance、反向容器提取和 content-addressed manifest 绑定。项目门禁首次在 clean `85ed31d6636f91f7ff24fa78724c62f508042aa6` 上发布 active 并完成最终字节真机 smoke。只有运行时代码、配置、资源、构建脚本或依赖清单变化才要求从新 clean HEAD 重建；纯流程、说明或测试文档提交不改变现有二进制，也不冒充新的程序版本。当前 active 的实际构建 commit、路径、SHA-256、签名状态与其余 provenance 永远以 `target/release/bundle/miho-release-artifacts-v1.json` 为权威；`NotSigned` 必须继续显式披露。
-- 用户安装的历史 active 曾暴露 installed owner 读取误判和 `frontendDist` 被当作 `file:///` 首页两层 GUI 缺陷；均已在 clean `1f8352be0bbcdae3c306be603bac010338cb343c` 修复。最终 active 已原位升级到 `D:\Miho Endgame`，真实 DOM、计划任务、HSR/ZZZ health、AppData/Box/owner 保留和零 Python 检查通过；当前精确产物仍以 active manifest 为准。
+- 历史 NSIS/portable 链曾完成 frozen inputs、container manifest 与真实安装矩阵；`target/release/bundle/miho-release-artifacts-v1.json` 仅作为那条旧安装器链的事实源保留，不再决定当前桌面程序。
+- 当前桌面程序直接由 Tauri/Rust Release 构建并更新到 `D:\Miho Endgame\miho-desktop.exe`。Box、AppData、计划任务和 Rust CLI 保持原位；当前 EXE 以直接构建哈希和后台产品探针为交付证据。
 
 ## 阶段路线
 
@@ -42,7 +43,7 @@
 4. **数据抓取与导出**：完成；Hugging Face、Prydwen、官方名称及 HSR/ZZZ export 均由 Rust 正式路径承担。
 5. **决策与报告**：完成；evidence、coverage、decision compatibility、pull-value、review-packet 的 Rust core/CLI 已解除门禁。
 6. **Tauri 产品化**：完成；可视化、任务、进度、取消、错误、原生目录选择与安全 workspace 协议均已验收。
-7. **自动化与发布**：完成；计划任务已切换并完成真实回滚/成功/卸载矩阵，active NSIS/便携版和无 Python runtime 已验收。Python 源码仅保留为迁移 oracle，不进入产品运行链。
+7. **自动化与历史发布链**：已完成迁移期验收；当前普通产品交付不再运行 NSIS/portable 矩阵。Python 源码仅保留为迁移 oracle，不进入产品运行链。
 
 ## 当前执行方式
 
@@ -50,7 +51,7 @@
 - 高风险任务（发布、安全、数据删除/迁移、权限、公共事务边界）：增加必要的真实路径验证和一次独立 Blocker/High 复审。
 - 只在状态、决策、证据或重要风险变化时回填追踪文档；中间探索不强制形成独立阶段或提交。
 - 全量回归只用于大范围变更或最终发布，不作为普通修复的默认前置条件。
-- 发布包只在 runtime inputs 变化时重建；纯文档提交继续使用 manifest 指向的实际 active，不触发自引用重建。
+- 运行时变化默认重建并直接更新 Tauri EXE；NSIS/portable/发布包仅在用户明确要求时重建。纯文档提交不触发程序重建。
 - 完成交付后再处理非阻断优化，避免验证和文档流程本身成为关键路径。
 
 ## 第十二批三目标（已完成）
@@ -126,6 +127,7 @@
 | 2026-07-16 | 生产前端必须由相对 `frontendDist` 嵌入，并以 custom-protocol + 真实 CDP/DOM sentinel 守门 | Windows 绝对 staging 路径会被 URL-first `FrontendDist` 误解析为 `file:///`；窗口存活不再等于页面可用，Edge 错误页、开发 URL、假 sentinel 或缺 Tauri internals 均阻断发布 | Tauri config/codegen、custom-protocol feature、config parent、前端 ready sentinel、WebView2/CDP 或 staging 布局变化时 |
 | 2026-07-16 | 执行方式改为完成优先：一个可交付里程碑一次提交，定点验证默认，优化后置 | 普通任务不再强制多轮复审、全量回归或重复留痕；高风险边界继续保留真实验证与一次独立复审 | 用户要求恢复更严格流程，或普通流程再次漏掉系统性高风险缺陷时 |
 | 2026-07-16 | 发布重建改由 runtime inputs 变化触发；纯流程、说明或测试文档提交不使既有 active 失效 | 最大困难是 tracked 留痕若也强制重建会形成自引用循环；manifest 继续绑定实际构建 commit/hash，文档 HEAD 不冒充新的程序版本 | runtime inputs/digest 变化，或需要把新 HEAD 声明为新的程序版本时 |
+| 2026-07-17 | 产品交付回到 Tauri 本体：Rust 后端 + 高质量前端，默认直接构建并替换当前 EXE；后台 CDP/DOM 模拟点击属于允许的真实入口验证 | 普通修复不再进入 NSIS、安装器、portable 或 active 发布仪式；旧发布资产只作历史兼容保留 | 用户明确要求安装器/发布包，或直接 EXE 交付无法满足运行需求时 |
 
 ## 风险登记
 
@@ -139,8 +141,8 @@
 | Tauri visualizer 子 frame 获得 Wry 初始化脚本或跨 workspace 浏览器状态 | 低（当前门禁已验证） | isolation origin 校验、visualizer CSP、opaque token、动态 localStorage scope、stale 409、A→B 真机与 `docs/desktop-visualizer-security.md`；Tauri/Wry 升级时重新关门 |
 | 已安装每日任务仍指向不存在的 C 盘旧脚本 | 已清零（2026-07-15 最终卸载后任务不存在） | 真机已完成 candidate run+exact health、原子替换及 Running→Ready 重放；最终卸载复核任务、automation owner 和产品状态均不存在 |
 | PowerShell launcher 丢失 native `$LASTEXITCODE` 或业务失败后前移 state | 低（runner/launcher 与真实任务均已验证，当前产品已卸载） | PowerShell 仅调用 `update run/health`；WinPS 5.1 与 pwsh 7 EAP/退出码 0/2/7 回归；成功 state 只由 Rust 事务提交 |
-| NSIS/便携版与 active 发布可能过度声称完成 | 低（active、最终字节 smoke 与独立终审已完成；仍未签名） | active manifest 绑定 clean source/container/portable；逐字披露 `NotSigned`，不得把 helper 两切点强杀外推成跨账户、完整 NSIS 强杀或物理掉电恢复 |
-| 发布构建与验证缓存再次膨胀工作区 | 低（本轮已释放逾 13 GB，当前约 0.91 GiB） | 仅保留 active NSIS/portable/static manifest；已删除被替代 verification artifacts、`target/debug`、release 编译缓存、smoke `data/` 与 Git 临时垃圾，绝不删除 AppData 用户数据 |
+| 历史 NSIS/便携版与 active 发布可能过度声称完成 | 非当前交付阻断（旧链仍未签名） | 仅在用户明确要求启用旧链时重新核对 manifest、签名和安装边界；普通 Tauri 修复不引用它证明当前 EXE |
+| 构建与验证缓存再次膨胀工作区 | 低（本轮再次清理 2.15 GB Release 缓存） | 保留当前 Tauri EXE及仍需留存的历史 bundle，及时删除 `target/debug`、Release 编译缓存、smoke 临时目录与 Git 临时垃圾，绝不删除 AppData 用户数据 |
 | 外部数据源随时间变化 | 高 | 归档历史 raw 数据，黄金测试只用固定离线输入 |
 | 子智能体共享工作树冲突 | 中 | 并行任务划定互斥路径；公共类型由主智能体串行整合 |
 | pnpm/esbuild 构建审批或端口再次漂移 | 低（已验证） | 布尔 allowlist、packageManager/Node engines、5173 strict port 与根级复现脚本已固化；端口需避开 Windows excluded range |
@@ -499,11 +501,11 @@
 - **独立发布与 post-install 对抗判断**：安装前只读终审独立重算 active NSIS、portable、static manifest 及 ZIP 20 项闭包，核对 clean source、Box/备份、无半成品和安装前进程，结论 `Blocker=0 / High=0`。安装后独立对抗复审又实际覆盖 ZZZ 两模式、HSR 四模式、空搜索、双卡池图片/名称、正常退出和 Box 零漂移，结论仍为 `Blocker=0 / High=0`；它提出的持久探针 computed visibility/图表/角色列表、全模式和唯一 frame 绑定 Medium 已由上项逐一固化。逐张头像是否符合人工审美仍不是 DOM 自动化能证明的事项，不把它伪装成机器已验收。
 - **空间清理**：在解析 active manifest 并确认候选绝对路径均位于工作区、无 reparse、且不包含 active 闭包后，删除 `target/debug`、空 scratch、3 套旧 NSIS、3 套旧 portable 目录/ZIP、旧 verification/superseded/static manifests，共 17 项、4,319,268,436 逻辑字节；D 盘实测空闲增加 3,729,780,736 字节，`target` 降至 88,745,346 字节（0.083 GiB），D 盘空闲 283.906 GiB。清理后 active manifest 仍为 `active`，NSIS/portable SHA-256 仍为 `3bd32aa2…` / `cecc1cb0…`；安装目录、AppData、Box/recovery、owner、任务和 automation generation 均未进入删除集合。
 
-### Box 导出下载补正（2026-07-17，源码已修复）
+### Box 导出下载补正（2026-07-17，已交付）
 
-- **根因与修复**：Visualizer 内的“导出Box”使用 Blob 与 `<a download>`，但桌面 iframe 的 sandbox 缺少 `allow-downloads`，当前 active WebView2 因而静默拦截下载；后台更新、Box 持久化和计划任务均正常。桌面入口现只新增该最小 sandbox 权限，并以 Rust 静态契约锁定。
-- **定点验证**：`cargo test -p miho-desktop generated_context_uses_isolation_with_identity_hook --locked`、`pnpm --filter miho-desktop build`、`cargo fmt --all -- --check` 与 `git diff --check` 通过；生成的 Vite bundle 已确认包含 `allow-scripts allow-same-origin allow-downloads`，且不再包含旧 sandbox 值。
-- **发布边界**：现有 active manifest 与安装版仍绑定 `7f670774…`，尚不包含本修复。根据本工作区禁止桌面控制的执行政策，本轮不运行会启动并操控 WebView2 的 GUI 发布门禁；clean active 重建、原位升级及真实点击生成 `hsr_box_state.json` 留作维护者手工验收，未把源码/编译验证冒充为已安装完成。
+- **根因与修复**：Visualizer 内的“导出Box”使用 Blob 与 `<a download>`，但旧桌面程序 iframe 的 sandbox 缺少 `allow-downloads`，WebView2 因而静默拦截下载；后台更新、Box 持久化和计划任务均正常。桌面入口现只新增该最小 sandbox 权限，并以 Rust 静态契约锁定。
+- **定点验证**：`cargo test -p miho-desktop generated_context_uses_isolation_with_identity_hook --locked`、Vite build、默认 `pnpm run tauri:build`、Rust fmt 与 diff check 通过。`D:\Miho Endgame\miho-desktop.exe` 已直接替换为 SHA-256 `389053BDE16D98015F7D74633E8CE2B9D10FE92022744382FBB67DBD01F502DA`，未经过 NSIS。
+- **真实入口证据**：后台 CDP/DOM 探针完成 ZZZ → HSR → ZZZ；HSR iframe 含 `allow-downloads`，以 `userGesture` 模拟点击“导出Box”后生成 `hsr_box_state.json`（1,311 bytes、59 人），导出内容与保存状态一致，源 Box SHA-256 前后不变。导出 JSON 含实时 `exportedAt`，因此不把每次都会变化的文件哈希误作稳定契约。
 
 ## 恢复入口
 
@@ -511,9 +513,9 @@
 - 当前工作区：`D:\Projects\终局内容提取`。
 - 兼容规则：`docs/migration-compatibility.md`。
 - Rust workspace：根目录 `Cargo.toml`。
-- 当前完整验证：`cargo test --workspace --locked --no-fail-fast; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo fmt --all -- --check; python -m pytest -q; python -m compileall -q hsr_endgame_exporter zzz_endgame_exporter miho_core; pnpm run build; powershell -File scripts/build_rust_app.ps1 -Release`，并在 PowerShell 5.1/7 中逐一运行 scheduler、installer transaction、native exit 与 release contract 测试。full build 默认只能生成 verification-only；只有项目门禁与独立终审齐备的 clean full Release 才能显式传 `-ProjectGatesApproved`。当前 active 的精确 source/artifact 事实源是 `target/release/bundle/miho-release-artifacts-v1.json`。
+- 当前默认构建/验证：`pnpm run tauri:build` 直接生成 `target/release/miho-desktop.exe`，按风险运行相关 Rust/前端定点测试，再用后台 CDP/DOM 探针验证真实入口。全 workspace 回归只用于大范围变化；`scripts/build_rust_app.ps1 -Release` 及其 NSIS/manifest 门禁仅在用户明确要求旧发布链时运行。
 - Python 基准：`python -m hsr_endgame_exporter --help`、`python -m zzz_endgame_exporter --help`。
 - 业务归档：`D:\Projects\终局内容提取-archive\20260712-005035\manifest.json`。
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
 - update runner 契约：`docs/update-runner-contract.md`；外部现状与迁移阻断：`automation_capability_report.md`。
-- 当前剩余长期边界：未做 Authenticode 正式签名、跨账户/跨 session release lease 实测、完整 NSIS Prepare/Commit 任意切点强杀或物理掉电 recovery；200 ms 进程采样也不等于连续 ETW 审计。这些属于后续优化/扩展可靠性，不否定当前同账户 active 已通过的实际安装、DOM、任务和 health 闭环。
+- 当前剩余长期边界：历史安装器链仍未做 Authenticode、跨账户 release lease 和完整 NSIS 任意切点强杀/物理掉电恢复；这些不是当前 Tauri 直接交付的阻断。后台进程采样也不等于连续 ETW 审计。

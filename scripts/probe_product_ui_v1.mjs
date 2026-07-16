@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
+
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
   const key = process.argv[index];
@@ -36,8 +40,16 @@ const expectedAnalysisModes = {
   zzz: ["sd", "da"],
 };
 const timeoutMs = Number(args.get("timeout-ms") ?? "30000");
+const boxExportDir = args.get("box-export-dir") ?? null;
+const sourceHsrBox = args.get("source-hsr-box") ?? null;
 
 if (!webSocketUrl) throw new Error("--ws is required");
+if ((boxExportDir === null) !== (sourceHsrBox === null)) {
+  throw new Error("--box-export-dir and --source-hsr-box must be provided together");
+}
+if (boxExportDir !== null && (!path.isAbsolute(boxExportDir) || !path.isAbsolute(sourceHsrBox))) {
+  throw new Error("Box export verification paths must be absolute");
+}
 for (const game of ["hsr", "zzz"]) {
   if (!Number.isSafeInteger(expectedOwned[game]) || expectedOwned[game] < 0) {
     throw new Error(`--expected-${game}-owned must be a non-negative integer`);
@@ -179,6 +191,7 @@ const outerExpression = `(() => {
     firstPanel: document.querySelector('main.dashboard')?.firstElementChild?.className ?? '',
     visualizerTitle: document.querySelector('.visualizer-panel h2')?.textContent?.trim() ?? '',
     frameSrc: frame?.getAttribute('src') ?? '',
+    frameSandbox: frame?.getAttribute('sandbox') ?? '',
     frameVisible: visible(frame) && !frame.hidden,
     frameHeight: frame?.getBoundingClientRect().height ?? 0,
     utilitiesOpen: utilities?.open ?? null,
@@ -368,12 +381,13 @@ session.on("Target.detachedFromTarget", ({ sessionId, targetId }) => {
   }
 });
 
-async function evaluate(contextId, expression, sessionId = undefined) {
+async function evaluate(contextId, expression, sessionId = undefined, options = {}) {
   const result = await session.send("Runtime.evaluate", {
     ...(contextId === undefined || contextId === null ? {} : { contextId }),
     expression,
     returnByValue: true,
     awaitPromise: true,
+    userGesture: options.userGesture === true,
   }, sessionId);
   if (result.exceptionDetails) {
     throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? "evaluation failed");
@@ -473,10 +487,74 @@ function verifyOuter(snapshot, game) {
   assert(snapshot.visualizerTitle.includes(gameLabel) && snapshot.visualizerTitle.includes("我的 Box"), "Visualizer title does not describe the selected Box", snapshot);
   assert(snapshot.frameVisible && snapshot.frameHeight >= 500, "Visualizer frame is not visibly usable", snapshot);
   assert(snapshot.frameSrc.includes(`/${game}/index.html`) && snapshot.frameSrc.endsWith("#box"), "Visualizer frame did not open the Box page", snapshot);
+  assert(new Set(snapshot.frameSandbox.split(/\s+/u)).has("allow-downloads"), "Visualizer frame does not permit Box downloads", snapshot);
   assert(snapshot.utilitiesOpen === false, "advanced utilities are expanded by default", snapshot);
   assert(snapshot.utilitiesSummary === "更新数据、生成报告与设置", "advanced utilities do not use the customer-facing label", snapshot);
   assert(snapshot.visibleTaskIds === 0, "technical task identifiers are visible on the main page", snapshot);
   assert(snapshot.activeGame === gameLabel, "game switch did not update the active game", snapshot);
+}
+
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function comparableBox(value) {
+  const normalize = (item) => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (item && typeof item === "object") {
+      return Object.fromEntries(Object.keys(item).sort().map((key) => [key, normalize(item[key])]));
+    }
+    return item;
+  };
+  return normalize({
+    version: value?.version,
+    owned: value?.owned,
+    buildSlug: value?.buildSlug ?? "",
+    builds: value?.builds ?? {},
+  });
+}
+
+async function verifyHsrBoxExport(context) {
+  if (boxExportDir === null) return null;
+  const destination = path.join(boxExportDir, "hsr_box_state.json");
+  assert(!existsSync(destination), "Box export destination is not empty", { destination });
+  const sourceBefore = readFileSync(sourceHsrBox);
+  const sourceState = JSON.parse(sourceBefore.toString("utf8"));
+  try {
+    await session.send("Browser.setDownloadBehavior", {
+      behavior: "allow",
+      downloadPath: boxExportDir,
+      eventsEnabled: true,
+    });
+  } catch {
+    await session.send("Page.setDownloadBehavior", {
+      behavior: "allow",
+      downloadPath: boxExportDir,
+    });
+  }
+  const clicked = await evaluate(context.id, `(() => {
+    const button = document.querySelector('#boxExportBtn');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`, context.sessionId, { userGesture: true });
+  assert(clicked === true, "HSR Box export button could not be clicked");
+  const exportedState = await waitFor("HSR Box export file", () => {
+    if (!existsSync(destination) || statSync(destination).size === 0) return null;
+    try { return JSON.parse(readFileSync(destination, "utf8")); } catch { return null; }
+  });
+  const sourceAfter = readFileSync(sourceHsrBox);
+  assert(sha256(sourceAfter) === sha256(sourceBefore), "HSR Box export changed the saved Box state");
+  assert(exportedState?.version === 2, "HSR Box export has an unexpected schema version", exportedState);
+  assert(Array.isArray(exportedState?.owned) && exportedState.owned.length === expectedOwned.hsr, "HSR Box export has an unexpected owned count", exportedState);
+  assert(JSON.stringify(comparableBox(exportedState)) === JSON.stringify(comparableBox(sourceState)), "HSR Box export differs from the saved Box state");
+  return {
+    fileName: path.basename(destination),
+    bytes: statSync(destination).size,
+    sha256: sha256(readFileSync(destination)),
+    owned: exportedState.owned.length,
+    sourceUnchanged: true,
+  };
 }
 
 function verifyProduct(snapshot, game) {
@@ -645,11 +723,12 @@ try {
   const hsrProduct = await productSnapshot("hsr");
   verifyProduct(hsrProduct, "hsr");
   const hsrContext = await activeFrameContext("hsr");
+  const hsrBoxExport = await verifyHsrBoxExport(hsrContext);
   const hsrAnalysis = await switchProductPage(hsrContext, "hsr", "analysis");
   const hsrAnalyses = await verifyAnalysisModes(hsrContext, "hsr", hsrAnalysis);
   const hsrBanner = await switchProductPage(hsrContext, "hsr", "banner");
   verifyBanner(hsrBanner, "hsr");
-  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, analyses: hsrAnalyses, banner: hsrBanner });
+  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxExport: hsrBoxExport, analyses: hsrAnalyses, banner: hsrBanner });
 
   await switchGame(top.id, "zzz");
   const zzzReturnOuter = await waitFor("returned ZZZ desktop shell", async () => {
