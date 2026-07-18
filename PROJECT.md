@@ -530,6 +530,12 @@
 - **验证与直接交付**：Vite、`pnpm run tauri:build`、desktop lib 86 项、GUI contract、Rust fmt/diff check 均通过。后台实拍检查默认 1200×820 的抽屉关闭/打开状态，关闭态只剩一根内容滚动条；installed GUI 回执继续满足 production URL、ready sentinel、Tauri internals、5 秒存活、正常退出、空 stdout/stderr 和调试端口清理。
 - **真实入口证据**：安装版后台 CDP/DOM 完整执行 ZZZ → HSR → ZZZ，覆盖 Box、六种终局模式、双卡池和 HSR 组队推荐；序列回执为 `zzz/hsr/zzz`，两份 Box 文件前后哈希不变。`target/release/miho-desktop.exe` 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 均为 `0DAE1E8D9209B57B738E2072BED76941D1AA4E0752492DA9DB621942704B73A8`，未生成安装器或 portable。
 
+### ZZZ 中文先发角色身份与发行顺序（2026-07-18，已交付）
+
+- **根因与修复**：HoYoWiki 中文代理人名册已收录 `1082 / 佩洛伊斯`，英文名册尚未同步；旧解析只遍历英文行，导致 `pyrois` 丢失官方中文身份并回退到 `unknown / release_order=9999`。现以稳定 `entry_page_id` 桥接 Norma、Velina、Pyrois 的外部数据 slug，中文名、属性、特性、阵营、稀有度、头像与发行顺序均取当次中文名册；顺序随中文列表前插动态变化，英文以后补录同 ID 时仍只保留一条 canonical 记录。Visualizer 复用同一官方解析器，不再维护第二套 EN-only 合并。
+- **真实数据与页面证据**：联网重建 `out_zzz` 的报告为 Warning 0 / Error 0；`name_map` 为 `norma=0 / velina=1 / pyrois=2`，Pyrois 显示“佩洛伊斯”、`kind=agent`、无需人工确认，并已从 unresolved 移除；usage、当前 Tier 与 roster 同步回填中文。后台 Chromium 真实渲染 Box 后只存在一张 `pyrois` 卡；既定 current/next/satellite 卡优先展示，其后 Pyrois 位于普通角色队列最前，不据此改写 T 档或强度结论。
+- **验证与直接交付**：ZZZ 定点测试 39 项、`cargo clippy -p miho-core --all-targets --locked -- -D warnings`、Rust fmt、真实在线 export、后台 Box DOM、Vite/Tauri release 构建和 installed GUI 探针均通过。新 EXE 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，与 `target/release/miho-desktop.exe` SHA-256 同为 `3C3A94C6455E1685652F06DD69768ACAFD6A2D0BEA66EE94BA060112216D5B76`；未生成安装器或 portable，ZZZ Box SHA-256 前后均为 `E930B672E41FC4F423369CF895A8A024023D22E73A6BFAECC0B6AC93A78E3FA0`。
+
 ## 恢复入口
 
 - 项目状态：本文件。

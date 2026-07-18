@@ -14,6 +14,50 @@ pub const HOYOWIKI_APP: &str = "zzz";
 pub const HOYOWIKI_AGENT_MENU_ID: &str = "8";
 pub const HOYOWIKI_BANGBOO_MENU_ID: &str = "15";
 
+const ZH_CN_AGENT_SOURCE: &str = "HoYoWiki official zzz zh-cn agent menu_id=8";
+
+#[derive(Clone, Copy)]
+struct ZhFirstAgentIdentity {
+    entry_page_id: &'static str,
+    character_slug: &'static str,
+    character_name_en: &'static str,
+    character_name_cn: &'static str,
+    fallback_release_order: usize,
+}
+
+// HoYoWiki sometimes publishes new agents in the Chinese menu before the English menu.
+// Keep the external dataset identity explicit while taking localized metadata and live order
+// from the official Chinese row whenever it is available.
+const ZH_FIRST_AGENT_IDENTITIES: [ZhFirstAgentIdentity; 3] = [
+    ZhFirstAgentIdentity {
+        entry_page_id: "1085",
+        character_slug: "norma",
+        character_name_en: "Norma Hollowell",
+        character_name_cn: "诺姆·霍洛维尔",
+        fallback_release_order: 0,
+    },
+    ZhFirstAgentIdentity {
+        entry_page_id: "1084",
+        character_slug: "velina",
+        character_name_en: "Velina",
+        character_name_cn: "维琳娜·艾嘉德",
+        fallback_release_order: 1,
+    },
+    ZhFirstAgentIdentity {
+        entry_page_id: "1082",
+        character_slug: "pyrois",
+        character_name_en: "Pyrois",
+        character_name_cn: "佩洛伊斯",
+        fallback_release_order: 2,
+    },
+];
+
+fn zh_first_agent_identity(entry_page_id: &str) -> Option<&'static ZhFirstAgentIdentity> {
+    ZH_FIRST_AGENT_IDENTITIES
+        .iter()
+        .find(|identity| identity.entry_page_id == entry_page_id)
+}
+
 pub const fn hoyowiki_menu_id(kind: HoyowikiEntryKind) -> Option<&'static str> {
     match kind {
         HoyowikiEntryKind::Agent => Some(HOYOWIKI_AGENT_MENU_ID),
@@ -164,15 +208,21 @@ pub fn official_name_map(
                 .or_insert_with(|| row.clone());
         }
     }
+    for identity in &ZH_FIRST_AGENT_IDENTITIES {
+        output
+            .entry(identity.character_slug.into())
+            .or_insert(OfficialMapRow {
+                character_slug: identity.character_slug.into(),
+                character_name_en: identity.character_name_en.into(),
+                character_name_cn: identity.character_name_cn.into(),
+                source: ZH_CN_AGENT_SOURCE.into(),
+                needs_manual_check: "0".into(),
+                aliases: aliases_for(identity.character_slug, identity.character_name_en).join(";"),
+                kind: "agent".into(),
+                release_order: identity.fallback_release_order.to_string(),
+            });
+    }
     for (slug, en, cn, source, kind, order) in [
-        (
-            "velina",
-            "Velina",
-            "维琳娜·艾嘉德",
-            "HoYoWiki official zzz zh-cn agent menu_id=8",
-            "agent",
-            "0",
-        ),
         (
             "ultra-jake",
             "Ultra Jake",
@@ -362,64 +412,107 @@ pub fn parse_official_bangboo(en_rows: &[Value], zh_rows: &[Value]) -> Vec<Offic
 }
 
 fn parse_official_rows(en_rows: &[Value], zh_rows: &[Value]) -> Vec<OfficialNameRow> {
-    let zh_by_id: HashMap<String, &Value> = zh_rows
-        .iter()
-        .map(|row| (dictionary_entry_id(row), row))
-        .collect();
-    let zh_order: HashMap<String, usize> = zh_rows
-        .iter()
-        .enumerate()
-        .map(|(index, row)| (dictionary_entry_id(row), index))
-        .collect();
-    en_rows
-        .iter()
-        .enumerate()
-        .filter_map(|(index, en)| {
-            let id = field(en, "entry_page_id");
-            let zh = zh_by_id.get(&id).copied();
-            let en_name = clean_name(&field(en, "name"));
-            if en_name.is_empty() {
-                return None;
-            }
-            let cn_name = zh
-                .map(|row| clean_name(&field(row, "name")))
-                .unwrap_or_default();
-            let release_order = zh_order.get(&id).copied().unwrap_or(index);
-            Some(OfficialNameRow {
-                character_slug: character_slug(&en_name),
-                character_name_en: en_name,
-                character_name_cn: cn_name,
-                element_en: first_filter(en, "agent_stats"),
-                element_cn: zh
-                    .map(|v| first_filter(v, "agent_stats"))
-                    .unwrap_or_default(),
-                style_en: first_filter(en, "agent_specialties"),
-                style_cn: zh
-                    .map(|v| first_filter(v, "agent_specialties"))
-                    .unwrap_or_default(),
-                faction_en: first_filter(en, "agent_faction"),
-                faction_cn: zh
-                    .map(|v| first_filter(v, "agent_faction"))
-                    .unwrap_or_default(),
-                rarity: {
-                    let value = first_filter(en, "agent_rarity");
-                    if value.is_empty() {
-                        zh.map(|v| first_filter(v, "agent_rarity"))
-                            .unwrap_or_default()
-                    } else {
-                        value
-                    }
-                },
-                icon_url: zh
-                    .map(|v| field(v, "icon_url"))
-                    .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| field(en, "icon_url")),
-                source: AGENT_SOURCE.to_owned(),
-                kind: "agent".to_owned(),
-                release_order,
-            })
-        })
-        .collect()
+    let mut zh_by_id = HashMap::<String, &Value>::new();
+    let mut zh_order = HashMap::<String, usize>::new();
+    for (index, row) in zh_rows.iter().enumerate() {
+        let id = dictionary_entry_id(row);
+        zh_by_id.entry(id.clone()).or_insert(row);
+        zh_order.entry(id).or_insert(index);
+    }
+    let mut output = Vec::new();
+    let mut english_ids = BTreeSet::new();
+    for (index, en) in en_rows.iter().enumerate() {
+        let id = field(en, "entry_page_id");
+        let zh = zh_by_id.get(&id).copied();
+        let bridged_identity = zh_first_agent_identity(&id);
+        let en_name = clean_name(&field(en, "name"));
+        if en_name.is_empty() || (!id.is_empty() && !english_ids.insert(id.clone())) {
+            continue;
+        }
+        let cn_name = zh
+            .map(|row| clean_name(&field(row, "name")))
+            .filter(|name| !name.is_empty())
+            .or_else(|| bridged_identity.map(|identity| identity.character_name_cn.into()))
+            .unwrap_or_default();
+        let release_order = zh_order
+            .get(&id)
+            .copied()
+            .or_else(|| bridged_identity.map(|identity| identity.fallback_release_order))
+            .unwrap_or(index);
+        output.push(OfficialNameRow {
+            character_slug: bridged_identity
+                .map(|identity| identity.character_slug.to_owned())
+                .unwrap_or_else(|| character_slug(&en_name)),
+            character_name_en: en_name,
+            character_name_cn: cn_name,
+            element_en: first_filter(en, "agent_stats"),
+            element_cn: zh
+                .map(|v| first_filter(v, "agent_stats"))
+                .unwrap_or_default(),
+            style_en: first_filter(en, "agent_specialties"),
+            style_cn: zh
+                .map(|v| first_filter(v, "agent_specialties"))
+                .unwrap_or_default(),
+            faction_en: first_filter(en, "agent_faction"),
+            faction_cn: zh
+                .map(|v| first_filter(v, "agent_faction"))
+                .unwrap_or_default(),
+            rarity: {
+                let value = first_filter(en, "agent_rarity");
+                if value.is_empty() {
+                    zh.map(|v| first_filter(v, "agent_rarity"))
+                        .unwrap_or_default()
+                } else {
+                    value
+                }
+            },
+            icon_url: zh
+                .map(|v| field(v, "icon_url"))
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| field(en, "icon_url")),
+            source: AGENT_SOURCE.to_owned(),
+            kind: "agent".to_owned(),
+            release_order,
+        });
+    }
+
+    let mut supplemental_ids = BTreeSet::new();
+    for (release_order, zh) in zh_rows.iter().enumerate() {
+        let id = dictionary_entry_id(zh);
+        let Some(identity) = zh_first_agent_identity(&id) else {
+            continue;
+        };
+        if english_ids.contains(&id) || !supplemental_ids.insert(id.clone()) {
+            continue;
+        }
+        let cn_name = clean_name(&field(zh, "name"));
+        output.push(OfficialNameRow {
+            character_slug: identity.character_slug.into(),
+            character_name_en: identity.character_name_en.into(),
+            character_name_cn: if cn_name.is_empty() {
+                identity.character_name_cn.into()
+            } else {
+                cn_name
+            },
+            element_en: String::new(),
+            element_cn: first_filter(zh, "agent_stats"),
+            style_en: String::new(),
+            style_cn: first_filter(zh, "agent_specialties"),
+            faction_en: String::new(),
+            faction_cn: first_filter(zh, "agent_faction"),
+            rarity: first_filter(zh, "agent_rarity"),
+            icon_url: field(zh, "icon_url"),
+            source: ZH_CN_AGENT_SOURCE.into(),
+            kind: "agent".into(),
+            release_order,
+        });
+    }
+    output.sort_by(|left, right| {
+        left.release_order
+            .cmp(&right.release_order)
+            .then_with(|| left.character_slug.cmp(&right.character_slug))
+    });
+    output
 }
 
 fn parse_phase_option(text: &str) -> Option<(String, PhaseUpdate)> {
@@ -714,9 +807,13 @@ mod tests {
             "canonical-source-id"
         );
         let no_id = parse_official_agents(
-            &[serde_json::json!({"name": "No ID"})],
+            &[
+                serde_json::json!({"name": "No ID"}),
+                serde_json::json!({"name": "Another No ID"}),
+            ],
             &[serde_json::json!({"name": "Must Not Match"})],
         );
+        assert_eq!(no_id.len(), 2);
         assert_eq!(no_id[0].character_name_cn, "");
 
         let escaped = extract_phase_updates_from_html(
@@ -730,5 +827,156 @@ mod tests {
             python_value_string(&serde_json::json!(["tag", "O'Brien", true, null])),
             "['tag', \"O'Brien\", True, None]"
         );
+    }
+
+    #[test]
+    fn zh_first_agents_keep_official_metadata_dynamic_order_and_future_english_dedupe() {
+        let zh_agent =
+            |id: &str, name: &str, element: &str, style: &str, faction: &str, icon: &str| {
+                serde_json::json!({
+                    "entry_page_id": id,
+                    "name": name,
+                    "icon_url": icon,
+                    "filter_values": {
+                        "agent_stats": {"values": [element]},
+                        "agent_specialties": {"values": [style]},
+                        "agent_faction": {"values": [faction]},
+                        "agent_rarity": {"values": ["S"]}
+                    }
+                })
+            };
+        let zh_rows = vec![
+            zh_agent(
+                "1085",
+                "诺姆·霍洛维尔",
+                "火属性",
+                "击破",
+                "外务筹策局",
+                "norma.webp",
+            ),
+            zh_agent(
+                "1084",
+                "维琳娜·艾嘉德",
+                "风属性",
+                "异常",
+                "外务筹策局",
+                "velina.webp",
+            ),
+            zh_agent("1082", "佩洛伊斯", "以太", "强攻", "法厄同", "pyrois.webp"),
+        ];
+
+        let rows = parse_official_agents(&[], &zh_rows);
+        assert_eq!(rows.len(), 3);
+        let pyrois = rows
+            .iter()
+            .find(|row| row.character_slug == "pyrois")
+            .unwrap();
+        assert_eq!(
+            (
+                pyrois.character_name_en.as_str(),
+                pyrois.character_name_cn.as_str(),
+                pyrois.element_cn.as_str(),
+                pyrois.style_cn.as_str(),
+                pyrois.faction_cn.as_str(),
+                pyrois.rarity.as_str(),
+                pyrois.icon_url.as_str(),
+                pyrois.release_order,
+            ),
+            (
+                "Pyrois",
+                "佩洛伊斯",
+                "以太",
+                "强攻",
+                "法厄同",
+                "S",
+                "pyrois.webp",
+                2,
+            )
+        );
+
+        let mut shifted_zh_rows = vec![serde_json::json!({
+            "entry_page_id": "future-agent",
+            "name": "未来代理人"
+        })];
+        shifted_zh_rows.extend(zh_rows.clone());
+        let shifted = parse_official_agents(&[], &shifted_zh_rows);
+        assert_eq!(
+            shifted
+                .iter()
+                .find(|row| row.character_slug == "pyrois")
+                .unwrap()
+                .release_order,
+            3
+        );
+
+        let mut duplicated_zh_rows = zh_rows.clone();
+        duplicated_zh_rows.push(zh_agent(
+            "1082",
+            "重复记录不应覆盖首条",
+            "火属性",
+            "支援",
+            "重复阵营",
+            "duplicate.webp",
+        ));
+        let deduplicated = parse_official_agents(&[], &duplicated_zh_rows);
+        let pyrois_rows = deduplicated
+            .iter()
+            .filter(|row| row.character_slug == "pyrois")
+            .collect::<Vec<_>>();
+        assert_eq!(pyrois_rows.len(), 1);
+        assert_eq!(pyrois_rows[0].character_name_cn, "佩洛伊斯");
+        assert_eq!(pyrois_rows[0].release_order, 2);
+
+        let english_rows = vec![
+            serde_json::json!({
+                "entry_page_id": "1085",
+                "name": "Norma Hollowell"
+            }),
+            serde_json::json!({
+                "entry_page_id": "1082",
+                "name": "Pyrois",
+                "icon_url": "pyrois-en.webp",
+                "filter_values": {
+                    "agent_stats": {"values": ["Ether"]},
+                    "agent_specialties": {"values": ["Attack"]},
+                    "agent_faction": {"values": ["Phaethon"]},
+                    "agent_rarity": {"values": ["S"]}
+                }
+            }),
+        ];
+        let english_only = parse_official_agents(&english_rows, &[]);
+        let english_only_pyrois = english_only
+            .iter()
+            .find(|row| row.character_slug == "pyrois")
+            .unwrap();
+        assert_eq!(english_only_pyrois.character_name_cn, "佩洛伊斯");
+        assert_eq!(english_only_pyrois.release_order, 2);
+
+        let with_english = parse_official_agents(&english_rows, &zh_rows);
+        let norma = with_english
+            .iter()
+            .find(|row| row.character_slug == "norma")
+            .unwrap();
+        assert_eq!(norma.character_name_en, "Norma Hollowell");
+        assert!(!with_english
+            .iter()
+            .any(|row| row.character_slug == "norma-hollowell"));
+        let pyrois_rows = with_english
+            .iter()
+            .filter(|row| row.character_slug == "pyrois")
+            .collect::<Vec<_>>();
+        assert_eq!(pyrois_rows.len(), 1);
+        assert_eq!(pyrois_rows[0].character_name_cn, "佩洛伊斯");
+        assert_eq!(pyrois_rows[0].element_en, "Ether");
+        assert_eq!(pyrois_rows[0].release_order, 2);
+
+        let fallback = official_name_map(&[], &[]);
+        assert_eq!(fallback["norma"].release_order, "0");
+        assert_eq!(fallback["norma"].character_name_en, "Norma Hollowell");
+        assert_eq!(fallback["velina"].release_order, "1");
+        assert_eq!(fallback["pyrois"].character_name_cn, "佩洛伊斯");
+        assert_eq!(fallback["pyrois"].kind, "agent");
+        assert_eq!(fallback["pyrois"].needs_manual_check, "0");
+        assert_eq!(fallback["pyrois"].release_order, "2");
     }
 }

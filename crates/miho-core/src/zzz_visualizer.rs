@@ -11,7 +11,7 @@ use crate::{
         python_scalar_text, python_value_truthy as python_truthy, read_csv_rows, safe_link_url,
         strict_utf8, validate_json_surrogate_escapes, VisualizerContext,
     },
-    zzz_sources::extract_phase_updates_from_html,
+    zzz_sources::{extract_phase_updates_from_html, parse_official_agents},
     MihoError, Result,
 };
 
@@ -587,56 +587,25 @@ fn official_roster(
 ) -> Result<HashMap<String, OfficialMeta>> {
     let zh = read_json_array(bundle, context, "raw/hoyowiki/zzz_agents_zh-cn.json")?;
     let en = read_json_array(bundle, context, "raw/hoyowiki/zzz_agents_en-us.json")?;
-    let zh_by_id = zh
-        .iter()
-        .map(|row| (json_text(row.get("entry_page_id")), row))
-        .collect::<HashMap<_, _>>();
-    let zh_order = zh
-        .iter()
-        .enumerate()
-        .map(|(index, row)| (json_text(row.get("entry_page_id")), index))
-        .collect::<HashMap<_, _>>();
-    let mut output = HashMap::new();
-    for (index, en_row) in en.iter().enumerate() {
-        let id = json_text(en_row.get("entry_page_id"));
-        let zh_row = zh_by_id.get(&id).copied();
-        let name = json_text(en_row.get("name")).trim().to_owned();
-        let slug = canonical(&name);
-        if slug.is_empty() {
-            continue;
-        }
-        output.insert(
-            slug,
-            OfficialMeta {
-                name_en: name,
-                name_cn: json_text(zh_row.and_then(|row| row.get("name")))
-                    .trim()
-                    .to_owned(),
-                element_en: first_filter(Some(en_row), "agent_stats"),
-                element_cn: first_filter(zh_row, "agent_stats")
-                    .trim_end_matches("属性")
-                    .to_owned(),
-                style_en: first_filter(Some(en_row), "agent_specialties"),
-                style_cn: first_filter(zh_row, "agent_specialties"),
-                rarity: first(&[
-                    nonempty_text(&first_filter(Some(en_row), "agent_rarity")),
-                    nonempty_text(&first_filter(zh_row, "agent_rarity")),
-                ]),
-                icon_url: first(&[
-                    nonempty_text(&json_text(zh_row.and_then(|row| row.get("icon_url")))),
-                    nonempty_text(&json_text(en_row.get("icon_url"))),
-                ]),
-                release_order: zh_order.get(&id).copied().unwrap_or(index),
-            },
-        );
-    }
-    Ok(output)
-}
-
-fn first_filter(row: Option<&Value>, key: &str) -> String {
-    row.and_then(|row| row.pointer(&format!("/filter_values/{key}/values/0")))
-        .map(|value| json_text(Some(value)))
-        .unwrap_or_default()
+    Ok(parse_official_agents(&en, &zh)
+        .into_iter()
+        .map(|row| {
+            (
+                row.character_slug,
+                OfficialMeta {
+                    name_en: row.character_name_en,
+                    name_cn: row.character_name_cn,
+                    element_en: row.element_en,
+                    element_cn: row.element_cn.trim_end_matches("属性").to_owned(),
+                    style_en: row.style_en,
+                    style_cn: row.style_cn,
+                    rarity: row.rarity,
+                    icon_url: row.icon_url,
+                    release_order: row.release_order,
+                },
+            )
+        })
+        .collect())
 }
 
 fn json_text(value: Option<&Value>) -> String {
@@ -648,10 +617,6 @@ fn json_text(value: Option<&Value>) -> String {
         Some(Value::Null) | None => String::new(),
         Some(value) => value.to_string(),
     }
-}
-
-fn nonempty_text(value: &str) -> Option<&str> {
-    (!value.is_empty()).then_some(value)
 }
 
 fn build_team_templates(
@@ -1214,6 +1179,61 @@ mod tests {
         assert_eq!(rows[0]["element_cn"], "以太");
         assert_eq!(rows[0]["role_group"], "crit_dps");
         assert_eq!(rows[0]["release_order"], json!(10.0));
+    }
+
+    #[test]
+    fn roster_localizes_and_orders_agent_published_in_chinese_menu_first() {
+        let mut bundle = ArtifactBundle::default();
+        bundle
+            .add_bytes(
+                "raw/hoyowiki/zzz_agents_zh-cn.json",
+                serde_json::to_vec(&json!([
+                    {"entry_page_id":"1085","name":"诺姆·霍洛维尔"},
+                    {"entry_page_id":"1084","name":"维琳娜·艾嘉德"},
+                    {
+                        "entry_page_id":"1082",
+                        "name":"佩洛伊斯",
+                        "filter_values": {
+                            "agent_stats":{"values":["以太"]},
+                            "agent_specialties":{"values":["强攻"]},
+                            "agent_faction":{"values":["法厄同"]},
+                            "agent_rarity":{"values":["S"]}
+                        }
+                    }
+                ]))
+                .unwrap(),
+            )
+            .unwrap();
+        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let tiers = vec![
+            row(&[
+                ("character_slug", "pyrois"),
+                ("character_name_en", "Pyrois"),
+                ("tier", "T0.5"),
+                ("element", "Ether"),
+                ("style", "Attack"),
+            ]),
+            row(&[
+                ("character_slug", "old-agent"),
+                ("character_name_en", "Old Agent"),
+                ("tier", "T1"),
+            ]),
+        ];
+        let names = vec![row(&[
+            ("character_slug", "old-agent"),
+            ("character_name_cn", "旧代理人"),
+            ("kind", "agent"),
+            ("release_order", "10"),
+        ])];
+
+        let rows = build_roster(&bundle, &[], &tiers, &names, &context).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["character_slug"], "pyrois");
+        assert_eq!(rows[0]["character_name_cn"], "佩洛伊斯");
+        assert_eq!(rows[0]["element_cn"], "以太");
+        assert_eq!(rows[0]["style_cn"], "强攻");
+        assert_eq!(rows[0]["release_order"], json!(2.0));
+        assert_eq!(rows[1]["character_slug"], "old-agent");
     }
 
     #[test]
