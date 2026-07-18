@@ -845,6 +845,13 @@ fn build_banner(
 }
 
 fn merge_banner_into_roster(roster: &mut Vec<Value>, banner: &[Value]) {
+    let original_slugs = roster
+        .iter()
+        .filter_map(|row| {
+            let slug = value_str(row, "character_slug");
+            (!slug.is_empty()).then_some(slug.to_owned())
+        })
+        .collect::<BTreeSet<_>>();
     let mut by_slug = roster
         .drain(..)
         .filter_map(|row| {
@@ -852,6 +859,7 @@ fn merge_banner_into_roster(roster: &mut Vec<Value>, banner: &[Value]) {
             (!slug.is_empty()).then_some((slug, row))
         })
         .collect::<BTreeMap<_, _>>();
+    let mut banner_only_slugs = Vec::new();
     let mut next_order = by_slug.values().map(release_order).fold(0.0, f64::max) + 1.0;
     for banner_row in banner {
         let slug = canonical(value_str(banner_row, "character_slug"));
@@ -880,6 +888,7 @@ fn merge_banner_into_roster(roster: &mut Vec<Value>, banner: &[Value]) {
                 "tier":"未分档","rating":"","tags":tags,"icon_url":value_str(banner_row,"icon_url"),"release_order":next_order,
                 "source":"banner_plan","banner_statuses":value_str(banner_row,"phase_status"),"banner_phase_titles":value_str(banner_row,"phase_title"),
             }));
+            banner_only_slugs.push(slug);
             next_order += 1.0;
             continue;
         }
@@ -943,12 +952,49 @@ fn merge_banner_into_roster(roster: &mut Vec<Value>, banner: &[Value]) {
             }
         }
     }
-    *roster = by_slug.into_values().collect();
-    roster.sort_by(|left, right| {
+
+    let mut published = by_slug
+        .values()
+        .filter(|row| original_slugs.contains(value_str(row, "character_slug")))
+        .cloned()
+        .collect::<Vec<_>>();
+    published.sort_by(|left, right| {
         release_order(left)
             .total_cmp(&release_order(right))
             .then_with(|| value_str(left, "character_slug").cmp(value_str(right, "character_slug")))
     });
+
+    let mut future = Vec::new();
+    let mut current = Vec::new();
+    let mut undated_history = Vec::new();
+    for slug in banner_only_slugs {
+        let Some(row) = by_slug.get(&slug).cloned() else {
+            continue;
+        };
+        if has_banner_status(&row, "next") || has_banner_status(&row, "satellite") {
+            future.push(row);
+        } else if has_banner_status(&row, "current") {
+            current.push(row);
+        } else {
+            undated_history.push(row);
+        }
+    }
+
+    future.extend(current);
+    future.extend(published);
+    future.extend(undated_history);
+    for (index, row) in future.iter_mut().enumerate() {
+        row.as_object_mut()
+            .expect("roster is object")
+            .insert("release_order".into(), index.into());
+    }
+    *roster = future;
+}
+
+fn has_banner_status(row: &Value, expected: &str) -> bool {
+    value_str(row, "banner_statuses")
+        .split(';')
+        .any(|status| status == expected)
 }
 
 fn merge_semicolon(map: &mut Map<String, Value>, key: &str, value: &str) {
@@ -1234,6 +1280,47 @@ mod tests {
         assert_eq!(rows[0]["style_cn"], "强攻");
         assert_eq!(rows[0]["release_order"], json!(2.0));
         assert_eq!(rows[1]["character_slug"], "old-agent");
+    }
+
+    #[test]
+    fn banner_only_future_agents_precede_current_release_without_moving_reruns() {
+        let mut roster = vec![
+            json!({"character_slug":"norma","release_order":0}),
+            json!({"character_slug":"velina","release_order":1}),
+            json!({"character_slug":"sunna","release_order":8}),
+        ];
+        let banner = vec![
+            json!({"character_slug":"norma","phase_status":"current"}),
+            json!({"character_slug":"sunna","phase_status":"current"}),
+            json!({"character_slug":"remiel","character_name_cn":"蕾米埃尔·丹","phase_status":"satellite"}),
+            json!({"character_slug":"sigrid","character_name_cn":"希格莉德·德拉叙尔","phase_status":"satellite"}),
+            json!({"character_slug":"legacy-only","phase_status":"previous"}),
+        ];
+
+        merge_banner_into_roster(&mut roster, &banner);
+
+        assert_eq!(
+            roster
+                .iter()
+                .map(|row| value_str(row, "character_slug"))
+                .collect::<Vec<_>>(),
+            vec![
+                "remiel",
+                "sigrid",
+                "norma",
+                "velina",
+                "sunna",
+                "legacy-only"
+            ]
+        );
+        assert_eq!(
+            roster
+                .iter()
+                .map(|row| row["release_order"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4, 5]
+        );
+        assert_eq!(roster[4]["banner_statuses"], "current");
     }
 
     #[test]

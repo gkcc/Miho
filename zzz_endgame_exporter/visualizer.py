@@ -308,7 +308,9 @@ def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[
 
 
 def _merge_banner_rows_into_roster(roster_rows: list[dict[str, Any]], banner_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    original_slugs = {str(row.get("character_slug") or "") for row in roster_rows}
     by_slug = {str(row.get("character_slug") or ""): dict(row) for row in roster_rows}
+    banner_only_slugs: list[str] = []
     next_order = max((_release_order_value(row.get("release_order")) for row in roster_rows), default=0) + 1
     for banner_row in banner_rows:
         slug = normalize_character_id(banner_row.get("character_slug"))
@@ -339,6 +341,7 @@ def _merge_banner_rows_into_roster(roster_rows: list[dict[str, Any]], banner_row
                 "banner_statuses": phase_status,
                 "banner_phase_titles": phase_title,
             }
+            banner_only_slugs.append(slug)
             next_order += 1
             continue
         existing["banner_statuses"] = _merge_semicolon(existing.get("banner_statuses"), phase_status)
@@ -362,7 +365,23 @@ def _merge_banner_rows_into_roster(roster_rows: list[dict[str, Any]], banner_row
             existing["role_group"] = role_group
             existing["role_group_cn"] = existing.get("role_group_cn") or _role_cn(role_group)
         by_slug[slug] = existing
-    return sorted(by_slug.values(), key=lambda r: (_release_order_value(r.get("release_order")), str(r.get("character_slug"))))
+
+    published = sorted(
+        (row for slug, row in by_slug.items() if slug in original_slugs),
+        key=lambda row: (_release_order_value(row.get("release_order")), str(row.get("character_slug"))),
+    )
+    banner_only = [by_slug[slug] for slug in banner_only_slugs]
+    future = [row for row in banner_only if _has_banner_status(row, "next") or _has_banner_status(row, "satellite")]
+    current = [row for row in banner_only if row not in future and _has_banner_status(row, "current")]
+    undated_history = [row for row in banner_only if row not in future and row not in current]
+    ordered = future + current + published + undated_history
+    for release_order, row in enumerate(ordered):
+        row["release_order"] = release_order
+    return ordered
+
+
+def _has_banner_status(row: dict[str, Any], expected: str) -> bool:
+    return expected in {status for status in str(row.get("banner_statuses") or "").split(";") if status}
 
 
 def _merge_semicolon(existing: Any, value: Any) -> str:

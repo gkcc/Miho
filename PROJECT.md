@@ -537,6 +537,12 @@
 - **实装排序修复与直接交付**：Box 不再按 current/next/satellite 二次重排，而是对数值 `release_order` 做稳定升序；缺失/非法顺序稳定置尾，卡池页阶段排序不变。推荐/身份 JS 契约 14/14、ZZZ Rust visualizer 8/8、Rust/Python 静态与 JSON 定点 3/3、JS 语法、Vite/Tauri release 构建和安装版 ZZZ → HSR → ZZZ 深探针均通过。新 EXE 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，与 `target/release/miho-desktop.exe` SHA-256 同为 `D2A93D56AE2DB40A7783CE519DA3AA93E3924156BD53B1CEC5E679BE16FD7529`；未生成安装器或 portable。
 - **计划任务同步**：owner-aware `Install` 事务把每日 09:30 任务切换到 release CLI `9388DB4E89240082BE6417516CC47A94D9B964C52B6ECBAEEAC06EB460FA81C3`；candidate attempt `installer-14008e60757446aaa83ed03ee6e165d4` 完成双游戏更新并通过 exact health 后提交，旧 generation 已退役。任务为 Ready/Enabled、下次仍为 2026-07-19 09:30，无 candidate 或 pending journal。深探针前后 HSR/ZZZ Box SHA-256 分别保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
 
+### ZZZ 卫星发行时间轴与 HSR 语义对齐（2026-07-18，已交付）
+
+- **根因与修复**：HSR 的未来角色已被官方名册赋予最前面的 `release_order`，而 ZZZ 只存在于卡池计划的角色此前固定使用“现有最大顺序 + 1”，必然落到历史末尾。Rust 生产链与 Python oracle 现统一把 `next/satellite` 的 banner-only 角色放在当前已发布时间轴之前，把缺官方名册的当期角色接在其后，再对最终 roster 连续编号；既有官方角色仍保持名册实装顺序，复刻和陪跑只保留标签、不参与重排。
+- **验证与真实入口**：ZZZ Rust visualizer 9/9、Python exporter 7/7、Rust/Python 精确 JSON 契约、推荐/身份 JS 14/14、Vite 与 desktop/CLI release 构建均通过。安装版隐藏窗口 DOM 实际执行 ZZZ → HSR → ZZZ，首列两次均为 `remiel / sigrid / norma / velina / pyrois / billy-starlight / promeia / cissia`，中文名和卫星/当期标签正确；千夏仍在历史第 11，Box 与 localStorage 零漂移。
+- **直接交付与自动化**：`target/release/miho-desktop.exe` 已直接替换 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 同为 `4B9EDE47CF6D937C3E75BC31572F014DCAEE3058D7DFD90B2CD70C1FA7857A86`。owner-aware 事务已把每日任务切到 CLI `2BF5D6600DB62EC8B8EA5307514847EEF013FC070F492F2600D768BE53C961E6`；attempt `installer-d8621734048e42609dcc9adbfa53f9fd` 对 HSR/ZZZ exact health 为 `healthy=true`，任务 Ready/Enabled、无 candidate/journal/旧 generation。HSR/ZZZ Box SHA-256 仍分别为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`；未生成安装器或 portable。
+
 ## 恢复入口
 
 - 项目状态：本文件。

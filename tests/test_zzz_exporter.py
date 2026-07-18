@@ -355,6 +355,13 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
     app_text = (tmp_path / "visualizer" / "app.js").read_text(encoding="utf-8")
     roster = {row["character_slug"]: row for row in data["rosterRows"]}
 
+    assert [row["character_slug"] for row in data["rosterRows"][:4]] == [
+        "remiel",
+        "nom",
+        "miyabi",
+        "ukinami-yuzuha",
+    ]
+    assert [row["release_order"] for row in data["rosterRows"][:4]] == [0, 1, 2, 3]
     assert roster["nom"]["character_name_cn"] == "诺姆·霍洛维尔"
     assert roster["nom"]["element_cn"] == "火"
     assert roster["nom"]["banner_statuses"] == "current"
