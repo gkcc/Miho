@@ -523,6 +523,13 @@
 - **生产数据与真实入口证据**：本机受管配置升级后重新生成 ZZZ visualizer，原始 roster 从 59 降为 58；诺姆唯一为 `norma/current`，卫星 `remiel/sigrid` 均保留，`data.json` SHA-256 为 `889E2E669B998DF6EB46BECC54706288149C52A0AB37C74D073AA80BF68BFEAC`。隐藏窗口 CDP/DOM 实跑 ZZZ → HSR → ZZZ：诺姆卡片始终 1 张；当期 4 人位于索引 0–3、卫星 2 人位于 4–5、普通/已结束从 6 开始；两次检查排序均通过，全部分析模式、卡池与图片门禁同时通过，程序正常退出且 stdout/stderr 为空。
 - **验证与直接交付**：推荐/身份契约 13/13、workspace bootstrap 34/34、pull-value 25/25、Rust/Python 静态契约与 visualizer 定点测试、JS/Python 语法、Rust fmt、Vite 和 `pnpm run tauri:build` 均通过；完整 live CLI oracle 仍只受项目既有“多 59 个内置头像”文件集漂移影响，未冒充通过。`target/release/miho-desktop.exe` 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 均为 `4ED9342312A12A0C5CE1698D0B9D78558B306C5B115F677F9537194D0F13F64F`，未生成安装器。验收前后 ZZZ Box SHA-256 均为 `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`，HSR Box 均为 `146CDBFD582F39080DE2DFAEB15B3892EF64FC1110B7509811350F47A09A785E`。
 
+### 桌面视觉一体化与单滚动工作区（2026-07-18，已交付）
+
+- **视觉根因与修复**：旧界面把深色 Tauri 外壳、居中暗色卡片、白色 iframe 和内页标题逐层画出，宽屏还受 1600px 上限留下大块黑边。桌面现改为 64px 紧凑品牌栏、全宽浅色连续画布和 46px 轻量上下文栏；Visualizer 外层边框、圆角、阴影与 padding 全部移除，外壳与 HSR/ZZZ 内页共用系统字体、青绿色操作强调和一致的浅色表面。
+- **单滚动与工具层级**：主窗口固定为一屏，iframe 成为唯一内容滚动容器；“更新数据、生成报告与设置”与重新载入并入上下文栏，默认关闭，打开后以带遮罩的固定抽屉展示，不再把工具区堆到 iframe 下方形成第二根滚动条。iframe sandbox、custom protocol、安全 token、Box 保存和所有既有产品 selector 保持不变。
+- **验证与直接交付**：Vite、`pnpm run tauri:build`、desktop lib 86 项、GUI contract、Rust fmt/diff check 均通过。后台实拍检查默认 1200×820 的抽屉关闭/打开状态，关闭态只剩一根内容滚动条；installed GUI 回执继续满足 production URL、ready sentinel、Tauri internals、5 秒存活、正常退出、空 stdout/stderr 和调试端口清理。
+- **真实入口证据**：安装版后台 CDP/DOM 完整执行 ZZZ → HSR → ZZZ，覆盖 Box、六种终局模式、双卡池和 HSR 组队推荐；序列回执为 `zzz/hsr/zzz`，两份 Box 文件前后哈希不变。`target/release/miho-desktop.exe` 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 均为 `0DAE1E8D9209B57B738E2072BED76941D1AA4E0752492DA9DB621942704B73A8`，未生成安装器或 portable。
+
 ## 恢复入口
 
 - 项目状态：本文件。

@@ -367,7 +367,7 @@ const visualizerTitleBlock = element("div");
 const visualizerTitle = element("h2", undefined, "绝区零 · 我的 Box 与终局分析");
 visualizerTitleBlock.append(element("p", "eyebrow", "MY BOX"), visualizerTitle);
 const reloadVisualizerButton = makeButton("重新载入", "button secondary", loadVisualizer);
-visualizerHeading.append(visualizerTitleBlock, reloadVisualizerButton);
+visualizerHeading.append(visualizerTitleBlock);
 const visualizerMessage = element("p", "notice", "正在向本机后端请求 Visualizer 地址…");
 const visualizerFrame = element("iframe", "visualizer-frame");
 visualizerFrame.title = "终局数据 Visualizer";
@@ -391,8 +391,11 @@ const utilitiesSummary = element("summary", undefined, "更新数据、生成报
 const utilitiesContent = element("div", "utilities-content");
 utilitiesContent.append(exportSection, taskSection, historySection, workspaceSection);
 utilities.append(utilitiesSummary, utilitiesContent);
+const visualizerActions = element("div", "visualizer-actions");
+visualizerActions.append(reloadVisualizerButton, utilities);
+visualizerHeading.append(visualizerActions);
 
-main.append(visualizerSection, utilities);
+main.append(visualizerSection);
 app.replaceChildren(header, main);
 document.documentElement.dataset.mihoAppReady = "v1";
 history.replaceState(null, "", "#miho-app-ready-v1");

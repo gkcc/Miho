@@ -861,7 +861,8 @@ mod tests {
         let frontend = include_str!("../../src/main.ts");
         assert!(frontend.contains("document.documentElement.dataset.mihoAppReady = \"v1\""));
         assert!(frontend.contains("history.replaceState(null, \"\", \"#miho-app-ready-v1\")"));
-        assert!(frontend.contains("main.append(visualizerSection, utilities)"));
+        assert!(frontend.contains("visualizerActions.append(reloadVisualizerButton, utilities)"));
+        assert!(frontend.contains("main.append(visualizerSection)"));
         assert!(frontend.contains("pageUrl.hash = \"box\""));
         assert!(frontend.contains(
             "visualizerFrame.setAttribute(\"sandbox\", \"allow-scripts allow-same-origin allow-downloads\")"
