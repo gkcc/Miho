@@ -99,6 +99,21 @@ def test_visualizer_distinguishes_stale_samples_from_missing_data(game: str) -> 
         assert "status==='recent'||status==='previous'" in app
 
 
+def test_hsr_final_target_controls_remain_responsive() -> None:
+    styles = (
+        ROOT / "crates" / "miho-core" / "assets" / "visualizer" / "hsr" / "styles.css"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        "@media(max-width:900px){.rec-plan-controls:not(.custom)"
+        "{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}"
+    ) in styles
+    assert (
+        "@media(max-width:620px){.rec-plan-controls:not(.custom)"
+        "{grid-template-columns:1fr}}"
+    ) in styles
+
+
 class _FixedLocalDateTime(datetime):
     @classmethod
     def now(cls, tz: object = None) -> "_FixedLocalDateTime":

@@ -18,6 +18,7 @@ const HSR_HARNESS = String.raw`
       scope: settings.scope || '4-1',
       strategy: settings.strategy || 'final',
       teamCounts: settings.teamCounts || {...DEFAULT_REC_TEAM_COUNTS},
+      targetScopes: settings.targetScopes || {},
       elements: settings.elements || {},
       constraints: settings.constraints || {},
       gap: settings.gap || '4',
@@ -78,6 +79,7 @@ const ZZZ_HARNESS = String.raw`
     rec = {
       mode: settings.mode || 'sd',
       scope: settings.scope || 's1',
+      targetScopes: settings.targetScopes || {},
       elements: settings.elements || {},
       constraints: settings.constraints || {},
       gap: settings.gap || '3',
@@ -96,8 +98,22 @@ const ZZZ_HARNESS = String.raw`
       id: item.template.id,
       chars: [...item.template.chars],
       score: item.score,
+      elementHits: item.elementHits,
+      coreHits: item.coreHits,
       risks: item.risks.map(risk => risk.text),
     }));
+  },
+  scopes(mode = rec.mode) {
+    return scopes(mode).map(scope => scope.key);
+  },
+  planScopes(mode = rec.mode) {
+    return recPlanScopes(mode).map(scope => scope.key);
+  },
+  plan() {
+    return bestRecSlatePlan(recPlanScopes()).map(item => item?.template.id || null);
+  },
+  planSnapshot() {
+    return bestRecSlatePlan(recPlanScopes()).map(item => item ? {id: item.template.id, score: item.score} : null);
   },
   identityView(data, settings = {}) {
     DATA = normalizeVisualizerData(data);
@@ -340,7 +356,7 @@ test('HSR custom mode searches the deduplicated cross-node pool and ranks core w
   );
 });
 
-test('HSR final mode follows real Starward nodes while custom mode uses the requested team count', () => {
+test('HSR final mode supports arbitrary real-node targets while custom mode uses the requested team count', () => {
   const rosterRows = [
     hsrCharacter('a', '火', 'main_dps', '毁灭', 1), hsrCharacter('b', '冰', 'support', '同谐', 2),
     hsrCharacter('c', '雷', 'support', '虚无', 3), hsrCharacter('d', '风', 'sustain', '丰饶', 4),
@@ -349,12 +365,64 @@ test('HSR final mode follows real Starward nodes while custom mode uses the requ
   const templates = ['4-1', '4-2', '4-3'].map((scope, index) => hsrTemplate(`team-${scope}`, scope, chars, index + 1, 20 - index));
   const api = loadContract(HSR_APP, HSR_HARNESS);
   api.reset(hsrData(rosterRows, templates), {mode: 'as', scope: '4-1', strategy: 'final', teamCounts: {as: '2'}}, chars, allBuilds(chars, hsrFullBuild));
-  assert.deepEqual(plain(api.planScopes()), ['4-1', '4-2', '4-3'], 'final-stage planning must follow all real Starward nodes in the source data');
+  assert.deepEqual(plain(api.planScopes()), ['4-1', '4-2', '4-3'], 'legacy settings must default final-stage planning to every real Starward node');
+  api.reset(
+    hsrData(rosterRows, templates),
+    {mode: 'as', scope: '4-1', strategy: 'final', teamCounts: {as: '3'}, targetScopes: {as: ['4-1', '4-3']}},
+    chars,
+    allBuilds(chars, hsrFullBuild),
+  );
+  assert.deepEqual(plain(api.planScopes()), ['4-1', '4-3'], 'final-stage planning must support a non-contiguous subset instead of slicing the first N nodes');
+  api.reset(
+    hsrData(rosterRows, templates),
+    {mode: 'as', scope: '4-3', strategy: 'final', targetScopes: {as: ['4-3']}},
+    chars,
+    allBuilds(chars, hsrFullBuild),
+  );
+  assert.deepEqual(plain(api.planScopes()), ['4-3'], 'final-stage planning must also support a single real node');
+  assert.deepEqual(plain(api.plan()), ['team-4-3']);
 
   api.reset(hsrData(rosterRows, templates), {mode: 'as', scope: 'custom-1', strategy: 'custom', teamCounts: {as: '2'}}, chars, allBuilds(chars, hsrFullBuild));
   assert.deepEqual(plain(api.scopes()), ['custom-1', 'custom-2']);
   api.reset(hsrData(rosterRows, templates), {mode: 'as', scope: 'custom-1', strategy: 'custom', teamCounts: {as: '3'}}, chars, allBuilds(chars, hsrFullBuild));
   assert.deepEqual(plain(api.scopes()), ['custom-1', 'custom-2', 'custom-3']);
+});
+
+test('HSR selected-node planning recomputes the joint optimum instead of truncating a three-node plan', () => {
+  const shared = ['shared-core', 'shared-a', 'shared-b', 'shared-sustain'];
+  const alternate = ['alternate-core', 'alternate-a', 'alternate-b', 'alternate-sustain'];
+  const second = ['second-core', 'second-a', 'second-b', 'second-sustain'];
+  const allSlugs = [...shared, ...alternate, ...second];
+  const rosterRows = allSlugs.map((slug, index) => hsrCharacter(
+    slug,
+    index % 3 === 0 ? '火' : '量子',
+    slug.endsWith('sustain') ? 'sustain' : slug.endsWith('core') ? 'main_dps' : 'support',
+    slug.endsWith('sustain') ? '丰饶' : slug.endsWith('core') ? '毁灭' : '同谐',
+    index + 1,
+  ));
+  const templates = [
+    hsrTemplate('node-1-best-shared', '4-1', shared, 1, 35),
+    hsrTemplate('node-1-lower-alternate', '4-1', alternate, 30, 1),
+    hsrTemplate('node-2-independent', '4-2', second, 1, 35),
+    hsrTemplate('node-3-needs-shared', '4-3', shared, 1, 35),
+  ];
+  const data = hsrData(rosterRows, templates);
+  const builds = allBuilds(allSlugs, hsrFullBuild);
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+
+  api.reset(data, {mode: 'as', scope: '4-1', strategy: 'final'}, allSlugs, builds);
+  assert.deepEqual(
+    plain(api.plan()),
+    ['node-1-lower-alternate', 'node-2-independent', 'node-3-needs-shared'],
+    'the three-node model must reserve the shared team for the third node',
+  );
+
+  api.reset(data, {mode: 'as', scope: '4-1', strategy: 'final', targetScopes: {as: ['4-1', '4-2']}}, allSlugs, builds);
+  assert.deepEqual(
+    plain(api.plan()),
+    ['node-1-best-shared', 'node-2-independent'],
+    'the two-node model must reclaim characters from the omitted node and optimize only the selected pair',
+  );
 });
 
 test('HSR multi-team planner jointly assigns teams instead of greedily consuming the weakness match', () => {
@@ -425,6 +493,52 @@ test('HSR multi-team planner expands beyond the top 50 when only a lower-ranked 
     plan.filter(id => id?.startsWith('high-conflict-')).length,
     1,
     'only one of the high-ranked teams sharing the same character may be selected',
+  );
+});
+
+test('HSR two-node final planning searches the complete template pool instead of a Top-N prefix', () => {
+  const shared = 'shared-anchor';
+  const conflictGroups = Array.from({length: 241}, (_, index) => [
+    `conflict-core-${index}`,
+    `conflict-support-${index}`,
+    `conflict-sustain-${index}`,
+  ]);
+  const lowerUnique = ['lower-core', 'lower-a', 'lower-b', 'lower-sustain'];
+  const secondBestRest = ['second-best-a', 'second-best-b', 'second-best-sustain'];
+  const secondFallback = ['second-fallback-core', 'second-fallback-a', 'second-fallback-b', 'second-fallback-sustain'];
+  const slugs = [shared, ...conflictGroups.flat(), ...lowerUnique, ...secondBestRest, ...secondFallback];
+  const rosterRows = slugs.map((slug, index) => hsrCharacter(
+    slug,
+    '量子',
+    slug.includes('core') ? 'main_dps' : slug.includes('sustain') ? 'sustain' : 'support',
+    slug.includes('core') ? '毁灭' : slug.includes('sustain') ? '丰饶' : '同谐',
+    index + 1,
+  ));
+  const firstScopeConflicts = conflictGroups.map((group, index) => hsrTemplate(
+    `first-top-${index}`,
+    '4-1',
+    [shared, ...group],
+    index + 1,
+    35,
+  ));
+  const templates = [
+    ...firstScopeConflicts,
+    hsrTemplate('first-below-top-240-independent', '4-1', lowerUnique, 999, 5),
+    hsrTemplate('second-best-shared', '4-2', [shared, ...secondBestRest], 1, 35),
+    hsrTemplate('second-low-independent', '4-2', secondFallback, 999, 0),
+  ];
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  api.reset(
+    hsrData(rosterRows, templates),
+    {mode: 'as', scope: '4-1', strategy: 'final', targetScopes: {as: ['4-1', '4-2']}},
+    slugs,
+    allBuilds(slugs, hsrFullBuild),
+  );
+
+  assert.deepEqual(
+    plain(api.plan()),
+    ['first-below-top-240-independent', 'second-best-shared'],
+    'a fillable prefix search must not hide a higher-scoring two-node combination below rank 240',
   );
 });
 
@@ -671,6 +785,75 @@ test('ZZZ hard constraints are scope-isolated and reserved characters remove con
     'reserved-next',
     'ZZZ reserved characters must remove a conflicting first choice and expose the next team',
   );
+});
+
+test('ZZZ supports non-contiguous target stages and recomputes the joint plan for only those stages', () => {
+  const shared = ['shared-core', 'shared-support', 'shared-sustain'];
+  const alternate = ['alternate-core', 'alternate-support', 'alternate-sustain'];
+  const third = ['third-core', 'third-support', 'third-sustain'];
+  const slugs = [...shared, ...alternate, ...third];
+  const rosterRows = slugs.map((slug, index) => zzzCharacter(
+    slug,
+    slug.includes('core') ? 'crit_dps' : 'support',
+    index + 1,
+  ));
+  const teamTemplates = [
+    zzzTemplate('stage-1-best-shared', '1-1', shared, 1, 35, 'da'),
+    zzzTemplate('stage-1-lower-alternate', '1-1', alternate, 30, 1, 'da'),
+    zzzTemplate('stage-2-needs-shared', '1-2', shared, 1, 35, 'da'),
+    zzzTemplate('stage-3-independent', '1-3', third, 1, 35, 'da'),
+  ];
+  const tierRows = slugs.map(slug => ({character_slug: slug, tier_mode: 'da', tier: 'T0'}));
+  const data = {rosterRows, teamTemplates, tierRows};
+  const builds = allBuilds(slugs, zzzFullBuild);
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+
+  api.reset(data, {mode: 'da', scope: '1-1'}, slugs, builds);
+  assert.deepEqual(plain(api.planScopes()), ['1-1', '1-2', '1-3'], 'legacy ZZZ settings must default to every concrete stage');
+  assert.deepEqual(
+    plain(api.plan()),
+    ['stage-1-lower-alternate', 'stage-2-needs-shared', 'stage-3-independent'],
+    'the three-stage model must reserve the shared agents for stage 2',
+  );
+
+  api.reset(data, {mode: 'da', scope: '1-1', targetScopes: {da: ['1-1', '1-3']}}, slugs, builds);
+  assert.deepEqual(plain(api.planScopes()), ['1-1', '1-3'], 'Dangerous Assault target selection must support a non-contiguous stage subset');
+  assert.deepEqual(
+    plain(api.plan()),
+    ['stage-1-best-shared', 'stage-3-independent'],
+    'the selected-stage model must reclaim agents from the omitted stage instead of truncating the three-stage plan',
+  );
+
+  api.reset(data, {mode: 'da', scope: '1-2', targetScopes: {da: ['1-2']}}, slugs, builds);
+  assert.deepEqual(plain(api.planScopes()), ['1-2'], 'Dangerous Assault must support a single-stage target');
+  assert.deepEqual(plain(api.plan()), ['stage-2-needs-shared']);
+});
+
+test('ZZZ ranks each planned stage with that stage\'s own configured attributes', () => {
+  const rosterRows = [
+    {...zzzCharacter('fire-core', 'crit_dps', 1), element_cn: '火'},
+    {...zzzCharacter('ice-core', 'crit_dps', 2), element_cn: '冰'},
+    {...zzzCharacter('support-a', 'support', 3), element_cn: '物理'},
+    {...zzzCharacter('support-b', 'support', 4), element_cn: '物理'},
+  ];
+  const teamTemplates = [
+    zzzTemplate('current-fire-team', 's1', ['fire-core', 'support-a', 'support-b'], 1, 20),
+    zzzTemplate('other-fire-team', 's2', ['fire-core', 'support-a', 'support-b'], 1, 20),
+    zzzTemplate('other-ice-team', 's2', ['ice-core', 'support-a', 'support-b'], 1, 20),
+  ];
+  const slugs = rosterRows.map(row => row.character_slug);
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  api.reset(
+    {rosterRows, teamTemplates, tierRows: slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: 'T0'}))},
+    {mode: 'sd', scope: 's1', elements: {'sd|s1': ['火'], 'sd|s2': ['冰']}},
+    slugs,
+    allBuilds(slugs, zzzFullBuild),
+  );
+
+  const ranked = plain(api.ranked('sd', 's2'));
+  assert.equal(ranked[0].id, 'other-ice-team', 'ranking s2 must not reuse the currently viewed s1 attribute setting');
+  assert.equal(ranked[0].coreHits, 1);
+  assert.equal(ranked.find(item => item.id === 'other-fire-team').coreHits, 0);
 });
 
 test('ZZZ normalizes the stale Nom alias and keeps Box cards in actual release order', () => {

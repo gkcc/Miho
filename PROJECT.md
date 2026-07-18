@@ -543,6 +543,13 @@
 - **验证与真实入口**：ZZZ Rust visualizer 9/9、Python exporter 7/7、Rust/Python 精确 JSON 契约、推荐/身份 JS 14/14、Vite 与 desktop/CLI release 构建均通过。安装版隐藏窗口 DOM 实际执行 ZZZ → HSR → ZZZ，首列两次均为 `remiel / sigrid / norma / velina / pyrois / billy-starlight / promeia / cissia`，中文名和卫星/当期标签正确；千夏仍在历史第 11，Box 与 localStorage 零漂移。
 - **直接交付与自动化**：`target/release/miho-desktop.exe` 已直接替换 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 同为 `4B9EDE47CF6D937C3E75BC31572F014DCAEE3058D7DFD90B2CD70C1FA7857A86`。owner-aware 事务已把每日任务切到 CLI `2BF5D6600DB62EC8B8EA5307514847EEF013FC070F492F2600D768BE53C961E6`；attempt `installer-d8621734048e42609dcc9adbfa53f9fd` 对 HSR/ZZZ exact health 为 `healthy=true`，任务 Ready/Enabled、无 candidate/journal/旧 generation。HSR/ZZZ Box SHA-256 仍分别为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`；未生成安装器或 portable。
 
+### 终局推荐任意关卡子集联合优化（2026-07-18，已交付）
+
+- **产品语义**：HSR“末层实战”和 ZZZ 组队推荐均新增按模式隔离的“参战关卡（可多选）”。真实战斗侧默认全选、至少保留一关，并允许任意非连续 1/2/3 关；当前浏览/编辑关卡与实际参战集合分离。未选关卡不再预留角色，HSR“按弱点配队”的独立 2/3 队设置及 AA 骑士三侧/王棋分组保持原语义。
+- **联合优化修复**：所选子集会重新联合选队，不再截取默认三队结果。HSR 两关模型遍历当前模式完整真实模板池，避免 Top 240 截断错过全局最优；三关继续使用既有 beam 搜索。ZZZ 从逐关贪心改为联合搜索，每关读取自己的模式、属性、硬约束与 T 档风险，并对全部代理人去重，因此 `1-1 + 1-3` 不会被未选 `1-2` 占用 Box。
+- **验证**：推荐逻辑契约 18/18（含单关、非连续两关、重新优化、HSR rank 240 后反例、模式隔离及角色去重），Python Visualizer 2/2，Rust/Python 静态与 JSON 定点契约、`miho-core` visualizer 25/25、desktop protocol 14/14、JS/Python 语法、GUI 静态契约与 `git diff --check` 均通过；复审发现的 HSR 621–900px 三列溢出已修复并由响应式/静态契约 3/3 覆盖。`pnpm -w run tauri:build:no-bundle` 成功。既有 Python strict ZZZ 六个 `release_order` fixture、live HSR 托帕头像 alias 和 live ZZZ 多 59 张内置头像文件集漂移未受本次影响，未冒充通过。
+- **真实入口与直接交付**：最终安装版后台探针实际执行 ZZZ → HSR → ZZZ。ZZZ 危局强袭选择 `1-1 + 1-3` 时只生成对应 2 队，缩为 `1-3` 后只生成 1 队；HSR 选择 `4-1 + 4-3` 时只生成对应 2 队并明确“未选关卡不预留角色”，缩为 `4-3` 后只生成 1 队。最后一关均不能取消，模式切换不串值，推荐设置已恢复；HSR/ZZZ Box SHA-256 前后分别保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`，ZZZ localStorage 零漂移。程序正常退出 0、stdout/stderr 为空、调试端口关闭。`target/release/miho-desktop.exe` 已直接替换 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 同为 `796C06BED53CB44BEA0A83D843FEB95CAB2C7A418570D98BA48DA7873204681C`（22,818,304 bytes）；未生成安装器或 portable。
+
 ## 恢复入口
 
 - 项目状态：本文件。

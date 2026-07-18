@@ -768,6 +768,130 @@ async function switchProductPage(context, game, page) {
   });
 }
 
+async function verifyZzzRecommender(context) {
+  const storageKey = "zzz_endgame_rec_v1";
+  const saved = await evaluate(context.id, `(() => ({
+    storageRaw: localStorage.getItem(${JSON.stringify(storageKey)}),
+    recState: typeof rec === 'object' ? JSON.parse(JSON.stringify(rec)) : null,
+  }))()`, context.sessionId);
+  assert(saved?.recState && typeof saved.recState === "object", "ZZZ recommender state could not be snapshotted", saved);
+
+  let result;
+  try {
+    result = await evaluate(context.id, `(async () => {
+      const visible = (element) => !!element && element.getClientRects().length > 0;
+      const need = (value, message) => {
+        if (!value) throw new Error(message);
+        return value;
+      };
+      const clickControl = (rootSelector, value) => {
+        const button = need(document.querySelector(rootSelector + ' button[data-value="' + value + '"]'),
+          'missing control ' + rootSelector + '=' + value);
+        button.click();
+        return button;
+      };
+      const tab = need([...document.querySelectorAll('#tabs button')]
+        .find((button) => button.textContent?.trim() === '组队推荐'), 'missing ZZZ recommender tab');
+      tab.click();
+      rec.targetScopes = {};
+      if (typeof saveRec === 'function') saveRec();
+      if (typeof renderRec === 'function') renderRec();
+      clickControl('#recModeControl', 'da');
+      await Promise.resolve();
+
+      const defaults = {
+        page: typeof state === 'object' ? state.page : '',
+        viewVisible: visible(document.querySelector('#recommenderView')),
+        controlVisible: visible(document.querySelector('#recTargetScopeControl')),
+        targetValues: [...document.querySelectorAll('#recTargetScopeControl button')].map((button) => button.dataset.value),
+        selectedTargets: [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value),
+      };
+
+      clickControl('#recTargetScopeControl', '1-2');
+      await Promise.resolve();
+      const pair = {
+        selectedTargets: [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value),
+        storedTargets: JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').targetScopes?.da ?? [],
+        planScopes: typeof recPlanScopes === 'function' ? recPlanScopes().map((scope) => scope.key) : [],
+        slateCount: document.querySelectorAll('#recSlateList .rec-slate-card').length,
+        slateTitles: [...document.querySelectorAll('#recSlateList .rec-slate-card h3')].map((heading) => heading.textContent?.trim() ?? ''),
+        slateSubtitle: document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '',
+        badgeText: document.querySelector('#recBadges')?.textContent?.trim() ?? '',
+      };
+
+      clickControl('#recModeControl', 'sd');
+      await Promise.resolve();
+      const modeIsolation = {
+        mode: rec.mode,
+        targetValues: [...document.querySelectorAll('#recTargetScopeControl button')].map((button) => button.dataset.value),
+        selectedTargets: [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value),
+        daStoredTargets: JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').targetScopes?.da ?? [],
+      };
+      clickControl('#recModeControl', 'da');
+      await Promise.resolve();
+      const returnedPair = [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value);
+
+      clickControl('#recTargetScopeControl', '1-1');
+      await Promise.resolve();
+      const singleBeforeLastClick = {
+        selectedTargets: [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value),
+        planScopes: typeof recPlanScopes === 'function' ? recPlanScopes().map((scope) => scope.key) : [],
+        slateCount: document.querySelectorAll('#recSlateList .rec-slate-card').length,
+      };
+      clickControl('#recTargetScopeControl', '1-3');
+      await Promise.resolve();
+      const single = {
+        ...singleBeforeLastClick,
+        selectedAfterLastClick: [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value),
+        storedTargets: JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').targetScopes?.da ?? [],
+      };
+      return {defaults, pair, modeIsolation, returnedPair, single};
+    })()`, context.sessionId);
+
+    assert(result.defaults.page === "recommender"
+      && result.defaults.viewVisible
+      && result.defaults.controlVisible
+      && JSON.stringify(result.defaults.targetValues) === JSON.stringify(["1-1", "1-2", "1-3"])
+      && JSON.stringify(result.defaults.selectedTargets) === JSON.stringify(["1-1", "1-2", "1-3"]), "ZZZ Dangerous Assault targets do not default to all real stages", result.defaults);
+    assert(JSON.stringify(result.pair.selectedTargets) === JSON.stringify(["1-1", "1-3"])
+      && JSON.stringify(result.pair.storedTargets) === JSON.stringify(["1-1", "1-3"])
+      && JSON.stringify(result.pair.planScopes) === JSON.stringify(["1-1", "1-3"])
+      && result.pair.slateCount === 2
+      && result.pair.slateTitles.some((title) => title.includes("1 / 1"))
+      && result.pair.slateTitles.some((title) => title.includes("1 / 3"))
+      && result.pair.slateTitles.every((title) => !title.includes("1 / 2"))
+      && result.pair.slateSubtitle.includes("只优化已选关卡")
+      && result.pair.badgeText.includes("2 队模型"), "ZZZ Dangerous Assault did not honor a non-contiguous target pair", result.pair);
+    assert(result.modeIsolation.mode === "sd"
+      && JSON.stringify(result.modeIsolation.targetValues) === JSON.stringify(["5-1", "5-2", "5-3"])
+      && JSON.stringify(result.modeIsolation.selectedTargets) === JSON.stringify(["5-1", "5-2", "5-3"])
+      && JSON.stringify(result.modeIsolation.daStoredTargets) === JSON.stringify(["1-1", "1-3"])
+      && JSON.stringify(result.returnedPair) === JSON.stringify(["1-1", "1-3"]), "ZZZ target stages leaked between modes", result.modeIsolation);
+    assert(JSON.stringify(result.single.selectedTargets) === JSON.stringify(["1-3"])
+      && JSON.stringify(result.single.planScopes) === JSON.stringify(["1-3"])
+      && result.single.slateCount === 1
+      && JSON.stringify(result.single.selectedAfterLastClick) === JSON.stringify(["1-3"])
+      && JSON.stringify(result.single.storedTargets) === JSON.stringify(["1-3"]), "ZZZ Dangerous Assault did not preserve a valid single-stage target", result.single);
+    return result;
+  } finally {
+    const restored = await evaluate(context.id, `(() => {
+      const storageRaw = ${JSON.stringify(saved.storageRaw)};
+      if (storageRaw === null) localStorage.removeItem(${JSON.stringify(storageKey)});
+      else localStorage.setItem(${JSON.stringify(storageKey)}, storageRaw);
+      const recState = ${JSON.stringify(saved.recState)};
+      if (typeof rec === 'object' && rec && recState && typeof recState === 'object') {
+        for (const key of Object.keys(rec)) delete rec[key];
+        Object.assign(rec, recState);
+        if (typeof ensureScope === 'function') ensureScope();
+        if (typeof renderRec === 'function' && typeof state === 'object' && state.page === 'recommender') renderRec();
+      }
+      return localStorage.getItem(${JSON.stringify(storageKey)}) === storageRaw;
+    })()`, context.sessionId);
+    assert(restored === true, "ZZZ recommender localStorage snapshot was not restored");
+    if (result) result.storageRestored = restored;
+  }
+}
+
 async function verifyHsrRecommender(context) {
   const storageKey = "hsr_endgame_recommender_v1";
   const saved = await evaluate(context.id, `(() => ({
@@ -824,6 +948,7 @@ async function verifyHsrRecommender(context) {
         strategy: rec.strategy,
         teamCount: initialTeamSelect.value,
         teamCountVisible: visible(document.querySelector('#recTeamCountControl')),
+        targetControlVisible: visible(document.querySelector('#recTargetScopeControl')),
         scopeValues: [...initialScopeSelect.options].map((option) => option.value),
         hint: document.querySelector('#recStrategyHint')?.textContent?.trim() ?? '',
         subtitle: document.querySelector('#recSubtitle')?.textContent?.trim() ?? '',
@@ -892,11 +1017,48 @@ async function verifyHsrRecommender(context) {
 
       clickControl('#recStrategyControl', 'final');
       await Promise.resolve();
+      const finalTargetRoot = need(document.querySelector('#recTargetScopeButtons'), 'missing final target-scope control');
+      const finalDefaults = {
+        targetControlVisible: visible(document.querySelector('#recTargetScopeControl')),
+        teamCountVisible: visible(document.querySelector('#recTeamCountControl')),
+        targetValues: [...finalTargetRoot.querySelectorAll('button')].map((button) => button.dataset.value),
+        selectedTargets: [...finalTargetRoot.querySelectorAll('button.active')].map((button) => button.dataset.value),
+      };
+
+      clickControl('#recTargetScopeButtons', '4-2');
+      await Promise.resolve();
+      const storedAfterPair = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}');
+      const pair = {
+        selectedTargets: [...document.querySelectorAll('#recTargetScopeButtons button.active')].map((button) => button.dataset.value),
+        storedTargets: storedAfterPair.targetScopes?.as ?? [],
+        planScopes: typeof recPlanScopes === 'function' ? recPlanScopes().map((scope) => scope.key) : [],
+        slateCount: document.querySelectorAll('#recSlateList .rec-slate-card').length,
+        slateTitles: [...document.querySelectorAll('#recSlateList .rec-slate-card h3')].map((heading) => heading.textContent?.trim() ?? ''),
+        slateSubtitle: document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '',
+      };
+
+      clickControl('#recTargetScopeButtons', '4-1');
+      await Promise.resolve();
+      const singleBeforeLastClick = {
+        selectedTargets: [...document.querySelectorAll('#recTargetScopeButtons button.active')].map((button) => button.dataset.value),
+        planScopes: typeof recPlanScopes === 'function' ? recPlanScopes().map((scope) => scope.key) : [],
+        slateCount: document.querySelectorAll('#recSlateList .rec-slate-card').length,
+      };
+      clickControl('#recTargetScopeButtons', '4-3');
+      await Promise.resolve();
+      const single = {
+        ...singleBeforeLastClick,
+        selectedAfterLastClick: [...document.querySelectorAll('#recTargetScopeButtons button.active')].map((button) => button.dataset.value),
+        storedTargets: JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').targetScopes?.as ?? [],
+      };
       const final = {
         strategy: rec.strategy,
         elementLabel: document.querySelector('#recElementLabel')?.textContent?.trim() ?? '',
         hint: document.querySelector('#recStrategyHint')?.textContent?.trim() ?? '',
         subtitle: document.querySelector('#recSubtitle')?.textContent?.trim() ?? '',
+        defaults: finalDefaults,
+        pair,
+        single,
       };
 
       return {
@@ -920,6 +1082,7 @@ async function verifyHsrRecommender(context) {
     assert(result.custom.mode === "as" && result.custom.strategy === "custom", "HSR weakness-driven scenario could not be selected", result.custom);
     assert(result.custom.teamCount === "2"
       && result.custom.teamCountVisible
+      && !result.custom.targetControlVisible
       && JSON.stringify(result.custom.scopeValues) === JSON.stringify(["custom-1", "custom-2"]), "HSR weakness-driven scenario does not default to two teams", result.custom);
     assert(result.custom.poolTemplateCount > 0
       && result.custom.poolSources.length >= 2
@@ -943,8 +1106,26 @@ async function verifyHsrRecommender(context) {
     assert(result.final.strategy === "final"
       && result.final.elementLabel.includes("仅标注")
       && result.final.hint.includes("弱点默认不改榜")
+      && result.final.hint.includes("未选关卡不会预留角色")
       && result.final.subtitle.includes("弱点默认仅标注，不参与加减分")
       && result.final.subtitle.includes("过滤风险"), "HSR final-floor scenario does not explain the weakness-risk behavior", result.final);
+    assert(result.final.defaults.targetControlVisible
+      && !result.final.defaults.teamCountVisible
+      && JSON.stringify(result.final.defaults.targetValues) === JSON.stringify(["4-1", "4-2", "4-3"])
+      && JSON.stringify(result.final.defaults.selectedTargets) === JSON.stringify(["4-1", "4-2", "4-3"]), "HSR final-stage targets do not default to all real nodes", result.final.defaults);
+    assert(JSON.stringify(result.final.pair.selectedTargets) === JSON.stringify(["4-1", "4-3"])
+      && JSON.stringify(result.final.pair.storedTargets) === JSON.stringify(["4-1", "4-3"])
+      && JSON.stringify(result.final.pair.planScopes) === JSON.stringify(["4-1", "4-3"])
+      && result.final.pair.slateCount === 2
+      && result.final.pair.slateTitles.some((title) => title.includes("4-1"))
+      && result.final.pair.slateTitles.some((title) => title.includes("4-3"))
+      && result.final.pair.slateTitles.every((title) => !title.includes("4-2"))
+      && result.final.pair.slateSubtitle.includes("未选关卡不预留角色"), "HSR final-stage planner did not honor a non-contiguous target pair", result.final.pair);
+    assert(JSON.stringify(result.final.single.selectedTargets) === JSON.stringify(["4-3"])
+      && JSON.stringify(result.final.single.planScopes) === JSON.stringify(["4-3"])
+      && result.final.single.slateCount === 1
+      && JSON.stringify(result.final.single.selectedAfterLastClick) === JSON.stringify(["4-3"])
+      && JSON.stringify(result.final.single.storedTargets) === JSON.stringify(["4-3"]), "HSR final-stage planner did not preserve a valid single-node target", result.final.single);
     return result;
   } finally {
     const restored = await evaluate(context.id, `(() => {
@@ -1081,6 +1262,7 @@ try {
   const zzzContext = await activeFrameContext("zzz");
   const zzzStateBefore = await zzzPersistenceSnapshot(zzzContext);
   const zzzBoxRoster = await verifyZzzBoxRoster(zzzContext);
+  const zzzRecommender = await verifyZzzRecommender(zzzContext);
   const zzzAnalysis = await switchProductPage(zzzContext, "zzz", "analysis");
   const zzzAnalyses = await verifyAnalysisModes(zzzContext, "zzz", zzzAnalysis);
   const zzzBanner = await switchProductPage(zzzContext, "zzz", "banner");
@@ -1090,6 +1272,7 @@ try {
     outer: initialOuter,
     product: zzzInitial,
     boxRoster: zzzBoxRoster,
+    recommender: zzzRecommender,
     persistenceBefore: zzzPersistenceReceipt(zzzStateBefore),
     analyses: zzzAnalyses,
     banner: zzzBanner,

@@ -1181,6 +1181,7 @@ _INDEX_HTML = """<!doctype html>
       <section class="rec-plan-controls" id="recPlanControls" aria-label="推荐场景">
         <div class="control-group"><label>推荐场景</label><div class="segmented" id="recStrategyControl"></div></div>
         <div class="control-group compact" id="recTeamCountControl"><label>方案队数</label><select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></div>
+        <div class="control-group" id="recTargetScopeControl"><label>参战关卡（可多选）</label><div class="tier-checks" id="recTargetScopeButtons"></div></div>
         <p id="recStrategyHint"></p>
       </section>
       <section class="rec-controls" aria-label="组队推荐控制">
@@ -1252,7 +1253,8 @@ _BUILD_CSS = """.build-editor{display:grid;grid-template-columns:minmax(220px,.8
 _RECOMMENDER_CSS = r""".rec-controls{display:grid;grid-template-columns:1fr .62fr 1.5fr .55fr .58fr .5fr 1fr;gap:10px;align-items:end;background:#fff;border:1px solid #d8e1e5;border-radius:8px;padding:12px;margin-bottom:14px}.phase-mechanics{display:grid;grid-template-columns:minmax(220px,.62fr) minmax(0,1fr) auto;gap:14px;align-items:center;background:#fff;border:1px solid #d8e1e5;border-radius:8px;padding:12px 14px;margin-bottom:14px}.phase-mechanics h2{margin:0 0 4px;font-size:16px}.phase-mechanics p{margin:0;color:#42565f;font-size:12px;line-height:1.5}.phase-mechanics>p{color:#243b44}.phase-mechanics a{font-size:12px;color:#174c5a;text-decoration:none;border:1px solid #c8d4d9;border-radius:6px;padding:6px 8px;background:#f8fbfb;white-space:nowrap}.phase-mechanics a.hidden-link{display:none}.rec-layout{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:14px}.rec-panel,.rec-slate{background:white;border:1px solid #d8e1e5;border-radius:8px;min-height:660px}.rec-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px;padding:14px}.rec-card{border:1px solid #d8e1e5;background:#fbfcfd;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}.rec-card:hover{border-color:#86a6af;background:#f7fbfb}.rec-card.risky{border-color:#d09b3d;background:#fffaf1}.rec-card-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.rec-card h3{margin:0;font-size:15px;line-height:1.25}.rec-card .rec-meta,.rec-note{color:#657780;font-size:12px;line-height:1.4}.rec-risk-note{border:1px solid #e4bd72;background:#fff8e8;border-radius:6px;padding:7px 8px;color:#724d00;font-size:12px;line-height:1.45}.rec-score{min-width:64px;text-align:right}.rec-score strong{display:block;font-size:20px;color:#174c5a}.rec-score span{font-size:11px;color:#6b7c84}.rec-team{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.rec-member{position:relative;border:1px solid #d8e1e5;background:#fff;border-radius:7px;padding:8px 6px;text-align:center;min-width:0}.rec-member.owned{border-color:#2f7b69;background:#f3fbf7}.rec-member.missing{border-color:#d1a24c;background:#fffaf1}.rec-member.risky{border-color:#c88724;box-shadow:inset 0 0 0 1px #c88724}.rec-member img{width:46px;height:46px;border-radius:50%;object-fit:cover;background:#e7ecef}.rec-member.missing img{filter:grayscale(1);opacity:.42}.rec-member .name{margin-top:5px;font-size:11px;font-weight:700;line-height:1.2;min-height:26px;display:flex;align-items:center;justify-content:center}.rec-member .meta{font-size:10px;color:#637780;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rec-tags{display:flex;gap:6px;flex-wrap:wrap}.rec-tags span{border:1px solid #d6e1e5;background:white;border-radius:999px;padding:3px 7px;color:#39505a;font-size:11px}.rec-tags span.warn{border-color:#dfb86a;background:#fff8e8;color:#7a5200}.rec-tags span.danger{border-color:#cb7a33;background:#fff1e6;color:#7a3300}.rec-subs{display:flex;flex-direction:column;gap:5px}.rec-subline{font-size:12px;color:#41545c;display:flex;gap:6px;align-items:center;flex-wrap:wrap}.rec-subline b{color:#8a5d00;font-weight:700}.rec-mini{display:inline-flex;gap:4px;align-items:center;border:1px solid #d8e1e5;border-radius:999px;background:white;padding:2px 6px}.rec-mini img{width:18px;height:18px;border-radius:50%;object-fit:cover}.rec-slate-list{padding:14px;display:flex;flex-direction:column;gap:10px}.rec-slate-card{border:1px solid #d8e1e5;border-radius:8px;background:#fbfcfd;padding:10px}.rec-slate-card.risky{border-color:#d09b3d;background:#fffaf1}.rec-slate-card h3{margin:0 0 8px;font-size:14px}.rec-slate-team{display:flex;gap:6px;flex-wrap:wrap}.rec-slate-team img{width:34px;height:34px;border-radius:50%;background:#e7ecef}.rec-slate-team img.missing{filter:grayscale(1);opacity:.38}.rec-slate-team img.risky{outline:2px solid #c88724}.rec-empty{padding:28px;color:#657780;text-align:center}@media(max-width:1180px){.rec-controls{grid-template-columns:1fr 1fr 1fr}.phase-mechanics,.rec-layout{grid-template-columns:1fr}}@media(max-width:720px){.rec-controls{grid-template-columns:1fr 1fr}.rec-list{grid-template-columns:1fr;padding:10px}.rec-team{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .rec-constraints{display:grid;grid-template-columns:minmax(330px,.82fr) minmax(0,1.18fr);gap:14px;align-items:center;background:#fff;border:1px solid #d8e1e5;border-radius:8px;padding:12px 14px;margin-bottom:14px}.constraint-picker>label{display:block;color:#2d434c;font-size:13px;font-weight:750;margin-bottom:7px}.constraint-picker>label span{color:#708188;font-size:11px;font-weight:500;margin-left:5px}.constraint-picker-row{display:grid;grid-template-columns:minmax(160px,1fr) auto auto auto;gap:7px}.constraint-picker-row select{min-width:0;height:36px;border:1px solid #c8d4d9;background:#fff;border-radius:6px;padding:6px 8px;color:#172126}.constraint-picker-row button{border:1px solid #2f7767;background:#edf8f3;color:#1d5d4e;border-radius:6px;padding:7px 10px;cursor:pointer;white-space:nowrap;font-weight:700}.constraint-picker-row #recExcludeBtn{border-color:#b77b59;background:#fff4ed;color:#7a3d20}.constraint-picker-row button.quiet{border-color:#c8d4d9;background:#f8fafb;color:#50646c;font-weight:600}.constraint-picker-row button:hover{filter:brightness(.98);box-shadow:0 0 0 1px rgba(23,76,90,.08)}#recConstraintMessage{min-height:16px;margin:5px 0 0;color:#7a5200;font-size:11px}.constraint-groups{display:grid;grid-template-columns:1fr 1fr;gap:10px}.constraint-groups>div{min-width:0;border-left:3px solid #2f7b69;background:#f5faf8;border-radius:5px;padding:8px 9px}.constraint-groups>div+div{border-left-color:#b86b43;background:#fff8f4}.constraint-groups strong{display:block;color:#435860;font-size:11px;margin-bottom:6px}.constraint-chips{display:flex;gap:6px;flex-wrap:wrap;min-height:27px;align-items:center}.constraint-chips:empty::after{content:'未指定';color:#87959a;font-size:11px}.constraint-chip{border:1px solid #79a99d;background:#fff;color:#215d4e;border-radius:999px;padding:4px 8px;cursor:pointer;font-size:11px;font-weight:700}.constraint-chips.excluded .constraint-chip{border-color:#d6a286;color:#7a3d20}.constraint-chip::after{content:' \00d7';color:#6b7c84;margin-left:3px}@media(max-width:900px){.rec-constraints{grid-template-columns:1fr}}@media(max-width:720px){.constraint-picker-row{grid-template-columns:1fr 1fr}.constraint-picker-row select{grid-column:1/-1}.constraint-groups{grid-template-columns:1fr}}
 .rec-plan-controls{display:grid;grid-template-columns:minmax(260px,.72fr) 130px minmax(320px,1.28fr);gap:12px;align-items:end;background:#eef5f6;border:1px solid #cfdee2;border-radius:8px;padding:11px 13px;margin-bottom:10px}.rec-plan-controls .control-group label{font-weight:750;color:#324b54}.rec-plan-controls select{width:100%;height:36px;border:1px solid #c8d4d9;background:#fff;border-radius:6px;padding:7px 9px;color:#172126}.rec-plan-controls p{align-self:center;margin:0;color:#50656e;font-size:12px;line-height:1.5}@media(max-width:900px){.rec-plan-controls{grid-template-columns:1fr 130px}.rec-plan-controls p{grid-column:1/-1}}@media(max-width:620px){.rec-plan-controls{grid-template-columns:1fr}}
-.rec-plan-controls:not(.custom){grid-template-columns:minmax(260px,.72fr) minmax(320px,1.28fr)}
+.rec-plan-controls:not(.custom){grid-template-columns:minmax(220px,.55fr) minmax(340px,.9fr) minmax(320px,1.15fr)}
+@media(max-width:900px){.rec-plan-controls:not(.custom){grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
 @media(max-width:620px){.rec-plan-controls:not(.custom){grid-template-columns:1fr}}
 """
 
@@ -1280,7 +1282,7 @@ const desktopMode=globalThis.__MIHO_DESKTOP__===true;
 let DATA=null;
 let state={page:PAGES.has(location.hash.slice(1))?location.hash.slice(1):'box',mode:'moc',view:'trend',role:'main_dps',tiers:new Set(TIERS),metric:'app_rate',limit:'12',search:'',avatars:true,focus:null,hover:null};
 let box={owned:new Set(),builds:{},buildSlug:'',element:'all',path:'all',role:'all',rarity:'all',status:'all',search:'',saveStatus:'浏览器缓存',exportStatus:''};
-let rec={mode:'moc',scope:'',strategy:'final',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},elements:{},constraints:{},gap:'1',riskMode:'warn',limit:'8',search:''};
+let rec={mode:'moc',scope:'',strategy:'final',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:{},constraints:{},gap:'1',riskMode:'warn',limit:'8',search:''};
 const BANNER_PHASES=[['current','当期UP'],['next','后续卡池'],['recent','历史参考'],['all','全部含已结束']];
 let banner={phase:'current',search:''};
 let boxSaveTimer=null,boxSaveRevision=0,boxSaveChain=Promise.resolve();
@@ -1396,7 +1398,7 @@ function resetCurrentPage(){
     renderBanner();return;
   }
   if(state.page==='recommender'){
-    rec={mode:'moc',scope:'',strategy:'final',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},elements:rec.elements||{},constraints:rec.constraints||{},gap:'1',riskMode:'warn',limit:'8',search:''};
+    rec={mode:'moc',scope:'',strategy:'final',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:rec.elements||{},constraints:rec.constraints||{},gap:'1',riskMode:'warn',limit:'8',search:''};
     recConstraintMessage='';
     ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();return;
   }
@@ -1430,11 +1432,13 @@ function syncRecControls(){
   $('recPlanControls').classList.toggle('custom',custom);
   $('recTeamCountSelect').value=String(recTeamCount());
   $('recTeamCountControl').classList.toggle('hidden',!custom);
+  $('recTargetScopeControl').classList.toggle('hidden',custom);
   $('recScopeLabel').textContent=custom?'目标队伍':'实战节点';
   $('recElementLabel').textContent=custom?'敌方弱点（用于选队）':'敌方弱点（默认仅标注）';
   $('recScopeSelect').title=custom?'每一队独立保存弱点与角色硬约束':'使用当前模式最新采样期的同节点真实队伍模板';
   $('recElementControl').title=custom?'从当前模式全部实战阵容池中，优先寻找核心输出命中任一弱点的队伍':'同节点真实队伍排序优先；弱点只标注适配，选择“过滤风险”后才会硬筛选';
-  $('recStrategyHint').textContent=custom?'适合普通层或自定义敌人：默认 2 队，每队按弱点从当前模式完整实战阵容池找队。':'适合当前最高难度：自动跟随数据里的 2/3 个真实战斗侧；弱点默认不改榜，“过滤风险”时才参与硬筛选。';
+  $('recStrategyHint').textContent=custom?'适合普通层或自定义敌人：默认 2 队，每队按弱点从当前模式完整实战阵容池找队。':'选择实际准备挑战的关卡；联合优化只在已选关卡之间分配 Box，未选关卡不会预留角色。弱点默认不改榜，“过滤风险”时才参与硬筛选。';
+  renderRecTargetScopeControls();
   const options=recScopeOptions(rec.mode);
   const select=$('recScopeSelect');
   select.innerHTML=options.map(o=>`<option value="${esc(o.key)}">${esc(o.label)}</option>`).join('');
@@ -1601,8 +1605,9 @@ function showBannerTooltip(evt,row,ins){const tt=$('bannerTooltip');tt.innerHTML
 function moveBannerTooltip(evt){const tt=$('bannerTooltip');let x=evt.clientX+16,y=evt.clientY+16;const rect=tt.getBoundingClientRect();if(x+rect.width+12>innerWidth)x=evt.clientX-rect.width-16;if(y+rect.height+12>innerHeight)y=evt.clientY-rect.height-16;tt.style.left=`${Math.max(12,x)}px`;tt.style.top=`${Math.max(12,y)}px`;}
 
 function normalizeRecTeamCounts(raw){const input=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw:{};return Object.fromEntries(Object.entries(DEFAULT_REC_TEAM_COUNTS).map(([mode,fallback])=>[mode,String(input[mode])==='3'?'3':String(input[mode])==='2'?'2':fallback]));}
-function loadRecSettings(){try{const raw=JSON.parse(localStorage.getItem(REC_KEY)||'{}');rec={...rec,...raw,strategy:raw.strategy==='custom'?'custom':'final',teamCounts:normalizeRecTeamCounts(raw.teamCounts),elements:raw.elements&&typeof raw.elements==='object'&&!Array.isArray(raw.elements)?raw.elements:{},constraints:raw.constraints&&typeof raw.constraints==='object'&&!Array.isArray(raw.constraints)?raw.constraints:{},riskMode:raw.riskMode||'warn'};}catch{rec={...rec,strategy:'final',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},elements:{},constraints:{},riskMode:'warn'};}ensureRecScope();}
-function saveRecSettings(){localStorage.setItem(REC_KEY,JSON.stringify({updatedAt:new Date().toISOString(),mode:rec.mode,scope:rec.scope,strategy:rec.strategy,teamCounts:rec.teamCounts,gap:rec.gap,riskMode:rec.riskMode||'warn',limit:rec.limit,search:rec.search,elements:rec.elements,constraints:rec.constraints}));}
+function normalizeRecTargetScopes(raw){if(!raw||typeof raw!=='object'||Array.isArray(raw))return{};return Object.fromEntries(Object.entries(raw).filter(([,values])=>Array.isArray(values)).map(([key,values])=>[key,[...new Set(values.map(value=>String(value||'').trim()).filter(Boolean))]]));}
+function loadRecSettings(){try{const raw=JSON.parse(localStorage.getItem(REC_KEY)||'{}');rec={...rec,...raw,strategy:raw.strategy==='custom'?'custom':'final',teamCounts:normalizeRecTeamCounts(raw.teamCounts),targetScopes:normalizeRecTargetScopes(raw.targetScopes),elements:raw.elements&&typeof raw.elements==='object'&&!Array.isArray(raw.elements)?raw.elements:{},constraints:raw.constraints&&typeof raw.constraints==='object'&&!Array.isArray(raw.constraints)?raw.constraints:{},riskMode:raw.riskMode||'warn'};}catch{rec={...rec,strategy:'final',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:{},constraints:{},riskMode:'warn'};}ensureRecScope();}
+function saveRecSettings(){localStorage.setItem(REC_KEY,JSON.stringify({updatedAt:new Date().toISOString(),mode:rec.mode,scope:rec.scope,strategy:rec.strategy,teamCounts:rec.teamCounts,targetScopes:rec.targetScopes,gap:rec.gap,riskMode:rec.riskMode||'warn',limit:rec.limit,search:rec.search,elements:rec.elements,constraints:rec.constraints}));}
 function recTeamCount(mode=rec.mode){return String(rec.teamCounts?.[mode])==='3'?3:2}
 function isCustomScope(scope){return /^custom-[123]$/.test(String(scope||''))}
 function recSettingKey(mode=rec.mode,scope=rec.scope){return `${mode}|${scope||''}`}
@@ -1839,16 +1844,17 @@ function renderRecommender(){
   const latest=templates[0]||{};
   const selected=[...recElementSet()];
   const constraints=recConstraintSets();
+  const plannedScopes=recPlanScopes();
   const constraintMatchedCount=templates.filter(template=>templateMatchesConstraints(template,constraints)).length;
   renderPhaseMechanics(latest);
   $('recTitle').textContent=`${modeLabel} · ${scope?.label||rec.scope}`;
   const status=latest.phase_status||phaseInfoFor(latest).phase_status||'unknown';
   const templateLabel=status==='expired'?'历史模板（源滞后）':custom?'当前模式完整实战阵容池':'当前同节点实战模板';
-  const strategyNote=custom?'跨全部具体战斗侧去重；核心输出命中任一弱点优先':'同节点实战排序优先；弱点默认仅标注，不参与加减分；选择“过滤风险”时才硬筛选';
+  const strategyNote=custom?'跨全部具体战斗侧去重；核心输出命中任一弱点优先':`${plannedScopes.length}队联合优化；同节点实战排序优先；弱点默认仅标注，不参与加减分；选择“过滤风险”时才硬筛选`;
   $('recSubtitle').textContent=`${phaseLabel(latest)} · ${latest.collect_date||''} · ${phaseStatusLabel(status)} · ${templateLabel} ${templates.length} 队 · ${strategyNote}`;
   const riskLabel=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒';
   const tierRiskLabel=rec.riskMode==='off'?'当前模式T档不提醒':'当前模式T1及以下提醒';
-  $('recBadges').innerHTML=[custom?'自定义弱点池':'末层实战',selected.length?`弱点 ${selected.join(' / ')}`:'未标弱点',constraints.required.size?`必上 ${constraints.required.size}`:'未设必上',constraints.excluded.size?`排除 ${constraints.excluded.size}`:'未设排除',`缺口 ≤ ${rec.gap}`,riskLabel,tierRiskLabel,`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');
+  $('recBadges').innerHTML=[custom?'自定义弱点池':'末层实战',`${plannedScopes.length} 队模型`,selected.length?`弱点 ${selected.join(' / ')}`:'未标弱点',constraints.required.size?`必上 ${constraints.required.size}`:'未设必上',constraints.excluded.size?`排除 ${constraints.excluded.size}`:'未设排除',`缺口 ≤ ${rec.gap}`,riskLabel,tierRiskLabel,`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');
   const list=$('recList');list.innerHTML='';
   if(!ranked.length){const constrained=constraints.required.size||constraints.excluded.size;const message=constrained&&!constraintMatchedCount?'当前角色硬约束没有匹配的真实队伍模板':constrained?'命中角色约束的模板被当前缺口、风险或搜索条件筛掉':'当前筛选没有可展示队伍';list.innerHTML=`<div class="rec-empty">${message}</div>`;renderRecSlate();return;}
   ranked.forEach((item,index)=>list.appendChild(recCard(item,index+1)));
@@ -1924,14 +1930,38 @@ function substitutionHtml(item){
   return `<div class="rec-subs">${rows.map(s=>`<div class="rec-subline"><b>${esc(charName(s.missing.slug))}</b>${s.candidates.map(c=>`<span class="rec-mini"><img src="${esc(c.icon_url)}" alt="">${esc(c.character_name_cn||c.character_name_en)}</span>`).join('')}</div>`).join('')}</div>`;
 }
 
-function recPlanScopes(){
-  if(rec.strategy==='custom')return recScopeOptions(rec.mode);
-  const concrete=realRecScopeOptions(rec.mode).filter(scope=>scope.key!=='all');
-  if(rec.mode==='aa'){
-    if(rec.scope==='2-1')return concrete.filter(scope=>scope.key==='2-1');
+function finalRecScopes(mode=rec.mode,scope=rec.scope){
+  const concrete=realRecScopeOptions(mode).filter(scope=>scope.key!=='all');
+  if(mode==='aa'){
+    if(scope==='2-1')return concrete.filter(scope=>scope.key==='2-1');
     return concrete.filter(scope=>scope.key.startsWith('1-'));
   }
   return concrete;
+}
+function recTargetScopeKey(mode=rec.mode,scope=rec.scope){return mode==='aa'?scope==='2-1'?'aa|king':'aa|knights':mode}
+function selectedFinalRecScopes(mode=rec.mode,scope=rec.scope){
+  const available=finalRecScopes(mode,scope);
+  const saved=rec.targetScopes?.[recTargetScopeKey(mode,scope)];
+  if(!Array.isArray(saved))return available;
+  const selected=new Set(saved);
+  const filtered=available.filter(item=>selected.has(item.key));
+  return filtered.length?filtered:available;
+}
+function toggleRecTargetScope(scopeKey){
+  const available=finalRecScopes(),selected=new Set(selectedFinalRecScopes().map(scope=>scope.key));
+  if(selected.has(scopeKey)){if(selected.size===1)return;selected.delete(scopeKey);}else selected.add(scopeKey);
+  rec.targetScopes[recTargetScopeKey()]=available.filter(scope=>selected.has(scope.key)).map(scope=>scope.key);
+  if(!selected.has(rec.scope))rec.scope=available.find(scope=>selected.has(scope.key))?.key||rec.scope;
+  recConstraintMessage='';saveRecSettings();syncRecControls();renderRecommender();
+}
+function renderRecTargetScopeControls(){
+  const root=$('recTargetScopeButtons');if(!root)return;root.innerHTML='';
+  const selected=new Set(selectedFinalRecScopes().map(scope=>scope.key));
+  finalRecScopes().forEach(scope=>{const button=document.createElement('button');button.type='button';button.dataset.value=scope.key;button.textContent=scope.label;button.classList.toggle('active',selected.has(scope.key));button.setAttribute('aria-pressed',String(selected.has(scope.key)));button.title=selected.has(scope.key)&&selected.size===1?'至少保留一个参战关卡':`${selected.has(scope.key)?'取消':'加入'}联合优化：${scope.label}`;button.onclick=()=>toggleRecTargetScope(scope.key);root.appendChild(button);});
+}
+function recPlanScopes(){
+  if(rec.strategy==='custom')return recScopeOptions(rec.mode);
+  return selectedFinalRecScopes(rec.mode,rec.scope);
 }
 
 function slateItemSlugs(item){return new Set(item.finalChars.map(canonicalSlug))}
@@ -1951,9 +1981,19 @@ function searchRecSlate(candidateLists,beamWidth){
   });
   return states.sort(compareSlateStates)[0]||{picks:candidateLists.map(()=>null),used:new Set(),filled:0,weaknessMatches:0,totalScore:0,key:''};
 }
+function bestExactTwoScopePlan(scopes){
+  const [leftItems=[],rightItems=[]]=recSlateCandidateLists(scopes,Number.MAX_SAFE_INTEGER);
+  const rightPrepared=rightItems.map(item=>({item,slugs:slateItemSlugs(item),key:templatePoolKey(item.template)}));
+  let best={picks:[null,null],used:new Set(),filled:0,weaknessMatches:0,totalScore:0,key:'|~|~'};
+  const consider=state=>{if(compareSlateStates(state,best)<0)best=state;};
+  leftItems.forEach(left=>{const leftSlugs=slateItemSlugs(left),leftWeakness=Number(left.weaknessDriven&&left.weaknessConfigured&&left.weaknessMatched),leftKey=templatePoolKey(left.template);consider({picks:[left,null],used:leftSlugs,filled:1,weaknessMatches:leftWeakness,totalScore:left.score,key:`|${leftKey}|~`});rightPrepared.forEach(({item:right,slugs:rightSlugs,key:rightKey})=>{if([...rightSlugs].some(slug=>leftSlugs.has(slug)))return;consider({picks:[left,right],used:new Set([...leftSlugs,...rightSlugs]),filled:2,weaknessMatches:leftWeakness+Number(right.weaknessDriven&&right.weaknessConfigured&&right.weaknessMatched),totalScore:left.score+right.score,key:`|${leftKey}|${rightKey}`});});});
+  rightPrepared.forEach(({item,slugs,key})=>consider({picks:[null,item],used:slugs,filled:1,weaknessMatches:Number(item.weaknessDriven&&item.weaknessConfigured&&item.weaknessMatched),totalScore:item.score,key:`|~|${key}`}));
+  return best.picks;
+}
 function bestRecSlatePlan(scopes){
+  if(rec.strategy==='final'&&scopes.length===2)return bestExactTwoScopePlan(scopes);
   const fast=searchRecSlate(recSlateCandidateLists(scopes,50),180);
-  if(fast.filled===scopes.length)return fast.picks;
+  if(scopes.length>2&&fast.filled===scopes.length)return fast.picks;
   const fallback=searchRecSlate(recSlateCandidateLists(scopes,240),720);
   return (compareSlateStates(fast,fallback)<=0?fast:fallback).picks;
 }
@@ -1962,7 +2002,7 @@ function renderRecSlate(){
   const scopes=recPlanScopes();
   const picks=bestRecSlatePlan(scopes);
   const chosen=scopes.map((scope,index)=>({scope,item:picks[index]||null}));
-  const strategyLabel=rec.strategy==='custom'?'跨节点阵容池联合选队':'最高难度实战节点联合选队';
+  const strategyLabel=rec.strategy==='custom'?'跨节点阵容池联合选队':'已选实战节点联合选队（未选关卡不预留角色）';
   $('recSlateSubtitle').textContent=`${chosen.filter(x=>x.item).length}/${scopes.length} 队 · ${strategyLabel} · 遵守各队硬约束且不复用角色`;
   const boxEl=$('recSlateList');boxEl.innerHTML='';
   if(!chosen.length){boxEl.innerHTML='<div class="rec-empty">暂无当前模式关卡模板</div>';return;}
