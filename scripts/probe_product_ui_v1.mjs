@@ -570,11 +570,28 @@ async function verifyZzzBoxRoster(context) {
       row.character_slug || '',
     ]));
     const statuses = (row) => String(row?.banner_statuses || '').split(';').filter(Boolean);
+    const releaseOrder = (row) => {
+      const raw = String(row?.release_order ?? '').trim();
+      const value = Number(raw);
+      return raw && Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+    };
     const cards = [...document.querySelectorAll('#boxGrid .box-card')].map((card, index) => {
       const displayName = card.querySelector('.box-name, .name')?.textContent?.trim() ?? '';
       const slug = card.dataset.slug || slugByName.get(displayName) || '';
-      return { index, slug, displayName, statuses: statuses(rosterBySlug.get(slug)) };
+      const rosterRow = rosterBySlug.get(slug);
+      return {
+        index,
+        slug,
+        displayName,
+        statuses: statuses(rosterRow),
+        releaseOrder: releaseOrder(rosterRow),
+        metaText: [...card.querySelectorAll('.meta')].map((node) => node.textContent ?? '').join(' · '),
+      };
     });
+    const expectedSlugs = rosterRows
+      .map((row, index) => ({ slug: row.character_slug, index, releaseOrder: releaseOrder(row) }))
+      .sort((left, right) => left.releaseOrder - right.releaseOrder || left.index - right.index)
+      .map((row) => row.slug);
     const isNorma = (row) => {
       const slug = String(row?.character_slug || '').toLowerCase();
       const nameCn = String(row?.character_name_cn || '');
@@ -593,18 +610,13 @@ async function verifyZzzBoxRoster(context) {
     const current = cards.filter((card) => card.statuses.includes('current'));
     const next = cards.filter((card) => card.statuses.includes('next'));
     const satellite = cards.filter((card) => card.statuses.includes('satellite'));
-    const priority = cards.filter((card) => card.statuses.includes('current') || card.statuses.includes('satellite'));
-    const ordinaryOrPrevious = cards.filter((card) => !card.statuses.includes('current')
-      && !card.statuses.includes('satellite')
-      && (card.statuses.length === 0 || card.statuses.includes('previous')));
-    const statusRank = (card) => card.statuses.includes('current') ? 0
-      : card.statuses.includes('next') ? 1
-        : card.statuses.includes('satellite') ? 2
-          : 3;
-    const orderingRanks = cards.map(statusRank);
-    const orderingViolations = orderingRanks.flatMap((rank, index) => (
-      index > 0 && orderingRanks[index - 1] > rank
-        ? [{ index, previousRank: orderingRanks[index - 1], rank, card: cards[index] }]
+    const missingStatusMarkers = cards.filter((card) => (
+      (card.statuses.includes('current') && !card.metaText.includes('当期UP'))
+      || (card.statuses.includes('satellite') && !card.metaText.includes('卫星'))
+    ));
+    const orderingViolations = cards.flatMap((card, index) => (
+      index > 0 && cards[index - 1].releaseOrder > card.releaseOrder
+        ? [{ index, previous: cards[index - 1], card }]
         : []
     ));
     return {
@@ -614,37 +626,32 @@ async function verifyZzzBoxRoster(context) {
       currentCount: current.length,
       nextCount: next.length,
       satelliteCount: satellite.length,
-      priorityIndices: priority.map((card) => card.index),
-      ordinaryOrPreviousIndices: ordinaryOrPrevious.map((card) => card.index),
-      orderingRanks,
+      expectedSlugs,
+      actualSlugs: cards.map((card) => card.slug),
+      missingStatusMarkers,
       orderingViolations,
-      leadingCards: cards.slice(0, Math.max(12, priority.length + 2)),
+      leadingCards: cards.slice(0, 12),
     };
   })()`, context.sessionId);
   assert(snapshot.normaRoster.length === 1 && snapshot.normaRoster[0].slug === "norma", "ZZZ roster does not contain exactly one canonical Norma row", snapshot.normaRoster);
   assert(snapshot.normaCards.length === 1 && snapshot.normaCards[0].slug === "norma", "ZZZ Box does not render exactly one canonical Norma card", snapshot.normaCards);
   assert(snapshot.currentCount > 0 && snapshot.satelliteCount > 0, "ZZZ Box is missing current or satellite roster cards", snapshot);
-  assert(snapshot.ordinaryOrPreviousIndices.length > 0, "ZZZ Box has no ordinary/previous cards for the ordering check", snapshot);
-  assert(snapshot.orderingViolations.length === 0, "ZZZ Box does not follow current/next/satellite/other ordering", {
-    ranks: snapshot.orderingRanks,
+  assert(JSON.stringify(snapshot.actualSlugs) === JSON.stringify(snapshot.expectedSlugs), "ZZZ Box card identities do not exactly follow stable release_order", {
+    expected: snapshot.expectedSlugs,
+    actual: snapshot.actualSlugs,
+  });
+  assert(snapshot.orderingViolations.length === 0, "ZZZ Box does not follow actual release_order", {
     violations: snapshot.orderingViolations,
     leadingCards: snapshot.leadingCards,
   });
-  const lastPriority = Math.max(...snapshot.priorityIndices);
-  const firstOrdinaryOrPrevious = Math.min(...snapshot.ordinaryOrPreviousIndices);
-  assert(lastPriority < firstOrdinaryOrPrevious, "ZZZ current/satellite cards are not ordered before ordinary/previous cards", {
-    lastPriority,
-    firstOrdinaryOrPrevious,
-    leadingCards: snapshot.leadingCards,
-  });
+  assert(snapshot.missingStatusMarkers.length === 0, "ZZZ Box lost current/satellite labels while removing their sort priority", snapshot.missingStatusMarkers);
   return {
     normaSlug: snapshot.normaCards[0].slug,
     normaCardCount: snapshot.normaCards.length,
     currentCount: snapshot.currentCount,
     nextCount: snapshot.nextCount,
     satelliteCount: snapshot.satelliteCount,
-    lastPriorityIndex: lastPriority,
-    firstOrdinaryOrPreviousIndex: firstOrdinaryOrPrevious,
+    leadingCards: snapshot.leadingCards,
     orderingVerified: true,
   };
 }

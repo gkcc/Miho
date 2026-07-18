@@ -673,7 +673,7 @@ test('ZZZ hard constraints are scope-isolated and reserved characters remove con
   );
 });
 
-test('ZZZ normalizes the stale Nom alias and orders active banner stages before the ordinary roster', () => {
+test('ZZZ normalizes the stale Nom alias and keeps Box cards in actual release order', () => {
   const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
   const rosterRows = [
     {...zzzCharacter('ordinary', 'support', 10), character_name_cn: '普通代理人'},
@@ -702,8 +702,8 @@ test('ZZZ normalizes the stale Nom alias and orders active banner stages before 
   );
   assert.deepEqual(
     view.boxOrder,
-    ['norma', 'next', 'satellite-a', 'satellite-b', 'ordinary', 'previous'],
-    'Box ordering must be current, next, satellite, then the stable ordinary/previous tail',
+    ['norma', 'ordinary', 'previous', 'satellite-a', 'satellite-b', 'next'],
+    'Box ordering must follow release_order and must not be changed by banner status',
   );
   assert.deepEqual(
     view.bannerOrder,
@@ -723,6 +723,24 @@ test('ZZZ normalizes the stale Nom alias and orders active banner stages before 
     satelliteOnly.bannerOrder.map(row => row.slug),
     ['satellite-a', 'satellite-b'],
     'the existing banner stage filter must remain exact and stable',
+  );
+});
+
+test('ZZZ Box release ordering is numeric, stable, and independent of banner status', () => {
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const rosterRows = [
+    {...zzzCharacter('current-old', 'support', 10), banner_statuses: 'current'},
+    {...zzzCharacter('unknown-satellite', 'support', ''), banner_statuses: 'satellite'},
+    {...zzzCharacter('next-mid', 'support', '5'), banner_statuses: 'next'},
+    {...zzzCharacter('newest', 'support', 0)},
+    {...zzzCharacter('unknown-current', 'support', 'not-known'), banner_statuses: 'current'},
+    {...zzzCharacter('legacy-unknown', 'support', 9999)},
+  ];
+
+  assert.deepEqual(
+    plain(api.identityView({rosterRows, bannerRows: [], teamTemplates: [], tierRows: [], usageRows: []})).boxOrder,
+    ['newest', 'next-mid', 'current-old', 'legacy-unknown', 'unknown-satellite', 'unknown-current'],
+    'Box must sort numeric release_order ascending, keep zero, and preserve input order for missing ties',
   );
 });
 
