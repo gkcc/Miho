@@ -30,9 +30,9 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "bb4fd2a950fcb51e88e8c0e3a679796474cf88e4a1ec686391eb0de011bed01a",
-      "index.html": "c759f07a3372d85585a0c8c4139dcc2d8f7ab74a355d6cbe7a6ad2dcfdadf432",
-      "styles.css": "97015a829538c9c48f6896997453535be6c2d257c77168f117e2f0c08c33db29"
+      "app.js": "81a2adb704e4465d65b72a4f6172deac4cdaff7e1b865861bb2cfc289e189f3b",
+      "index.html": "8f97ac99c15fb830a1e29f02581adc91342048744b7f599626057aff574673a2",
+      "styles.css": "7b24fe21809ddff346f860eaa192eb0c321167b556e9f2d7cbb5bf547cfe29ee"
     },
     "zzz": {
       "app.js": "7a6cdd5c9572481c8e026a052e01804821a9e0df0d68330c501e9ef18e09644f",

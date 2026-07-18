@@ -550,6 +550,13 @@
 - **验证**：推荐逻辑契约 18/18（含单关、非连续两关、重新优化、HSR rank 240 后反例、模式隔离及角色去重），Python Visualizer 2/2，Rust/Python 静态与 JSON 定点契约、`miho-core` visualizer 25/25、desktop protocol 14/14、JS/Python 语法、GUI 静态契约与 `git diff --check` 均通过；复审发现的 HSR 621–900px 三列溢出已修复并由响应式/静态契约 3/3 覆盖。`pnpm -w run tauri:build:no-bundle` 成功。既有 Python strict ZZZ 六个 `release_order` fixture、live HSR 托帕头像 alias 和 live ZZZ 多 59 张内置头像文件集漂移未受本次影响，未冒充通过。
 - **真实入口与直接交付**：最终安装版后台探针实际执行 ZZZ → HSR → ZZZ。ZZZ 危局强袭选择 `1-1 + 1-3` 时只生成对应 2 队，缩为 `1-3` 后只生成 1 队；HSR 选择 `4-1 + 4-3` 时只生成对应 2 队并明确“未选关卡不预留角色”，缩为 `4-3` 后只生成 1 队。最后一关均不能取消，模式切换不串值，推荐设置已恢复；HSR/ZZZ Box SHA-256 前后分别保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`，ZZZ localStorage 零漂移。程序正常退出 0、stdout/stderr 为空、调试端口关闭。`target/release/miho-desktop.exe` 已直接替换 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 同为 `796C06BED53CB44BEA0A83D843FEB95CAB2C7A418570D98BA48DA7873204681C`（22,818,304 bytes）；未生成安装器或 portable。
 
+### HSR 推荐多口径参考与可解释评分（2026-07-18，已交付）
+
+- **截图问题与产品语义**：旧推荐只有一套以 Box 适配为主、兼顾少量历史数据的综合分，所以末日第二关中 Rank `47`、占比 `0.32%`、得分 `3579` 的爻光队，仍可能排在 Rank `112`、占比 `0.13%`、得分 `3467` 但当前 Box 练度更合适的欢愉主队之后。推荐页现提供“综合推荐 / 历史表现 / Box 即战力”三种口径：综合仍以当前 Box 为主，历史按同模式候选池内 Rank 45%、占比 30%、有效表现 25% 归一化，Box 只看拥有、练度、缺口、替补与跨队冲突。卡片同时展示三套参考分和当前口径拆分，右侧多队联合方案也随口径重新优化；选择会持久化，旧或非法设置安全回退综合推荐。
+- **证据边界**：MoC 平均回合按低值优先，PF/AS 得分按高值优先；`0 / 99.99` 作为缺失而非实力证据，AA 表现方向未验证前只展示、不计分，Rank `0` 统一显示为缺失并排在任意合法正 Rank 后。不同模式和三套口径的分值量纲不混用。任意关卡子集仍按上一里程碑重新联合选队：两关使用完整候选池精确搜索，三关保留既有 Top 50 / beam 近似，不能宣称三队全局精确最优。
+- **回归与真实入口**：推荐逻辑 23/23、Python Visualizer 2/2、跨语言/静态/响应式定点 7/7、`miho-core` visualizer 25/25、JS/Python 语法与 `git diff --check` 均通过，`pnpm run tauri:build` 成功。安装版 GUI 验证满足 WINDOWS_GUI、ready sentinel、5 秒存活、正常退出、空 stdout/stderr 和调试端口清理；随后后台 CDP/DOM 深探针实际执行 ZZZ → HSR → ZZZ，三种口径选项、卡片拆分、localStorage、联合方案和截图两队顺序均通过。1180×720 与 720×720 下推荐 tooltip 实测均为 520×391，横纵 scroll 尺寸完全一致，无裁切或页面横向溢出；HSR/ZZZ Box 哈希仍为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`，设置恢复且 ZZZ localStorage 零漂移。
+- **直接交付**：`target/release/miho-desktop.exe` 已直接原位更新到 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 同为 `62AF8D7A7B45780139F9A4F488A3D22C006E14058C8B08C4880EF9D2717CDA3C`（22,830,592 bytes）；未生成安装器、NSIS 或 portable。
+
 ## 恢复入口
 
 - 项目状态：本文件。

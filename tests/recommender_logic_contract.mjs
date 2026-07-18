@@ -17,6 +17,7 @@ const HSR_HARNESS = String.raw`
       mode: settings.mode || 'as',
       scope: settings.scope || '4-1',
       strategy: settings.strategy || 'final',
+      sortMode: normalizeRecSortMode(settings.sortMode),
       teamCounts: settings.teamCounts || {...DEFAULT_REC_TEAM_COUNTS},
       targetScopes: settings.targetScopes || {},
       elements: settings.elements || {},
@@ -41,6 +42,10 @@ const HSR_HARNESS = String.raw`
       chars: [...item.template.chars],
       finalChars: [...item.finalChars],
       score: item.score,
+      scoreMode: item.scoreMode,
+      scores: {...item.scores},
+      scoreParts: Object.fromEntries(Object.entries(item.scoreParts).map(([mode, parts]) => [mode, parts.map(part => ({...part}))])),
+      performance: {...item.performance},
       elementHits: item.elementHits,
       coreElementHits: item.coreElementHits,
       weaknessMatched: item.weaknessMatched,
@@ -67,7 +72,15 @@ const HSR_HARNESS = String.raw`
   },
   planSnapshot() {
     const scopes = recPlanScopes();
-    return bestRecSlatePlan(scopes).map(item => item ? {id: item.template.id, score: item.score} : null);
+    return bestRecSlatePlan(scopes).map(item => item ? {id: item.template.id, score: item.score, scoreMode: item.scoreMode, scores: {...item.scores}} : null);
+  },
+  migrateSettings(raw) {
+    localStorage.setItem(REC_KEY, JSON.stringify(raw));
+    loadRecSettings();
+    return {sortMode: rec.sortMode};
+  },
+  rankFacts(value) {
+    return {sortValue: rankSortValue(value), display: rankDisplayText(value)};
   },
 };
 `;
@@ -243,6 +256,32 @@ function weaknessFixture() {
   ];
   const slugs = rosterRows.map(row => row.character_slug);
   return {data: hsrData(rosterRows, teamTemplates), slugs, builds: allBuilds(slugs, hsrFullBuild)};
+}
+
+function endgameRankingFixture() {
+  const slugs = ['sparxie', 'trailblazer-elation', 'sparkle', 'yao-guang', 'dan-heng-permansor-terrae'];
+  const rosterRows = slugs.map((slug, index) => hsrCharacter(
+    slug,
+    ['火', '虚数', '量子', '物理', '风'][index],
+    index === 0 || index === 4 ? 'main_dps' : 'support',
+    index === 4 ? '巡猎' : '同谐',
+    index + 1,
+  ));
+  const first = {
+    ...hsrTemplate('elation-trailblazer-team', '4-2', ['sparxie', 'trailblazer-elation', 'sparkle', 'dan-heng-permansor-terrae'], 112, 0.13),
+    avg_round: 3467,
+  };
+  const second = {
+    ...hsrTemplate('yao-guang-team', '4-2', ['sparxie', 'sparkle', 'yao-guang', 'dan-heng-permansor-terrae'], 47, 0.32),
+    avg_round: 3579,
+  };
+  const builds = {
+    sparxie: {level: 20, lc: 20, eidolon: 2, signature: 'yes', traces: 'low', relics: 'good'},
+    'trailblazer-elation': {level: 80, lc: 0, eidolon: 'unset', signature: 'yes', traces: 'low', relics: 'none'},
+    'yao-guang': {level: 0, lc: 0, eidolon: 0, signature: 'no', traces: 'unset', relics: 'unset'},
+    'dan-heng-permansor-terrae': {level: 80, lc: 80, eidolon: 2, signature: 'no', traces: 'max', relics: 'good'},
+  };
+  return {data: hsrData(rosterRows, [first, second]), slugs, builds};
 }
 
 test('HSR warn mode treats selected weaknesses as annotations, including auxiliary-only hits', () => {
@@ -680,6 +719,164 @@ test('HSR multiple missing slots receive distinct substitutes', () => {
   const assigned = ranked.substitutions.map(entry => entry.candidates[0]);
   assert.deepEqual(assigned, ['candidate-1', 'candidate-2']);
   assert.equal(new Set(ranked.finalChars).size, 4, 'the recommended final team must not repeat one substitute');
+});
+
+test('HSR exposes balanced, historical, and Box rankings for the reported Apocalyptic Shadow teams', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const fixture = endgameRankingFixture();
+  const snapshots = {};
+
+  for (const sortMode of ['balanced', 'history', 'box']) {
+    api.reset(fixture.data, {mode: 'as', scope: '4-2', sortMode, gap: '4'}, fixture.slugs, fixture.builds);
+    const ranked = plain(api.ranked('as', '4-2'));
+    snapshots[sortMode] = ranked;
+    assert.ok(ranked.every(item => item.scoreMode === sortMode && item.score === item.scores[sortMode]));
+    for (const item of ranked) {
+      for (const mode of ['balanced', 'history', 'box']) {
+        const total = item.scoreParts[mode].reduce((sum, part) => sum + (part.available ? part.value : 0), 0);
+        assert.ok(Math.abs(total - item.scores[mode]) < 1e-9, `${mode} parts must add up for ${item.id}`);
+      }
+    }
+  }
+
+  assert.deepEqual(snapshots.balanced.map(item => item.id), ['elation-trailblazer-team', 'yao-guang-team']);
+  assert.deepEqual(snapshots.history.map(item => item.id), ['yao-guang-team', 'elation-trailblazer-team']);
+  assert.deepEqual(snapshots.box.map(item => item.id), ['elation-trailblazer-team', 'yao-guang-team']);
+
+  const balancedById = Object.fromEntries(snapshots.balanced.map(item => [item.id, item]));
+  assert.ok(Math.abs(balancedById['elation-trailblazer-team'].scores.box - 441.725) < 1e-9);
+  assert.ok(Math.abs(balancedById['yao-guang-team'].scores.box - 405.635) < 1e-9);
+  assert.ok(Math.abs(balancedById['elation-trailblazer-team'].scores.balanced - 493.001) < 1e-9);
+  assert.ok(Math.abs(balancedById['yao-guang-team'].scores.balanced - 480.549) < 1e-9);
+  assert.equal(balancedById['elation-trailblazer-team'].scores.history, 0);
+  assert.equal(balancedById['yao-guang-team'].scores.history, 100);
+  const firstPerformance = balancedById['elation-trailblazer-team'].scoreParts.balanced.find(part => part.key === 'performance');
+  const secondPerformance = balancedById['yao-guang-team'].scoreParts.balanced.find(part => part.key === 'performance');
+  assert.ok(secondPerformance.value > firstPerformance.value && firstPerformance.value > 0, 'AS high scores must participate with the correct direction');
+
+  const stableReference = Object.fromEntries(snapshots.balanced.map(item => [item.id, {scores: item.scores, scoreParts: item.scoreParts}]));
+  for (const sortMode of ['history', 'box']) {
+    for (const item of snapshots[sortMode]) {
+      assert.deepEqual({scores: item.scores, scoreParts: item.scoreParts}, stableReference[item.id], 'switching the view must not mutate the other reference scores');
+    }
+  }
+});
+
+test('HSR historical performance uses mode-specific direction and excludes sentinels', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const chars = ['core', 'support-a', 'support-b', 'sustain'];
+  const rosterRows = chars.map((slug, index) => hsrCharacter(slug, '火', index === 0 ? 'main_dps' : index === 3 ? 'sustain' : 'support', index === 3 ? '丰饶' : '同谐', index + 1));
+  const builds = allBuilds(chars, hsrFullBuild);
+  const templatesFor = (mode, values) => values.map(([id, value]) => ({...hsrTemplate(id, 'node', chars, 10, 10, mode), avg_round: value}));
+
+  for (const mode of ['as', 'pf']) {
+    const templates = templatesFor(mode, [['low-score', 3000], ['high-score', 4000], ['zero-sentinel', 0], ['ninety-nine-sentinel', 99.99]]);
+    api.reset(hsrData(rosterRows, templates), {mode, scope: 'node', sortMode: 'history', gap: '4'}, chars, builds);
+    const ranked = plain(api.ranked(mode, 'node'));
+    assert.deepEqual(ranked.slice(0, 2).map(item => item.id), ['high-score', 'low-score'], `${mode} must prefer a higher valid score`);
+    for (const id of ['zero-sentinel', 'ninety-nine-sentinel']) {
+      const item = ranked.find(candidate => candidate.id === id);
+      for (const scoreMode of ['history', 'balanced']) {
+        const part = item.scoreParts[scoreMode].find(candidate => candidate.key === 'performance');
+        assert.equal(part.available, false, `${mode} ${id} must not be valid ${scoreMode} evidence`);
+        assert.equal(part.value, 0);
+      }
+    }
+  }
+
+  const mocTemplates = templatesFor('moc', [['low-round', 2], ['high-round', 8], ['zero-sentinel', 0], ['ninety-nine-sentinel', 99.99]]);
+  api.reset(hsrData(rosterRows, mocTemplates), {mode: 'moc', scope: 'node', sortMode: 'history', gap: '4'}, chars, builds);
+  const moc = plain(api.ranked('moc', 'node'));
+  assert.deepEqual(moc.slice(0, 2).map(item => item.id), ['low-round', 'high-round'], 'MoC must prefer fewer valid rounds');
+  for (const id of ['zero-sentinel', 'ninety-nine-sentinel']) {
+    const item = moc.find(candidate => candidate.id === id);
+    for (const scoreMode of ['history', 'balanced']) {
+      const part = item.scoreParts[scoreMode].find(candidate => candidate.key === 'performance');
+      assert.equal(part.available, false);
+      assert.equal(part.value, 0);
+    }
+  }
+
+  const aaTemplates = templatesFor('aa', [['aa-low', 1], ['aa-high', 9999], ['aa-zero-sentinel', 0], ['aa-ninety-nine-sentinel', 99.99]]);
+  api.reset(hsrData(rosterRows, aaTemplates), {mode: 'aa', scope: 'node', sortMode: 'history', gap: '4'}, chars, builds);
+  const aa = plain(api.ranked('aa', 'node'));
+  assert.ok(aa.every(item => item.scores.history === aa[0].scores.history), 'AA performance values must not affect ranking before direction is verified');
+  assert.ok(aa.every(item => item.scoreParts.history.find(part => part.key === 'performance').available === false));
+  assert.ok(aa.every(item => item.scoreParts.balanced.find(part => part.key === 'performance').available === false));
+  for (const id of ['aa-zero-sentinel', 'aa-ninety-nine-sentinel']) {
+    const evidence = aa.find(item => item.id === id).performance;
+    assert.equal(evidence.display, '缺失');
+    assert.match(evidence.note, /视为缺失/);
+  }
+  for (const id of ['aa-low', 'aa-high']) {
+    const evidence = aa.find(item => item.id === id).performance;
+    assert.notEqual(evidence.display, '缺失');
+    assert.match(evidence.note, /仅展示/);
+  }
+});
+
+test('HSR legacy and invalid recommendation settings default safely to balanced sorting', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const fixture = endgameRankingFixture();
+  api.reset(fixture.data, {mode: 'as', scope: '4-2'}, fixture.slugs, fixture.builds);
+  assert.equal(plain(api.migrateSettings({})).sortMode, 'balanced');
+  assert.equal(plain(api.migrateSettings({sortMode: 'invalid'})).sortMode, 'balanced');
+  for (const sortMode of ['balanced', 'history', 'box']) {
+    assert.equal(plain(api.migrateSettings({sortMode})).sortMode, sortMode);
+  }
+});
+
+test('HSR treats Rank 0 as missing behind every positive Rank and displays it consistently', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const validChars = ['valid-core', 'valid-a', 'valid-b', 'valid-sustain'];
+  const zeroChars = ['zero-core', 'zero-a', 'zero-b', 'zero-sustain'];
+  const slugs = [...validChars, ...zeroChars];
+  const rosterRows = slugs.map((slug, index) => hsrCharacter(slug, '火', slug.includes('core') ? 'main_dps' : slug.includes('sustain') ? 'sustain' : 'support', '同谐', index + 1));
+  const templates = [
+    {...hsrTemplate('rank-zero', 'node', zeroChars, 0, 0), avg_round: 99.99},
+    {...hsrTemplate('rank-valid', 'node', validChars, 10000, 0), avg_round: 99.99},
+  ];
+  api.reset(hsrData(rosterRows, templates), {mode: 'as', scope: 'node', sortMode: 'balanced', gap: '4'}, slugs, allBuilds(slugs, hsrFullBuild));
+  const ranked = plain(api.ranked('as', 'node'));
+  assert.equal(ranked[0].id, 'rank-valid');
+  assert.equal(ranked[0].score, ranked[1].score, 'the regression requires an actual balanced-score tie');
+  assert.equal(api.rankFacts(0).sortValue, Number.POSITIVE_INFINITY);
+  assert.equal(api.rankFacts(0).display, '缺失');
+  assert.equal(api.rankFacts(10000).sortValue, 10000);
+  assert.equal(api.rankFacts(10000).display, '10000');
+
+  const duplicateTemplates = [
+    {...hsrTemplate('duplicate-rank-zero', '4-1', validChars, 0, 1), avg_round: 99.99},
+    {...hsrTemplate('duplicate-rank-valid', '4-2', validChars, 10000, 1), avg_round: 99.99},
+  ];
+  api.reset(hsrData(rosterRows, duplicateTemplates), {mode: 'as', scope: 'custom-1', strategy: 'custom'}, slugs, allBuilds(slugs, hsrFullBuild));
+  assert.deepEqual(plain(api.pool('as')).map(item => item.id), ['duplicate-rank-valid']);
+});
+
+test('HSR multi-team planning optimizes the selected score model instead of only reordering cards', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const highA = ['shared-x', 'a1', 'a2', 'a3'];
+  const historyB = ['shared-y', 'b1', 'b2', 'b3'];
+  const highC = ['shared-y', 'c1', 'c2', 'c3'];
+  const historyD = ['shared-x', 'd1', 'd2', 'd3'];
+  const slugs = [...new Set([...highA, ...historyB, ...highC, ...historyD])];
+  const rosterRows = slugs.map((slug, index) => hsrCharacter(slug, index % 2 ? '火' : '冰', index % 4 === 0 ? 'main_dps' : 'support', '同谐', index + 1));
+  const templates = [
+    {...hsrTemplate('box-left', '4-1', highA, 100, 1), avg_round: 3000},
+    {...hsrTemplate('history-left', '4-1', historyB, 1, 30), avg_round: 4000},
+    {...hsrTemplate('box-right', '4-2', highC, 100, 1), avg_round: 3000},
+    {...hsrTemplate('history-right', '4-2', historyD, 1, 30), avg_round: 4000},
+  ];
+  const built = new Set([...highA, ...highC]);
+  const builds = Object.fromEntries(slugs.filter(slug => built.has(slug)).map(slug => [slug, hsrFullBuild()]));
+  const settings = {mode: 'as', scope: '4-1', strategy: 'final', targetScopes: {as: ['4-1', '4-2']}, gap: '4'};
+
+  api.reset(hsrData(rosterRows, templates), {...settings, sortMode: 'box'}, slugs, builds);
+  assert.deepEqual(plain(api.plan()), ['box-left', 'box-right']);
+  api.reset(hsrData(rosterRows, templates), {...settings, sortMode: 'balanced'}, slugs, builds);
+  assert.deepEqual(plain(api.plan()), ['box-left', 'box-right']);
+  api.reset(hsrData(rosterRows, templates), {...settings, sortMode: 'history'}, slugs, builds);
+  assert.deepEqual(plain(api.plan()), ['history-left', 'history-right']);
 });
 
 function zzzCharacter(slug, role, releaseOrder) {

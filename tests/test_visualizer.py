@@ -174,6 +174,14 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "buildConfigLabel" in app_text
     assert "练度未录入" in app_text
     assert "ownedBuildScore" in app_text
+    assert 'id="recSortSelect"' in index_text
+    assert '<option value="balanced" selected>综合推荐</option>' in index_text
+    assert '<option value="history">历史表现</option>' in index_text
+    assert '<option value="box">Box 即战力</option>' in index_text
+    assert "sortMode:'balanced'" in app_text
+    assert "normalizeRecSortMode" in app_text
+    assert "scoreParts" in app_text
+    assert "评分拆分" in app_text
     # A failed remote avatar fetch must degrade to the no-avatar UI instead of
     # leaving a network-dependent URL in the portable visualizer bundle.
     assert data["trendRows"][0]["icon_url"] == ""

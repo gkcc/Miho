@@ -1017,6 +1017,54 @@ async function verifyHsrRecommender(context) {
 
       clickControl('#recStrategyControl', 'final');
       await Promise.resolve();
+      delete rec.constraints?.['as|4-2'];
+      delete rec.elements?.['as|4-2'];
+      if (typeof saveRecSettings === 'function') saveRecSettings();
+      const finalScopeSelect = need(document.querySelector('#recScopeSelect'), 'missing final scope select');
+      finalScopeSelect.value = '4-2';
+      finalScopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+
+      const sortSelect = need(document.querySelector('#recSortSelect'), 'missing recommendation sort select');
+      const firstTargetKey = ['sparxie', 'trailblazer-elation', 'sparkle', 'dan-heng-permansor-terrae'].sort().join('|');
+      const secondTargetKey = ['sparxie', 'sparkle', 'yao-guang', 'dan-heng-permansor-terrae'].sort().join('|');
+      const captureSort = (mode) => {
+        sortSelect.value = mode;
+        sortSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        const ranked = typeof rankedRecommendations === 'function' ? rankedRecommendations() : [];
+        const keys = ranked.map((item) => typeof templatePoolKey === 'function'
+          ? templatePoolKey(item.template)
+          : [...(item.template?.chars ?? [])].sort().join('|'));
+        const cards = [...document.querySelectorAll('#recList .rec-card')];
+        const stored = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}');
+        const expectedScoreLabel = mode === 'history' ? '历史参考分' : mode === 'box' ? 'Box 分' : '综合分';
+        return {
+          mode: rec.sortMode,
+          storedMode: stored.sortMode ?? '',
+          firstTargetIndex: keys.indexOf(firstTargetKey),
+          secondTargetIndex: keys.indexOf(secondTargetKey),
+          scoreMatches: ranked.every((item) => item.scoreMode === mode && item.score === item.scores?.[mode]),
+          partsComplete: ranked.every((item) => ['balanced', 'history', 'box'].every((key) =>
+            Array.isArray(item.scoreParts?.[key]) && Number.isFinite(item.scores?.[key]))),
+          referenceCounts: cards.map((card) => card.querySelectorAll('.rec-score-refs > span').length),
+          breakdowns: cards.map((card) => card.querySelector('.rec-score-breakdown')?.textContent?.trim() ?? ''),
+          slateTitles: [...document.querySelectorAll('#recSlateList .rec-slate-card h3')]
+            .map((heading) => heading.textContent?.trim() ?? ''),
+          slateSubtitle: document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '',
+          expectedScoreLabel,
+          expectedModeLabel: mode === 'history' ? '历史表现' : mode === 'box' ? 'Box 即战力' : '综合推荐',
+        };
+      };
+      const sortProbe = {
+        options: [...sortSelect.options].map((option) => ({value: option.value, text: option.textContent?.trim() ?? ''})),
+        balanced: captureSort('balanced'),
+        history: captureSort('history'),
+        box: captureSort('box'),
+      };
+      sortSelect.value = 'balanced';
+      sortSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+
       const finalTargetRoot = need(document.querySelector('#recTargetScopeButtons'), 'missing final target-scope control');
       const finalDefaults = {
         targetControlVisible: visible(document.querySelector('#recTargetScopeControl')),
@@ -1071,6 +1119,7 @@ async function verifyHsrRecommender(context) {
           slotTwo,
           returnedSlotOne,
         },
+        sortProbe,
         final,
       };
     })()`, context.sessionId);
@@ -1103,6 +1152,29 @@ async function verifyHsrRecommender(context) {
       && result.constraints.slotTwo.excludedChipCount === 0
       && result.constraints.returnedSlotOne.requiredChipCount === 1
       && result.constraints.returnedSlotOne.excludedChipCount === 1, "HSR role constraints leaked between custom team slots", result.constraints);
+    assert(JSON.stringify(result.sortProbe.options.map((option) => option.value)) === JSON.stringify(["balanced", "history", "box"])
+      && result.sortProbe.options.map((option) => option.text).join("|") === "综合推荐|历史表现|Box 即战力", "HSR recommendation sort choices are incomplete", result.sortProbe.options);
+    for (const [mode, snapshot] of Object.entries({
+      balanced: result.sortProbe.balanced,
+      history: result.sortProbe.history,
+      box: result.sortProbe.box,
+    })) {
+      assert(snapshot.mode === mode
+        && snapshot.storedMode === mode
+        && snapshot.scoreMatches
+        && snapshot.partsComplete
+        && snapshot.referenceCounts.length > 0
+        && snapshot.referenceCounts.every((count) => count === 3)
+        && snapshot.breakdowns.every((text) => text.length > 0)
+        && snapshot.slateTitles.length > 0
+        && snapshot.slateTitles.some((title) => title.includes(snapshot.expectedScoreLabel))
+        && snapshot.slateTitles.filter((title) => title.includes(" · ")).every((title) => title.includes(snapshot.expectedScoreLabel))
+        && snapshot.slateSubtitle.includes(`目标：${snapshot.expectedModeLabel}`), `HSR ${mode} sort is not wired through cards, persistence, and the joint slate`, snapshot);
+      assert(snapshot.firstTargetIndex >= 0 && snapshot.secondTargetIndex >= 0, `HSR ${mode} sort lost one of the reported AS teams`, snapshot);
+    }
+    assert(result.sortProbe.balanced.firstTargetIndex < result.sortProbe.balanced.secondTargetIndex
+      && result.sortProbe.box.firstTargetIndex < result.sortProbe.box.secondTargetIndex
+      && result.sortProbe.history.secondTargetIndex < result.sortProbe.history.firstTargetIndex, "HSR sort references do not explain the reported AS ordering", result.sortProbe);
     assert(result.final.strategy === "final"
       && result.final.elementLabel.includes("仅标注")
       && result.final.hint.includes("弱点默认不改榜")
@@ -1145,6 +1217,94 @@ async function verifyHsrRecommender(context) {
     })()`, context.sessionId);
     assert(restored === true, "HSR recommender localStorage snapshot was not restored");
     if (result) result.storageRestored = restored;
+  }
+}
+
+async function verifyHsrRecommenderLayout(topId, context) {
+  const savedStyle = await evaluate(topId, `(() => {
+    const frame = document.querySelector('iframe.visualizer-frame');
+    if (!frame) throw new Error('missing Visualizer frame');
+    return frame.getAttribute('style');
+  })()`);
+  const snapshots = [];
+  try {
+    for (const [width, height] of [[1180, 720], [720, 720]]) {
+      await evaluate(topId, `(() => {
+        const frame = document.querySelector('iframe.visualizer-frame');
+        if (!frame) throw new Error('missing Visualizer frame');
+        frame.style.width = ${JSON.stringify(`${width}px`)};
+        frame.style.height = ${JSON.stringify(`${height}px`)};
+        frame.style.flex = 'none';
+        return true;
+      })()`);
+      const snapshot = await waitFor(`HSR recommender ${width}x${height} layout`, async () => {
+        const value = await evaluate(context.id, `(async () => {
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const tab = [...document.querySelectorAll('#appTabs button, #tabs button')]
+            .find((button) => button.textContent?.trim() === '组队推荐');
+          if (!tab) throw new Error('missing recommender tab');
+          if (typeof state === 'object' && state.page !== 'recommender') {
+            tab.click();
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+          }
+          const card = document.querySelector('#recList .rec-card');
+          const tooltip = document.querySelector('#recTooltip');
+          if (!card || !tooltip) return null;
+          const clientX = innerWidth - 24;
+          const clientY = innerHeight - 24;
+          card.dispatchEvent(new MouseEvent('mouseenter', {clientX, clientY}));
+          card.dispatchEvent(new MouseEvent('mousemove', {clientX, clientY}));
+          const rect = tooltip.getBoundingClientRect();
+          const lastValue = tooltip.querySelector('.tooltip-grid > div:last-child');
+          const lastRect = lastValue?.getBoundingClientRect() ?? null;
+          const result = {
+            innerWidth,
+            innerHeight,
+            documentScrollWidth: document.documentElement.scrollWidth,
+            tooltipHidden: tooltip.hidden,
+            tooltipRect: {left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height},
+            tooltipClientWidth: tooltip.clientWidth,
+            tooltipScrollWidth: tooltip.scrollWidth,
+            tooltipClientHeight: tooltip.clientHeight,
+            tooltipScrollHeight: tooltip.scrollHeight,
+            lastValueRight: lastRect?.right ?? null,
+            lastValueBottom: lastRect?.bottom ?? null,
+          };
+          tooltip.hidden = true;
+          return result;
+        })()`, context.sessionId);
+        return value && Math.abs(value.innerWidth - width) <= 1 && Math.abs(value.innerHeight - height) <= 1
+          ? value
+          : null;
+      });
+      const rect = snapshot.tooltipRect;
+      assert(!snapshot.tooltipHidden
+        && rect.left >= 13
+        && rect.top >= 13
+        && rect.right <= snapshot.innerWidth - 13
+        && rect.bottom <= snapshot.innerHeight - 13,
+      `HSR recommendation tooltip escaped ${width}x${height}`, snapshot);
+      assert(snapshot.documentScrollWidth <= snapshot.innerWidth
+        && snapshot.tooltipScrollWidth <= snapshot.tooltipClientWidth + 1
+        && snapshot.tooltipScrollHeight <= snapshot.tooltipClientHeight + 1,
+      `HSR recommendation content overflows ${width}x${height}`, snapshot);
+      assert(snapshot.lastValueRight !== null
+        && snapshot.lastValueBottom !== null
+        && snapshot.lastValueRight <= rect.right + 1
+        && snapshot.lastValueBottom <= rect.bottom + 1,
+      `HSR recommendation tooltip clips its final field at ${width}x${height}`, snapshot);
+      snapshots.push({width, height, ...snapshot});
+    }
+    return snapshots;
+  } finally {
+    await evaluate(topId, `(() => {
+      const frame = document.querySelector('iframe.visualizer-frame');
+      if (!frame) return false;
+      const style = ${JSON.stringify(savedStyle)};
+      if (style === null) frame.removeAttribute('style');
+      else frame.setAttribute('style', style);
+      return true;
+    })()`);
   }
 }
 
@@ -1289,11 +1449,12 @@ try {
   const hsrContext = await activeFrameContext("hsr");
   const hsrBoxExport = await verifyHsrBoxExport(hsrContext);
   const hsrRecommender = await verifyHsrRecommender(hsrContext);
+  const hsrRecommenderLayout = await verifyHsrRecommenderLayout(top.id, hsrContext);
   const hsrAnalysis = await switchProductPage(hsrContext, "hsr", "analysis");
   const hsrAnalyses = await verifyAnalysisModes(hsrContext, "hsr", hsrAnalysis);
   const hsrBanner = await switchProductPage(hsrContext, "hsr", "banner");
   verifyBanner(hsrBanner, "hsr");
-  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxExport: hsrBoxExport, recommender: hsrRecommender, analyses: hsrAnalyses, banner: hsrBanner });
+  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxExport: hsrBoxExport, recommender: hsrRecommender, recommenderLayout: hsrRecommenderLayout, analyses: hsrAnalyses, banner: hsrBanner });
 
   await switchGame(top.id, "zzz");
   const zzzReturnOuter = await waitFor("returned ZZZ desktop shell", async () => {

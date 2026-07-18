@@ -112,6 +112,17 @@ def test_hsr_final_target_controls_remain_responsive() -> None:
         "@media(max-width:620px){.rec-plan-controls:not(.custom)"
         "{grid-template-columns:1fr}}"
     ) in styles
+    assert (
+        ".rec-controls{grid-template-columns:1fr .62fr 1.45fr .72fr .55fr .58fr .5fr 1fr}"
+    ) in styles
+    assert "@media(max-width:1180px){.rec-controls{grid-template-columns:1fr 1fr 1fr}}" in styles
+    assert "@media(max-width:720px){.rec-controls{grid-template-columns:1fr 1fr}" in styles
+    assert (
+        "#recTooltip{width:520px;max-width:calc(100vw - 28px);"
+        "max-height:calc(100vh - 28px);overflow-x:hidden;overflow-y:auto;"
+        "overflow-wrap:anywhere;overscroll-behavior:contain}"
+    ) in styles
+    assert "#recTooltip .tooltip-grid>div{min-width:0;overflow-wrap:anywhere}" in styles
 
 
 class _FixedLocalDateTime(datetime):
@@ -856,13 +867,25 @@ def test_fixture_is_desensitized_and_documents_single_dynamic_field() -> None:
     assert contract["json_types"] == "strict"
 
     fixture_texts: list[str] = []
+    semantic_fixture_texts = [
+        json.dumps(
+            {key: value for key, value in contract.items() if not key.endswith("_sha256")},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    ]
     for path in FIXTURES.rglob("*"):
         if path.is_file() and path.suffix in {".json", ".b64"}:
-            fixture_texts.append(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
+            fixture_texts.append(text)
+            if path.name != "contract.json":
+                semantic_fixture_texts.append(text)
     joined = "\n".join(fixture_texts)
     for forbidden in ("zy958", "C:\\Users\\", "C:/Users/", "/Users/", "/home/"):
         assert forbidden not in joined
-    assert _UID_RE.search(joined) is None
+    # Static SHA-256 digests can legitimately contain 9–12 consecutive digits;
+    # only semantic fixture payloads can carry a user identifier.
+    assert _UID_RE.search("\n".join(semantic_fixture_texts)) is None
     assert re.findall(r"https://([A-Za-z0-9.-]+)", joined)
     assert set(re.findall(r"https://([A-Za-z0-9.-]+)", joined)) == {
         "hsr.hoyoverse.com",
