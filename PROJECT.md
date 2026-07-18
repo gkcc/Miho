@@ -533,8 +533,9 @@
 ### ZZZ 中文先发角色身份与发行顺序（2026-07-18，已交付）
 
 - **根因与修复**：HoYoWiki 中文代理人名册已收录 `1082 / 佩洛伊斯`，英文名册尚未同步；旧解析只遍历英文行，导致 `pyrois` 丢失官方中文身份并回退到 `unknown / release_order=9999`。现以稳定 `entry_page_id` 桥接 Norma、Velina、Pyrois 的外部数据 slug，中文名、属性、特性、阵营、稀有度、头像与发行顺序均取当次中文名册；顺序随中文列表前插动态变化，英文以后补录同 ID 时仍只保留一条 canonical 记录。Visualizer 复用同一官方解析器，不再维护第二套 EN-only 合并。
-- **真实数据与页面证据**：联网重建 `out_zzz` 的报告为 Warning 0 / Error 0；`name_map` 为 `norma=0 / velina=1 / pyrois=2`，Pyrois 显示“佩洛伊斯”、`kind=agent`、无需人工确认，并已从 unresolved 移除；usage、当前 Tier 与 roster 同步回填中文。后台 Chromium 真实渲染 Box 后只存在一张 `pyrois` 卡；既定 current/next/satellite 卡优先展示，其后 Pyrois 位于普通角色队列最前，不据此改写 T 档或强度结论。
-- **验证与直接交付**：ZZZ 定点测试 39 项、`cargo clippy -p miho-core --all-targets --locked -- -D warnings`、Rust fmt、真实在线 export、后台 Box DOM、Vite/Tauri release 构建和 installed GUI 探针均通过。新 EXE 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，与 `target/release/miho-desktop.exe` SHA-256 同为 `3C3A94C6455E1685652F06DD69768ACAFD6A2D0BEA66EE94BA060112216D5B76`；未生成安装器或 portable，ZZZ Box SHA-256 前后均为 `E930B672E41FC4F423369CF895A8A024023D22E73A6BFAECC0B6AC93A78E3FA0`。
+- **仓库与安装版数据证据**：首次联网重建仓库 `out_zzz` 只证明开发输出，不代表安装版已经更新。随后已在安装版真实工作区 `C:\Users\zy958\AppData\Roaming\com.miho.endgame` 事务式重建 ZZZ；`name_map` 为 `norma=0 / velina=1 / pyrois=2`，Pyrois 显示“佩洛伊斯”、`kind=agent`、无需人工确认，并已从 unresolved 移除；usage、当前 Tier 与 roster 同步回填中文。真实安装版 WebView 的 `#boxGrid` 共 58 张卡，`pyrois` 唯一且位于索引 7，为 current/next/satellite 特殊状态角色之后的普通角色首位，不据此改写 T 档或强度结论。
+- **验证与直接交付**：ZZZ 定点测试 39 项、`cargo clippy -p miho-core --all-targets --locked -- -D warnings`、Rust fmt、真实在线 export、后台 Box DOM、Vite/Tauri release 构建和 installed GUI 探针均通过。新 EXE 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，与 `target/release/miho-desktop.exe` SHA-256 同为 `3C3A94C6455E1685652F06DD69768ACAFD6A2D0BEA66EE94BA060112216D5B76`；未生成安装器或 portable，安装版 ZZZ Box SHA-256 前后均为 `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
+- **剩余风险**：计划任务仍引用 7 月 16 日的旧 CLI generation；在 automation generation 正式升级前，下次计划更新可能再次把 Pyrois 覆盖为 `unknown / 9999`。该任务链未在本次普通产品修复中擅自改写。
 
 ## 恢复入口
 
