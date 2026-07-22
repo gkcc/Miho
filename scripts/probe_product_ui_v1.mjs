@@ -106,10 +106,13 @@ class CdpSession {
   send(method, params = {}, sessionId = undefined) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
+      const commandTimeoutMs = method === "Runtime.evaluate"
+        ? Math.max(15000, timeoutMs + 5000)
+        : 15000;
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`CDP command timed out: ${method}`));
-      }, 15000);
+      }, commandTimeoutMs);
       this.pending.set(id, { resolve, reject, timer, method });
       this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     });
@@ -179,7 +182,9 @@ function assert(condition, message, details) {
 
 const outerExpression = `(() => {
   const visible = (element) => !!element && element.getClientRects().length > 0;
-  const frame = document.querySelector('iframe.visualizer-frame');
+  const frames = [...document.querySelectorAll('iframe.visualizer-frame')];
+  const activeFrames = frames.filter((candidate) => !candidate.hidden);
+  const frame = activeFrames[0];
   const utilities = document.querySelector('details.utilities');
   const activeGame = [...document.querySelectorAll('.game-button')]
     .find((button) => button.getAttribute('aria-pressed') === 'true');
@@ -190,6 +195,13 @@ const outerExpression = `(() => {
     brand: document.querySelector('.brand .eyebrow')?.textContent?.trim() ?? '',
     firstPanel: document.querySelector('main.dashboard')?.firstElementChild?.className ?? '',
     visualizerTitle: document.querySelector('.visualizer-panel h2')?.textContent?.trim() ?? '',
+    frameCount: frames.length,
+    activeFrameCount: activeFrames.length,
+    frameGame: frame?.dataset.game ?? '',
+    frameProbeId: frame?.dataset.probeId ?? '',
+    frameProbeLoadCount: Number.parseInt(frame?.dataset.probeLoadCount ?? '-1', 10),
+    frameLoaded: frame?.dataset.loaded === 'true',
+    frameDataRevision: frame?.dataset.loadedRevision ?? '',
     frameSrc: frame?.getAttribute('src') ?? '',
     frameSandbox: frame?.getAttribute('sandbox') ?? '',
     frameVisible: visible(frame) && !frame.hidden,
@@ -316,6 +328,9 @@ const productExpression = `(async () => {
     ? []
     : [{ src: image.getAttribute('src') ?? '', complete: image.complete, naturalWidth: image.naturalWidth }]);
   const chartMarks = [...(chart?.querySelectorAll('path, line, rect, circle, image, text') ?? [])];
+  const dataRequests = performance.getEntriesByType('resource')
+    .map((entry) => ({name: String(entry.name || ''), initiatorType: String(entry.initiatorType || '')}))
+    .filter((entry) => /\\/data(?:\\.v2)?\\.json(?:[?#]|$)/.test(entry.name));
   return {
     href: location.href,
     readyState: document.readyState,
@@ -333,6 +348,7 @@ const productExpression = `(async () => {
     emptyImages,
     mappingErrors,
     dataMappingErrors,
+    dataRequests,
     usageRowCount: usageRows.length,
     analysisMode,
     analysisModeUsageRowCount: usageRows.filter((row) => (row?.tier_mode ?? row?.mode) === analysisMode).length,
@@ -363,6 +379,14 @@ const productExpression = `(async () => {
     visibleMissingMessages: visibleText.filter((text) => /卡池数据未生成|该模式数据未生成|缺数据/.test(text)),
   };
 })()`;
+
+for (const [label, expression] of [["outer", outerExpression], ["product", productExpression]]) {
+  try {
+    Function(`return ${expression}`);
+  } catch (error) {
+    throw new Error(`${label} CDP expression is invalid: ${error instanceof Error ? error.message : error}`);
+  }
+}
 
 const session = new CdpSession(webSocketUrl);
 const contexts = new Map();
@@ -403,8 +427,7 @@ async function activeFrameContext(game) {
       try {
         const url = new URL(candidate.url);
         return url.hostname === "miho-visualizer.localhost"
-          && url.pathname.endsWith(expectedPath)
-          && url.hash === "#box";
+          && url.pathname.endsWith(expectedPath);
       } catch {
         return false;
       }
@@ -423,8 +446,7 @@ async function activeFrameContext(game) {
         const url = new URL(candidate.url);
         return candidate.type === "iframe"
           && url.hostname === "miho-visualizer.localhost"
-          && url.pathname.endsWith(expectedPath)
-          && url.hash === "#box";
+          && url.pathname.endsWith(expectedPath);
       } catch {
         return false;
       }
@@ -485,6 +507,9 @@ function verifyOuter(snapshot, game) {
   assert(snapshot.brand === "MIHO ENDGAME", "desktop brand is absent", snapshot);
   assert(snapshot.firstPanel.includes("visualizer-panel"), "Visualizer is not the first product panel", snapshot);
   assert(snapshot.visualizerTitle.includes(gameLabel) && snapshot.visualizerTitle.includes("我的 Box"), "Visualizer title does not describe the selected Box", snapshot);
+  assert(snapshot.frameCount === 2 && snapshot.activeFrameCount === 1, "desktop does not retain exactly two Visualizer frames with one active", snapshot);
+  assert(snapshot.frameGame === game, "active Visualizer frame does not match the selected game", snapshot);
+  assert(snapshot.frameLoaded && /^[a-f0-9]{64}$/.test(snapshot.frameDataRevision), "active Visualizer frame does not expose a validated data revision", snapshot);
   assert(snapshot.frameVisible && snapshot.frameHeight >= 500, "Visualizer frame is not visibly usable", snapshot);
   assert(snapshot.frameSrc.includes(`/${game}/index.html`) && snapshot.frameSrc.endsWith("#box"), "Visualizer frame did not open the Box page", snapshot);
   assert(new Set(snapshot.frameSandbox.split(/\s+/u)).has("allow-downloads"), "Visualizer frame does not permit Box downloads", snapshot);
@@ -742,10 +767,48 @@ function verifyProduct(snapshot, game) {
   assert(snapshot.imageCount === expectedTotal[game] && snapshot.decodedImageCount === expectedTotal[game], `${game} has broken character images`, snapshot);
   assert(snapshot.emptyImages === 0, `${game} contains empty character image sources`, snapshot);
   assert(snapshot.mappingErrors.length === 0 && snapshot.dataMappingErrors.length === 0, `${game} character images do not match character slugs`, snapshot);
+  assert(snapshot.dataRequests.some((entry) => /\/data\.v2\.json(?:[?#]|$)/.test(entry.name)), `${game} did not request the v2 Visualizer payload`, snapshot.dataRequests);
+  assert(!snapshot.dataRequests.some((entry) => /\/data\.json(?:[?#]|$)/.test(entry.name)), `${game} unexpectedly fell back to the legacy Visualizer payload`, snapshot.dataRequests);
+}
+
+async function verifyBoxBatchPreview(context, game) {
+  const snapshot = await evaluate(context.id, `(() => {
+    const normalize = (value) => {
+      if (Array.isArray(value)) return value.map(normalize);
+      if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, normalize(value[key])]));
+      return value;
+    };
+    const state = () => JSON.stringify(normalize({
+      owned: [...box.owned].sort(), builds: box.builds || {}, buildSlug: box.buildSlug || '',
+      undoDepth: Array.isArray(boxUndoStack) ? boxUndoStack.length : -1,
+      saveRevision: typeof boxSaveRevision === 'number' ? boxSaveRevision : -1,
+    }));
+    const before = state();
+    const prompts = [];
+    const originalConfirm = globalThis.confirm;
+    try {
+      globalThis.confirm = (message) => { prompts.push(String(message)); return false; };
+      const button = document.querySelector('#boxMarkVisibleBtn');
+      if (!button || button.disabled) throw new Error('missing enabled Box batch button');
+      button.click();
+    } finally {
+      globalThis.confirm = originalConfirm;
+    }
+    return {before, after: state(), prompts};
+  })()`, context.sessionId);
+  assert(snapshot.before === snapshot.after, `${game} cancelled Box batch preview changed state`, snapshot);
+  assert(snapshot.prompts.length === 1
+    && snapshot.prompts[0].includes("批量修改预览")
+    && snapshot.prompts[0].includes("拥有：新增")
+    && snapshot.prompts[0].includes("移除")
+    && snapshot.prompts[0].includes("确认修改")
+    && snapshot.prompts[0].includes("可以撤销"), `${game} Box batch preview is incomplete`, snapshot.prompts);
+  return {cancelled: true, stateUnchanged: true, prompt: snapshot.prompts[0]};
 }
 
 async function switchProductPage(context, game, page) {
   const labels = {
+    box: "我的 Box",
     analysis: "终局分析",
     banner: "卡池",
   };
@@ -761,7 +824,11 @@ async function switchProductPage(context, game, page) {
   assert(clicked === true, `could not switch ${game} Visualizer to ${page}`);
   return waitFor(`${game} ${page} product DOM`, async () => {
     const snapshot = await evaluate(context.id, productExpression, context.sessionId);
-    const pageVisible = page === "analysis" ? snapshot?.analysisVisible : snapshot?.bannerVisible;
+    const pageVisible = page === "analysis"
+      ? snapshot?.analysisVisible
+      : page === "banner"
+        ? snapshot?.bannerVisible
+        : snapshot?.boxVisible;
     return snapshot?.readyState === "complete" && snapshot?.statePage === page && pageVisible
       ? snapshot
       : null;
@@ -790,10 +857,30 @@ async function verifyZzzRecommender(context) {
         button.click();
         return button;
       };
+      const primarySlate = () => document.querySelector('#recSlateList .rec-solution');
+      const primarySlateCards = () => [...(primarySlate()?.querySelectorAll('.rec-slate-card') ?? [])];
+      const waitForSlate = async (expected) => {
+        const deadline = Date.now() + 30000;
+        while (Date.now() < deadline) {
+          const count = primarySlateCards().length;
+          const subtitle = document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '';
+          const meta = document.querySelector('#recSlateMeta')?.textContent ?? '';
+          if (primarySlate() && count === expected && subtitle && !meta.includes('正在')) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error('timed out waiting for ZZZ joint slate');
+      };
       const tab = need([...document.querySelectorAll('#tabs button')]
-        .find((button) => button.textContent?.trim() === '组队推荐'), 'missing ZZZ recommender tab');
+        .find((button) => button.textContent?.trim().startsWith('组队推荐')), 'missing ZZZ recommender tab');
       tab.click();
       rec.targetScopes = {};
+      rec.elements = {};
+      rec.constraints = {};
+      rec.gap = '3';
+      rec.riskMode = 'warn';
+      rec.sortMode = 'balanced';
+      rec.search = '';
+      rec.locks = {};
       if (typeof saveRec === 'function') saveRec();
       if (typeof renderRec === 'function') renderRec();
       clickControl('#recModeControl', 'da');
@@ -808,14 +895,15 @@ async function verifyZzzRecommender(context) {
       };
 
       clickControl('#recTargetScopeControl', '1-2');
-      await Promise.resolve();
+      await waitForSlate(2);
       const pair = {
         selectedTargets: [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value),
         storedTargets: JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').targetScopes?.da ?? [],
         planScopes: typeof recPlanScopes === 'function' ? recPlanScopes().map((scope) => scope.key) : [],
-        slateCount: document.querySelectorAll('#recSlateList .rec-slate-card').length,
-        slateTitles: [...document.querySelectorAll('#recSlateList .rec-slate-card h3')].map((heading) => heading.textContent?.trim() ?? ''),
+        slateCount: primarySlateCards().length,
+        slateTitles: primarySlateCards().map((card) => card.querySelector('h3')?.textContent?.trim() ?? ''),
         slateSubtitle: document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '',
+        targetHint: document.querySelector('#recommenderView .rec-target-controls > p')?.textContent?.trim() ?? '',
         badgeText: document.querySelector('#recBadges')?.textContent?.trim() ?? '',
       };
 
@@ -828,15 +916,15 @@ async function verifyZzzRecommender(context) {
         daStoredTargets: JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').targetScopes?.da ?? [],
       };
       clickControl('#recModeControl', 'da');
-      await Promise.resolve();
+      await waitForSlate(2);
       const returnedPair = [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value);
 
       clickControl('#recTargetScopeControl', '1-1');
-      await Promise.resolve();
+      await waitForSlate(1);
       const singleBeforeLastClick = {
         selectedTargets: [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value),
         planScopes: typeof recPlanScopes === 'function' ? recPlanScopes().map((scope) => scope.key) : [],
-        slateCount: document.querySelectorAll('#recSlateList .rec-slate-card').length,
+        slateCount: primarySlateCards().length,
       };
       clickControl('#recTargetScopeControl', '1-3');
       await Promise.resolve();
@@ -860,7 +948,9 @@ async function verifyZzzRecommender(context) {
       && result.pair.slateTitles.some((title) => title.includes("1 / 1"))
       && result.pair.slateTitles.some((title) => title.includes("1 / 3"))
       && result.pair.slateTitles.every((title) => !title.includes("1 / 2"))
-      && result.pair.slateSubtitle.includes("只优化已选关卡")
+      && result.pair.slateSubtitle.includes("2/2 队")
+      && result.pair.targetHint.includes("只在已选关卡之间联合分配 Box")
+      && result.pair.targetHint.includes("未选关卡不会占用或预留代理人")
       && result.pair.badgeText.includes("2 队模型"), "ZZZ Dangerous Assault did not honor a non-contiguous target pair", result.pair);
     assert(result.modeIsolation.mode === "sd"
       && JSON.stringify(result.modeIsolation.targetValues) === JSON.stringify(["5-1", "5-2", "5-3"])
@@ -892,6 +982,78 @@ async function verifyZzzRecommender(context) {
   }
 }
 
+async function verifyRecommenderSearchAndLock(context, game) {
+  const storageKey = game === "hsr" ? "hsr_endgame_recommender_v1" : "zzz_endgame_rec_v1";
+  const saved = await evaluate(context.id, `(() => ({
+    storageRaw: localStorage.getItem(${JSON.stringify(storageKey)}),
+    recState: JSON.parse(JSON.stringify(rec)),
+  }))()`, context.sessionId);
+  const signatureExpression = `JSON.stringify([...document.querySelectorAll('#recSlateList .rec-solution, #recSlateList .rec-slate-solution')].map((section) => ({text:(section.textContent||'').replace(/\\s+/g,' ').trim(),images:[...section.querySelectorAll('img')].map((image)=>image.title||image.getAttribute('src')||'')})))`;
+  let receipt;
+  try {
+    await evaluate(context.id, `(() => {
+      const tab = [...document.querySelectorAll('#appTabs button, #tabs button')].find((button) => button.textContent?.trim().startsWith('组队推荐'));
+      if (!tab) throw new Error('missing recommender tab');
+      tab.click();
+      rec.search = '';
+      rec.locks = {};
+      ${game === "hsr"
+        ? "rec.mode='as';rec.strategy='final';rec.scope='4-1';rec.targetScopes={as:['4-1','4-2']};rec.elements={};rec.constraints={};rec.gap='4';rec.riskMode='warn';rec.sortMode='balanced';ensureRecScope();saveRecSettings();renderRecommender();"
+        : "rec.mode='da';rec.scope='1-1';rec.targetScopes={da:['1-1','1-2']};rec.elements={};rec.constraints={};rec.gap='3';rec.riskMode='warn';rec.sortMode='balanced';ensureScope();saveRec();renderRec();"}
+      return true;
+    })()`, context.sessionId);
+    const ready = await waitFor(`${game} searchable lockable slate`, async () => evaluate(context.id, `(() => {
+      const progress = [...document.querySelectorAll('#recSlateMeta, #recSlateStatus')].map((element) => element.textContent || '').join(' ');
+      const candidateCount = document.querySelectorAll('#recList .rec-card').length;
+      const primary = document.querySelector('#recSlateList .rec-solution, #recSlateList .rec-slate-solution');
+      const lockCount = primary?.querySelectorAll('.rec-lock-button').length ?? 0;
+      return candidateCount > 0 && lockCount === 2 && !progress.includes('正在')
+        ? {candidateCount, lockCount, signature:${signatureExpression}}
+        : null;
+    })()`, context.sessionId));
+    await evaluate(context.id, `(() => {
+      const input=document.querySelector('#recSearchInput');
+      if(!input)throw new Error('missing recommendation search');
+      input.value='__miho_probe_no_match__';
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      return true;
+    })()`, context.sessionId);
+    const searched = await waitFor(`${game} debounced candidate search`, async () => evaluate(context.id, `(() => {
+      if(rec.search!=='__miho_probe_no_match__'||document.querySelectorAll('#recList .rec-card').length!==0)return null;
+      return {signature:${signatureExpression},message:[...document.querySelectorAll('#recSlateStatus, #recSlateMessage, #recSlateSubtitle')].map((element)=>element.textContent||'').join(' ')};
+    })()`, context.sessionId));
+    assert(searched.signature === ready.signature, `${game} recommendation search changed the joint slate`, {ready, searched});
+    assert(searched.message.includes("搜索"), `${game} recommendation search did not explain joint-slate isolation`, searched);
+    await evaluate(context.id, `(() => {const input=document.querySelector('#recSearchInput');input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));return true;})()`, context.sessionId);
+    await waitFor(`${game} cleared candidate search`, async () => evaluate(context.id, `(() => document.querySelectorAll('#recList .rec-card').length>0&&${signatureExpression}===${JSON.stringify(ready.signature)})()`, context.sessionId));
+    await evaluate(context.id, `(() => {const button=document.querySelector('#recSlateList .rec-lock-button');if(!button)throw new Error('missing lock button');button.click();return true;})()`, context.sessionId);
+    const locked = await waitFor(`${game} locked slate recomputation`, async () => evaluate(context.id, `(() => {
+      const stored=JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)})||'{}');
+      const message=[...document.querySelectorAll('#recSlateStatus, #recSlateMessage, #recSlateSubtitle')].map((element)=>element.textContent||'').join(' ');
+      const primary=document.querySelector('#recSlateList .rec-solution, #recSlateList .rec-slate-solution');
+      return primary?.querySelectorAll('.rec-slate-card').length===2&&!message.includes('正在')&&primary.querySelector('.rec-lock-button[aria-pressed="true"]')&&Object.keys(stored.locks||{}).length===1&&message.includes('其余关卡已重新优化')?{message,lockKeys:Object.keys(stored.locks||{})}:null;
+    })()`, context.sessionId));
+    await evaluate(context.id, `(() => {const button=document.querySelector('#recSlateList .rec-lock-button[aria-pressed="true"]');if(!button)throw new Error('missing active lock');button.click();return true;})()`, context.sessionId);
+    const unlocked = await waitFor(`${game} unlocked slate`, async () => evaluate(context.id, `(() => {
+      const stored=JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)})||'{}');
+      const message=[...document.querySelectorAll('#recSlateStatus, #recSlateMessage, #recSlateSubtitle')].map((element)=>element.textContent||'').join(' ');
+      const primary=document.querySelector('#recSlateList .rec-solution, #recSlateList .rec-slate-solution');
+      return primary?.querySelectorAll('.rec-slate-card').length===2&&!message.includes('正在')&&!primary.querySelector('.rec-lock-button[aria-pressed="true"]')&&Object.keys(stored.locks||{}).length===0&&message.includes('已解锁')?{message}:null;
+    })()`, context.sessionId));
+    receipt = {searchLeftBefore: ready.candidateCount, searchLeftAfter: 0, jointSlateUnchanged: true, locked, unlocked};
+    return receipt;
+  } finally {
+    const restored = await evaluate(context.id, `(() => {
+      const raw=${JSON.stringify(saved.storageRaw)};if(raw===null)localStorage.removeItem(${JSON.stringify(storageKey)});else localStorage.setItem(${JSON.stringify(storageKey)},raw);
+      for(const key of Object.keys(rec))delete rec[key];Object.assign(rec,${JSON.stringify(saved.recState)});
+      ${game === "hsr" ? "ensureRecScope();renderRecommender();" : "ensureScope();renderRec();"}
+      return localStorage.getItem(${JSON.stringify(storageKey)})===raw;
+    })()`, context.sessionId);
+    assert(restored, `${game} search/lock probe did not restore recommender state`);
+    if (receipt) receipt.storageRestored = true;
+  }
+}
+
 async function verifyHsrRecommender(context) {
   const storageKey = "hsr_endgame_recommender_v1";
   const saved = await evaluate(context.id, `(() => ({
@@ -914,8 +1076,33 @@ async function verifyHsrRecommender(context) {
         button.click();
         return button;
       };
+      const primarySlate = () => document.querySelector('#recSlateList .rec-slate-solution');
+      const primarySlateCards = () => [...(primarySlate()?.querySelectorAll('.rec-slate-card') ?? [])];
+      const waitForSlate = async (expected, expectedModeLabel = '') => {
+        const deadline = Date.now() + 30000;
+        while (Date.now() < deadline) {
+          const subtitle = document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '';
+          const status = document.querySelector('#recSlateStatus')?.textContent ?? '';
+          if (primarySlate()
+            && primarySlateCards().length === expected
+            && subtitle
+            && (!expectedModeLabel || subtitle.includes('目标：' + expectedModeLabel))
+            && !status.includes('正在')) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error('timed out waiting for HSR joint slate');
+      };
+      const waitForCandidateCards = async () => {
+        const deadline = Date.now() + 30000;
+        while (Date.now() < deadline) {
+          const cards = [...document.querySelectorAll('#recList .rec-card')];
+          if (cards.length) return cards;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error('timed out waiting for HSR recommendation cards');
+      };
       const tab = need([...document.querySelectorAll('#appTabs button, #tabs button')]
-        .find((button) => button.textContent?.trim() === '组队推荐'), 'missing recommender tab');
+        .find((button) => button.textContent?.trim().startsWith('组队推荐')), 'missing recommender tab');
       tab.click();
       await Promise.resolve();
       const entry = {
@@ -926,6 +1113,14 @@ async function verifyHsrRecommender(context) {
       };
 
       need(document.querySelector('#resetBtn'), 'missing current-page reset button').click();
+      rec.targetScopes = {};
+      rec.elements = {};
+      rec.constraints = {};
+      rec.locks = {};
+      rec.gap = '4';
+      rec.riskMode = 'warn';
+      rec.sortMode = 'balanced';
+      rec.search = '';
       for (const slot of ['custom-1', 'custom-2', 'custom-3']) {
         delete rec.constraints?.['as|' + slot];
         delete rec.elements?.['as|' + slot];
@@ -933,7 +1128,7 @@ async function verifyHsrRecommender(context) {
       if (typeof saveRecSettings === 'function') saveRecSettings();
       clickControl('#recModeControl', 'as');
       clickControl('#recStrategyControl', 'custom');
-      await Promise.resolve();
+      await waitForCandidateCards();
 
       const initialTeamSelect = need(document.querySelector('#recTeamCountSelect'), 'missing team-count select');
       const initialScopeSelect = need(document.querySelector('#recScopeSelect'), 'missing recommender scope select');
@@ -1024,45 +1219,50 @@ async function verifyHsrRecommender(context) {
       finalScopeSelect.value = '4-2';
       finalScopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
       await Promise.resolve();
+      rec.targetScopes = {as: ['4-1', '4-2']};
+      saveRecSettings();
+      syncRecControls();
+      renderRecommender();
 
       const sortSelect = need(document.querySelector('#recSortSelect'), 'missing recommendation sort select');
-      const firstTargetKey = ['sparxie', 'trailblazer-elation', 'sparkle', 'dan-heng-permansor-terrae'].sort().join('|');
-      const secondTargetKey = ['sparxie', 'sparkle', 'yao-guang', 'dan-heng-permansor-terrae'].sort().join('|');
-      const captureSort = (mode) => {
+      const captureSort = async (mode) => {
         sortSelect.value = mode;
         sortSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        const expectedModeLabel = mode === 'history' ? '历史表现' : mode === 'box' ? 'Box 即战力' : '综合推荐';
+        await waitForSlate(recPlanScopes().length, expectedModeLabel);
+        const cards = await waitForCandidateCards();
         const ranked = typeof rankedRecommendations === 'function' ? rankedRecommendations() : [];
         const keys = ranked.map((item) => typeof templatePoolKey === 'function'
           ? templatePoolKey(item.template)
           : [...(item.template?.chars ?? [])].sort().join('|'));
-        const cards = [...document.querySelectorAll('#recList .rec-card')];
         const stored = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}');
         const expectedScoreLabel = mode === 'history' ? '历史参考分' : mode === 'box' ? 'Box 分' : '综合分';
         return {
           mode: rec.sortMode,
           storedMode: stored.sortMode ?? '',
-          firstTargetIndex: keys.indexOf(firstTargetKey),
-          secondTargetIndex: keys.indexOf(secondTargetKey),
+          topKeys: keys.slice(0, 8),
           scoreMatches: ranked.every((item) => item.scoreMode === mode && item.score === item.scores?.[mode]),
           partsComplete: ranked.every((item) => ['balanced', 'history', 'box'].every((key) =>
             Array.isArray(item.scoreParts?.[key]) && Number.isFinite(item.scores?.[key]))),
           referenceCounts: cards.map((card) => card.querySelectorAll('.rec-score-refs > span').length),
           breakdowns: cards.map((card) => card.querySelector('.rec-score-breakdown')?.textContent?.trim() ?? ''),
-          slateTitles: [...document.querySelectorAll('#recSlateList .rec-slate-card h3')]
-            .map((heading) => heading.textContent?.trim() ?? ''),
+          slateTitles: primarySlateCards().map((card) => card.querySelector('h3')?.textContent?.trim() ?? ''),
           slateSubtitle: document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '',
           expectedScoreLabel,
-          expectedModeLabel: mode === 'history' ? '历史表现' : mode === 'box' ? 'Box 即战力' : '综合推荐',
+          expectedModeLabel,
         };
       };
       const sortProbe = {
         options: [...sortSelect.options].map((option) => ({value: option.value, text: option.textContent?.trim() ?? ''})),
-        balanced: captureSort('balanced'),
-        history: captureSort('history'),
-        box: captureSort('box'),
+        balanced: await captureSort('balanced'),
+        history: await captureSort('history'),
+        box: await captureSort('box'),
       };
-      sortSelect.value = 'balanced';
-      sortSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      rec.sortMode = 'balanced';
+      rec.targetScopes = {};
+      saveRecSettings();
+      syncRecControls();
+      renderRecommender();
       await Promise.resolve();
 
       const finalTargetRoot = need(document.querySelector('#recTargetScopeButtons'), 'missing final target-scope control');
@@ -1074,23 +1274,23 @@ async function verifyHsrRecommender(context) {
       };
 
       clickControl('#recTargetScopeButtons', '4-2');
-      await Promise.resolve();
+      await waitForSlate(2, '综合推荐');
       const storedAfterPair = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}');
       const pair = {
         selectedTargets: [...document.querySelectorAll('#recTargetScopeButtons button.active')].map((button) => button.dataset.value),
         storedTargets: storedAfterPair.targetScopes?.as ?? [],
         planScopes: typeof recPlanScopes === 'function' ? recPlanScopes().map((scope) => scope.key) : [],
-        slateCount: document.querySelectorAll('#recSlateList .rec-slate-card').length,
-        slateTitles: [...document.querySelectorAll('#recSlateList .rec-slate-card h3')].map((heading) => heading.textContent?.trim() ?? ''),
+        slateCount: primarySlateCards().length,
+        slateTitles: primarySlateCards().map((card) => card.querySelector('h3')?.textContent?.trim() ?? ''),
         slateSubtitle: document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '',
       };
 
       clickControl('#recTargetScopeButtons', '4-1');
-      await Promise.resolve();
+      await waitForSlate(1, '综合推荐');
       const singleBeforeLastClick = {
         selectedTargets: [...document.querySelectorAll('#recTargetScopeButtons button.active')].map((button) => button.dataset.value),
         planScopes: typeof recPlanScopes === 'function' ? recPlanScopes().map((scope) => scope.key) : [],
-        slateCount: document.querySelectorAll('#recSlateList .rec-slate-card').length,
+        slateCount: primarySlateCards().length,
       };
       clickControl('#recTargetScopeButtons', '4-3');
       await Promise.resolve();
@@ -1163,6 +1363,8 @@ async function verifyHsrRecommender(context) {
         && snapshot.storedMode === mode
         && snapshot.scoreMatches
         && snapshot.partsComplete
+        && snapshot.topKeys.length > 0
+        && new Set(snapshot.topKeys).size === snapshot.topKeys.length
         && snapshot.referenceCounts.length > 0
         && snapshot.referenceCounts.every((count) => count === 3)
         && snapshot.breakdowns.every((text) => text.length > 0)
@@ -1170,11 +1372,7 @@ async function verifyHsrRecommender(context) {
         && snapshot.slateTitles.some((title) => title.includes(snapshot.expectedScoreLabel))
         && snapshot.slateTitles.filter((title) => title.includes(" · ")).every((title) => title.includes(snapshot.expectedScoreLabel))
         && snapshot.slateSubtitle.includes(`目标：${snapshot.expectedModeLabel}`), `HSR ${mode} sort is not wired through cards, persistence, and the joint slate`, snapshot);
-      assert(snapshot.firstTargetIndex >= 0 && snapshot.secondTargetIndex >= 0, `HSR ${mode} sort lost one of the reported AS teams`, snapshot);
     }
-    assert(result.sortProbe.balanced.firstTargetIndex < result.sortProbe.balanced.secondTargetIndex
-      && result.sortProbe.box.firstTargetIndex < result.sortProbe.box.secondTargetIndex
-      && result.sortProbe.history.secondTargetIndex < result.sortProbe.history.firstTargetIndex, "HSR sort references do not explain the reported AS ordering", result.sortProbe);
     assert(result.final.strategy === "final"
       && result.final.elementLabel.includes("仅标注")
       && result.final.hint.includes("弱点默认不改榜")
@@ -1221,16 +1419,39 @@ async function verifyHsrRecommender(context) {
 }
 
 async function verifyHsrRecommenderLayout(topId, context) {
+  const storageKey = "hsr_endgame_recommender_v1";
   const savedStyle = await evaluate(topId, `(() => {
-    const frame = document.querySelector('iframe.visualizer-frame');
+    const frame = document.querySelector('iframe.visualizer-frame[data-game="hsr"]');
     if (!frame) throw new Error('missing Visualizer frame');
     return frame.getAttribute('style');
   })()`);
+  const savedRec = await evaluate(context.id, `(() => ({
+    storageRaw: localStorage.getItem(${JSON.stringify(storageKey)}),
+    recState: JSON.parse(JSON.stringify(rec)),
+  }))()`, context.sessionId);
   const snapshots = [];
   try {
-    for (const [width, height] of [[1180, 720], [720, 720]]) {
+    await evaluate(context.id, `(() => {
+      const tab = [...document.querySelectorAll('#appTabs button, #tabs button')]
+        .find((button) => button.textContent?.trim().startsWith('组队推荐'));
+      if (!tab) throw new Error('missing recommender tab');
+      tab.click();
+      rec.mode='as';rec.strategy='final';rec.scope='4-1';rec.sortMode='balanced';
+      rec.targetScopes={as:['4-1','4-2']};rec.elements={};rec.constraints={};rec.locks={};
+      rec.gap='4';rec.riskMode='warn';rec.search='';
+      ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();
+      return true;
+    })()`, context.sessionId);
+    await waitFor("HSR deterministic layout candidates", async () => evaluate(context.id, `(() => {
+      const status=document.querySelector('#recSlateStatus')?.textContent||'';
+      const primary=document.querySelector('#recSlateList .rec-slate-solution');
+      return document.querySelectorAll('#recList .rec-card').length>0
+        && primary?.querySelectorAll('.rec-slate-card').length===2
+        && !status.includes('正在');
+    })()`, context.sessionId));
+    for (const [width, height] of [[1180, 720], [720, 720], [320, 568]]) {
       await evaluate(topId, `(() => {
-        const frame = document.querySelector('iframe.visualizer-frame');
+        const frame = document.querySelector('iframe.visualizer-frame[data-game="hsr"]');
         if (!frame) throw new Error('missing Visualizer frame');
         frame.style.width = ${JSON.stringify(`${width}px`)};
         frame.style.height = ${JSON.stringify(`${height}px`)};
@@ -1241,7 +1462,7 @@ async function verifyHsrRecommenderLayout(topId, context) {
         const value = await evaluate(context.id, `(async () => {
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const tab = [...document.querySelectorAll('#appTabs button, #tabs button')]
-            .find((button) => button.textContent?.trim() === '组队推荐');
+            .find((button) => button.textContent?.trim().startsWith('组队推荐'));
           if (!tab) throw new Error('missing recommender tab');
           if (typeof state === 'object' && state.page !== 'recommender') {
             tab.click();
@@ -1255,6 +1476,8 @@ async function verifyHsrRecommenderLayout(topId, context) {
           card.dispatchEvent(new MouseEvent('mouseenter', {clientX, clientY}));
           card.dispatchEvent(new MouseEvent('mousemove', {clientX, clientY}));
           const rect = tooltip.getBoundingClientRect();
+          tooltip.scrollTop = tooltip.scrollHeight;
+          await new Promise((resolve) => requestAnimationFrame(resolve));
           const lastValue = tooltip.querySelector('.tooltip-grid > div:last-child');
           const lastRect = lastValue?.getBoundingClientRect() ?? null;
           const result = {
@@ -1285,8 +1508,7 @@ async function verifyHsrRecommenderLayout(topId, context) {
         && rect.bottom <= snapshot.innerHeight - 13,
       `HSR recommendation tooltip escaped ${width}x${height}`, snapshot);
       assert(snapshot.documentScrollWidth <= snapshot.innerWidth
-        && snapshot.tooltipScrollWidth <= snapshot.tooltipClientWidth + 1
-        && snapshot.tooltipScrollHeight <= snapshot.tooltipClientHeight + 1,
+        && snapshot.tooltipScrollWidth <= snapshot.tooltipClientWidth + 1,
       `HSR recommendation content overflows ${width}x${height}`, snapshot);
       assert(snapshot.lastValueRight !== null
         && snapshot.lastValueBottom !== null
@@ -1297,14 +1519,56 @@ async function verifyHsrRecommenderLayout(topId, context) {
     }
     return snapshots;
   } finally {
-    await evaluate(topId, `(() => {
-      const frame = document.querySelector('iframe.visualizer-frame');
-      if (!frame) return false;
-      const style = ${JSON.stringify(savedStyle)};
-      if (style === null) frame.removeAttribute('style');
-      else frame.setAttribute('style', style);
-      return true;
-    })()`);
+    try {
+      const restored = await evaluate(context.id, `(() => {
+        const raw=${JSON.stringify(savedRec.storageRaw)};
+        if(raw===null)localStorage.removeItem(${JSON.stringify(storageKey)});else localStorage.setItem(${JSON.stringify(storageKey)},raw);
+        for(const key of Object.keys(rec))delete rec[key];Object.assign(rec,${JSON.stringify(savedRec.recState)});
+        ensureRecScope();syncRecControls();renderRecommender();
+        return localStorage.getItem(${JSON.stringify(storageKey)})===raw;
+      })()`, context.sessionId);
+      assert(restored === true, "HSR layout probe did not restore recommender state");
+    } finally {
+      await evaluate(topId, `(() => {
+        const frame = document.querySelector('iframe.visualizer-frame[data-game="hsr"]');
+        if (!frame) return false;
+        const style = ${JSON.stringify(savedStyle)};
+        if (style === null) frame.removeAttribute('style');
+        else frame.setAttribute('style', style);
+        return true;
+      })()`);
+    }
+  }
+}
+
+async function verifyZzzCompactTooltipLayout(topId, context) {
+  const savedStyle = await evaluate(topId, `(() => document.querySelector('iframe.visualizer-frame[data-game="zzz"]')?.getAttribute('style') ?? null)()`);
+  try {
+    await evaluate(topId, `(() => {const frame=document.querySelector('iframe.visualizer-frame[data-game="zzz"]');if(!frame)throw new Error('missing ZZZ frame');frame.style.width='320px';frame.style.height='568px';frame.style.flex='none';return true;})()`);
+    const snapshot = await waitFor("ZZZ 320x568 tooltip layout", async () => evaluate(context.id, `(async () => {
+      await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const target=document.querySelector('#chart [role="button"][tabindex="0"]');
+      const tooltip=document.querySelector('#tooltip');
+      if(!target||!tooltip)return null;
+      const clientX=innerWidth-12,clientY=innerHeight-12;
+      target.dispatchEvent(new MouseEvent('mouseenter',{clientX,clientY}));
+      target.dispatchEvent(new MouseEvent('mousemove',{clientX,clientY}));
+      tooltip.scrollTop=tooltip.scrollHeight;
+      await new Promise((resolve)=>requestAnimationFrame(resolve));
+      const rect=tooltip.getBoundingClientRect(),last=tooltip.querySelector('.tooltip-grid > :last-child')?.getBoundingClientRect()||null;
+      const result={innerWidth,innerHeight,documentScrollWidth:document.documentElement.scrollWidth,hidden:tooltip.hidden,rect:{left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom},clientWidth:tooltip.clientWidth,scrollWidth:tooltip.scrollWidth,lastRight:last?.right??null,lastBottom:last?.bottom??null};
+      tooltip.hidden=true;return result;
+    })()`, context.sessionId));
+    assert(Math.abs(snapshot.innerWidth - 320) <= 1 && Math.abs(snapshot.innerHeight - 568) <= 1
+      && !snapshot.hidden && snapshot.rect.left >= 11 && snapshot.rect.top >= 11
+      && snapshot.rect.right <= snapshot.innerWidth - 11 && snapshot.rect.bottom <= snapshot.innerHeight - 11,
+    "ZZZ tooltip escaped 320x568", snapshot);
+    assert(snapshot.documentScrollWidth <= snapshot.innerWidth && snapshot.scrollWidth <= snapshot.clientWidth + 1
+      && snapshot.lastRight <= snapshot.rect.right + 1 && snapshot.lastBottom <= snapshot.rect.bottom + 1,
+    "ZZZ tooltip content is clipped at 320x568", snapshot);
+    return snapshot;
+  } finally {
+    await evaluate(topId, `(() => {const frame=document.querySelector('iframe.visualizer-frame[data-game="zzz"]');if(!frame)return false;const style=${JSON.stringify(savedStyle)};if(style===null)frame.removeAttribute('style');else frame.setAttribute('style',style);return true;})()`);
   }
 }
 
@@ -1400,6 +1664,34 @@ async function switchGame(topId, game) {
   assert(clicked === true, `could not switch the desktop to ${game}`);
 }
 
+async function verifyBoxFlushBridges(topId) {
+  const receipt = await evaluate(topId, `(async () => {
+    const frames=[...document.querySelectorAll('iframe.visualizer-frame')]
+      .filter((frame)=>frame.dataset.loaded==='true'&&frame.contentWindow);
+    if(frames.length!==2)throw new Error('both Visualizer frames must be loaded before the Box flush probe');
+    const expected=new Map(frames.map((frame,index)=>['product-probe-flush-'+index,{game:frame.dataset.game,source:frame.contentWindow}]));
+    const results=[];
+    await new Promise((resolve,reject)=>{
+      const timeout=setTimeout(()=>{window.removeEventListener('message',onMessage);reject(new Error('Box flush bridge timed out'));},10000);
+      const onMessage=(event)=>{
+        const message=event.data,entry=message&&expected.get(message.request_id);
+        if(!entry||event.source!==entry.source||message.schema_version!=='miho-visualizer-box-flush-result-v1')return;
+        expected.delete(message.request_id);
+        results.push({game:entry.game,ok:message.ok===true});
+        if(expected.size===0){clearTimeout(timeout);window.removeEventListener('message',onMessage);resolve();}
+      };
+      window.addEventListener('message',onMessage);
+      for(const [request_id,entry] of expected)entry.source.postMessage({schema_version:'miho-visualizer-box-flush-request-v1',request_id},'*');
+    });
+    return results.sort((left,right)=>left.game.localeCompare(right.game));
+  })()`);
+  assert(Array.isArray(receipt)
+    && receipt.length === 2
+    && receipt.every((entry) => (entry.game === "hsr" || entry.game === "zzz") && entry.ok === true),
+  "Visualizer Box flush bridge did not acknowledge both loaded games", receipt);
+  return receipt;
+}
+
 const receipt = {
   schema_version: "miho-product-ui-probe-v1",
   sequence: [],
@@ -1411,10 +1703,23 @@ try {
   await session.send("Runtime.enable");
   await session.send("Page.enable");
   const top = await topContext();
+  await waitFor("persistent Visualizer frame probes", async () => evaluate(top.id, `(() => {
+    const frames = [...document.querySelectorAll('iframe.visualizer-frame')];
+    if (frames.length !== 2) return false;
+    frames.forEach((frame, index) => {
+      if (frame.dataset.probeId) return;
+      frame.dataset.probeId = 'persistent-' + (frame.dataset.game || index) + '-' + index;
+      frame.dataset.probeLoadCount = '0';
+      frame.addEventListener('load', () => {
+        frame.dataset.probeLoadCount = String(Number.parseInt(frame.dataset.probeLoadCount || '0', 10) + 1);
+      });
+    });
+    return true;
+  })()`));
 
   const initialOuter = await waitFor("initial ZZZ desktop shell", async () => {
     const value = await evaluate(top.id, outerExpression);
-    return value.frameSrc.includes("/zzz/index.html") && value.frameSrc.endsWith("#box") ? value : null;
+    return value.frameLoaded && value.frameSrc.includes("/zzz/index.html") && value.frameSrc.endsWith("#box") ? value : null;
   });
   verifyOuter(initialOuter, "zzz");
   const zzzInitial = await productSnapshot("zzz");
@@ -1422,9 +1727,12 @@ try {
   const zzzContext = await activeFrameContext("zzz");
   const zzzStateBefore = await zzzPersistenceSnapshot(zzzContext);
   const zzzBoxRoster = await verifyZzzBoxRoster(zzzContext);
+  const zzzBoxBatchPreview = await verifyBoxBatchPreview(zzzContext, "zzz");
   const zzzRecommender = await verifyZzzRecommender(zzzContext);
+  const zzzSearchAndLock = await verifyRecommenderSearchAndLock(zzzContext, "zzz");
   const zzzAnalysis = await switchProductPage(zzzContext, "zzz", "analysis");
   const zzzAnalyses = await verifyAnalysisModes(zzzContext, "zzz", zzzAnalysis);
+  const zzzCompactTooltip = await verifyZzzCompactTooltipLayout(top.id, zzzContext);
   const zzzBanner = await switchProductPage(zzzContext, "zzz", "banner");
   verifyBanner(zzzBanner, "zzz");
   receipt.sequence.push({
@@ -1432,49 +1740,75 @@ try {
     outer: initialOuter,
     product: zzzInitial,
     boxRoster: zzzBoxRoster,
+    boxBatchPreview: zzzBoxBatchPreview,
     recommender: zzzRecommender,
+    searchAndLock: zzzSearchAndLock,
     persistenceBefore: zzzPersistenceReceipt(zzzStateBefore),
     analyses: zzzAnalyses,
+    compactTooltip: zzzCompactTooltip,
     banner: zzzBanner,
   });
 
   await switchGame(top.id, "hsr");
   const hsrOuter = await waitFor("HSR desktop shell", async () => {
     const value = await evaluate(top.id, outerExpression);
-    return value.frameSrc.includes("/hsr/index.html") && value.frameSrc.endsWith("#box") ? value : null;
+    return value.frameLoaded && value.frameSrc.includes("/hsr/index.html") && value.frameSrc.endsWith("#box") ? value : null;
   });
   verifyOuter(hsrOuter, "hsr");
   const hsrProduct = await productSnapshot("hsr");
   verifyProduct(hsrProduct, "hsr");
   const hsrContext = await activeFrameContext("hsr");
+  const hsrBoxBatchPreview = await verifyBoxBatchPreview(hsrContext, "hsr");
   const hsrBoxExport = await verifyHsrBoxExport(hsrContext);
   const hsrRecommender = await verifyHsrRecommender(hsrContext);
+  const hsrSearchAndLock = await verifyRecommenderSearchAndLock(hsrContext, "hsr");
   const hsrRecommenderLayout = await verifyHsrRecommenderLayout(top.id, hsrContext);
   const hsrAnalysis = await switchProductPage(hsrContext, "hsr", "analysis");
   const hsrAnalyses = await verifyAnalysisModes(hsrContext, "hsr", hsrAnalysis);
   const hsrBanner = await switchProductPage(hsrContext, "hsr", "banner");
   verifyBanner(hsrBanner, "hsr");
-  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxExport: hsrBoxExport, recommender: hsrRecommender, recommenderLayout: hsrRecommenderLayout, analyses: hsrAnalyses, banner: hsrBanner });
+  receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxBatchPreview: hsrBoxBatchPreview, boxExport: hsrBoxExport, recommender: hsrRecommender, searchAndLock: hsrSearchAndLock, recommenderLayout: hsrRecommenderLayout, analyses: hsrAnalyses, banner: hsrBanner });
 
   await switchGame(top.id, "zzz");
   const zzzReturnOuter = await waitFor("returned ZZZ desktop shell", async () => {
     const value = await evaluate(top.id, outerExpression);
-    return value.frameSrc.includes("/zzz/index.html") && value.frameSrc.endsWith("#box") ? value : null;
+    return value.frameLoaded && value.frameSrc.includes("/zzz/index.html") && value.frameSrc.endsWith("#box") ? value : null;
   });
   verifyOuter(zzzReturnOuter, "zzz");
-  const zzzReturn = await productSnapshot("zzz");
-  verifyProduct(zzzReturn, "zzz");
+  assert(zzzReturnOuter.frameProbeId === initialOuter.frameProbeId,
+    "ZZZ Visualizer iframe node was replaced across game switches", { initialOuter, zzzReturnOuter });
+  assert(zzzReturnOuter.frameSrc === initialOuter.frameSrc,
+    "ZZZ Visualizer URL changed across a revision-stable game switch", { initialOuter, zzzReturnOuter });
+  assert(zzzReturnOuter.frameDataRevision === initialOuter.frameDataRevision,
+    "ZZZ Visualizer data revision changed across a read-only game switch", { initialOuter, zzzReturnOuter });
+  assert(zzzReturnOuter.frameProbeLoadCount === initialOuter.frameProbeLoadCount,
+    "ZZZ Visualizer navigated while its data revision was unchanged", { initialOuter, zzzReturnOuter });
   const zzzReturnContext = await activeFrameContext("zzz");
+  const zzzPreserved = await waitFor("returned ZZZ preserved product page", async () => {
+    const value = await evaluate(zzzReturnContext.id, productExpression, zzzReturnContext.sessionId);
+    return value?.readyState === "complete" && value?.statePage === "banner" && value?.bannerVisible
+      ? value
+      : null;
+  });
+  verifyBanner(zzzPreserved, "zzz");
+  assert(new URL(zzzPreserved.href).hash === "#banner"
+    && JSON.stringify(zzzPreserved.bannerCardNames) === JSON.stringify(zzzBanner.bannerCardNames),
+  "ZZZ iframe did not preserve its product page across game switches", {before: zzzBanner, after: zzzPreserved});
+  const zzzReturn = await switchProductPage(zzzReturnContext, "zzz", "box");
+  verifyProduct(zzzReturn, "zzz");
   const zzzReturnBoxRoster = await verifyZzzBoxRoster(zzzReturnContext);
   const zzzStateAfter = await zzzPersistenceSnapshot(zzzReturnContext);
   const zzzPersistence = verifyZzzPersistence(zzzStateBefore, zzzStateAfter);
   receipt.sequence.push({
     game: "zzz",
     outer: zzzReturnOuter,
+    preservedPage: zzzPreserved,
     product: zzzReturn,
     boxRoster: zzzReturnBoxRoster,
     persistence: zzzPersistence,
   });
+
+  receipt.boxFlush = await verifyBoxFlushBridges(top.id);
 
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
 } finally {

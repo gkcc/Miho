@@ -270,7 +270,206 @@
     };
   }
 
-  const api = Object.freeze({solve});
+  function hydrateVisualizerData(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)
+      || raw.schema_version !== 'miho-visualizer-data-v2') return raw;
+    const rootKeys = Object.keys(raw).sort();
+    if (JSON.stringify(rootKeys) !== JSON.stringify(['payload', 'schema_version', 'tables'])) {
+      throw new Error('Visualizer data v2 envelope has unexpected fields.');
+    }
+    if (!raw.payload || typeof raw.payload !== 'object' || Array.isArray(raw.payload)
+      || !raw.tables || typeof raw.tables !== 'object' || Array.isArray(raw.tables)) {
+      throw new Error('Visualizer data v2 payload or tables are invalid.');
+    }
+    const expanded = Object.create(null);
+    for (const [name, value] of Object.entries(raw.payload)) {
+      Object.defineProperty(expanded, name, {
+        value,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
+    for (const [name, table] of Object.entries(raw.tables)) {
+      if (Object.prototype.hasOwnProperty.call(expanded, name)
+        || !table || typeof table !== 'object' || Array.isArray(table)
+        || JSON.stringify(Object.keys(table).sort()) !== JSON.stringify(['columns', 'rows'])
+        || !Array.isArray(table.columns) || !table.columns.length
+        || table.columns.some(column => typeof column !== 'string')
+        || new Set(table.columns).size !== table.columns.length
+        || !Array.isArray(table.rows)) {
+        throw new Error('Visualizer data v2 table is invalid or colliding.');
+      }
+      const rows = table.rows.map(values => {
+        if (!Array.isArray(values) || values.length !== table.columns.length) {
+          throw new Error('Visualizer data v2 row width does not match columns.');
+        }
+        return Object.fromEntries(table.columns.map((column, index) => [column, values[index]]));
+      });
+      Object.defineProperty(expanded, name, {
+        value: rows,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
+    return expanded;
+  }
+
+  function pushIndex(map, key, value) {
+    if (key == null || key === '') return;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(value);
+  }
+
+  function buildDataIndex(data = {}) {
+    const rosterBySlug = new Map();
+    for (const row of data.rosterRows || []) {
+      const slug = String(row?.character_slug || '');
+      if (slug && !rosterBySlug.has(slug)) rosterBySlug.set(slug, row);
+    }
+    const teamsByMode = new Map();
+    const teamsByModeScope = new Map();
+    const teamsByCharacter = new Map();
+    for (const row of data.teamTemplates || []) {
+      const mode = String(row?.mode || '');
+      const scope = String(row?.scope_key || '');
+      pushIndex(teamsByMode, mode, row);
+      pushIndex(teamsByModeScope, `${mode}|${scope}`, row);
+      for (const slug of row?.chars || []) pushIndex(teamsByCharacter, String(slug || ''), row);
+    }
+    const usageByMode = new Map();
+    const usageByModeSubMode = new Map();
+    const usageByModeCharacter = new Map();
+    const usageByCharacter = new Map();
+    const usageRows = Array.isArray(data.usageRows) && data.usageRows.length
+      ? data.usageRows
+      : (Array.isArray(data.trendRows) ? data.trendRows : []);
+    for (const row of usageRows) {
+      const mode = String(row?.tier_mode || row?.mode || '');
+      const subMode = String(row?.sub_mode || '');
+      const slug = String(row?.character_slug || '');
+      pushIndex(usageByMode, mode, row);
+      pushIndex(usageByModeSubMode, `${mode}|${subMode}`, row);
+      pushIndex(usageByModeCharacter, `${mode}|${slug}`, row);
+      pushIndex(usageByCharacter, slug, row);
+    }
+    const tiersByMode = new Map();
+    const tiersByModeCharacter = new Map();
+    for (const row of data.tierRows || []) {
+      const mode = String(row?.tier_mode || row?.mode || '');
+      const slug = String(row?.character_slug || '');
+      pushIndex(tiersByMode, mode, row);
+      pushIndex(tiersByModeCharacter, `${mode}|${slug}`, row);
+    }
+    const phasesByMode = new Map();
+    const phasesByModeVersion = new Map();
+    for (const row of data.phaseInfoRows || []) {
+      const mode = String(row?.mode || '');
+      const version = String(row?.phase_ver || '');
+      pushIndex(phasesByMode, mode, row);
+      pushIndex(phasesByModeVersion, `${mode}|${version}`, row);
+    }
+    return Object.freeze({
+      rosterBySlug,
+      teamsByMode,
+      teamsByModeScope,
+      teamsByCharacter,
+      usageByMode,
+      usageByModeSubMode,
+      usageByModeCharacter,
+      usageByCharacter,
+      tiersByMode,
+      tiersByModeCharacter,
+      phasesByMode,
+      phasesByModeVersion,
+    });
+  }
+
+  function yieldToMain() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  function runtimeNow() {
+    return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  }
+
+  async function cooperativeMap(items, mapper, options = {}) {
+    const budgetMs = Math.max(1, numeric(options.budgetMs, 8));
+    const output = [];
+    let sliceStarted = runtimeNow();
+    for (let index = 0; index < items.length; index += 1) {
+      output.push(mapper(items[index], index));
+      const now = runtimeNow();
+      if (now - sliceStarted >= budgetMs && index + 1 < items.length) {
+        await yieldToMain();
+        sliceStarted = runtimeNow();
+      }
+    }
+    return output;
+  }
+
+  async function cooperativeFlatMap(items, mapper, options = {}) {
+    const nested = await cooperativeMap(items, mapper, options);
+    return nested.flat();
+  }
+
+  async function cooperativeSort(items, comparator, options = {}) {
+    const budgetMs = Math.max(1, numeric(options.budgetMs, 8));
+    const chunkSize = Math.max(32, Math.floor(numeric(options.chunkSize, 512)));
+    let source = Array.from(items || []);
+    if (source.length < 2) return source;
+    let sliceStarted = runtimeNow();
+    for (let start = 0; start < source.length; start += chunkSize) {
+      const end = Math.min(source.length, start + chunkSize);
+      const sorted = source.slice(start, end).sort(comparator);
+      for (let index = 0; index < sorted.length; index += 1) source[start + index] = sorted[index];
+      if (runtimeNow() - sliceStarted >= budgetMs && end < source.length) {
+        await yieldToMain();
+        sliceStarted = runtimeNow();
+      }
+    }
+    let target = new Array(source.length);
+    for (let width = chunkSize; width < source.length; width *= 2) {
+      for (let start = 0; start < source.length; start += width * 2) {
+        const middle = Math.min(source.length, start + width);
+        const end = Math.min(source.length, middle + width);
+        let left = start;
+        let right = middle;
+        let output = start;
+        while (left < middle || right < end) {
+          if (right >= end || (left < middle && comparator(source[left], source[right]) <= 0)) {
+            target[output] = source[left];
+            left += 1;
+          } else {
+            target[output] = source[right];
+            right += 1;
+          }
+          output += 1;
+          if ((output & 511) === 0 && runtimeNow() - sliceStarted >= budgetMs) {
+            await yieldToMain();
+            sliceStarted = runtimeNow();
+          }
+        }
+      }
+      [source, target] = [target, source];
+      if (runtimeNow() - sliceStarted >= budgetMs && width * 2 < source.length) {
+        await yieldToMain();
+        sliceStarted = runtimeNow();
+      }
+    }
+    return source;
+  }
+
+  const api = Object.freeze({
+    solve,
+    hydrateVisualizerData,
+    buildDataIndex,
+    cooperativeMap,
+    cooperativeFlatMap,
+    cooperativeSort,
+    yieldToMain,
+  });
   Object.defineProperty(root, 'MihoSlateSolver', {value: api, configurable: false, writable: false});
 
   if (typeof WorkerGlobalScope !== 'undefined' && root instanceof WorkerGlobalScope) {

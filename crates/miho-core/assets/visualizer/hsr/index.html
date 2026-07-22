@@ -22,14 +22,14 @@
 
     <section id="analysisView">
       <section class="controls" aria-label="趋势筛选控制">
-        <div class="control-group"><label>模式</label><div class="segmented" id="modeControl"></div></div>
-        <div class="control-group"><label>视图</label><div class="segmented" id="viewControl"></div></div>
-        <div class="control-group"><label>职能</label><div class="segmented" id="roleControl"></div></div>
-        <div class="control-group"><label>T档</label><div class="tier-checks" id="tierControl"></div></div>
-        <div class="control-group compact"><label>数量</label><select id="limitSelect" title="按最近一期出场率排序后的展示数量"><option value="8">Top 8</option><option value="12" selected>Top 12</option><option value="20">Top 20</option><option value="all">全部</option></select></div>
-        <div class="control-group compact"><label>指标</label><select id="metricSelect" title="切换纵轴或色块使用的指标"><option value="app_rate">出场率</option><option value="avg_round">平均值</option></select></div>
-        <div class="control-group search"><label>搜索</label><input id="searchInput" type="search" placeholder="中文名 / 英文名 / slug" /></div>
-        <div class="control-group compact"><label>节点</label><label class="checkline" title="关闭后以普通圆点显示趋势节点"><input id="avatarToggle" type="checkbox" checked />头像</label></div>
+        <div class="control-group"><span class="control-label" id="modeControlLabel">模式</span><div class="segmented" id="modeControl" role="group" aria-labelledby="modeControlLabel"></div></div>
+        <div class="control-group"><span class="control-label" id="viewControlLabel">视图</span><div class="segmented" id="viewControl" role="group" aria-labelledby="viewControlLabel"></div></div>
+        <div class="control-group"><span class="control-label" id="roleControlLabel">职能</span><div class="segmented" id="roleControl" role="group" aria-labelledby="roleControlLabel"></div></div>
+        <div class="control-group"><span class="control-label" id="tierControlLabel">T档</span><div class="tier-checks" id="tierControl" role="group" aria-labelledby="tierControlLabel"></div></div>
+        <div class="control-group compact"><label for="limitSelect">数量</label><select id="limitSelect" title="按最近一期出场率排序后的展示数量"><option value="8">Top 8</option><option value="12" selected>Top 12</option><option value="20">Top 20</option><option value="all">全部</option></select></div>
+        <div class="control-group compact"><label for="metricSelect">指标</label><select id="metricSelect" title="切换纵轴或色块使用的指标"><option value="app_rate">出场率</option><option value="avg_round">平均值</option></select></div>
+        <div class="control-group search"><label for="searchInput">搜索</label><input id="searchInput" type="search" placeholder="中文名 / 英文名 / slug" /></div>
+        <div class="control-group compact" role="group" aria-labelledby="avatarToggleLabel"><span class="control-label" id="avatarToggleLabel">节点</span><label class="checkline" title="关闭后以普通圆点显示趋势节点"><input id="avatarToggle" type="checkbox" checked />头像</label></div>
       </section>
 
       <section class="workspace">
@@ -39,8 +39,8 @@
             <div id="summaryBadges" class="summary-badges"></div>
           </div>
           <div class="chart-wrap">
-            <svg id="chart" role="img" aria-label="角色出场率可视化图表"></svg>
-            <div id="tooltip" class="tooltip" hidden></div>
+            <svg id="chart" role="group" aria-label="角色出场率可交互图表"></svg>
+            <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
           </div>
         </section>
         <aside class="side-panel">
@@ -52,25 +52,25 @@
 
     <section id="bannerView" class="hidden">
       <section class="banner-controls" aria-label="卡池情报筛选控制">
-        <div class="control-group"><label>阶段</label><div class="segmented" id="bannerPhaseControl"></div></div>
-        <div class="control-group search"><label>搜索</label><input id="bannerSearchInput" type="search" placeholder="角色 / 属性 / 命途 / 标签" /></div>
+        <div class="control-group"><span class="control-label" id="bannerPhaseControlLabel">阶段</span><div class="segmented" id="bannerPhaseControl" role="group" aria-labelledby="bannerPhaseControlLabel"></div></div>
+        <div class="control-group search"><label for="bannerSearchInput">搜索</label><input id="bannerSearchInput" type="search" placeholder="角色 / 属性 / 命途 / 标签" /></div>
       </section>
       <section class="banner-hero">
         <div><h2 id="bannerTitle">卡池情报</h2><p id="bannerSubtitle"></p></div>
         <div id="bannerBadges" class="summary-badges"></div>
       </section>
       <section id="bannerGrid" class="banner-grid"></section>
-      <div id="bannerTooltip" class="tooltip" hidden></div>
+      <div id="bannerTooltip" class="tooltip" role="tooltip" hidden></div>
     </section>
 
     <section id="boxView" class="hidden">
       <section class="box-controls" aria-label="Box 筛选控制">
-        <div class="control-group"><label>属性</label><div class="segmented" id="boxElementControl"></div></div>
-        <div class="control-group"><label>命途</label><div class="segmented" id="boxPathControl"></div></div>
-        <div class="control-group"><label>职能</label><div class="segmented" id="boxRoleControl"></div></div>
-        <div class="control-group compact"><label>星级</label><select id="boxRaritySelect"><option value="all">全部</option><option value="5">五星</option><option value="4">四星</option></select></div>
-        <div class="control-group compact"><label>状态</label><select id="boxOwnedSelect"><option value="all">全部</option><option value="owned">已拥有</option><option value="missing">未拥有</option><option value="banner_current">当期UP</option><option value="banner_next">后续卡池</option><option value="banner_recent">历史参考</option></select></div>
-        <div class="control-group search"><label>搜索</label><input id="boxSearchInput" type="search" placeholder="中文名 / 英文名 / slug" /></div>
+        <div class="control-group"><span class="control-label" id="boxElementControlLabel">属性</span><div class="segmented" id="boxElementControl" role="group" aria-labelledby="boxElementControlLabel"></div></div>
+        <div class="control-group"><span class="control-label" id="boxPathControlLabel">命途</span><div class="segmented" id="boxPathControl" role="group" aria-labelledby="boxPathControlLabel"></div></div>
+        <div class="control-group"><span class="control-label" id="boxRoleControlLabel">职能</span><div class="segmented" id="boxRoleControl" role="group" aria-labelledby="boxRoleControlLabel"></div></div>
+        <div class="control-group compact"><label for="boxRaritySelect">星级</label><select id="boxRaritySelect"><option value="all">全部</option><option value="5">五星</option><option value="4">四星</option></select></div>
+        <div class="control-group compact"><label for="boxOwnedSelect">状态</label><select id="boxOwnedSelect"><option value="all">全部</option><option value="owned">已拥有</option><option value="missing">未拥有</option><option value="banner_current">当期UP</option><option value="banner_next">后续卡池</option><option value="banner_recent">历史参考</option></select></div>
+        <div class="control-group search"><label for="boxSearchInput">搜索</label><input id="boxSearchInput" type="search" placeholder="中文名 / 英文名 / slug" /></div>
         <div class="box-actions">
           <button id="boxExportBtn" type="button">导出Box</button>
           <button id="boxImportBtn" type="button">导入</button>
@@ -109,25 +109,25 @@
         </div>
         <div id="boxGrid" class="box-grid"></div>
       </section>
-      <div id="boxTooltip" class="tooltip" hidden></div>
+      <div id="boxTooltip" class="tooltip" role="tooltip" hidden></div>
     </section>
 
     <section id="recommenderView" class="hidden">
       <section class="rec-plan-controls" id="recPlanControls" aria-label="推荐场景">
-        <div class="control-group"><label>推荐场景</label><div class="segmented" id="recStrategyControl"></div></div>
-        <div class="control-group compact" id="recTeamCountControl"><label>方案队数</label><select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></div>
-        <div class="control-group" id="recTargetScopeControl"><label>参战关卡（可多选）</label><div class="tier-checks" id="recTargetScopeButtons"></div></div>
+        <div class="control-group"><span class="control-label" id="recStrategyControlLabel">推荐场景</span><div class="segmented" id="recStrategyControl" role="group" aria-labelledby="recStrategyControlLabel"></div></div>
+        <div class="control-group compact" id="recTeamCountControl"><label for="recTeamCountSelect">方案队数</label><select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></div>
+        <div class="control-group" id="recTargetScopeControl"><span class="control-label" id="recTargetScopeButtonsLabel">参战关卡（可多选）</span><div class="tier-checks" id="recTargetScopeButtons" role="group" aria-labelledby="recTargetScopeButtonsLabel"></div></div>
         <p id="recStrategyHint"></p>
       </section>
       <section class="rec-controls" aria-label="组队推荐控制">
-        <div class="control-group"><label>模式</label><div class="segmented" id="recModeControl"></div></div>
-        <div class="control-group compact"><label id="recScopeLabel">实战节点</label><select id="recScopeSelect"></select></div>
-        <div class="control-group"><label id="recElementLabel">敌方弱点（仅标注）</label><div class="tier-checks" id="recElementControl"></div></div>
-        <div class="control-group compact"><label>排序参考</label><select id="recSortSelect" title="切换候选队伍与多队方案共同使用的推荐口径"><option value="balanced" selected>综合推荐</option><option value="history">历史表现</option><option value="box">Box 即战力</option></select></div>
-        <div class="control-group compact"><label>缺口</label><select id="recGapSelect" title="限制缺少角色数量"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="2">最多缺2人</option><option value="4">显示全部</option></select></div>
-        <div class="control-group compact"><label>风险</label><select id="recRiskSelect" title="当前模式 T1及以下、近期走弱或核心属性不匹配时的处理方式"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></div>
-        <div class="control-group compact"><label>数量</label><select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></div>
-        <div class="control-group search"><label>搜索</label><input id="recSearchInput" type="search" placeholder="角色 / 队伍 / 来源" /></div>
+        <div class="control-group"><span class="control-label" id="recModeControlLabel">模式</span><div class="segmented" id="recModeControl" role="group" aria-labelledby="recModeControlLabel"></div></div>
+        <div class="control-group compact"><label id="recScopeLabel" for="recScopeSelect">实战节点</label><select id="recScopeSelect"></select></div>
+        <div class="control-group"><span class="control-label" id="recElementLabel">敌方弱点（仅标注）</span><div class="tier-checks" id="recElementControl" role="group" aria-labelledby="recElementLabel"></div></div>
+        <div class="control-group compact"><label for="recSortSelect">排序参考</label><select id="recSortSelect" title="切换候选队伍与多队方案共同使用的推荐口径"><option value="balanced" selected>综合推荐</option><option value="history">历史表现</option><option value="box">Box 即战力</option></select></div>
+        <div class="control-group compact"><label for="recGapSelect">缺口</label><select id="recGapSelect" title="限制缺少角色数量"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="2">最多缺2人</option><option value="4">显示全部</option></select></div>
+        <div class="control-group compact"><label for="recRiskSelect">风险</label><select id="recRiskSelect" title="当前模式 T1及以下、近期走弱或核心属性不匹配时的处理方式"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></div>
+        <div class="control-group compact"><label for="recLimitSelect">数量</label><select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></div>
+        <div class="control-group search"><label for="recSearchInput">搜索</label><input id="recSearchInput" type="search" placeholder="角色 / 队伍 / 来源" /></div>
       </section>
       <section class="rec-constraints" aria-label="角色硬约束">
         <div class="constraint-picker">
@@ -169,7 +169,7 @@
           <div id="recSlateList" class="rec-slate-list"></div>
         </aside>
       </section>
-      <div id="recTooltip" class="tooltip" hidden></div>
+      <div id="recTooltip" class="tooltip" role="tooltip" hidden></div>
     </section>
   </main>
   <script src="./solver.js"></script>

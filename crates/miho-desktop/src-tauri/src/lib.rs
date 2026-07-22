@@ -421,7 +421,10 @@ fn read_installed_owner_instance_id_v1() -> std::io::Result<Option<String>> {
 }
 
 #[tauri::command]
-fn get_visualizer_url(game: String, state: State<'_, DesktopState>) -> Result<String, String> {
+fn get_visualizer_url(
+    game: String,
+    state: State<'_, DesktopState>,
+) -> Result<visualizer_protocol::VisualizerDescriptorV1, String> {
     let _gate = state
         .lock_gate()
         .map_err(|_| "Desktop state is unavailable.".to_owned())?;
@@ -429,17 +432,14 @@ fn get_visualizer_url(game: String, state: State<'_, DesktopState>) -> Result<St
         .workspaces
         .active_access()
         .map_err(|_| "Desktop workspace state is unavailable.".to_owned())?;
-    let url = visualizer_protocol::visualizer_url(&game, &workspace.workspace_id)
-        .ok_or_else(|| "Unknown visualizer game.".to_owned())?;
     state
         .storage_scope(&root)
         .map_err(|_| "The active workspace storage scope is unavailable.".to_owned())?;
-    if !visualizer_protocol::visualizer_is_ready(&root, &game) {
-        return Err(
-            "The requested visualizer is not available in the active workspace.".to_owned(),
-        );
-    }
-    Ok(url)
+    visualizer_protocol::visualizer_descriptor(&root, &game, &workspace.workspace_id)
+        .map_err(|_| {
+            "The requested visualizer is not available in the active workspace.".to_owned()
+        })?
+        .ok_or_else(|| "Unknown visualizer game.".to_owned())
 }
 
 #[tauri::command]
@@ -878,6 +878,8 @@ mod tests {
         ));
         assert!(frontend.contains("miho-visualizer-box-flush-request-v1"));
         assert!(frontend.contains("onCloseRequested"));
+        assert!(frontend.contains("await appWindow.destroy()"));
+        assert!(!frontend.contains("await appWindow.close()"));
         assert!(frontend.contains("open_log_location"));
         assert!(frontend.contains("miho-desktop:task-history-v1:${workspaceId}"));
         assert!(frontend.contains("task.interrupted"));
@@ -898,6 +900,13 @@ mod tests {
         assert_eq!(release_config["bundle"]["targets"], serde_json::json!([]));
         assert!(release_config["bundle"]["externalBin"].is_null());
         assert!(release_config["bundle"]["resources"].is_null());
+        let capabilities: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        assert!(capabilities["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|permission| permission == "core:window:allow-destroy"));
         let installer = include_str!("../installer.nsi");
         assert!(installer.contains("${OrIf} $R0 <> 0"));
         assert!(!installer.contains("DeleteAppDataCheckbox"));

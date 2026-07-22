@@ -7,6 +7,7 @@ use std::{
 use miho_app::{WorkspaceWriteLease, WorkspaceWriteLeaseError};
 use miho_core::box_state::{self, BoxState};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::http::{header, Method, Request, Response, StatusCode};
 
 use crate::{
@@ -17,6 +18,8 @@ pub const VISUALIZER_SCHEME: &str = "miho-visualizer";
 const MAX_VISUALIZER_DATA_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
 const BOX_EXPORT_RECEIPT_SCHEMA_V1: &str = "miho-box-export-receipt-v1";
+const VISUALIZER_DESCRIPTOR_SCHEMA_V1: &str = "miho-visualizer-descriptor-v1";
+const VISUALIZER_DATA_REVISION_DOMAIN_V1: &[u8] = b"miho-visualizer-data-revision-v1\0";
 const MAX_BOX_EXPORT_COLLISIONS: usize = 10_000;
 const VISUALIZER_CSP: &str = "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost http://localhost:5173 http://127.0.0.1:5173";
 
@@ -54,6 +57,13 @@ struct BoxExportReceiptV1 {
     bytes: usize,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct VisualizerDescriptorV1 {
+    pub schema_version: &'static str,
+    pub url: String,
+    pub data_revision: String,
+}
+
 pub fn visualizer_url(game: &str, workspace_id: &str) -> Option<String> {
     let game = parse_game(game)?;
     if !valid_workspace_token(workspace_id) {
@@ -69,17 +79,49 @@ pub fn visualizer_url(game: &str, workspace_id: &str) -> Option<String> {
     ));
 }
 
-pub fn visualizer_is_ready(root: &Path, game: &str) -> bool {
-    let Some(game) = parse_game(game) else {
-        return false;
+#[cfg(test)]
+fn visualizer_is_ready(root: &Path, game: &str) -> bool {
+    visualizer_data_revision(root, game).is_ok()
+}
+
+pub fn visualizer_descriptor(
+    root: &Path,
+    game: &str,
+    workspace_id: &str,
+) -> std::io::Result<Option<VisualizerDescriptorV1>> {
+    let Some(url) = visualizer_url(game, workspace_id) else {
+        return Ok(None);
     };
-    let Ok(data) = read_workspace_visualizer_file(root, game, Path::new("data.json")) else {
-        return false;
+    let data_revision = visualizer_data_revision(root, game)?;
+    Ok(Some(VisualizerDescriptorV1 {
+        schema_version: VISUALIZER_DESCRIPTOR_SCHEMA_V1,
+        url,
+        data_revision,
+    }))
+}
+
+fn visualizer_data_revision(root: &Path, game: &str) -> std::io::Result<String> {
+    let game = parse_game(game).ok_or_else(|| std::io::Error::other("unsupported game"))?;
+    let data = match read_workspace_visualizer_file(root, game, Path::new("data.v2.json")) {
+        Ok(data) => data,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            read_workspace_visualizer_file(root, game, Path::new("data.json"))?
+        }
+        Err(error) => return Err(error),
     };
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&data) else {
-        return false;
-    };
-    avatar_references_are_ready(root, game, &value)
+    let value = serde_json::from_slice::<serde_json::Value>(&data)
+        .map_err(|_| std::io::Error::other("invalid visualizer data"))?;
+    if !avatar_references_are_ready(root, game, &value) {
+        return Err(std::io::Error::other(
+            "visualizer avatar references are incomplete",
+        ));
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(VISUALIZER_DATA_REVISION_DOMAIN_V1);
+    hasher.update(game.as_bytes());
+    hasher.update([0]);
+    hasher.update(&data);
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 #[cfg(test)]
@@ -390,8 +432,8 @@ fn parse_route(raw_path: &str) -> Result<Route, StatusCode> {
     }
     let game =
         parse_game(segments.first().copied().unwrap_or_default()).ok_or(StatusCode::NOT_FOUND)?;
-    if let [_, name @ ("index.html" | "app.js" | "solver.js" | "styles.css" | "data.json")] =
-        segments.as_slice()
+    if let [_, name @ ("index.html" | "app.js" | "solver.js" | "styles.css" | "data.json"
+    | "data.v2.json")] = segments.as_slice()
     {
         let (mime, cache) = static_headers(name);
         return Ok(Route::Static {
@@ -429,7 +471,7 @@ fn static_headers(name: &str) -> (&'static str, &'static str) {
         "index.html" => ("text/html; charset=utf-8", "no-store"),
         "app.js" | "solver.js" => ("text/javascript; charset=utf-8", "no-store"),
         "styles.css" => ("text/css; charset=utf-8", "no-cache"),
-        "data.json" => ("application/json; charset=utf-8", "no-store"),
+        "data.json" | "data.v2.json" => ("application/json; charset=utf-8", "no-store"),
         _ => ("application/octet-stream", "no-store"),
     }
 }
@@ -489,8 +531,15 @@ fn visualizer_relative_root(root: &Path, game: &str) -> PathBuf {
         "hsr" => ("out", "hsr_endgame_export"),
         _ => ("out_zzz", "zzz_endgame_export"),
     };
-    let primary_data = root.join(primary).join("visualizer/data.json");
-    if primary_data.exists() || !root.join(legacy).join("visualizer/data.json").is_file() {
+    let contains_data_entry = |directory: &str| {
+        ["data.v2.json", "data.json"].iter().any(|name| {
+            match fs::symlink_metadata(root.join(directory).join("visualizer").join(name)) {
+                Ok(_) => true,
+                Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+            }
+        })
+    };
+    if contains_data_entry(primary) || !contains_data_entry(legacy) {
         PathBuf::from(primary).join("visualizer")
     } else {
         PathBuf::from(legacy).join("visualizer")
@@ -516,7 +565,7 @@ fn read_protocol_asset(
         }
     }
     let bytes = read_workspace_visualizer_file(root, game, relative)?;
-    if relative == Path::new("data.json") {
+    if matches!(relative.to_str(), Some("data.json" | "data.v2.json")) {
         return tokenized_data(&bytes, workspace_id);
     }
     Ok(bytes)
@@ -700,7 +749,7 @@ fn checked_workspace_visualizer_file(
     game: &str,
     relative: &Path,
 ) -> std::io::Result<PathBuf> {
-    let limit = if relative == Path::new("data.json") {
+    let limit = if matches!(relative.to_str(), Some("data.json" | "data.v2.json")) {
         MAX_VISUALIZER_DATA_BYTES
     } else if relative
         .parent()
@@ -1006,6 +1055,22 @@ mod tests {
             request(Method::GET, "/hsr/data.json", Vec::new()),
         );
         assert_eq!(data.body(), b"{}");
+        fs::write(
+            root.join("out/visualizer/data.v2.json"),
+            br#"{"schema_version":"miho-visualizer-data-v2","payload":{},"tables":{}}"#,
+        )
+        .unwrap();
+        let data_v2 = handle_request(
+            &root,
+            "main",
+            request(Method::GET, "/hsr/data.v2.json", Vec::new()),
+        );
+        assert_eq!(data_v2.status(), StatusCode::OK);
+        assert_eq!(
+            data_v2.headers()[header::CONTENT_TYPE],
+            "application/json; charset=utf-8"
+        );
+        assert_eq!(data_v2.headers()[header::CACHE_CONTROL], "no-store");
         let head = handle_request(
             &root,
             "main",
@@ -1176,6 +1241,23 @@ mod tests {
             "./assets/avatars/agent-one.webp?v=1&workspace=workspace-test-session-0001#face"
         );
         assert_eq!(data["nested"][1], "./assets/avatars/../secret.webp");
+
+        fs::write(
+            root.join("out/visualizer/data.v2.json"),
+            br#"{"schema_version":"miho-visualizer-data-v2","payload":{},"tables":{"rows":{"columns":["icon_url"],"rows":[["./assets/avatars/agent-one.webp"]]}}}"#,
+        )
+        .unwrap();
+        let v2_response = handle_request(
+            &root,
+            "main",
+            request(Method::GET, "/hsr/data.v2.json", Vec::new()),
+        );
+        assert_eq!(v2_response.status(), StatusCode::OK);
+        let v2: serde_json::Value = serde_json::from_slice(v2_response.body()).unwrap();
+        assert_eq!(
+            v2["tables"]["rows"]["rows"][0][0],
+            "./assets/avatars/agent-one.webp?workspace=workspace-test-session-0001"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1447,6 +1529,90 @@ mod tests {
     }
 
     #[test]
+    fn descriptors_are_strict_and_data_revisions_are_stable_and_game_scoped() {
+        let root = root();
+        let hsr_data = root.join("out/visualizer/data.json");
+        let zzz_data = root.join("out_zzz/visualizer/data.json");
+        fs::write(&hsr_data, br#"{"value":1}"#).unwrap();
+        fs::write(&zzz_data, br#"{"value":1}"#).unwrap();
+
+        let first = visualizer_descriptor(&root, "hsr", TOKEN).unwrap().unwrap();
+        let unchanged = visualizer_descriptor(&root, "hsr", TOKEN).unwrap().unwrap();
+        let zzz_before = visualizer_descriptor(&root, "zzz", TOKEN).unwrap().unwrap();
+        assert_eq!(first, unchanged);
+        assert_eq!(first.schema_version, VISUALIZER_DESCRIPTOR_SCHEMA_V1);
+        assert_eq!(first.data_revision.len(), 64);
+        assert!(first
+            .data_revision
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')));
+        assert!(!first.data_revision.contains(TOKEN));
+        assert!(!first
+            .data_revision
+            .contains(root.to_string_lossy().as_ref()));
+
+        let serialized = serde_json::to_value(&first).unwrap();
+        let fields = serialized.as_object().unwrap();
+        assert_eq!(fields.len(), 3);
+        assert!(fields.contains_key("schema_version"));
+        assert!(fields.contains_key("url"));
+        assert!(fields.contains_key("data_revision"));
+
+        fs::write(&hsr_data, br#"{"value":2}"#).unwrap();
+        let hsr_after = visualizer_descriptor(&root, "hsr", TOKEN).unwrap().unwrap();
+        let zzz_after = visualizer_descriptor(&root, "zzz", TOKEN).unwrap().unwrap();
+        assert_ne!(first.data_revision, hsr_after.data_revision);
+        assert_eq!(zzz_before.data_revision, zzz_after.data_revision);
+        assert!(visualizer_descriptor(&root, "other", TOKEN)
+            .unwrap()
+            .is_none());
+        assert!(visualizer_descriptor(&root, "hsr", "unsafe/token")
+            .unwrap()
+            .is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn descriptor_prefers_v2_and_only_falls_back_when_it_is_missing() {
+        let root = root();
+        let legacy = root.join("out/visualizer/data.json");
+        let current = root.join("out/visualizer/data.v2.json");
+        fs::write(&legacy, br#"{"source":"legacy-one"}"#).unwrap();
+        let legacy_revision = visualizer_descriptor(&root, "hsr", TOKEN)
+            .unwrap()
+            .unwrap()
+            .data_revision;
+
+        fs::write(&current, br#"{"source":"v2-one"}"#).unwrap();
+        let v2_revision = visualizer_descriptor(&root, "hsr", TOKEN)
+            .unwrap()
+            .unwrap()
+            .data_revision;
+        assert_ne!(legacy_revision, v2_revision);
+
+        fs::write(&legacy, br#"{"source":"legacy-two"}"#).unwrap();
+        assert_eq!(
+            visualizer_descriptor(&root, "hsr", TOKEN)
+                .unwrap()
+                .unwrap()
+                .data_revision,
+            v2_revision
+        );
+        fs::write(&current, b"not-json").unwrap();
+        assert!(visualizer_descriptor(&root, "hsr", TOKEN).is_err());
+
+        fs::remove_file(&current).unwrap();
+        assert_ne!(
+            visualizer_descriptor(&root, "hsr", TOKEN)
+                .unwrap()
+                .unwrap()
+                .data_revision,
+            v2_revision
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn readiness_requires_every_referenced_workspace_avatar() {
         let root = root();
         fs::write(
@@ -1467,6 +1633,24 @@ mod tests {
     #[test]
     fn oversized_data_and_avatars_are_rejected_before_reading() {
         let root = root();
+        let v2_path = root.join("out/visualizer/data.v2.json");
+        let v2 = fs::File::create(&v2_path).unwrap();
+        v2.set_len(MAX_VISUALIZER_DATA_BYTES + 1).unwrap();
+        drop(v2);
+        // An unsafe preferred artifact must not be hidden by a valid legacy
+        // file; the descriptor and direct route both stay unavailable.
+        assert!(!visualizer_is_ready(&root, "hsr"));
+        assert_eq!(
+            handle_request(
+                &root,
+                "main",
+                request(Method::GET, "/hsr/data.v2.json", Vec::new())
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        fs::remove_file(v2_path).unwrap();
+
         let data_path = root.join("out/visualizer/data.json");
         let data = fs::OpenOptions::new().write(true).open(&data_path).unwrap();
         data.set_len(MAX_VISUALIZER_DATA_BYTES + 1).unwrap();
@@ -1565,6 +1749,7 @@ mod tests {
             (Method::GET, "/hsr/app.js"),
             (Method::GET, "/hsr/solver.js"),
             (Method::GET, "/hsr/styles.css"),
+            (Method::GET, "/hsr/data.v2.json"),
             (Method::GET, "/hsr/assets/avatars/agent-one.webp"),
             (Method::GET, "/api/hsr/box"),
             (Method::OPTIONS, "/api/hsr/box"),

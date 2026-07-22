@@ -30,6 +30,12 @@ fn temp_output(label: &str) -> PathBuf {
     path
 }
 
+fn temp_workspace(label: &str) -> PathBuf {
+    let path = temp_output(label);
+    fs::create_dir_all(&path).unwrap();
+    path
+}
+
 fn export(game: &str, fixture_path: Option<&Path>, out: &Path) -> Output {
     let mut command = Command::new(binary());
     command.args([game, "export", "--out"]).arg(out);
@@ -159,6 +165,7 @@ fn hsr_offline_export_writes_complete_core_set() {
             "visualizer/styles.css",
             "visualizer/app.js",
             "visualizer/data.json",
+            "visualizer/data.v2.json",
         ],
     );
 }
@@ -191,28 +198,33 @@ fn zzz_offline_export_writes_complete_core_set() {
             "visualizer/styles.css",
             "visualizer/app.js",
             "visualizer/data.json",
+            "visualizer/data.v2.json",
         ],
     );
 }
 
 #[test]
 fn missing_offline_fixture_path_exits_one() {
-    let out = temp_output("missing");
+    let root = temp_workspace("missing-root");
+    let out = root.join("out");
     let missing = temp_output("does-not-exist");
     let result = export("zzz", Some(&missing), &out);
     assert_eq!(result.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&result.stderr).starts_with("export failed: "));
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn malformed_offline_fixture_exits_one() {
-    let out = temp_output("bad-out");
+    let root = temp_workspace("bad-out-root");
+    let out = root.join("out");
     let bad = temp_output("bad-fixture");
     fs::create_dir_all(&bad).unwrap();
     fs::write(bad.join("invalid.json"), b"{not-json").unwrap();
     let result = export("hsr", Some(&bad), &out);
     assert_eq!(result.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&result.stderr).starts_with("export failed: "));
+    fs::remove_dir_all(root).unwrap();
     fs::remove_dir_all(bad).unwrap();
 }
 
@@ -227,7 +239,8 @@ fn unknown_argument_keeps_clap_exit_two() {
 
 #[test]
 fn invalid_date_is_a_business_error() {
-    let out = temp_output("invalid-date");
+    let root = temp_workspace("invalid-date-root");
+    let out = root.join("out");
     let result = Command::new(binary())
         .args(["hsr", "export", "--from-date", "not-a-date", "--out"])
         .arg(&out)
@@ -241,6 +254,7 @@ fn invalid_date_is_a_business_error() {
         "unexpected stderr: {stderr:?}"
     );
     assert!(!out.exists());
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -269,7 +283,8 @@ fn zzz_migrated_top_n_is_accepted() {
 
 #[test]
 fn hsr_migrated_top_n_and_name_seed_are_accepted() {
-    let out = temp_output("hsr-options");
+    let root = temp_workspace("hsr-options-root");
+    let out = root.join("out");
     let seed = temp_output("hsr-seed").with_extension("csv");
     fs::write(
         &seed,
@@ -296,7 +311,7 @@ fn hsr_migrated_top_n_and_name_seed_are_accepted() {
     let names = fs::read_to_string(out.join("name_map.csv")).unwrap();
     assert!(names.contains("topaz-and-numby,Topaz and Numby,Topaz CN"));
     fs::remove_file(seed).unwrap();
-    fs::remove_dir_all(out).unwrap();
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -351,6 +366,7 @@ fn hsr_visualizer_rebuilds_existing_artifacts_and_refreshes_manifest() {
         "visualizer/styles.css",
         "visualizer/app.js",
         "visualizer/data.json",
+        "visualizer/data.v2.json",
         "visualizer/assets/avatars/agent-alpha.webp",
     ] {
         assert!(manifest.contains(path), "manifest is missing {path}");
@@ -506,6 +522,7 @@ fn zzz_visualizer_rebuilds_with_fallback_sidecars_and_bangboo() {
         "visualizer/styles.css",
         "visualizer/app.js",
         "visualizer/data.json",
+        "visualizer/data.v2.json",
     ] {
         assert!(out.join(path).is_file(), "missing {path}");
     }
@@ -516,8 +533,13 @@ fn zzz_visualizer_rebuilds_with_fallback_sidecars_and_bangboo() {
         "unmanaged"
     );
 
-    let data: serde_json::Value =
+    let legacy: serde_json::Value =
         serde_json::from_slice(&fs::read(out.join("visualizer/data.json")).unwrap()).unwrap();
+    let data: serde_json::Value = miho_core::visualizer::expand_visualizer_data(
+        serde_json::from_slice(&fs::read(out.join("visualizer/data.v2.json")).unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(legacy, data);
     assert_eq!(data["bannerRows"][0]["phase_id"], "fixture-phase");
     assert_eq!(data["decisionCards"]["summary"]["candidate_count"], 1);
     assert!(data["phaseInfoRows"]
@@ -548,6 +570,7 @@ fn zzz_visualizer_rebuilds_with_fallback_sidecars_and_bangboo() {
         "visualizer/styles.css",
         "visualizer/app.js",
         "visualizer/data.json",
+        "visualizer/data.v2.json",
         "visualizer/assets/avatars/agent-alpha.webp",
     ] {
         assert!(manifest.contains(path), "manifest is missing {path}");
@@ -752,8 +775,10 @@ fn zzz_visualizer_rejects_non_finite_decision_constants_without_mutation() {
         "ordinary malformed JSON should retain Python fallback semantics: {}",
         String::from_utf8_lossy(&malformed.stderr)
     );
-    let data: serde_json::Value =
-        serde_json::from_slice(&fs::read(out.join("visualizer/data.json")).unwrap()).unwrap();
+    let data: serde_json::Value = miho_core::visualizer::expand_visualizer_data(
+        serde_json::from_slice(&fs::read(out.join("visualizer/data.json")).unwrap()).unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         data["decisionCards"],
         serde_json::json!({"summary": {}, "cards": []})

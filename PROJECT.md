@@ -25,11 +25,11 @@
 - 版本化 `ExportRequestV1`、可信 `ExportContext`、结构化 diagnostics/stats/IPC receipt/failure 已进入 CLI 执行链；请求会核对实际 dataset 身份，报告完成后重建 artifact manifest。
 - HSR 的 `--prydwen-top-n`/`--name-map-seed` 与 ZZZ 的 `--prydwen-top-n` 已解除选项门禁；离线 CLI 默认生成 Workbook，两游戏在线 export 均在 visualizer 完整目录验收后解除总门禁。
 - ZZZ 已覆盖 visible scope 保序、版本优先的最新阶段、phase selector/override、agent/Bangboo 双语名称、alias、完整 26/4/32 列 history/trend，以及 Cloudflare/retcode 语义失败的 last-good cache 回退。
-- 最近完整回归：Rust workspace 435 项、Python 181 项（含 native update runner、workspace bootstrap、安装/portable 计划任务事务、跨进程 writer lease、共享 app task/TaskManager、Tauri backend、安全 frontend/visualizer protocol、Evidence V1、LegacyV0 decision、pull-value V1 与 review-packet V1 契约）、workspace 严格 clippy、Rust fmt、Python compileall、PowerShell 5.1/7 native/installer/scheduler/release 契约、Vite 与 Tauri `--no-bundle` 通过。Rust 全量首轮曾有一次 `invalid_date_is_a_business_error` 瞬时失败；手工 stderr 精确正确、定点连续 20/20 后，独占全量 435 项通过，该抖动保留为项目监测项。
+- 最新默认离线门禁：`pnpm run verify:fast` 连续 5 轮全绿；每轮 Python `200 passed / 2 deselected`、推荐器 `61/61`、Rust workspace 全绿、Vite production build 通过。另有 Python Visualizer 契约 73 项、Rust Visualizer 36 项、桌面协议 17 项、更新链 12 项及 PowerShell 5.1/7 GUI contract 通过；live probe 已与默认离线门禁分离。
 - Tauri/Vite 构建基线已固定 pnpm 11.7.0、Node `>=20.19 <25`、esbuild 布尔 allowlist 和 `127.0.0.1:5173` strict port，根脚本可从干净依赖状态复现；1420 落入本机 Windows 保留端口段，已由真实 dev 启动反例纠正。
 - 双游戏 Workbook 语义契约已冻结：HSR 18-sheet、ZZZ 12-sheet 脱敏 oracle 与比较器覆盖顺序、值/类型、公式、样式、冻结、筛选、列宽和数值格式；10 项契约测试及 30 张工作表渲染核验通过。
 - 共享 Rust Workbook writer 已直接消费最终 CSV bundle：显式类型、HSR 样式/列宽/数值格式、ZZZ pandas 默认语义、安全公式文本、BestEffort diagnostics、manifest/receipt 与 CLI 原子写出均已通过双游戏语义对比。
-- 双游戏 visualizer 产物契约已冻结并由 Rust 实现：严格 `data.json`、精确目录集合、静态资源与头像哈希、禁网/便携/XSS/URL/非有限数值约束，以及 Hub/HSR/ZZZ 浏览器交互冒烟均已通过；两游戏 export 与独立 visualizer 共用最终磁盘产物重建边界。
+- 双游戏 Visualizer 现同时生成并由 manifest 管理 `data.v2.json` 与旧版 `data.json`；新运行时优先读取 v2，仅在 v2 返回 404 时回退旧版，`data.json` 明确保留一个兼容周期。仓库当前产物中 HSR 由约 11.76 MB 降至 6.58 MB，ZZZ 由约 4.76 MB 降至 2.57 MB，分别缩小约 44% 和 46%；v2 round-trip、旧格式兼容及错误回退边界均有契约覆盖。
 - `evidence-first-v1-20260712` 已由 Python oracle 与共享 Rust core/CLI 双实现：跨 mode 隔离、A 的 sentinel/稳定性门槛、owned/built 分离、稳定 E-ID、显式时钟、JSON/YAML/BOM、四产物黄金和任意路径整批回滚均已验收；Rust evidence/coverage 门禁已解除。
 - Python 继续作为决策/报告迁移 oracle，但安装、计划任务、portable 与桌面/CLI 运行时均已证明不启动 Python。五类报告共用 `miho-app` executor；纯 Rust TaskManager、Tauri capabilities/select/start/get/list/cancel、安全任务前端和 workspace-scoped visualizer/data/avatar/Box 协议桥已接通。单一 Rust update runner、failure receipt、config-bound health、跨进程 workspace writer lease、安装/portable 候选切换与发布事务均已接通并完成真实失败升级回滚、成功升级、计划任务 Running→Ready、portable online update、无 Python 与最终卸载矩阵。
 - 历史 NSIS/portable 链曾完成 frozen inputs、container manifest 与真实安装矩阵；`target/release/bundle/miho-release-artifacts-v1.json` 仅作为那条旧安装器链的事实源保留，不再决定当前桌面程序。
@@ -556,6 +556,15 @@
 - **证据边界**：MoC 平均回合按低值优先，PF/AS 得分按高值优先；`0 / 99.99` 作为缺失而非实力证据，AA 表现方向未验证前只展示、不计分，Rank `0` 统一显示为缺失并排在任意合法正 Rank 后。不同模式和三套口径的分值量纲不混用。任意关卡子集仍按上一里程碑重新联合选队：两关使用完整候选池精确搜索，三关保留既有 Top 50 / beam 近似，不能宣称三队全局精确最优。
 - **回归与真实入口**：推荐逻辑 23/23、Python Visualizer 2/2、跨语言/静态/响应式定点 7/7、`miho-core` visualizer 25/25、JS/Python 语法与 `git diff --check` 均通过，`pnpm run tauri:build` 成功。安装版 GUI 验证满足 WINDOWS_GUI、ready sentinel、5 秒存活、正常退出、空 stdout/stderr 和调试端口清理；随后后台 CDP/DOM 深探针实际执行 ZZZ → HSR → ZZZ，三种口径选项、卡片拆分、localStorage、联合方案和截图两队顺序均通过。1180×720 与 720×720 下推荐 tooltip 实测均为 520×391，横纵 scroll 尺寸完全一致，无裁切或页面横向溢出；HSR/ZZZ Box 哈希仍为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`，设置恢复且 ZZZ localStorage 零漂移。
 - **直接交付**：`target/release/miho-desktop.exe` 已直接原位更新到 `D:\Miho Endgame\miho-desktop.exe`，两者 SHA-256 同为 `62AF8D7A7B45780139F9A4F488A3D22C006E14058C8B08C4880EF9D2717CDA3C`（22,830,592 bytes）；未生成安装器、NSIS 或 portable。
+
+### 终局推荐器可信度优先四批收口（2026-07-23，已完成）
+
+- **第一批—推荐正确性**：统一 HSR 模式指标方向与缺失哨兵，加入开拓者、三月七形态的部署实体互斥；修正 ZZZ 仅提醒、未知 T 档、Rank `0/null` 与未录入练度语义，并把“已拥有”和“练度已录入”分开呈现。
+- **第二批—推荐器 V2**：一至两关使用完整去重候选池精确搜索，三关保留并明确标注有界近似；统一返回最多三套去重方案与 solver 元信息，支持锁队重算、全局替补分配、A/B/C 证据及“综合推荐 / 历史表现 / Box 即战力”三种口径。搜索只重绘左侧候选，正式进入联合方案必须通过锁队。
+- **第三批—数据与桌面闭环**：新增 freshness、data quality、结构化安全错误与脱敏日志；补齐可信报告打开/定位及 HTTPS 外链，Box 批量预览、最近 20 次撤销、保存确认和任务中断回执进入真实桌面路径。
+- **第四批—性能与维护**：加载时建立 mode/scope/phase 索引和有界评分缓存，搜索使用 75 ms debounce；候选准备采用协作分片、Web Worker 和陈旧请求丢弃，双游戏 iframe 常驻并按 revision 刷新。更新链采用最多四路有界并发和稳定输出，Python oracle 改读 Rust canonical Visualizer，Rust 1.97、Windows CI、独立 live probe、无障碍与 320px 小窗口边界同步收口。定点性能回执为搜索 P95 `93.01 ms`、缓存联合重算 P95 `4.79 ms`、最长主线程片段 `42.88 ms`。
+- **真实入口与直接交付**：Release 与候选 EXE SHA-256 均为 `3C89EF963E6F9CA98E417DA51CE2686B714BEA47B1D70554F43234E3C81033B4`。后台 CDP/DOM 实际完成 ZZZ → HSR → ZZZ，覆盖自由一/二/三关、非连续两关、最多三套方案、三种排序、搜索隔离、锁队/解锁重算、双 iframe 页面状态保持、Box 预览取消、320×568 tooltip 和双 Box 保存桥；进程正常退出 0、stdout/stderr 为空。HSR/ZZZ Box SHA-256 前后分别保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`；未进入 NSIS、portable 或旧安装器链。
+- **非阻断维护余项**：HSR/ZZZ 两个大型 `app.js` 尚未按 Box、卡池、图表和推荐器等职责拆分模块；本轮已消除 Python/Rust Visualizer 静态资产双写，模块化拆分留作后续维护任务。
 
 ## 恢复入口
 

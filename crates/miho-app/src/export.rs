@@ -1515,6 +1515,7 @@ mod tests {
                 && entry["bytes"].as_u64() == Some(data_quality_bytes.len() as u64)
         }));
         assert!(output_root.join("visualizer/data.json").is_file());
+        assert!(output_root.join("visualizer/data.v2.json").is_file());
         assert!(output_root.join("artifact_manifest.json").is_file());
         fs::remove_dir_all(root).unwrap();
     }

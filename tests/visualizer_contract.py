@@ -7,6 +7,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Iterable
 
+from miho_core.visualizer_data import expand_visualizer_data
+
 
 LOCAL_DATE_POINTER = "/meta/localDate"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -89,7 +91,7 @@ def binary_sha256(path: Path) -> str:
 
 
 def load_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return expand_visualizer_data(json.loads(path.read_text(encoding="utf-8")))
 
 
 def _compare_json(

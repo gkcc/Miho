@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 from miho_core.banner_plan import effective_phase_status
+from miho_core.visualizer_data import expand_visualizer_data
 from zzz_endgame_exporter.official_names import official_name_map
 from zzz_endgame_exporter.parsers import make_phase_row, parse_team_rows, scope_label
 from zzz_endgame_exporter.prydwen import _date_from_prydwen_date, build_tier_rows
@@ -188,10 +189,16 @@ def test_zzz_visualizer_outputs_box_and_keeps_bangboo_out_of_roster(tmp_path):
     visualizer_dir = tmp_path / "visualizer"
     assert (visualizer_dir / "index.html").exists()
     assert (visualizer_dir / "app.js").exists()
+    assert (visualizer_dir / "data.v2.json").exists()
     app_text = (visualizer_dir / "app.js").read_text(encoding="utf-8")
     data = json.loads((visualizer_dir / "data.json").read_text(encoding="utf-8"))
+    compact_data = expand_visualizer_data(
+        json.loads((visualizer_dir / "data.v2.json").read_text(encoding="utf-8"))
+    )
+    assert compact_data == data
     assert "zzz_endgame_box_v2" in app_text
     assert "api/zzz/box" in app_text
+    assert "./data.v2.json" in app_text
     assert "卡池情报" in (visualizer_dir / "index.html").read_text(encoding="utf-8")
     assert "buildEditor" in (visualizer_dir / "index.html").read_text(encoding="utf-8")
     assert "buildMindscape" in (visualizer_dir / "index.html").read_text(encoding="utf-8")
@@ -351,7 +358,9 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
         changelog_rows=[],
     )
 
-    data = json.loads((tmp_path / "visualizer" / "data.json").read_text(encoding="utf-8"))
+    data = expand_visualizer_data(
+        json.loads((tmp_path / "visualizer" / "data.json").read_text(encoding="utf-8"))
+    )
     app_text = (tmp_path / "visualizer" / "app.js").read_text(encoding="utf-8")
     roster = {row["character_slug"]: row for row in data["rosterRows"]}
 

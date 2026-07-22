@@ -6,13 +6,16 @@ use std::{
     path::{Component, Path, PathBuf},
     pin::Pin,
     sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
 };
 
 use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDateTime, SecondsFormat, Timelike, Utc};
 use miho_core::{
     atomic,
     contract::{diagnostic_code, FeatureFlags, Game},
+    network::FetchSource,
     output::ArtifactManifestEntry,
+    MihoError,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -108,6 +111,19 @@ impl UpdateStepFailureV1 {
 pub struct UpdateStepReceiptV1 {
     pub step: UpdateStepKindV1,
     pub status: UpdateStepStatusV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Sum of data rows across this step's emitted CSV artifacts. Derived
+    /// tables may represent the same source record more than once; this is an
+    /// output-volume receipt, not a unique-source-record metric.
+    pub row_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fetch_source: Option<FetchSource>,
+    #[serde(default)]
+    pub cache_fallback: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<UpdateArtifactV1>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -295,6 +311,25 @@ pub trait UpdateStepExecutor: Send + Sync {
         step: UpdateStepKindV1,
         context: &'a UpdateStepContextV1,
     ) -> UpdateStepFuture<'a>;
+
+    /// Optional safe provenance for a completed execution attempt. The
+    /// default preserves compatibility for external/custom executors.
+    fn fetch_source(
+        &self,
+        _step: UpdateStepKindV1,
+        _execution_succeeded: bool,
+        _failure: Option<&UpdateStepFailureV1>,
+    ) -> Option<FetchSource> {
+        None
+    }
+
+    fn cache_fallback(
+        &self,
+        _step: UpdateStepKindV1,
+        _failure: Option<&UpdateStepFailureV1>,
+    ) -> bool {
+        false
+    }
 }
 
 /// Production native backend. It reuses the same export and typed report
@@ -347,6 +382,39 @@ impl UpdateStepExecutor for NativeUpdateExecutorV1 {
         context: &'a UpdateStepContextV1,
     ) -> UpdateStepFuture<'a> {
         Box::pin(async move { self.execute_step(step, context).await })
+    }
+
+    fn fetch_source(
+        &self,
+        step: UpdateStepKindV1,
+        execution_succeeded: bool,
+        failure: Option<&UpdateStepFailureV1>,
+    ) -> Option<FetchSource> {
+        if !matches!(
+            step,
+            UpdateStepKindV1::HsrExport | UpdateStepKindV1::ZzzExport
+        ) {
+            return None;
+        }
+        if failure.is_some_and(|failure| is_supplemental_cache_fallback_code(&failure.code)) {
+            return (!self.fixture_sources.contains_key(&step.game()))
+                .then_some(FetchSource::Network);
+        }
+        if failure.is_some_and(|failure| is_cache_fallback_code(&failure.code)) {
+            return Some(FetchSource::Cache);
+        }
+        if execution_succeeded && !self.fixture_sources.contains_key(&step.game()) {
+            return Some(FetchSource::Network);
+        }
+        None
+    }
+
+    fn cache_fallback(
+        &self,
+        _step: UpdateStepKindV1,
+        failure: Option<&UpdateStepFailureV1>,
+    ) -> bool {
+        failure.is_some_and(|failure| is_cache_fallback_code(&failure.code))
     }
 }
 
@@ -426,7 +494,7 @@ impl NativeUpdateExecutorV1 {
                     hf_origin: self.hf_origins.get(&game).cloned(),
                 }),
         };
-        let receipt = if game == Game::Zzz {
+        let result = if game == Game::Zzz {
             let hsr_directory = self
                 .config
                 .hsr
@@ -437,8 +505,21 @@ impl NativeUpdateExecutorV1 {
             execute_export_with_hub_v1(&task, &invocation, hsr_directory).await
         } else {
             execute_export_v1(&task, &invocation).await
+        };
+        let receipt = match result {
+            Ok(receipt) => receipt,
+            Err(error) if is_cache_fallback_error(&error) => {
+                return Err(cache_fallback_failure(game_export_step(game)))
+            }
+            Err(_) => return Err(safe_step_failure(game_export_step(game), true)),
+        };
+        if receipt
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == diagnostic_code::SUPPLEMENTAL_CACHE_FALLBACK)
+        {
+            return Err(supplemental_cache_fallback_failure(game_export_step(game)));
         }
-        .map_err(|_| safe_step_failure(game_export_step(game), true))?;
         if receipt
             .diagnostics
             .iter()
@@ -547,6 +628,46 @@ fn safe_artifact_failure(step: UpdateStepKindV1) -> UpdateStepFailureV1 {
     )
 }
 
+fn cache_fallback_failure(step: UpdateStepKindV1) -> UpdateStepFailureV1 {
+    UpdateStepFailureV1::safe(
+        format!("update.{}.cache_fallback", step_code(step)),
+        format!("the {} step used a cache fallback", step_code(step)),
+        true,
+    )
+}
+
+fn supplemental_cache_fallback_failure(step: UpdateStepKindV1) -> UpdateStepFailureV1 {
+    UpdateStepFailureV1::safe(
+        format!("update.{}.supplemental_cache_fallback", step_code(step)),
+        format!(
+            "the {} step used a supplemental cache fallback",
+            step_code(step)
+        ),
+        true,
+    )
+}
+
+fn is_cache_fallback_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<MihoError>(),
+            Some(MihoError::CacheFallbackRejected(_))
+        ) || cause
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("cache fallback")
+    })
+}
+
+fn is_cache_fallback_code(code: &str) -> bool {
+    (code.starts_with("update.") && code.ends_with(".cache_fallback"))
+        || is_supplemental_cache_fallback_code(code)
+}
+
+fn is_supplemental_cache_fallback_code(code: &str) -> bool {
+    code.starts_with("update.") && code.ends_with(".supplemental_cache_fallback")
+}
+
 fn step_code(step: UpdateStepKindV1) -> &'static str {
     match step {
         UpdateStepKindV1::HsrExport => "hsr_export",
@@ -575,14 +696,10 @@ fn collect_export_artifacts(
         if !metadata.is_file() || metadata.len() != entry.bytes as u64 {
             anyhow::bail!("export artifact metadata does not match manifest");
         }
-        let digest = sha256_file(&path)?;
-        if digest != entry.sha256 {
-            anyhow::bail!("export artifact digest does not match manifest");
-        }
         outputs.push(UpdateArtifactV1 {
             path: relative,
             bytes: metadata.len(),
-            sha256: digest,
+            sha256: entry.sha256,
         });
     }
     outputs.push(file_artifact(workspace, &manifest_path)?);
@@ -613,7 +730,9 @@ fn file_artifact(workspace: &Path, path: &Path) -> anyhow::Result<UpdateArtifact
     Ok(UpdateArtifactV1 {
         path: workspace_relative(workspace, path)?,
         bytes: metadata.len(),
-        sha256: sha256_file(path)?,
+        // The single trusted full-file read happens in `validate_artifacts`,
+        // which fills this digest before a receipt can succeed.
+        sha256: String::new(),
     })
 }
 
@@ -625,18 +744,102 @@ fn workspace_relative(workspace: &Path, path: &Path) -> anyhow::Result<PathBuf> 
     Ok(relative.to_path_buf())
 }
 
-fn sha256_file(path: &Path) -> anyhow::Result<String> {
-    let mut file = File::open(path)?;
+fn hash_file_with_optional_csv_rows(
+    path: &Path,
+    count_csv_rows: bool,
+) -> anyhow::Result<(String, u64, Option<u64>)> {
+    #[cfg(test)]
+    ARTIFACT_HASH_PASSES_V1.fetch_add(1, Ordering::SeqCst);
+    let mut file = open_artifact_for_trusted_read(path)?;
+    let metadata_before = file.metadata()?;
+    if !metadata_before.is_file() {
+        anyhow::bail!("update artifact is not a regular file");
+    }
     let mut hasher = Sha256::new();
+    let mut csv_rows = count_csv_rows.then(CsvRowCounterV1::default);
+    let mut byte_count = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];
     loop {
         let read = file.read(&mut buffer)?;
         if read == 0 {
             break;
         }
+        byte_count = byte_count
+            .checked_add(read as u64)
+            .ok_or_else(|| anyhow::anyhow!("artifact byte count overflow"))?;
         hasher.update(&buffer[..read]);
+        if let Some(counter) = csv_rows.as_mut() {
+            counter.push(&buffer[..read]);
+        }
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    let metadata_after = file.metadata()?;
+    if !metadata_after.is_file()
+        || metadata_before.len() != metadata_after.len()
+        || metadata_after.len() != byte_count
+    {
+        anyhow::bail!("update artifact changed during trusted read");
+    }
+    Ok((
+        format!("{:x}", hasher.finalize()),
+        byte_count,
+        csv_rows.map(CsvRowCounterV1::data_rows),
+    ))
+}
+
+fn open_artifact_for_trusted_read(path: &Path) -> std::io::Result<File> {
+    #[cfg(windows)]
+    {
+        use std::fs::OpenOptions;
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+
+        // Keep the exact file immutable for the lifetime of the hash/read:
+        // other readers may coexist, but writers, replacements, and deletes
+        // cannot acquire a compatible Windows handle.
+        OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(path)
+    }
+    #[cfg(not(windows))]
+    {
+        File::open(path)
+    }
+}
+
+#[derive(Debug, Default)]
+struct CsvRowCounterV1 {
+    in_quotes: bool,
+    records: u64,
+    saw_any: bool,
+    ended_at_record_boundary: bool,
+}
+
+impl CsvRowCounterV1 {
+    fn push(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.saw_any = true;
+            if byte == b'"' {
+                // A doubled quote toggles twice and therefore preserves the
+                // quoted state. Exported CSV is RFC-style and never uses a
+                // bare quote inside an unquoted field.
+                self.in_quotes = !self.in_quotes;
+                self.ended_at_record_boundary = false;
+            } else if byte == b'\n' && !self.in_quotes {
+                self.records = self.records.saturating_add(1);
+                self.ended_at_record_boundary = true;
+            } else if byte != b'\r' {
+                self.ended_at_record_boundary = false;
+            }
+        }
+    }
+
+    fn data_rows(mut self) -> u64 {
+        if self.saw_any && !self.ended_at_record_boundary {
+            self.records = self.records.saturating_add(1);
+        }
+        self.records.saturating_sub(1)
+    }
 }
 
 pub trait UpdateReceiptStore: Send + Sync {
@@ -732,6 +935,7 @@ impl UpdateReceiptStore for FileUpdateReceiptStore {
                     "the previous update attempt was interrupted",
                     true,
                 ));
+                stabilize_receipt_steps(&mut receipt);
                 replacements.push((entry.path(), json_bytes(&receipt)?));
             }
         }
@@ -1312,32 +1516,55 @@ async fn run_selected_games<E: UpdateStepExecutor>(
         for step_index in 0..receipt.games[game_index].steps.len() {
             let step = receipt.games[game_index].steps[step_index].step;
             if game_failed {
-                receipt.games[game_index].steps[step_index].status = UpdateStepStatusV1::Skipped;
+                let step_receipt = &mut receipt.games[game_index].steps[step_index];
+                step_receipt.status = UpdateStepStatusV1::Skipped;
+                step_receipt.duration_ms = Some(0);
+                step_receipt.reason_code = Some("update.dependency_failed".to_owned());
                 continue;
             }
             receipt.games[game_index].status = UpdateStepStatusV1::Running;
             receipt.games[game_index].steps[step_index].status = UpdateStepStatusV1::Running;
-            match executor.execute(step, context).await {
+            let started_at = Instant::now();
+            let execution = executor.execute(step, context).await;
+            let execution_succeeded = execution.is_ok();
+            let (status, artifacts, row_count, failure) = match execution {
                 Ok(artifacts) => match validate_artifacts(&context.workspace, artifacts) {
-                    Ok(artifacts) => {
-                        let step_receipt = &mut receipt.games[game_index].steps[step_index];
-                        step_receipt.status = UpdateStepStatusV1::Succeeded;
-                        step_receipt.artifacts = artifacts;
-                    }
+                    Ok(validated) => (
+                        UpdateStepStatusV1::Succeeded,
+                        validated.artifacts,
+                        validated.row_count,
+                        None,
+                    ),
                     Err(failure) => {
-                        let step_receipt = &mut receipt.games[game_index].steps[step_index];
-                        step_receipt.status = UpdateStepStatusV1::Failed;
-                        step_receipt.failure = Some(failure);
                         game_failed = true;
+                        (UpdateStepStatusV1::Failed, Vec::new(), None, Some(failure))
                     }
                 },
                 Err(failure) => {
-                    let step_receipt = &mut receipt.games[game_index].steps[step_index];
-                    step_receipt.status = UpdateStepStatusV1::Failed;
-                    step_receipt.failure = Some(failure);
                     game_failed = true;
+                    (UpdateStepStatusV1::Failed, Vec::new(), None, Some(failure))
                 }
-            }
+            };
+            let fetch_source = executor.fetch_source(step, execution_succeeded, failure.as_ref());
+            let cache_fallback = executor.cache_fallback(step, failure.as_ref());
+            let reason_code = failure
+                .as_ref()
+                .map(|failure| safe_reason_code(&failure.code));
+            let step_receipt = &mut receipt.games[game_index].steps[step_index];
+            step_receipt.status = status;
+            step_receipt.duration_ms = Some(
+                started_at
+                    .elapsed()
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
+            );
+            step_receipt.row_count = row_count;
+            step_receipt.fetch_source = fetch_source;
+            step_receipt.cache_fallback = cache_fallback;
+            step_receipt.reason_code = reason_code;
+            step_receipt.artifacts = artifacts;
+            step_receipt.failure = failure;
         }
         receipt.games[game_index].status = if game_failed {
             UpdateStepStatusV1::Failed
@@ -1345,12 +1572,19 @@ async fn run_selected_games<E: UpdateStepExecutor>(
             UpdateStepStatusV1::Succeeded
         };
     }
+    stabilize_receipt_steps(receipt);
+}
+
+#[derive(Debug)]
+struct ValidatedArtifactsV1 {
+    artifacts: Vec<UpdateArtifactV1>,
+    row_count: Option<u64>,
 }
 
 fn validate_artifacts(
     workspace: &Path,
-    artifacts: Vec<UpdateArtifactV1>,
-) -> Result<Vec<UpdateArtifactV1>, UpdateStepFailureV1> {
+    mut artifacts: Vec<UpdateArtifactV1>,
+) -> Result<ValidatedArtifactsV1, UpdateStepFailureV1> {
     if artifacts.is_empty() {
         return Err(UpdateStepFailureV1::safe(
             "update.artifacts_empty",
@@ -1358,7 +1592,8 @@ fn validate_artifacts(
             false,
         ));
     }
-    for artifact in &artifacts {
+    let mut row_count = None::<u64>;
+    for artifact in &mut artifacts {
         if !safe_relative_path(&artifact.path) {
             return Err(UpdateStepFailureV1::safe(
                 "update.artifact_path_unsafe",
@@ -1378,13 +1613,21 @@ fn validate_artifacts(
                 true,
             )
         })?;
+        let count_csv_rows =
+            artifact.path.extension().and_then(|value| value.to_str()) == Some("csv");
+        let digest_and_rows = hash_file_with_optional_csv_rows(&path, count_csv_rows);
+        let supplied_digest = artifact.sha256.clone();
         if metadata.file_type().is_symlink()
             || is_windows_reparse(&metadata)
             || !metadata.is_file()
             || metadata.len() != artifact.bytes
-            || !valid_sha256(&artifact.sha256)
-            || sha256_file(&path)
-                .map(|digest| digest != artifact.sha256)
+            || (!supplied_digest.is_empty() && !valid_sha256(&supplied_digest))
+            || digest_and_rows
+                .as_ref()
+                .map(|(digest, bytes, _)| {
+                    *bytes != artifact.bytes
+                        || (!supplied_digest.is_empty() && digest != &supplied_digest)
+                })
                 .unwrap_or(true)
         {
             return Err(UpdateStepFailureV1::safe(
@@ -1393,8 +1636,19 @@ fn validate_artifacts(
                 true,
             ));
         }
+        if let Ok((digest, bytes, rows)) = digest_and_rows {
+            artifact.sha256 = digest;
+            artifact.bytes = bytes;
+            let Some(rows) = rows else {
+                continue;
+            };
+            row_count = Some(row_count.unwrap_or(0).saturating_add(rows));
+        }
     }
-    Ok(artifacts)
+    Ok(ValidatedArtifactsV1 {
+        artifacts,
+        row_count,
+    })
 }
 
 fn valid_sha256(value: &str) -> bool {
@@ -1402,6 +1656,34 @@ fn valid_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+fn safe_reason_code(code: &str) -> String {
+    if !code.is_empty()
+        && code.len() <= 96
+        && code.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+        })
+    {
+        code.to_owned()
+    } else {
+        "update.step_failed".to_owned()
+    }
+}
+
+fn stabilize_receipt_steps(receipt: &mut UpdateReceiptV1) {
+    receipt.games.sort_by_key(|game| game.game);
+    for game in &mut receipt.games {
+        game.steps.sort_by_key(|step| step.step);
+        for step in &mut game.steps {
+            step.artifacts.sort_by(|left, right| {
+                left.path
+                    .cmp(&right.path)
+                    .then(left.sha256.cmp(&right.sha256))
+                    .then(left.bytes.cmp(&right.bytes))
+            });
+        }
+    }
 }
 
 fn safe_relative_path(path: &Path) -> bool {
@@ -1494,7 +1776,7 @@ fn is_windows_reparse(metadata: &fs::Metadata) -> bool {
 }
 
 fn initial_receipt(request: &UpdateRequestV1, invocation: &UpdateInvocationV1) -> UpdateReceiptV1 {
-    UpdateReceiptV1 {
+    let mut receipt = UpdateReceiptV1 {
         schema_version: UPDATE_RECEIPT_SCHEMA_V1.to_owned(),
         attempt_id: invocation.attempt_id.clone(),
         started_at_utc: invocation
@@ -1515,7 +1797,9 @@ fn initial_receipt(request: &UpdateRequestV1, invocation: &UpdateInvocationV1) -
             game_receipt(Game::Zzz, !request.skip_zzz),
         ],
         failure: None,
-    }
+    };
+    stabilize_receipt_steps(&mut receipt);
+    receipt
 }
 
 fn game_receipt(game: Game, selected: bool) -> UpdateGameReceiptV1 {
@@ -1546,6 +1830,11 @@ fn game_receipt(game: Game, selected: bool) -> UpdateGameReceiptV1 {
                 } else {
                     UpdateStepStatusV1::Skipped
                 },
+                duration_ms: (!selected).then_some(0),
+                row_count: None,
+                fetch_source: None,
+                cache_fallback: false,
+                reason_code: (!selected).then(|| "update.game_not_selected".to_owned()),
                 artifacts: Vec::new(),
                 failure: None,
             })
@@ -1569,6 +1858,7 @@ fn in_memory_failure(
     receipt.finished_at_utc = Some(now_utc_text());
     receipt.status = UpdateRunStatusV1::Failed;
     receipt.failure = Some(failure);
+    stabilize_receipt_steps(&mut receipt);
     UpdateRunOutcomeV1 {
         receipt,
         exit_code: 1,
@@ -1590,6 +1880,7 @@ fn finish_failure<S: UpdateReceiptStore>(
     receipt.state_committed = false;
     receipt.receipt_committed = true;
     receipt.failure = Some(failure);
+    stabilize_receipt_steps(&mut receipt);
     if let Err(commit_failure) = store.commit_failure(workspace, &receipt) {
         receipt.receipt_committed = false;
         receipt.failure = Some(commit_failure);
@@ -1602,4 +1893,114 @@ fn finish_failure<S: UpdateReceiptStore>(
 
 fn now_utc_text() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true)
+}
+
+#[cfg(test)]
+static ARTIFACT_HASH_PASSES_V1: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static HASH_TEST_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn collected_artifact_is_hashed_once_during_trusted_validation() {
+        let _gate = HASH_TEST_GATE.lock().unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "miho-update-single-hash-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let path = root.join("rows.csv");
+        fs::write(&path, b"name,note\nalpha,one\n").unwrap();
+
+        ARTIFACT_HASH_PASSES_V1.store(0, Ordering::SeqCst);
+        let artifact = file_artifact(&root, &path).unwrap();
+        assert!(artifact.sha256.is_empty());
+        let validated = validate_artifacts(&root, vec![artifact]).unwrap();
+        assert_eq!(ARTIFACT_HASH_PASSES_V1.load(Ordering::SeqCst), 1);
+        assert_eq!(validated.row_count, Some(1));
+        assert!(valid_sha256(&validated.artifacts[0].sha256));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn trusted_artifact_handle_denies_concurrent_write_and_replace() {
+        let _gate = HASH_TEST_GATE.lock().unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "miho-update-immutable-read-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let path = root.join("artifact.json");
+        let moved = root.join("artifact-moved.json");
+        fs::write(&path, b"{\"stable\":true}\n").unwrap();
+
+        let handle = open_artifact_for_trusted_read(&path).unwrap();
+        assert!(fs::OpenOptions::new().write(true).open(&path).is_err());
+        assert!(fs::rename(&path, &moved).is_err());
+        assert_eq!(handle.metadata().unwrap().len(), 16);
+
+        drop(handle);
+        fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        fs::rename(&path, &moved).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn supplemental_fallback_reports_network_primary_with_cache_degradation() {
+        let root = std::env::temp_dir().join(format!(
+            "miho-update-source-receipt-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let config = crate::UpdateConfigV1::parse(
+            br#"{
+              "schema_version":"miho-update-config-v1",
+              "days":30,
+              "hsr":{"output":"out","repo_id":"owner/hsr","revision":"main","modes":["moc"],"prydwen_top_n":100},
+              "zzz":{"output":"out_zzz","repo_id":"owner/zzz","revision":"main","modes":["sd"],"prydwen_top_n":100,"box":".miho/zzz_box_state.json","banner_plan":"configs/zzz_banner_plan.json","mechanism_notes":"configs/zzz_mechanism_notes","decision_baseline":"configs/zzz_decision_baseline.json"}
+            }"#,
+        )
+        .unwrap()
+        .resolve(&root)
+        .unwrap();
+        let executor = NativeUpdateExecutorV1::new(config);
+        let step = UpdateStepKindV1::HsrExport;
+
+        let supplemental = supplemental_cache_fallback_failure(step);
+        assert_eq!(
+            executor.fetch_source(step, false, Some(&supplemental)),
+            Some(FetchSource::Network)
+        );
+        assert!(executor.cache_fallback(step, Some(&supplemental)));
+
+        let primary = cache_fallback_failure(step);
+        assert_eq!(
+            executor.fetch_source(step, false, Some(&primary)),
+            Some(FetchSource::Cache)
+        );
+        assert!(executor.cache_fallback(step, Some(&primary)));
+        fs::remove_dir_all(root).unwrap();
+    }
 }

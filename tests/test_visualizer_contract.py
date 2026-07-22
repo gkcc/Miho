@@ -81,6 +81,19 @@ def test_desktop_box_bootstrap_uses_server_before_enabling_ui(game: str) -> None
 
 
 @pytest.mark.parametrize("game", ["hsr", "zzz"])
+def test_visualizer_prefers_v2_and_only_falls_back_for_a_missing_asset(game: str) -> None:
+    app = (
+        ROOT / "crates" / "miho-core" / "assets" / "visualizer" / game / "app.js"
+    ).read_text(encoding="utf-8")
+
+    assert "function fetchVisualizerData()" in app
+    assert "./data.v2.json?v=${revision}" in app
+    assert "./data.json?v=${revision}" in app
+    assert "current.status!==404" in app
+    assert "fetchVisualizerData()" in app
+
+
+@pytest.mark.parametrize("game", ["hsr", "zzz"])
 def test_visualizer_box_edits_are_previewed_undoable_and_flushable(game: str) -> None:
     visualizer = ROOT / "crates" / "miho-core" / "assets" / "visualizer" / game
     app = (visualizer / "app.js").read_text(encoding="utf-8")
@@ -401,14 +414,36 @@ def cli_zzz_visualizer_root(
     return out_root / "visualizer", expected_root, actual_hub, expected_hub
 
 
+@pytest.mark.parametrize("game", ["hsr", "zzz"])
+def test_python_oracle_emits_one_cycle_legacy_wire_and_compact_v2(
+    visualizer_workspace: Path,
+    game: str,
+) -> None:
+    root = _visualizer_root(visualizer_workspace, game)
+    legacy_path = root / "data.json"
+    v2_path = root / "data.v2.json"
+    legacy_raw = json.loads(legacy_path.read_text(encoding="utf-8"))
+    v2_raw = json.loads(v2_path.read_text(encoding="utf-8"))
+
+    assert "schema_version" not in legacy_raw
+    assert v2_raw["schema_version"] == "miho-visualizer-data-v2"
+    assert_json_contract_equal(load_json(legacy_path), load_json(v2_path))
+    # This deliberately small contract fixture primarily freezes field/type
+    # behavior; the representative dense-table codec test enforces the 30%
+    # size target, while this oracle still guards against a wire-size regression.
+    assert v2_path.stat().st_size < legacy_path.stat().st_size
+
+
 def test_rust_hsr_visualizer_matches_python_json_exactly(
     visualizer_workspace: Path,
     rust_hsr_visualizer_root: Path,
 ) -> None:
     expected = load_json(_visualizer_root(visualizer_workspace, "hsr") / "data.json")
     actual = load_json(rust_hsr_visualizer_root / "data.json")
+    actual_v2 = load_json(rust_hsr_visualizer_root / "data.v2.json")
 
     assert_json_contract_equal(expected, actual, dynamic_pointers=())
+    assert_json_contract_equal(expected, actual_v2, dynamic_pointers=())
 
 
 def test_rust_hsr_visualizer_file_set_and_asset_hashes_are_exact(
@@ -453,7 +488,9 @@ def test_rust_zzz_visualizer_matches_python_json_exactly(
 ) -> None:
     expected = load_json(_visualizer_root(visualizer_workspace, "zzz") / "data.json")
     actual = load_json(rust_zzz_visualizer_root / "data.json")
+    actual_v2 = load_json(rust_zzz_visualizer_root / "data.v2.json")
     assert_json_contract_equal(expected, actual, dynamic_pointers=())
+    assert_json_contract_equal(expected, actual_v2, dynamic_pointers=())
 
 
 def test_rust_zzz_visualizer_file_set_and_asset_hashes_are_exact(
@@ -517,12 +554,14 @@ def test_real_zzz_cli_visualizer_matches_the_complete_python_oracle(
 
 
 @pytest.mark.parametrize("game", ["hsr", "zzz"])
+@pytest.mark.parametrize("wire_name", ["data.json", "data.v2.json"])
 def test_python_visualizer_matches_strict_json_oracle(
     visualizer_workspace: Path,
     game: str,
+    wire_name: str,
 ) -> None:
-    actual = load_json(_visualizer_root(visualizer_workspace, game) / "data.json")
-    expected = load_json(FIXTURES / game / "data.json")
+    actual = load_json(_visualizer_root(visualizer_workspace, game) / wire_name)
+    expected = load_json(FIXTURES / game / wire_name)
 
     assert_json_contract_equal(expected, actual)
     assert set(actual) == set(expected)
@@ -871,7 +910,7 @@ def test_formula_and_html_payloads_remain_data_not_static_markup(
 ) -> None:
     visualizer = _visualizer_root(visualizer_workspace, game)
     data_text = (visualizer / "data.json").read_text(encoding="utf-8")
-    data = json.loads(data_text)
+    data = load_json(visualizer / "data.json")
 
     # JSON must escape the payload's quote characters. Compare the serialized
     # string body here, then assert the decoded value below.
@@ -1943,10 +1982,11 @@ def _regenerate_oracles() -> None:
 
         workspace = visualizer_workspace.__wrapped__(Factory())  # type: ignore[attr-defined]
         for game in ("hsr", "zzz"):
-            source = _visualizer_root(workspace, game) / "data.json"
-            target = FIXTURES / game / "data.json"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, target)
+            for name in ("data.json", "data.v2.json"):
+                source = _visualizer_root(workspace, game) / name
+                target = FIXTURES / game / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
 
         roots = {
             "hsr": _visualizer_root(workspace, "hsr"),

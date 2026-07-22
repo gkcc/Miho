@@ -15,14 +15,14 @@
 
   <section id="analysisView">
     <section class="controls">
-      <label>模式<div id="modeControl" class="segmented"></div></label>
-      <label>职能<div id="roleControl" class="segmented"></div></label>
-      <label>视图<div id="viewControl" class="segmented"></div></label>
-      <label>数量<select id="limitSelect"><option value="10">Top 10</option><option value="16" selected>Top 16</option><option value="30">Top 30</option></select></label>
-      <label>搜索<input id="searchInput" type="search" placeholder="中文名 / 英文名 / slug" /></label>
+      <div class="control-field"><span class="control-label" id="modeControlLabel">模式</span><div id="modeControl" class="segmented" role="group" aria-labelledby="modeControlLabel"></div></div>
+      <div class="control-field"><span class="control-label" id="roleControlLabel">职能</span><div id="roleControl" class="segmented" role="group" aria-labelledby="roleControlLabel"></div></div>
+      <div class="control-field"><span class="control-label" id="viewControlLabel">视图</span><div id="viewControl" class="segmented" role="group" aria-labelledby="viewControlLabel"></div></div>
+      <label for="limitSelect">数量<select id="limitSelect"><option value="10">Top 10</option><option value="16" selected>Top 16</option><option value="30">Top 30</option></select></label>
+      <label for="searchInput">搜索<input id="searchInput" type="search" placeholder="中文名 / 英文名 / slug" /></label>
     </section>
     <section class="analysis-layout">
-      <section class="panel chart-panel"><div class="panel-head"><div><h2 id="chartTitle">趋势</h2><p id="chartSubtitle"></p></div><div id="badges" class="badges"></div></div><svg id="chart"></svg><div id="tooltip" class="tooltip" hidden></div></section>
+      <section class="panel chart-panel"><div class="panel-head"><div><h2 id="chartTitle">趋势</h2><p id="chartSubtitle"></p></div><div id="badges" class="badges"></div></div><svg id="chart" role="group" aria-label="代理人出场率可交互图表"></svg><div id="tooltip" class="tooltip" role="tooltip" hidden></div></section>
       <aside class="panel side-panel">
         <div class="side-section characters"><h3>角色数据</h3><div id="characterList" class="character-list"></div></div>
         <div class="side-section changelog"><h3>Changelog</h3><div id="changelogList" class="changelog-list"></div></div>
@@ -32,43 +32,43 @@
 
   <section id="bannerView" class="hidden">
     <section class="controls banner-controls">
-      <label>阶段<div id="bannerPhaseControl" class="segmented"></div></label>
-      <label>搜索<input id="bannerSearchInput" type="search" placeholder="角色 / 属性 / 标签" /></label>
+      <div class="control-field"><span class="control-label" id="bannerPhaseControlLabel">阶段</span><div id="bannerPhaseControl" class="segmented" role="group" aria-labelledby="bannerPhaseControlLabel"></div></div>
+      <label for="bannerSearchInput">搜索<input id="bannerSearchInput" type="search" placeholder="角色 / 属性 / 标签" /></label>
     </section>
     <section class="banner-hero">
       <div><h2 id="bannerTitle">卡池情报</h2><p id="bannerSubtitle"></p></div>
       <div id="bannerBadges" class="badges"></div>
     </section>
     <section id="bannerGrid" class="banner-grid"></section>
-    <div id="bannerTooltip" class="tooltip" hidden></div>
+    <div id="bannerTooltip" class="tooltip" role="tooltip" hidden></div>
   </section>
 
   <section id="boxView" class="hidden">
     <section class="controls">
-      <label>属性<div id="boxElementControl" class="segmented"></div></label>
-      <label>特性<div id="boxStyleControl" class="segmented"></div></label>
-      <label>状态<select id="boxOwnedSelect"><option value="all">全部</option><option value="owned">已拥有</option><option value="missing">未拥有</option><option value="banner_current">当期UP</option><option value="banner_next">下一期</option><option value="banner_satellite">卫星</option></select></label>
-      <label>搜索<input id="boxSearchInput" type="search" placeholder="中文名 / 英文名 / slug" /></label>
+      <div class="control-field"><span class="control-label" id="boxElementControlLabel">属性</span><div id="boxElementControl" class="segmented" role="group" aria-labelledby="boxElementControlLabel"></div></div>
+      <div class="control-field"><span class="control-label" id="boxStyleControlLabel">特性</span><div id="boxStyleControl" class="segmented" role="group" aria-labelledby="boxStyleControlLabel"></div></div>
+      <label for="boxOwnedSelect">状态<select id="boxOwnedSelect"><option value="all">全部</option><option value="owned">已拥有</option><option value="missing">未拥有</option><option value="banner_current">当期UP</option><option value="banner_next">下一期</option><option value="banner_satellite">卫星</option></select></label>
+      <label for="boxSearchInput">搜索<input id="boxSearchInput" type="search" placeholder="中文名 / 英文名 / slug" /></label>
       <div class="actions"><button id="boxExportBtn" type="button">导出Box</button><button id="boxImportBtn" type="button">导入</button><button id="boxUndoBtn" type="button" disabled>撤销</button><button id="boxMarkVisibleBtn" type="button">筛选设为已拥有</button><button id="boxBuildVisibleBtn" type="button">筛选设为练满</button><button id="boxClearBuildVisibleBtn" type="button">清筛选练度</button><button id="boxClearAllBtn" class="danger" type="button">清空整个 Box</button><input id="boxImportInput" type="file" accept="application/json,.json" hidden /></div>
     </section>
-    <section id="buildEditor" class="build hidden"><img id="buildIcon" alt=""><div><h2 id="buildTitle">练度</h2><p id="buildSubtitle"></p></div><label>等级<select id="buildLevel"></select></label><label>音擎<select id="buildEngine"></select></label><label>影画<select id="buildMindscape"></select></label><label>专武<select id="buildSignature"></select></label><label>技能<select id="buildSkill"></select></label><label>驱动盘<select id="buildDisc"></select></label><span id="buildScore"></span><button id="buildMaxBtn">设为练满</button><button id="buildClearBtn">清空练度</button></section>
-    <section class="panel"><div class="panel-head"><div><h2>我的 Box</h2><p id="boxSubtitle"></p></div><div id="boxBadges" class="badges"></div></div><div id="boxGrid" class="box-grid"></div><div id="boxTooltip" class="tooltip" hidden></div></section>
+    <section id="buildEditor" class="build hidden"><img id="buildIcon" alt=""><div><h2 id="buildTitle">练度</h2><p id="buildSubtitle"></p></div><label for="buildLevel">等级<select id="buildLevel"></select></label><label for="buildEngine">音擎<select id="buildEngine"></select></label><label for="buildMindscape">影画<select id="buildMindscape"></select></label><label for="buildSignature">专武<select id="buildSignature"></select></label><label for="buildSkill">技能<select id="buildSkill"></select></label><label for="buildDisc">驱动盘<select id="buildDisc"></select></label><span id="buildScore"></span><button id="buildMaxBtn">设为练满</button><button id="buildClearBtn">清空练度</button></section>
+    <section class="panel"><div class="panel-head"><div><h2>我的 Box</h2><p id="boxSubtitle"></p></div><div id="boxBadges" class="badges"></div></div><div id="boxGrid" class="box-grid"></div><div id="boxTooltip" class="tooltip" role="tooltip" hidden></div></section>
   </section>
 
   <section id="recommenderView" class="hidden">
     <section class="controls rec-target-controls" aria-label="多队目标">
-      <label>参战关卡（可多选）<div id="recTargetScopeControl" class="segmented"></div></label>
+      <div class="control-field"><span class="control-label" id="recTargetScopeControlLabel">参战关卡（可多选）</span><div id="recTargetScopeControl" class="segmented" role="group" aria-labelledby="recTargetScopeControlLabel"></div></div>
       <p>只在已选关卡之间联合分配 Box；未选关卡不会占用或预留代理人。</p>
     </section>
     <section class="controls rec-controls">
-      <label>模式<div id="recModeControl" class="segmented"></div></label>
-      <label>关卡<select id="recScopeSelect"></select></label>
-      <label>推荐属性<div id="recElementControl" class="segmented"></div></label>
-      <label>排序口径<select id="recSortSelect"><option value="balanced" selected>综合推荐</option><option value="history">历史表现</option><option value="box">Box 即战力</option></select></label>
-      <label>缺口<select id="recGapSelect"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="3">显示全部</option></select></label>
-      <label>风险<select id="recRiskSelect"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></label>
-      <label>数量<select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></label>
-      <label>搜索<input id="recSearchInput" type="search" placeholder="角色 / 队伍 / 邦布" /></label>
+      <div class="control-field"><span class="control-label" id="recModeControlLabel">模式</span><div id="recModeControl" class="segmented" role="group" aria-labelledby="recModeControlLabel"></div></div>
+      <label for="recScopeSelect">关卡<select id="recScopeSelect"></select></label>
+      <div class="control-field"><span class="control-label" id="recElementControlLabel">推荐属性</span><div id="recElementControl" class="segmented" role="group" aria-labelledby="recElementControlLabel"></div></div>
+      <label for="recSortSelect">排序口径<select id="recSortSelect"><option value="balanced" selected>综合推荐</option><option value="history">历史表现</option><option value="box">Box 即战力</option></select></label>
+      <label for="recGapSelect">缺口<select id="recGapSelect"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="3">显示全部</option></select></label>
+      <label for="recRiskSelect">风险<select id="recRiskSelect"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></label>
+      <label for="recLimitSelect">数量<select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></label>
+      <label for="recSearchInput">搜索<input id="recSearchInput" type="search" placeholder="角色 / 队伍 / 邦布" /></label>
     </section>
     <section class="rec-constraints" aria-label="代理人硬约束">
       <div class="constraint-picker">
@@ -91,7 +91,7 @@
       <section class="panel"><div class="panel-head"><div><h2 id="recTitle">组队推荐</h2><p id="recSubtitle"></p></div><div id="recBadges" class="badges"></div></div><div id="recList" class="rec-list"></div></section>
       <aside class="panel rec-slate"><div class="panel-head"><div><h2>多队方案</h2><p id="recSlateSubtitle"></p><p id="recSlateMeta" class="rec-solver-meta"></p><p id="recSlateMessage" class="rec-slate-message" aria-live="polite"></p></div></div><div id="recSlateList" class="rec-slate-list"></div></aside>
     </section>
-    <div id="recTooltip" class="tooltip" hidden></div>
+    <div id="recTooltip" class="tooltip" role="tooltip" hidden></div>
   </section>
 </main>
 <script src="./solver.js"></script>

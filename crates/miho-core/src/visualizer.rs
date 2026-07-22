@@ -5,12 +5,13 @@ use std::{
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::{output::ArtifactBundle, MihoError, Result};
 
 pub const VISUALIZER_CONTEXT_SCHEMA_VERSION: u16 = 2;
+pub const VISUALIZER_DATA_SCHEMA_VERSION: &str = "miho-visualizer-data-v2";
 
 const HSR_INDEX_HTML: &str = include_str!("../assets/visualizer/hsr/index.html");
 const HSR_STYLES_CSS: &str = include_str!("../assets/visualizer/hsr/styles.css");
@@ -253,6 +254,190 @@ pub fn compact_json<T: Serialize>(path: &str, value: &T) -> Result<Vec<u8>> {
         path: path.into(),
         source,
     })
+}
+
+/// Adds the current compact dataset plus the legacy wire shape.
+///
+/// `data.json` is intentionally retained for one compatibility cycle. New
+/// runtimes load `data.v2.json`; older runtimes keep receiving the original
+/// top-level object without needing to understand the v2 envelope.
+pub fn attach_visualizer_data<T: Serialize>(bundle: &mut ArtifactBundle, value: &T) -> Result<()> {
+    // Serialize both representations before mutating the bundle so an invalid
+    // value cannot leave only one half of the compatibility pair attached.
+    let legacy = compact_json("visualizer/data.json", value)?;
+    let compact = compact_visualizer_json("visualizer/data.v2.json", value)?;
+    bundle.add_bytes("visualizer/data.json", legacy)?;
+    bundle.add_bytes("visualizer/data.v2.json", compact)?;
+    Ok(())
+}
+
+/// Encodes dense top-level object tables as column metadata plus value rows.
+///
+/// Visualizer datasets contain thousands of structurally identical objects;
+/// repeating every field name made the legacy `data.json` substantially larger than the
+/// values it carried. Sparse or heterogeneous arrays remain untouched, and
+/// [`expand_visualizer_data`] restores the exact logical v1 object before the
+/// application reads it. A legacy plain object therefore stays readable for
+/// one compatibility cycle while newly generated assets use the v2 envelope.
+pub fn compact_visualizer_json<T: Serialize>(path: &str, value: &T) -> Result<Vec<u8>> {
+    let value = serde_json::to_value(value).map_err(|source| MihoError::Json {
+        path: path.into(),
+        source,
+    })?;
+    let encoded = encode_visualizer_data(value);
+    compact_json(path, &encoded)
+}
+
+fn encode_visualizer_data(value: Value) -> Value {
+    let Value::Object(root) = value else {
+        return value;
+    };
+    let mut payload = Map::new();
+    let mut tables = Map::new();
+    for (name, value) in root {
+        match dense_columnar_table(&value) {
+            Some(table) => {
+                tables.insert(name, table);
+            }
+            None => {
+                payload.insert(name, value);
+            }
+        }
+    }
+    let mut envelope = Map::new();
+    envelope.insert(
+        "schema_version".to_owned(),
+        Value::String(VISUALIZER_DATA_SCHEMA_VERSION.to_owned()),
+    );
+    envelope.insert("payload".to_owned(), Value::Object(payload));
+    envelope.insert("tables".to_owned(), Value::Object(tables));
+    Value::Object(envelope)
+}
+
+fn dense_columnar_table(value: &Value) -> Option<Value> {
+    let rows = value.as_array()?;
+    if rows.len() < 4 {
+        return None;
+    }
+    let first = rows.first()?.as_object()?;
+    if first.is_empty() {
+        return None;
+    }
+    let mut columns = first.keys().cloned().collect::<Vec<_>>();
+    columns.sort();
+    if !rows.iter().all(|row| {
+        row.as_object().is_some_and(|object| {
+            object.len() == columns.len()
+                && columns.iter().all(|column| object.contains_key(column))
+        })
+    }) {
+        return None;
+    }
+    let encoded_rows = rows
+        .iter()
+        .map(|row| {
+            let object = row.as_object().expect("dense table rows were validated");
+            Value::Array(
+                columns
+                    .iter()
+                    .map(|column| object[column].clone())
+                    .collect(),
+            )
+        })
+        .collect();
+    let mut table = Map::new();
+    table.insert(
+        "columns".to_owned(),
+        Value::Array(columns.into_iter().map(Value::String).collect()),
+    );
+    table.insert("rows".to_owned(), Value::Array(encoded_rows));
+    Some(Value::Object(table))
+}
+
+/// Expands either a legacy visualizer object or a strict v2 columnar envelope.
+pub fn expand_visualizer_data(value: Value) -> Result<Value> {
+    let Some(root) = value.as_object() else {
+        return Ok(value);
+    };
+    let Some(schema) = root.get("schema_version").and_then(Value::as_str) else {
+        return Ok(value);
+    };
+    if schema != VISUALIZER_DATA_SCHEMA_VERSION {
+        return Ok(value);
+    }
+    if root.len() != 3 {
+        return Err(MihoError::Visualizer(
+            "visualizer data v2 envelope has unexpected fields".into(),
+        ));
+    }
+    let mut payload = root
+        .get("payload")
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or_else(|| MihoError::Visualizer("visualizer data v2 payload is invalid".into()))?;
+    let tables = root
+        .get("tables")
+        .and_then(Value::as_object)
+        .ok_or_else(|| MihoError::Visualizer("visualizer data v2 tables are invalid".into()))?;
+    for (name, table) in tables {
+        if payload.contains_key(name) {
+            return Err(MihoError::Visualizer(
+                "visualizer data v2 table collides with payload".into(),
+            ));
+        }
+        let table = table
+            .as_object()
+            .ok_or_else(|| MihoError::Visualizer("visualizer data v2 table is invalid".into()))?;
+        if table.len() != 2 {
+            return Err(MihoError::Visualizer(
+                "visualizer data v2 table has unexpected fields".into(),
+            ));
+        }
+        let columns = table
+            .get("columns")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                MihoError::Visualizer("visualizer data v2 columns are invalid".into())
+            })?;
+        let columns = columns
+            .iter()
+            .map(|column| {
+                column.as_str().map(str::to_owned).ok_or_else(|| {
+                    MihoError::Visualizer("visualizer data v2 column is invalid".into())
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let unique = columns.iter().collect::<std::collections::BTreeSet<_>>();
+        if columns.is_empty() || unique.len() != columns.len() {
+            return Err(MihoError::Visualizer(
+                "visualizer data v2 columns are empty or duplicated".into(),
+            ));
+        }
+        let rows = table
+            .get("rows")
+            .and_then(Value::as_array)
+            .ok_or_else(|| MihoError::Visualizer("visualizer data v2 rows are invalid".into()))?;
+        let mut expanded = Vec::with_capacity(rows.len());
+        for row in rows {
+            let values = row
+                .as_array()
+                .ok_or_else(|| MihoError::Visualizer("visualizer data v2 row is invalid".into()))?;
+            if values.len() != columns.len() {
+                return Err(MihoError::Visualizer(
+                    "visualizer data v2 row width does not match columns".into(),
+                ));
+            }
+            expanded.push(Value::Object(
+                columns
+                    .iter()
+                    .cloned()
+                    .zip(values.iter().cloned())
+                    .collect(),
+            ));
+        }
+        payload.insert(name.clone(), Value::Array(expanded));
+    }
+    Ok(Value::Object(payload))
 }
 
 pub(crate) fn strict_utf8<'a>(bytes: &'a [u8], path: &str) -> Result<&'a str> {
@@ -930,6 +1115,60 @@ mod tests {
         7, 208, 177, 150, 116, 189, 255, 129, 136, 232, 127, 0, 0,
     ];
 
+    #[test]
+    fn columnar_visualizer_data_round_trips_without_touching_sparse_rows() {
+        let original = json!({
+            "meta": {"generatedAt": "2026-07-23"},
+            "denseRows": [
+                {"a": 1, "b": "one"},
+                {"a": 2, "b": "two"},
+                {"a": 3, "b": "three"},
+                {"a": 4, "b": "four"}
+            ],
+            "sparseRows": [
+                {"a": 1, "b": null},
+                {"a": 2},
+                {"a": 3, "b": null},
+                {"a": 4}
+            ]
+        });
+        let bytes = compact_visualizer_json("visualizer/data.v2.json", &original).unwrap();
+        let encoded: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(encoded["schema_version"], VISUALIZER_DATA_SCHEMA_VERSION);
+        assert!(encoded["tables"].get("denseRows").is_some());
+        assert!(encoded["payload"].get("sparseRows").is_some());
+        assert_eq!(expand_visualizer_data(encoded).unwrap(), original);
+    }
+
+    #[test]
+    fn visualizer_v2_keeps_an_explicit_envelope_without_dense_tables() {
+        let original = json!({"meta": {"generatedAt": "2026-07-23"}, "rows": [{"a": 1}]});
+        let bytes = compact_visualizer_json("visualizer/data.v2.json", &original).unwrap();
+        let encoded: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(encoded["schema_version"], VISUALIZER_DATA_SCHEMA_VERSION);
+        assert_eq!(encoded["payload"], original);
+        assert_eq!(encoded["tables"], json!({}));
+        assert_eq!(expand_visualizer_data(encoded).unwrap(), original);
+    }
+
+    #[test]
+    fn visualizer_v2_decoder_rejects_width_and_collision_ambiguity() {
+        let width = json!({
+            "schema_version": VISUALIZER_DATA_SCHEMA_VERSION,
+            "payload": {},
+            "tables": {"rows": {"columns": ["a", "b"], "rows": [[1]]}}
+        });
+        assert!(expand_visualizer_data(width).is_err());
+        let collision = json!({
+            "schema_version": VISUALIZER_DATA_SCHEMA_VERSION,
+            "payload": {"rows": []},
+            "tables": {"rows": {"columns": ["a"], "rows": [[1]]}}
+        });
+        assert!(expand_visualizer_data(collision).is_err());
+        let legacy = json!({"rows": [{"a": 1}]});
+        assert_eq!(expand_visualizer_data(legacy.clone()).unwrap(), legacy);
+    }
+
     fn normalized_hash(bytes: &[u8]) -> String {
         let text = String::from_utf8(bytes.to_vec()).unwrap();
         let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -943,6 +1182,7 @@ mod tests {
         assert!(visualizer_static_asset("zzz", "solver.js").is_some());
         assert!(visualizer_static_asset("hsr", "styles.css").is_some());
         assert!(visualizer_static_asset("hsr", "data.json").is_none());
+        assert!(visualizer_static_asset("hsr", "data.v2.json").is_none());
         assert!(visualizer_static_asset("hsr", "assets/avatars/a.webp").is_none());
         assert!(visualizer_static_asset("other", "app.js").is_none());
     }
@@ -1216,9 +1456,7 @@ mod tests {
         let mut bundle = ArtifactBundle::default();
         attach_hsr_static_assets(&mut bundle).unwrap();
         attach_avatar_assets(&mut bundle, &context).unwrap();
-        bundle
-            .add_bytes("visualizer/data.json", b"{}".to_vec())
-            .unwrap();
+        attach_visualizer_data(&mut bundle, &json!({})).unwrap();
         bundle.refresh_manifest("artifact_manifest.json").unwrap();
 
         let manifest: Vec<crate::output::ArtifactManifestEntry> =

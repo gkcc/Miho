@@ -52,6 +52,7 @@ $validDom = [pscustomobject]@{
     ready = "v1"
     brandText = "MIHO ENDGAME"
     appChildCount = 2
+    visualizerLoaded = $true
     tauriInternals = $true
     bodyText = "MIHO ENDGAME workspace"
     neterror = $false
@@ -60,11 +61,12 @@ if (-not (Test-MihoRenderedDomV1 -Dom $validDom)) {
     throw "GUI render contract rejected the production DOM"
 }
 $invalidDom = @(
-    [pscustomobject]@{ href = "chrome-error://chromewebdata/"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; tauriInternals = $true; bodyText = "ERR_FILE_NOT_FOUND"; neterror = $true },
-    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = ""; brandText = "MIHO ENDGAME"; appChildCount = 2; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
-    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = ""; appChildCount = 0; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
-    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; tauriInternals = $false; bodyText = "workspace"; neterror = $false },
-    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; tauriInternals = $true; bodyText = "Microsoft Edge ERR_FILE_NOT_FOUND"; neterror = $false }
+    [pscustomobject]@{ href = "chrome-error://chromewebdata/"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; tauriInternals = $true; bodyText = "ERR_FILE_NOT_FOUND"; neterror = $true },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = ""; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = ""; appChildCount = 0; visualizerLoaded = $true; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $false; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; tauriInternals = $false; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; tauriInternals = $true; bodyText = "Microsoft Edge ERR_FILE_NOT_FOUND"; neterror = $false }
 )
 foreach ($dom in $invalidDom) {
     if (Test-MihoRenderedDomV1 -Dom $dom) {

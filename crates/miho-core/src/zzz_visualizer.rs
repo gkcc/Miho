@@ -6,7 +6,7 @@ use crate::{
     normalize::character_slug,
     output::ArtifactBundle,
     visualizer::{
-        attach_avatar_assets, attach_zzz_static_assets, compact_json,
+        attach_avatar_assets, attach_visualizer_data, attach_zzz_static_assets,
         effective_banner_status as shared_effective_banner_status, local_avatar_url,
         python_scalar_text, python_value_truthy as python_truthy, read_csv_rows, safe_link_url,
         strict_utf8, validate_json_surrogate_escapes, VisualizerContext,
@@ -65,10 +65,7 @@ pub fn attach_zzz_visualizer(
     sanitize_urls(&mut data, "");
     attach_zzz_static_assets(bundle)?;
     attach_avatar_assets(bundle, context)?;
-    bundle.add_bytes(
-        "visualizer/data.json",
-        compact_json("visualizer/data.json", &data)?,
-    )?;
+    attach_visualizer_data(bundle, &data)?;
     Ok(())
 }
 
@@ -1623,7 +1620,8 @@ mod tests {
 
         let zero = build_team_templates(&[team("alpha", "0", "2")], &roster, &[], &[]).unwrap();
         assert_eq!(zero[0]["evidence_grade"], "B");
-        let valid_99 = build_team_templates(&[team("alpha", "99.99", "2")], &roster, &[], &[]).unwrap();
+        let valid_99 =
+            build_team_templates(&[team("alpha", "99.99", "2")], &roster, &[], &[]).unwrap();
         assert_eq!(valid_99[0]["evidence_grade"], "A");
     }
 
@@ -1702,8 +1700,13 @@ mod tests {
                 .unwrap(),
         );
         attach_zzz_visualizer(&mut bundle, &context).unwrap();
-        let payload: Value =
+        let legacy: Value =
             serde_json::from_slice(bundle.get("visualizer/data.json").unwrap()).unwrap();
+        let payload: Value = crate::visualizer::expand_visualizer_data(
+            serde_json::from_slice(bundle.get("visualizer/data.v2.json").unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(legacy, payload);
         assert_eq!(payload["data_quality"], quality);
         assert_eq!(payload["freshness"], freshness);
     }

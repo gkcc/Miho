@@ -11,10 +11,10 @@ use miho_app::{
     NativeUpdateExecutorV1, UpdateArtifactV1, UpdateConfigV1, UpdateInvocationV1,
     UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1, UpdateRunStatusV1, UpdateStateV1,
     UpdateStepContextV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
-    UpdateStepKindV1, UpdateStepStatusV1, WorkspaceWriteLease, UPDATE_ATTEMPT_DIRECTORY,
-    UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_STATE_FILE,
+    UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1, WorkspaceWriteLease,
+    UPDATE_ATTEMPT_DIRECTORY, UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_STATE_FILE,
 };
-use miho_core::contract::Game;
+use miho_core::{contract::Game, network::FetchSource};
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Default)]
@@ -61,10 +61,15 @@ impl UpdateStepExecutor for FakeExecutor {
                     sha256: "0".repeat(64),
                 }]);
             }
-            let relative = PathBuf::from("generated").join(format!("{}.txt", step_name(step)));
+            let relative = PathBuf::from("generated").join(format!("{}.csv", step_name(step)));
             let path = context.workspace.join(&relative);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
-            let bytes = format!("{}:{}\n", context.attempt_id, step_name(step)).into_bytes();
+            let bytes = format!(
+                "attempt,step,note\n{},{},\"line one\nline two\"\n",
+                context.attempt_id,
+                step_name(step)
+            )
+            .into_bytes();
             fs::write(&path, &bytes).unwrap();
             Ok(vec![UpdateArtifactV1 {
                 path: relative,
@@ -215,6 +220,25 @@ async fn full_success_commits_state_and_canonical_receipt_last() {
         .games
         .iter()
         .all(|game| game.status == UpdateStepStatusV1::Succeeded));
+    assert!(outcome
+        .receipt
+        .games
+        .windows(2)
+        .all(|games| games[0].game < games[1].game));
+    assert!(outcome.receipt.games.iter().all(|game| game
+        .steps
+        .windows(2)
+        .all(|steps| steps[0].step < steps[1].step)));
+    assert!(outcome
+        .receipt
+        .games
+        .iter()
+        .flat_map(|game| &game.steps)
+        .all(|step| step.duration_ms.is_some()
+            && step.row_count == Some(1)
+            && step.fetch_source.is_none()
+            && !step.cache_fallback
+            && step.reason_code.is_none()));
 
     let state = read_json::<UpdateStateV1>(&root.join(".miho").join(UPDATE_STATE_FILE));
     assert_eq!(state.games.len(), 2);
@@ -307,6 +331,24 @@ fn explicit_attempt_id_grammar_is_exact() {
             .attempt_id,
         maximum
     );
+}
+
+#[test]
+fn legacy_step_receipt_defaults_new_operational_fields() {
+    let legacy = br#"{
+        "step":"hsr-export",
+        "status":"skipped",
+        "artifacts":[]
+    }"#;
+    let receipt: UpdateStepReceiptV1 = serde_json::from_slice(legacy).unwrap();
+    assert_eq!(receipt.duration_ms, None);
+    assert_eq!(receipt.row_count, None);
+    assert_eq!(receipt.fetch_source, None);
+    assert!(!receipt.cache_fallback);
+    assert_eq!(receipt.reason_code, None);
+
+    let serialized = serde_json::to_value(receipt).unwrap();
+    assert_eq!(serialized["cache_fallback"], false);
 }
 
 #[tokio::test]
@@ -525,8 +567,16 @@ async fn native_executor_rejects_hf_cache_fallback_and_does_not_advance_state() 
             .failure
             .as_ref()
             .map(|failure| failure.code.as_str()),
-        Some("update.hsr_export.failed")
+        Some("update.hsr_export.cache_fallback")
     );
+    let step = &outcome.receipt.games[0].steps[0];
+    assert_eq!(step.fetch_source, Some(FetchSource::Cache));
+    assert!(step.cache_fallback);
+    assert_eq!(
+        step.reason_code.as_deref(),
+        Some("update.hsr_export.cache_fallback")
+    );
+    assert!(step.duration_ms.is_some());
     assert_eq!(fs::read(&state_path).unwrap(), sentinel_bytes);
     let canonical =
         read_json::<UpdateReceiptV1>(&root.join(".miho").join(UPDATE_CANONICAL_RECEIPT_FILE));
@@ -594,6 +644,15 @@ async fn zzz_export_failure_skips_all_derived_steps_and_keeps_state() {
     assert!(outcome.receipt.games[1].steps[1..]
         .iter()
         .all(|step| step.status == UpdateStepStatusV1::Skipped));
+    assert_eq!(
+        outcome.receipt.games[1].steps[0].reason_code.as_deref(),
+        Some("step.zzz-export.failed")
+    );
+    assert!(outcome.receipt.games[1].steps[0].duration_ms.is_some());
+    assert!(outcome.receipt.games[1].steps[1..].iter().all(|step| {
+        step.duration_ms == Some(0)
+            && step.reason_code.as_deref() == Some("update.dependency_failed")
+    }));
     assert!(!root.join(".miho").join(UPDATE_STATE_FILE).exists());
     cleanup(&root);
 }
@@ -850,6 +909,10 @@ async fn skip_is_explicit_and_both_skipped_is_invalid() {
         zzz_only.receipt.games[0].status,
         UpdateStepStatusV1::Skipped
     );
+    assert!(zzz_only.receipt.games[0].steps.iter().all(|step| {
+        step.duration_ms == Some(0)
+            && step.reason_code.as_deref() == Some("update.game_not_selected")
+    }));
     assert!(zzz_only_executor
         .observed
         .lock()

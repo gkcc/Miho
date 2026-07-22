@@ -1,0 +1,43 @@
+name: Live Probe
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live:
+    name: Mutable product-path probe
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable pinned pnpm
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.7.0 --activate
+
+      - name: Install live-probe dependencies
+        run: python -m pip install -e ".[test]"
+
+      - name: Run live probes
+        run: pnpm run test:live

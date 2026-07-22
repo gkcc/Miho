@@ -20,7 +20,7 @@ const BOX_UNDO_LIMIT=20;
 const REC_KEY='hsr_endgame_recommender_v1';
 const PAGES=new Set(['analysis','banner','box','recommender']);
 const desktopMode=globalThis.__MIHO_DESKTOP__===true;
-let DATA=null;
+let DATA=null,DATA_INDEX=null,dataEpoch=0,boxStateRevision=0;
 let state={page:PAGES.has(location.hash.slice(1))?location.hash.slice(1):'box',mode:'moc',view:'trend',role:'main_dps',tiers:new Set(TIERS),metric:'app_rate',limit:'12',search:'',avatars:true,focus:null,hover:null};
 let box={owned:new Set(),builds:{},buildSlug:'',element:'all',path:'all',role:'all',rarity:'all',status:'all',search:'',saveStatus:'浏览器缓存',exportStatus:''};
 let rec={mode:'moc',scope:'',strategy:'final',sortMode:'balanced',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:{},constraints:{},locks:{},gap:'1',riskMode:'warn',limit:'8',search:''};
@@ -32,9 +32,25 @@ let recConstraintMessage='';
 let recSlateNotice='';
 let recSlateWorker=null,recSlateWorkerFailed=false,recSlateRequestId=0,recSlateCurrentPrepared=null;
 const recSlatePending=new Map();
+const recScoredPoolCache=new Map(),recSlateCandidateCache=new Map();
+let analysisSearchTimer=null,recSearchTimer=null,recListRequestId=0;
+let activeDetailTrigger=null,activeDetailTooltip=null;
+const tooltipCloseTimers=new WeakMap();
 
 const $=id=>document.getElementById(id);
 const ns='http://www.w3.org/2000/svg';
+function setPressedState(button,pressed){const active=Boolean(pressed);button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));}
+function syncPressedChildren(root,isActive){[...root.children].forEach(button=>setPressedState(button,isActive(button)));}
+function boundedTooltipPosition(viewportWidth,viewportHeight,tooltipWidth,tooltipHeight,anchorX,anchorY,pad=14){let x=anchorX+16,y=anchorY+16;if(x+tooltipWidth+pad>viewportWidth)x=anchorX-tooltipWidth-16;if(y+tooltipHeight+pad>viewportHeight)y=anchorY-tooltipHeight-16;const maxX=Math.max(pad,viewportWidth-tooltipWidth-pad),maxY=Math.max(pad,viewportHeight-tooltipHeight-pad);return{x:Math.min(Math.max(pad,x),maxX),y:Math.min(Math.max(pad,y),maxY)};}
+function cancelTooltipClose(tooltip){const timer=tooltip&&tooltipCloseTimers.get(tooltip);if(timer!=null){clearTimeout(timer);tooltipCloseTimers.delete(tooltip);}}
+function scheduleTooltipClose(tooltip,delay=140){if(!tooltip)return;cancelTooltipClose(tooltip);const timer=setTimeout(()=>{tooltipCloseTimers.delete(tooltip);if(activeDetailTooltip!==tooltip)tooltip.hidden=true;},delay);tooltipCloseTimers.set(tooltip,timer);}
+function positionTooltipElement(tooltip,event,pad=14){cancelTooltipClose(tooltip);const trigger=event?.currentTarget||activeDetailTrigger,triggerRect=trigger?.getBoundingClientRect?.(),pointerEvent=/^(mouse|pointer)/.test(String(event?.type||'')),anchorX=pointerEvent&&Number.isFinite(event?.clientX)?event.clientX:(triggerRect?.left||0)+(triggerRect?.width||0)/2,anchorY=pointerEvent&&Number.isFinite(event?.clientY)?event.clientY:(triggerRect?.top||0)+(triggerRect?.height||0)/2,rect=tooltip.getBoundingClientRect(),position=boundedTooltipPosition(window.innerWidth,window.innerHeight,rect.width,rect.height,anchorX,anchorY,pad);tooltip.style.left=`${position.x}px`;tooltip.style.top=`${position.y}px`;}
+function closeAccessibleDetail(){if(activeDetailTooltip){cancelTooltipClose(activeDetailTooltip);activeDetailTooltip.hidden=true;}if(activeDetailTrigger)activeDetailTrigger.removeAttribute('aria-describedby');activeDetailTrigger=null;activeDetailTooltip=null;}
+function markAccessibleDetail(trigger,tooltip){if(activeDetailTrigger&&activeDetailTrigger!==trigger)closeAccessibleDetail();cancelTooltipClose(tooltip);activeDetailTrigger=trigger;activeDetailTooltip=tooltip;trigger.setAttribute('aria-describedby',tooltip.id);}
+function activeDetailContains(target){return Boolean(activeDetailTrigger?.contains?.(target)||activeDetailTooltip?.contains?.(target));}
+function nestedInteractiveTarget(event,element){const target=event?.target;return Boolean(target&&target!==element&&target.closest?.('button,a,input,select,textarea'));}
+function bindAccessibleDetail(element,tooltipId,show,label,{role='',activateKeys=true}={}){const nativeInteractive=element.matches?.('button,a,input,select,textarea');if(!element.hasAttribute?.('tabindex')&&!nativeInteractive)element.setAttribute('tabindex','0');if(role)element.setAttribute('role',role);if(label)element.setAttribute('aria-label',label);const open=event=>{if(nestedInteractiveTarget(event,element))return;show(event);const tooltip=$(tooltipId);if(tooltip&&!tooltip.hidden)markAccessibleDetail(element,tooltip);};element.addEventListener('focus',open);element.addEventListener('blur',()=>{if(activeDetailTrigger===element)closeAccessibleDetail();});element.addEventListener('keydown',event=>{if(event.target!==element)return;if(event.key==='Escape'){event.preventDefault();closeAccessibleDetail();return;}if(activateKeys&&!nativeInteractive&&(event.key==='Enter'||event.key===' ')){event.preventDefault();open(event);}});element.addEventListener('pointerup',event=>{if(event.pointerType&&event.pointerType!=='mouse')open(event);});}
+function installAccessibleDetailDismissal(){document.querySelectorAll('.tooltip').forEach(tooltip=>{tooltip.addEventListener('pointerenter',()=>cancelTooltipClose(tooltip));tooltip.addEventListener('pointerleave',()=>scheduleTooltipClose(tooltip));});document.addEventListener('pointerdown',event=>{if(activeDetailTrigger&&!activeDetailContains(event.target))closeAccessibleDetail();});window.addEventListener('resize',closeAccessibleDetail);}
 function number(v){const n=Number(v);return Number.isFinite(n)?n:null}
 function pct(v){const n=number(v);return n==null?'':`${n.toFixed(2)}%`}
 function analysisMetricPolicy(mode=state.mode,metric=state.metric){
@@ -66,23 +82,49 @@ function installBoxFlushBridge(){
 
 installBoxFlushBridge();
 
-fetch(`./data.json?v=${Date.now()}`,{cache:'no-store'})
-  .then(r=>r.ok?r.json():Promise.reject(new Error(`数据请求失败（${r.status}）`)))
-  .then(async data=>{DATA=data;loadRecSettings();if(desktopMode)await syncBoxFromServer();else loadBox();init();render();})
+async function fetchVisualizerData(){
+  const revision=Date.now();
+  const current=await fetch(`./data.v2.json?v=${revision}`,{cache:'no-store'});
+  if(current.ok)return current.json();
+  // A missing v2 artifact identifies a legacy workspace. Other failures must
+  // remain visible instead of silently mixing assets after corruption/errors.
+  if(current.status!==404)throw new Error(`数据请求失败（${current.status}）`);
+  const legacy=await fetch(`./data.json?v=${revision}`,{cache:'no-store'});
+  if(!legacy.ok)throw new Error(`数据请求失败（${legacy.status}）`);
+  return legacy.json();
+}
+
+fetchVisualizerData()
+  .then(async raw=>{initializeVisualizerData(raw);loadRecSettings();if(desktopMode)await syncBoxFromServer();else loadBox();init();render();})
   .catch(err=>{const guard=desktopMode?'为保护你的 Box，本次没有启用编辑；请重启应用后再试。':'';document.body.innerHTML=`<main class="app-shell"><h1>应用启动失败</h1><p>${esc(err.message)}</p><p>${esc(guard)}</p></main>`;});
+
+function initializeVisualizerData(raw){
+  const runtime=globalThis.MihoSlateSolver;
+  if(!runtime||typeof runtime.hydrateVisualizerData!=='function'||typeof runtime.buildDataIndex!=='function')throw new Error('Visualizer 运行时未加载');
+  const hydrated=runtime.hydrateVisualizerData(raw);
+  if(!hydrated||typeof hydrated!=='object'||Array.isArray(hydrated))throw new Error('Visualizer 数据格式无效');
+  DATA=hydrated;
+  DATA_INDEX=runtime.buildDataIndex(DATA);
+  dataEpoch+=1;
+  boxStateRevision=0;
+  recScoredPoolCache.clear();
+  recSlateCandidateCache.clear();
+  return DATA;
+}
 
 function init(){
   installExternalLinkBridge();
+  installAccessibleDetailDismissal();
   $('metaLine').textContent=`Prydwen T榜更新：${DATA.meta.tierUpdatedAt||DATA.meta.tierUpdatedDate||'未知'} · 本地数据生成：${DATA.meta.generatedAt||'未知'} · Box 自动保存`;
   makeButtons('appTabs',[['box','我的 Box'],['analysis','终局分析'],['banner','卡池'],['recommender','组队推荐']],state.page,v=>{state.page=v;history.replaceState(null,'',`#${v}`);render();});
   makeButtons('modeControl',MODES,state.mode,v=>{state.mode=v;state.focus=null;state.hover=null;render();});
   makeButtons('viewControl',VIEWS,state.view,v=>{state.view=v;state.focus=null;state.hover=null;render();});
   makeButtons('roleControl',ROLES,state.role,v=>{state.role=v;state.focus=null;state.hover=null;render();});
   const tierBox=$('tierControl');
-  TIERS.forEach(t=>{const b=document.createElement('button');b.type='button';b.textContent=t;b.className='active';b.title=`显示或隐藏 ${t}`;b.onclick=()=>{state.tiers.has(t)?state.tiers.delete(t):state.tiers.add(t);b.classList.toggle('active',state.tiers.has(t));state.focus=null;state.hover=null;render();};tierBox.appendChild(b);});
+  TIERS.forEach(t=>{const b=document.createElement('button');b.type='button';b.textContent=t;b.title=`显示或隐藏 ${t}`;setPressedState(b,true);b.onclick=()=>{state.tiers.has(t)?state.tiers.delete(t):state.tiers.add(t);setPressedState(b,state.tiers.has(t));state.focus=null;state.hover=null;render();};tierBox.appendChild(b);});
   $('limitSelect').onchange=e=>{state.limit=e.target.value;render();};
   $('metricSelect').onchange=e=>{state.metric=e.target.value;render();};
-  $('searchInput').oninput=e=>{state.search=e.target.value.trim().toLowerCase();state.focus=null;state.hover=null;render();};
+  $('searchInput').oninput=e=>{state.search=e.target.value.trim().toLowerCase();state.focus=null;state.hover=null;clearTimeout(analysisSearchTimer);analysisSearchTimer=setTimeout(()=>{analysisSearchTimer=null;if(state.page==='analysis')renderAnalysis();},75);};
   $('avatarToggle').onchange=e=>{state.avatars=e.target.checked;render();};
   $('resetBtn').onclick=resetCurrentPage;
   initBannerControls();
@@ -145,11 +187,11 @@ function initRecommenderControls(){
   $('recSortSelect').onchange=e=>{rec.sortMode=normalizeRecSortMode(e.target.value);saveRecSettings();renderRecommender();};
   const elementBox=$('recElementControl');
   elementBox.innerHTML='';
-  ELEMENT_ORDER.forEach(element=>{const b=document.createElement('button');b.type='button';b.textContent=element;b.title=`${element} 推荐属性`;b.onclick=()=>{const set=recElementSet();set.has(element)?set.delete(element):set.add(element);setRecElementSet(set);saveRecSettings();syncRecControls();renderRecommender();};elementBox.appendChild(b);});
+  ELEMENT_ORDER.forEach(element=>{const b=document.createElement('button');b.type='button';b.textContent=element;b.title=`${element} 推荐属性`;setPressedState(b,false);b.onclick=()=>{const set=recElementSet();set.has(element)?set.delete(element):set.add(element);setRecElementSet(set);saveRecSettings();syncRecControls();renderRecommender();};elementBox.appendChild(b);});
   $('recGapSelect').onchange=e=>{rec.gap=e.target.value;saveRecSettings();renderRecommender();};
   $('recRiskSelect').onchange=e=>{rec.riskMode=e.target.value;saveRecSettings();renderRecommender();};
   $('recLimitSelect').onchange=e=>{rec.limit=e.target.value;saveRecSettings();renderRecommender();};
-  $('recSearchInput').oninput=e=>{rec.search=e.target.value.trim().toLowerCase();saveRecSettings();renderRecommender({recomputeSlate:false});};
+  $('recSearchInput').oninput=e=>{rec.search=e.target.value.trim().toLowerCase();saveRecSettings();scheduleRecSearchRender();};
   $('recRequireBtn').onclick=()=>addRecConstraint('required');
   $('recExcludeBtn').onclick=()=>addRecConstraint('excluded');
   $('recConstraintClearBtn').onclick=clearRecConstraints;
@@ -157,16 +199,18 @@ function initRecommenderControls(){
   syncRecControls();
 }
 
+function scheduleRecSearchRender(callback=()=>renderRecommender({recomputeSlate:false})){clearTimeout(recSearchTimer);const requestId=++recListRequestId;recSearchTimer=setTimeout(()=>{recSearchTimer=null;if(requestId===recListRequestId)callback(requestId);},75)}
+
 function makeButtons(id,items,current,onClick){
   const boxEl=$(id);boxEl.innerHTML='';
-  items.forEach(([value,label])=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.dataset.value=value;b.className=value===current?'active':'';b.title=label;b.onclick=()=>{[...boxEl.children].forEach(x=>x.classList.remove('active'));b.classList.add('active');onClick(value);};boxEl.appendChild(b);});
+  items.forEach(([value,label])=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.dataset.value=value;b.title=label;setPressedState(b,value===current);b.onclick=()=>{syncPressedChildren(boxEl,x=>x===b);onClick(value);};boxEl.appendChild(b);});
 }
 
 function resetCurrentPage(){
   if(state.page==='banner'){
     banner={phase:'current',search:''};
     ensureBannerPhase();
-    [...$('bannerPhaseControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===banner.phase));
+    syncPressedChildren($('bannerPhaseControl'),b=>b.dataset.value===banner.phase);
     $('bannerSearchInput').value='';
     renderBanner();return;
   }
@@ -184,23 +228,23 @@ function resetCurrentPage(){
 }
 
 function syncAnalysisControls(){
-  [...$('modeControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===state.mode));
-  [...$('viewControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===state.view));
-  [...$('roleControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===state.role));
-  [...$('tierControl').children].forEach(b=>b.classList.toggle('active',state.tiers.has(b.textContent)));
+  syncPressedChildren($('modeControl'),b=>b.dataset.value===state.mode);
+  syncPressedChildren($('viewControl'),b=>b.dataset.value===state.view);
+  syncPressedChildren($('roleControl'),b=>b.dataset.value===state.role);
+  syncPressedChildren($('tierControl'),b=>state.tiers.has(b.textContent));
   $('limitSelect').value=state.limit;$('metricSelect').value=state.metric;$('searchInput').value=state.search;$('avatarToggle').checked=state.avatars;
 }
 
 function syncBoxControls(){
-  [...$('boxElementControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===box.element));
-  [...$('boxPathControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===box.path));
-  [...$('boxRoleControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===box.role));
+  syncPressedChildren($('boxElementControl'),b=>b.dataset.value===box.element);
+  syncPressedChildren($('boxPathControl'),b=>b.dataset.value===box.path);
+  syncPressedChildren($('boxRoleControl'),b=>b.dataset.value===box.role);
   $('boxRaritySelect').value=box.rarity;$('boxOwnedSelect').value=box.status;$('boxSearchInput').value=box.search;
 }
 
 function syncRecControls(){
-  [...$('recModeControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===rec.mode));
-  [...$('recStrategyControl').children].forEach(b=>b.classList.toggle('active',b.dataset.value===rec.strategy));
+  syncPressedChildren($('recModeControl'),b=>b.dataset.value===rec.mode);
+  syncPressedChildren($('recStrategyControl'),b=>b.dataset.value===rec.strategy);
   const custom=rec.strategy==='custom';
   $('recPlanControls').classList.toggle('custom',custom);
   $('recTeamCountSelect').value=String(recTeamCount());
@@ -218,7 +262,7 @@ function syncRecControls(){
   if(!options.some(o=>o.key===rec.scope))rec.scope=options[0]?.key||'';
   select.value=rec.scope;
   const selected=recElementSet();
-  [...$('recElementControl').children].forEach(b=>b.classList.toggle('active',selected.has(b.textContent)));
+  syncPressedChildren($('recElementControl'),b=>selected.has(b.textContent));
   $('recSortSelect').value=normalizeRecSortMode(rec.sortMode);$('recGapSelect').value=rec.gap;$('recRiskSelect').value=rec.riskMode||'warn';$('recLimitSelect').value=rec.limit;$('recSearchInput').value=rec.search;
   syncRecConstraintControls();
 }
@@ -228,7 +272,7 @@ function render(){
   $('bannerView').classList.toggle('hidden',state.page!=='banner');
   $('boxView').classList.toggle('hidden',state.page!=='box');
   $('recommenderView').classList.toggle('hidden',state.page!=='recommender');
-  [...$('appTabs').children].forEach(b=>b.classList.toggle('active',b.dataset.value===state.page));
+  syncPressedChildren($('appTabs'),b=>b.dataset.value===state.page);
   if(state.page==='banner')renderBanner();else if(state.page==='box')renderBox();else if(state.page==='recommender')renderRecommender();else renderAnalysis();
 }
 
@@ -236,10 +280,13 @@ function sourceRows(){
   return DATA.usageRows&&DATA.usageRows.length?DATA.usageRows:DATA.trendRows;
 }
 
+function indexedUsageRows(mode){
+  return DATA_INDEX?.usageByMode.get(mode)||sourceRows().filter(row=>(row.tier_mode||row.mode)===mode);
+}
+
 function filteredRows(){
   const q=state.search;
-  const rows=sourceRows().filter(r=>
-    r.tier_mode===state.mode &&
+  const rows=indexedUsageRows(state.mode).filter(r=>
     (state.role==='all'||r.role_group===state.role) &&
     state.tiers.has(r.tier||'未分档') &&
     (!q || [r.character_name_cn,r.character_name_en,r.character_slug,r.tags,r.tier,r.element_cn,r.path_cn].some(x=>String(x||'').toLowerCase().includes(q)))
@@ -271,7 +318,7 @@ function latestSampleMeta(rows,mode){
   const dated=rows.filter(r=>r.collect_date).slice().sort((a,b)=>String(a.collect_date).localeCompare(String(b.collect_date)));
   const latest=dated[dated.length-1]||{};
   const date=latest.collect_date||'';
-  const phases=(DATA.phaseInfoRows||[]).filter(r=>r.mode===mode);
+  const phases=DATA_INDEX?.phasesByMode.get(mode)||(DATA.phaseInfoRows||[]).filter(r=>r.mode===mode);
   const info=phases.find(r=>r.collect_date===date&&(!latest.phase_ver||r.phase_ver===latest.phase_ver))||phases.find(r=>r.phase_ver===latest.phase_ver)||{};
   const status=info.phase_status||latest.phase_status||'unknown';
   return{date:date||'未知',label:status==='current'?'当前周期':status==='expired'?'历史样本':'周期未知'};
@@ -285,7 +332,7 @@ function renderAnalysis(){
   const modeLabel=MODES.find(x=>x[0]===state.mode)?.[1]||state.mode;
   const roleLabel=ROLES.find(x=>x[0]===state.role)?.[1]||state.role;
   const viewLabel=VIEWS.find(x=>x[0]===state.view)?.[1]||state.view;
-  const modeRows=sourceRows().filter(r=>r.tier_mode===state.mode);
+  const modeRows=indexedUsageRows(state.mode);
   const sample=latestSampleMeta(modeRows,state.mode);
   $('chartTitle').textContent=`${modeLabel} · ${roleLabel} · ${viewLabel}`;
   const metricPolicy=analysisMetricPolicy();
@@ -309,7 +356,7 @@ function renderTrend(series,rows){
   const values=rows.map(r=>analysisMetricValue(r));const max=Math.max(10,...values.filter(v=>v!=null))*1.14;
   const x=d=>margin.l+(dates.length<=1?cw/2:cw*dates.indexOf(d)/(dates.length-1));const y=v=>margin.t+ch-ch*(Math.min(v,max))/max;
   drawAxes(svg,margin,cw,ch,max,dates,x,y,policy.label);const defs=add(svg,'defs',{});
-  series.forEach((s,idx)=>{const color=COLORS[idx%COLORS.length];const points=s.points.map(p=>{const value=analysisMetricValue(p);return value==null?null:[x(p.collect_date),y(value),p];});const segments=[];let segment=[];points.forEach(point=>{if(point)segment.push(point);else if(segment.length){segments.push(segment);segment=[];}});if(segment.length)segments.push(segment);if(!segments.length)return;segments.forEach(pts=>{const path=pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');const line=add(svg,'path',{d:path,stroke:color,class:`series-line ${dimClass(s.slug)}`});line.dataset.slug=s.slug;const hit=add(svg,'path',{d:path,class:'series-hit'});hit.dataset.slug=s.slug;bindHover(hit,pts[pts.length-1][2],s.slug);});points.filter(Boolean).forEach(([xx,yy,p],pi)=>drawPoint(svg,defs,xx,yy,p,s.slug,color,idx,pi,11));});
+  series.forEach((s,idx)=>{const color=COLORS[idx%COLORS.length];const points=s.points.map(p=>{const value=analysisMetricValue(p);return value==null?null:[x(p.collect_date),y(value),p];});const segments=[];let segment=[];points.forEach(point=>{if(point)segment.push(point);else if(segment.length){segments.push(segment);segment=[];}});if(segment.length)segments.push(segment);if(!segments.length)return;segments.forEach(pts=>{const path=pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');const line=add(svg,'path',{d:path,stroke:color,class:`series-line ${dimClass(s.slug)}`});line.dataset.slug=s.slug;const hit=add(svg,'path',{d:path,class:'series-hit'});hit.dataset.slug=s.slug;bindHover(hit,pts[pts.length-1][2],s.slug,false);});points.filter(Boolean).forEach(([xx,yy,p],pi)=>drawPoint(svg,defs,xx,yy,p,s.slug,color,idx,pi,11));});
 }
 
 function drawAxes(svg,margin,cw,ch,max,dates,x,y,label){
@@ -329,7 +376,7 @@ function renderLatest(series){
   const values=series.map(s=>analysisMetricValue(s.latest)).filter(v=>v!=null);const max=Math.max(10,...values)*1.12;const x=v=>margin.l+(width-margin.l-margin.r)*Math.min(v,max)/max;
   add(svg,'text',{x:margin.l,y:22,class:'axis-label'}).textContent=`最近一期${policy.label}`;
   for(let i=0;i<=4;i++){const val=max*i/4,xx=x(val);add(svg,'line',{x1:xx,y1:margin.t-10,x2:xx,y2:margin.t+chartH,class:'grid'});add(svg,'text',{x:xx,y:margin.t+chartH+22,'text-anchor':'middle',class:'axis-label'}).textContent=val.toFixed(0);}
-  const defs=add(svg,'defs',{});series.forEach((s,idx)=>{const row=s.latest;const color=COLORS[idx%COLORS.length];const yy=margin.t+idx*rowH+rowH/2;const val=analysisMetricValue(row);add(svg,'text',{x:18,y:yy-2,class:`rank-label ${dimClass(s.slug)}`}).textContent=`${idx+1}. ${row.character_name_cn||row.character_name_en||s.slug}`;add(svg,'text',{x:18,y:yy+14,class:`muted-label ${dimClass(s.slug)}`}).textContent=`${row.tier} · ${row.tags||row.path_cn||row.character_name_en||''}`;if(val==null){add(svg,'text',{x:margin.l+8,y:yy+4,class:'axis-label'}).textContent='缺失';return;}const xx=x(val);const bar=add(svg,'line',{x1:margin.l,y1:yy,x2:xx,y2:yy,stroke:color,'stroke-width':8,'stroke-linecap':'round',class:`bar-line ${dimClass(s.slug)}`});bar.dataset.slug=s.slug;bindHover(bar,row,s.slug);drawPoint(svg,defs,xx,yy,row,s.slug,color,idx,0,14);add(svg,'text',{x:Math.min(width-42,xx+18),y:yy+4,class:'axis-label'}).textContent=fmtMetric(val);});
+  const defs=add(svg,'defs',{});series.forEach((s,idx)=>{const row=s.latest;const color=COLORS[idx%COLORS.length];const yy=margin.t+idx*rowH+rowH/2;const val=analysisMetricValue(row);add(svg,'text',{x:18,y:yy-2,class:`rank-label ${dimClass(s.slug)}`}).textContent=`${idx+1}. ${row.character_name_cn||row.character_name_en||s.slug}`;add(svg,'text',{x:18,y:yy+14,class:`muted-label ${dimClass(s.slug)}`}).textContent=`${row.tier} · ${row.tags||row.path_cn||row.character_name_en||''}`;if(val==null){add(svg,'text',{x:margin.l+8,y:yy+4,class:'axis-label'}).textContent='缺失';return;}const xx=x(val);const bar=add(svg,'line',{x1:margin.l,y1:yy,x2:xx,y2:yy,stroke:color,'stroke-width':8,'stroke-linecap':'round',class:`bar-line ${dimClass(s.slug)}`});bar.dataset.slug=s.slug;bindHover(bar,row,s.slug,false);drawPoint(svg,defs,xx,yy,row,s.slug,color,idx,0,14);add(svg,'text',{x:Math.min(width-42,xx+18),y:yy+4,class:'axis-label'}).textContent=fmtMetric(val);});
 }
 
 function renderHeatmap(series){
@@ -339,14 +386,15 @@ function renderHeatmap(series){
   series.forEach((s,idx)=>{const rowY=margin.t+idx*rowH;const latest=s.latest;add(svg,'text',{x:48,y:rowY+rowH/2+4,class:`heat-name ${dimClass(s.slug)}`}).textContent=latest.character_name_cn||latest.character_name_en||s.slug;drawMiniAvatar(svg,defs,24,rowY+rowH/2,latest,s.slug,idx);const byDate=new Map(s.points.map(p=>[p.collect_date,p]));dates.forEach((d,j)=>{const p=byDate.get(d);const val=analysisMetricValue(p);const intensity=val==null?0:Math.max(.08,Math.min(1,val/max));const fill=val==null?'transparent':metric==='app_rate'?`rgba(23,76,90,${intensity})`:`rgba(37,99,235,${intensity})`;const rect=add(svg,'rect',{x:margin.l+j*(cw+cellGap),y:rowY+5,width:Math.max(10,cw),height:rowH-10,fill,class:`heat-cell ${val==null?'missing ':''}${dimClass(s.slug)}`});rect.dataset.slug=s.slug;if(p)bindHover(rect,p,s.slug);rect.addEventListener('click',()=>toggleFocus(s.slug));});});
 }
 
-function drawMiniAvatar(svg,defs,x,y,row,slug,index){const icon=safeAvatarUrl(row.icon_url);if(!icon)return;const clipId=`mini-${index}-${slug}`;const clip=add(svg,'clipPath',{id:clipId},defs);add(svg,'circle',{cx:x,cy:y,r:14},clip);const img=add(svg,'image',{href:icon,x:x-14,y:y-14,width:28,height:28,'clip-path':`url(#${clipId})`,class:`avatar-node ${dimClass(slug)}`});img.dataset.slug=slug;bindHover(img,row,slug);img.addEventListener('click',()=>toggleFocus(slug));}
+function drawMiniAvatar(svg,defs,x,y,row,slug,index){const icon=safeAvatarUrl(row.icon_url);if(!icon)return;const clipId=`mini-${index}-${slug}`;const clip=add(svg,'clipPath',{id:clipId},defs);add(svg,'circle',{cx:x,cy:y,r:14},clip);const img=add(svg,'image',{href:icon,x:x-14,y:y-14,width:28,height:28,'clip-path':`url(#${clipId})`,class:`avatar-node ${dimClass(slug)}`});img.dataset.slug=slug;bindHover(img,row,slug,false);img.addEventListener('click',()=>toggleFocus(slug));}
 function activeSlug(){return state.focus||state.hover}
 function dimClass(slug){const active=activeSlug();return active&&active!==slug?'dim':state.focus===slug?'focused':''}
-function toggleFocus(slug){state.focus=state.focus===slug?null:slug;state.hover=null;renderAnalysis();}
+function toggleFocus(slug){state.focus=state.focus===slug?null:slug;state.hover=null;updateFocusClasses();if(!state.focus)hideTooltip();}
 function setHover(slug){state.hover=slug;updateFocusClasses();}
-function clearHover(){state.hover=null;updateFocusClasses();hideTooltip();}
-function updateFocusClasses(){const active=activeSlug();document.querySelectorAll('[data-slug]').forEach(el=>{const slug=el.dataset.slug;el.classList.toggle('dim',Boolean(active&&active!==slug));el.classList.toggle('focused',Boolean(state.focus&&state.focus===slug));});document.querySelectorAll('.character-card').forEach(el=>{const slug=el.dataset.slug;el.classList.toggle('dim',Boolean(active&&active!==slug));el.classList.toggle('active',Boolean(state.focus&&state.focus===slug));});}
-function bindHover(el,row,slug){el.addEventListener('mouseenter',evt=>{setHover(slug);showTooltip(evt,row);});el.addEventListener('mousemove',moveTooltip);el.addEventListener('mouseleave',clearHover);}
+function clearHover(){state.hover=null;updateFocusClasses();scheduleTooltipClose($('tooltip'));}
+function updateFocusClasses(){const active=activeSlug();document.querySelectorAll('[data-slug]').forEach(el=>{const slug=el.dataset.slug;el.classList.toggle('dim',Boolean(active&&active!==slug));el.classList.toggle('focused',Boolean(state.focus&&state.focus===slug));if(el.closest?.('#chart'))el.setAttribute('aria-pressed',String(Boolean(state.focus&&state.focus===slug)));});document.querySelectorAll('.character-card').forEach(el=>{const slug=el.dataset.slug,pressed=Boolean(state.focus&&state.focus===slug);el.classList.toggle('dim',Boolean(active&&active!==slug));setPressedState(el,pressed);});}
+function analysisDetailLabel(row){const name=row.character_name_cn||row.character_name_en||row.character_slug||'角色',date=row.collect_date||'日期未知';return`查看 ${name} 在 ${date} 的数据详情`;}
+function bindHover(el,row,slug,keyboard=true){el.addEventListener('mouseenter',evt=>{setHover(slug);showTooltip(evt,row);});el.addEventListener('mousemove',moveTooltip);el.addEventListener('mouseleave',clearHover);if(keyboard){bindAccessibleDetail(el,'tooltip',evt=>{setHover(slug);showTooltip(evt,row);},analysisDetailLabel(row),{role:'button'});el.setAttribute('aria-pressed',String(state.focus===slug));el.addEventListener('blur',()=>{state.hover=null;updateFocusClasses();});}}
 
 function showTooltip(evt,row){
   const tt=$('tooltip');tt.hidden=false;
@@ -354,12 +402,12 @@ function showTooltip(evt,row){
   tt.innerHTML=`<div class="tooltip-head"><img src="${esc(row.icon_url)}" alt=""><div><strong>${esc(row.character_name_cn||row.character_name_en||row.character_slug)}</strong><span>${esc(row.character_name_en)} · ${esc(row.character_slug)}</span></div></div><div class="tooltip-grid"><b>模式</b><div>${esc(row.tier_mode_cn)}${row.sub_mode_cn?` · ${esc(row.sub_mode_cn)}`:''}</div><b>职能/T档</b><div>${esc(row.role_group_cn)} · ${esc(row.tier)}${row.rating?` (${esc(row.rating)})`:''}</div><b>属性/命途</b><div>${esc(row.element_cn||'')} ${esc(row.path_cn||'')}</div><b>日期/期数</b><div>${esc(row.collect_date)} · ${esc(row.phase_ver)}</div><b>出场率</b><div>${pct(row.app_rate)}</div><b>${esc(policy.label)}</b><div>${esc(metricText)}${policy.higherBetter==null&&metricText!=='缺失'?' · 仅展示':''}</div><b>标签</b><div>${esc(row.tags||'')}</div><b>质量标记</b><div>${esc(row.quality_flag||'')}</div></div>`;
   moveTooltip(evt);
 }
-function moveTooltip(evt){const target=evt.currentTarget;const tt=target?.closest?.('.box-card')?$('boxTooltip'):(target?.closest?.('.rec-card')||target?.closest?.('.rec-slate-card'))?$('recTooltip'):$('tooltip');const pad=14;let x=evt.clientX+16,y=evt.clientY+16;const rect=tt.getBoundingClientRect();if(x+rect.width+pad>window.innerWidth)x=evt.clientX-rect.width-16;if(y+rect.height+pad>window.innerHeight)y=evt.clientY-rect.height-16;tt.style.left=`${Math.max(pad,x)}px`;tt.style.top=`${Math.max(pad,y)}px`;}
+function moveTooltip(evt){const target=evt.currentTarget;const tt=target?.closest?.('.box-card')?$('boxTooltip'):(target?.closest?.('.rec-card')||target?.closest?.('.rec-slate-card'))?$('recTooltip'):$('tooltip');positionTooltipElement(tt,evt,14);}
 function hideTooltip(){$('tooltip').hidden=true;}
 
 function renderCharacters(series){
   const boxEl=$('characterList');boxEl.innerHTML='';
-  series.forEach((s,idx)=>{const r=s.latest;const card=document.createElement('button');card.type='button';card.dataset.slug=s.slug;card.className=`character-card ${state.focus===s.slug?'active':''} ${activeSlug()&&activeSlug()!==s.slug?'dim':''}`;card.onclick=()=>toggleFocus(s.slug);card.onmouseenter=e=>{setHover(s.slug);showTooltip(e,r);};card.onmousemove=moveTooltip;card.onmouseleave=clearHover;card.innerHTML=`<img src="${esc(r.icon_url)}" alt=""><div><div class="name">${idx+1}. ${esc(r.character_name_cn||r.character_name_en||s.slug)}</div><div class="meta">${esc(r.character_name_en)} · ${esc(r.tier)} · ${esc(r.element_cn||'')} ${esc(r.path_cn||r.tags||'')}</div></div><div><span class="pill">${esc(r.tier)}</span><div class="rate">${pct(r.app_rate)}</div></div>`;boxEl.appendChild(card);});
+  series.forEach((s,idx)=>{const r=s.latest;const card=document.createElement('button');card.type='button';card.dataset.slug=s.slug;card.className=`character-card ${state.focus===s.slug?'active':''} ${activeSlug()&&activeSlug()!==s.slug?'dim':''}`;setPressedState(card,state.focus===s.slug);card.onclick=()=>toggleFocus(s.slug);bindHover(card,r,s.slug);card.innerHTML=`<img src="${esc(r.icon_url)}" alt=""><div><div class="name">${idx+1}. ${esc(r.character_name_cn||r.character_name_en||s.slug)}</div><div class="meta">${esc(r.character_name_en)} · ${esc(r.tier)} · ${esc(r.element_cn||'')} ${esc(r.path_cn||r.tags||'')}</div></div><div><span class="pill">${esc(r.tier)}</span><div class="rate">${pct(r.app_rate)}</div></div>`;boxEl.appendChild(card);});
 }
 
 function renderChangelog(series){const slugs=new Set(series.map(s=>s.slug));const boxEl=$('changelogList');boxEl.innerHTML='';const related=DATA.changelogRows.filter(r=>String(r.character_slugs||'').split(';').some(s=>slugs.has(s)));const rows=(related.length?related:DATA.changelogRows).slice(0,8);rows.forEach(r=>{const item=document.createElement('div');item.className='changelog-item';const text=String(r.text||'');item.innerHTML=`<time>${esc(r.changelog_date)}</time><p>${esc(text).slice(0,420)}${text.length>420?'...':''}</p>`;boxEl.appendChild(item);});}
@@ -368,7 +416,7 @@ function bannerPhaseMatches(status,phase){return phase==='all'||(phase==='recent
 function ensureBannerPhase(){const rows=DATA.bannerRows||[];if(!rows.length)return;if(!rows.some(r=>bannerPhaseMatches(r.phase_status,banner.phase)))banner.phase=BANNER_PHASES.map(([value])=>value).find(value=>value!=='all'&&rows.some(r=>bannerPhaseMatches(r.phase_status,value)))||'all';}
 function bannerRows(){const q=banner.search;return (DATA.bannerRows||[]).filter(r=>bannerPhaseMatches(r.phase_status,banner.phase)&&(!q||[r.character_slug,r.character_name_cn,r.character_name_en,r.banner_role,r.element_cn,r.path_cn,r.role_group_cns,...(r.analysis_tags||[])].some(x=>String(x||'').toLowerCase().includes(q))));}
 function renderBanner(){const allRows=DATA.bannerRows||[],rows=bannerRows();$('bannerTitle').textContent='卡池情报';$('bannerSubtitle').textContent='这里只做数据提炼：复刻看历史趋势和组队占用，新角色/联动角色只做公开信息与 Box 关系识别。';$('bannerBadges').innerHTML=[`角色 ${rows.length}`,`Box ${box.owned.size}`,'趋势仅供参考'].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('bannerGrid');grid.innerHTML='';if(!allRows.length){grid.innerHTML='<div class="rec-empty">卡池数据未生成或为空；终局统计与 Box 数据不受影响</div>';return;}if(!rows.length){const phaseLabel=BANNER_PHASES.find(([value])=>value===banner.phase)?.[1]||'当前阶段';grid.innerHTML=`<div class="rec-empty">${banner.search?'当前搜索与阶段没有匹配角色':`${esc(phaseLabel)}暂无记录`}；卡池数据已载入 ${allRows.length} 条</div>`;return;}const phases=[...new Map(rows.map(r=>[r.phase_id,{id:r.phase_id,title:r.phase_title,subtitle:r.phase_subtitle,date:r.date_range,source:r.source_label,url:r.source_url,status:r.phase_status}])).values()];phases.forEach(phase=>{const section=document.createElement('section'),phaseUrl=safeLinkUrl(phase.url);section.className='banner-section';section.innerHTML=`<div class="banner-section-head"><div><h3>${esc(phase.title||'卡池')}</h3><p>${esc(phase.subtitle||'')} · ${esc(phase.date||'时间待确认')}</p></div>${phaseUrl?`<a href="${esc(phaseUrl)}" target="_blank" rel="noopener noreferrer">${esc(phase.source||'来源')}</a>`:''}</div><div class="banner-card-grid"></div>`;const inner=section.querySelector('.banner-card-grid');rows.filter(r=>r.phase_id===phase.id).forEach(row=>inner.appendChild(bannerCard(row)));grid.appendChild(section);});}
-function bannerCard(row){const slug=row.character_slug,info={...charInfo(slug),...row},ins=bannerInsight(row);const card=document.createElement('article');card.className=`banner-card ${box.owned.has(slug)?'owned':''} ${row.phase_status}`;const tags=(row.analysis_tags||[]).slice(0,5).map(t=>`<span>${esc(t)}</span>`).join('');const name=info.character_name_cn||info.character_name_en||slug;const roleText=info.role_group_cns||roleCn(info)||'未分类';card.innerHTML=`<div class="banner-art">${info.icon_url?`<img src="${esc(info.icon_url)}" alt="" loading="lazy" decoding="async">`:`<div class="avatar-fallback">${esc(name.slice(0,2))}</div>`}<button class="mini-owned" type="button">${box.owned.has(slug)?'已拥有':'加入Box'}</button></div><div class="banner-body"><div class="banner-kicker">${esc(row.banner_role||row.phase_subtitle||'卡池角色')}</div><h3>${esc(name)}</h3><p class="banner-meta">${esc(info.rarity?`${info.rarity}星`:'-')} · ${esc(info.element_cn||'属性未知')} · ${esc(info.path_cn||'命途未知')} · ${esc(roleText)} · ${esc(ins.tierText)}</p><svg class="spark" viewBox="0 0 220 54">${sparkline(ins.points)}</svg><div class="rec-tags">${tags}</div><div class="banner-facts">${ins.lines.slice(0,4).map(x=>`<p>${esc(x)}</p>`).join('')}</div><div class="banner-relations">${ins.relations.slice(0,6).map(x=>`<span class="${x.owned?'owned':''}">${esc(x.name)}${x.count?` ×${x.count}`:''}</span>`).join('')||'<span>暂无历史组合</span>'}</div></div>`;card.querySelector('.mini-owned').onclick=e=>{e.stopPropagation();commitBoxChange(()=>{box.owned.has(slug)?box.owned.delete(slug):box.owned.add(slug);box.buildSlug=slug;},renderBanner);};card.addEventListener('mouseenter',e=>showBannerTooltip(e,row,ins));card.addEventListener('mousemove',moveBannerTooltip);card.addEventListener('mouseleave',()=>{$('bannerTooltip').hidden=true;});return card;}
+function bannerCard(row){const slug=row.character_slug,info={...charInfo(slug),...row},ins=bannerInsight(row);const card=document.createElement('article');card.className=`banner-card ${box.owned.has(slug)?'owned':''} ${row.phase_status}`;const tags=(row.analysis_tags||[]).slice(0,5).map(t=>`<span>${esc(t)}</span>`).join('');const name=info.character_name_cn||info.character_name_en||slug;const roleText=info.role_group_cns||roleCn(info)||'未分类';card.innerHTML=`<div class="banner-art">${info.icon_url?`<img src="${esc(info.icon_url)}" alt="" loading="lazy" decoding="async">`:`<div class="avatar-fallback">${esc(name.slice(0,2))}</div>`}<button class="mini-owned" type="button">${box.owned.has(slug)?'已拥有':'加入Box'}</button></div><div class="banner-body"><div class="banner-kicker">${esc(row.banner_role||row.phase_subtitle||'卡池角色')}</div><h3>${esc(name)}</h3><p class="banner-meta">${esc(info.rarity?`${info.rarity}星`:'-')} · ${esc(info.element_cn||'属性未知')} · ${esc(info.path_cn||'命途未知')} · ${esc(roleText)} · ${esc(ins.tierText)}</p><svg class="spark" viewBox="0 0 220 54">${sparkline(ins.points)}</svg><div class="rec-tags">${tags}</div><div class="banner-facts">${ins.lines.slice(0,4).map(x=>`<p>${esc(x)}</p>`).join('')}</div><div class="banner-relations">${ins.relations.slice(0,6).map(x=>`<span class="${x.owned?'owned':''}">${esc(x.name)}${x.count?` ×${x.count}`:''}</span>`).join('')||'<span>暂无历史组合</span>'}</div></div>`;card.querySelector('.mini-owned').onclick=e=>{e.stopPropagation();commitBoxChange(()=>{box.owned.has(slug)?box.owned.delete(slug):box.owned.add(slug);box.buildSlug=slug;},renderBanner);};card.addEventListener('mouseenter',e=>showBannerTooltip(e,row,ins));card.addEventListener('mousemove',moveBannerTooltip);card.addEventListener('mouseleave',()=>scheduleTooltipClose($('bannerTooltip')));bindAccessibleDetail(card,'bannerTooltip',event=>showBannerTooltip(event,row,ins),`查看 ${name} 卡池详情`);return card;}
 function bannerInsight(row){const slug=row.character_slug,info={...charInfo(slug),...row};const grouped=new Map();(DATA.usageRows||DATA.trendRows||[]).filter(r=>r.character_slug===slug&&(r.sub_mode==='all'||r.sub_mode==='all_bosses'||!r.sub_mode)).forEach(r=>{const key=`${r.tier_mode||r.mode}|${r.collect_date||r.tier_updated_date||''}`;const current=grouped.get(key);if(!current||Number(r.app_rate||0)>Number(current.app_rate||0))grouped.set(key,r);});const usage=[...grouped.values()].sort((a,b)=>String(a.collect_date||a.tier_updated_date).localeCompare(String(b.collect_date||b.tier_updated_date)));const points=usage.map(r=>({date:r.collect_date||r.tier_updated_date,value:number(r.app_rate)||0,mode:r.tier_mode_cn||r.mode_cn||r.tier_mode||r.mode}));const tierText=tierSummaryFor(slug),tierDetails=tierDetailsFor(slug);const teams=(DATA.teamTemplates||[]).filter(t=>(t.chars||[]).includes(slug));const relations=relationRows(slug,teams);const ownedRelation=relations.filter(r=>r.owned).slice(0,4).map(r=>r.name).join('、');const lines=[`T档：Prydwen 按模式分档，${tierText}。`];if(points.length){const latest=points[points.length-1],recent=points.slice(-3),avg=recent.reduce((s,p)=>s+p.value,0)/recent.length,delta=points.length>1?latest.value-points[0].value:0;lines.push(`历史：${points.length} 个样本点，最新 ${latest.value.toFixed(2)}%，近三期均值 ${avg.toFixed(2)}%，首尾变化 ${delta.toFixed(2)}%。`);}else lines.push('历史：本地高难暂无完整样本，不能用趋势替代实测。');if(teams.length){const bestRank=Math.min(...teams.map(t=>number(t.rank)||9999));lines.push(`组队：历史模板 ${teams.length} 条，最好 Rank ${bestRank}，常见队友见下方关系。`);}else lines.push('组队：暂无可回溯历史队伍，等待实测或人工分析。');if(ownedRelation)lines.push(`Box关系：你已有角色中，历史上相关度较高的是 ${ownedRelation}。`);else lines.push('Box关系：暂未发现与你已有 Box 的直接历史组合；需要看属性、命途与队友缺口。');if(row.phase_status==='next'||!points.length)lines.push('未知项：技能组、倍率、光锥价值、实战轴和环境适配仍需外部分析确认。');if(row.focus)lines.push(`关注点：${row.focus}`);return{points,relations,lines,tierText,tierDetails};}
 function tierRowsFor(slug){const resolved=canonicalSlug(slug);return (DATA.tierRows||[]).filter(r=>canonicalSlug(r.character_slug)===resolved);}
 function bestTierInMode(slug,mode){return tierRowsFor(slug).filter(r=>r.tier_mode===mode).sort((a,b)=>(TIER_RANK[a.tier]??9)-(TIER_RANK[b.tier]??9))[0]||null;}
@@ -377,7 +425,7 @@ function tierDetailsFor(slug){const modes=[['moc','混沌回忆'],['pf','虚构�
 function relationRows(slug,teams){const map=new Map();teams.forEach(t=>(t.chars||[]).forEach(c=>{if(c===slug)return;const item=map.get(c)||{slug:c,name:charName(c),count:0,owned:box.owned.has(c)};item.count++;item.owned=box.owned.has(c);map.set(c,item);}));return [...map.values()].sort((a,b)=>Number(b.owned)-Number(a.owned)||b.count-a.count||a.name.localeCompare(b.name));}
 function sparkline(points){if(!points.length)return '<text x="10" y="31" class="spark-empty">暂无趋势</text>';const max=Math.max(1,...points.map(p=>p.value)),xs=points.map((p,i)=>8+i*(204/Math.max(1,points.length-1))),ys=points.map(p=>46-(p.value/max)*36),d=xs.map((x,i)=>`${i?'L':'M'}${x.toFixed(1)} ${ys[i].toFixed(1)}`).join(' ');return `<path d="${d}" class="spark-line"/><path d="M8 47H212" class="spark-axis"/>${xs.map((x,i)=>`<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="3.2" class="spark-dot"/>`).join('')}`;}
 function showBannerTooltip(evt,row,ins){const tt=$('bannerTooltip');tt.innerHTML=`<div class="tooltip-grid"><b>角色</b><span>${esc(row.character_name_cn||row.character_name_en||row.character_slug)}</span><b>阶段</b><span>${esc(row.phase_title||'-')}</span><b>定位</b><span>${esc([row.element_cn,row.path_cn,row.role_group_cns].filter(Boolean).join(' · ')||'未知')}</span><b>模式T档</b><span>${esc(ins.tierDetails||ins.tierText||'未分档')}</span><b>分析输入</b><span>${esc(ins.lines.join('；'))}</span></div>`;tt.hidden=false;moveBannerTooltip(evt);}
-function moveBannerTooltip(evt){const tt=$('bannerTooltip');let x=evt.clientX+16,y=evt.clientY+16;const rect=tt.getBoundingClientRect();if(x+rect.width+12>innerWidth)x=evt.clientX-rect.width-16;if(y+rect.height+12>innerHeight)y=evt.clientY-rect.height-16;tt.style.left=`${Math.max(12,x)}px`;tt.style.top=`${Math.max(12,y)}px`;}
+function moveBannerTooltip(evt){positionTooltipElement($('bannerTooltip'),evt,14);}
 
 function normalizeRecTeamCounts(raw){const input=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw:{};return Object.fromEntries(Object.entries(DEFAULT_REC_TEAM_COUNTS).map(([mode,fallback])=>[mode,String(input[mode])==='3'?'3':String(input[mode])==='2'?'2':fallback]));}
 function normalizeRecTargetScopes(raw){if(!raw||typeof raw!=='object'||Array.isArray(raw))return{};return Object.fromEntries(Object.entries(raw).filter(([,values])=>Array.isArray(values)).map(([key,values])=>[key,[...new Set(values.map(value=>String(value||'').trim()).filter(Boolean))]]));}
@@ -432,18 +480,21 @@ function isPlainBoxObject(value){return Boolean(value)&&typeof value==='object'&
 function readBoxRaw(){try{return JSON.parse(localStorage.getItem(BOX_KEY)||'{}');}catch{return{};}}
 function rawOwnedList(raw){const rows=Array.isArray(raw.owned)?raw.owned:Object.keys(raw.owned||{}).filter(k=>raw.owned[k]);return rows.filter(slug=>slug&&slug!=='__codex_test__');}
 function readableBoxRaw(raw={}){if(!raw||typeof raw!=='object'||Array.isArray(raw))return{};const version=raw.version==null?1:Number(raw.version);return [1,2,3].includes(version)?raw:{}}
-function applyBoxRaw(raw){raw=readableBoxRaw(raw);const aliases=boxAliasMap();const owned=rawOwnedList(raw);box.owned=new Set(owned.map(s=>aliases.get(s)||s).filter(Boolean));box.builds={};Object.entries(raw.builds||{}).forEach(([slug,build])=>{const resolved=aliases.get(slug)||slug;if(resolved)box.builds[resolved]=normalizeBuild(build);});box.buildSlug=aliases.get(raw.buildSlug)||raw.buildSlug||'';if(box.buildSlug&&!box.owned.has(box.buildSlug))box.buildSlug='';box.saveStatus=raw.fromServer?'本机自动保存':'浏览器缓存';}
-function loadBox(){try{applyBoxRaw(readBoxRaw());}catch{box.owned=new Set();box.builds={};box.buildSlug='';box.saveStatus='浏览器缓存';}boxUndoStack=[];}
+function invalidateRecommendationCaches(){boxStateRevision+=1;recScoredPoolCache.clear();recSlateCandidateCache.clear();recListRequestId+=1;recSlateRequestId+=1;}
+function applyBoxRaw(raw){raw=readableBoxRaw(raw);const aliases=boxAliasMap();const owned=rawOwnedList(raw);box.owned=new Set(owned.map(s=>aliases.get(s)||s).filter(Boolean));box.builds={};Object.entries(raw.builds||{}).forEach(([slug,build])=>{const resolved=aliases.get(slug)||slug;if(resolved)box.builds[resolved]=normalizeBuild(build);});box.buildSlug=aliases.get(raw.buildSlug)||raw.buildSlug||'';if(box.buildSlug&&!box.owned.has(box.buildSlug))box.buildSlug='';box.saveStatus=raw.fromServer?'本机自动保存':'浏览器缓存';invalidateRecommendationCaches();}
+function loadBox(){try{applyBoxRaw(readBoxRaw());}catch{box.owned=new Set();box.builds={};box.buildSlug='';box.saveStatus='浏览器缓存';invalidateRecommendationCaches();}boxUndoStack=[];}
 function boxPayload(){const builds={};Object.entries(box.builds||{}).forEach(([slug,build])=>{const normalized=normalizeBuild(build);if(buildRecorded(normalized))builds[slug]=normalized;});return{version:2,updatedAt:new Date().toISOString(),owned:[...box.owned].sort(),buildSlug:box.buildSlug||'',builds};}
 function boxSnapshot(){const payload=boxPayload(),builds=Object.fromEntries(Object.entries(payload.builds).sort(([left],[right])=>left.localeCompare(right)));return{version:payload.version,owned:[...payload.owned],buildSlug:payload.buildSlug,builds};}
 function boxSnapshotKey(snapshot){return JSON.stringify(snapshot)}
 function rememberBoxUndo(snapshot=boxSnapshot()){boxUndoStack.push(snapshot);if(boxUndoStack.length>BOX_UNDO_LIMIT)boxUndoStack.splice(0,boxUndoStack.length-BOX_UNDO_LIMIT);}
 function syncBoxUndoControl(){const undo=$('boxUndoBtn'),clear=$('boxClearAllBtn');if(undo){undo.disabled=!boxUndoStack.length;undo.textContent=boxUndoStack.length?`撤销 (${boxUndoStack.length})`:'撤销';undo.title=boxUndoStack.length?'恢复上一步 Box 修改':'暂无可撤销修改';}if(clear)clear.disabled=!box.owned.size&&!Object.keys(boxSnapshot().builds).length;}
-function commitBoxChange(mutator,renderer=renderBox){const before=boxSnapshot(),beforeKey=boxSnapshotKey(before);mutator();const after=boxSnapshot();if(beforeKey===boxSnapshotKey(after)){if(typeof renderer==='function')renderer();return false;}rememberBoxUndo(before);saveBox();if(typeof renderer==='function')renderer();return true;}
+function commitBoxChange(mutator,renderer=renderBox){const before=boxSnapshot(),beforeKey=boxSnapshotKey(before);mutator();const after=boxSnapshot();if(beforeKey===boxSnapshotKey(after)){if(typeof renderer==='function')renderer();return false;}rememberBoxUndo(before);invalidateRecommendationCaches();saveBox();if(typeof renderer==='function')renderer();return true;}
 function undoBoxChange(){const previous=boxUndoStack.pop();if(!previous)return;applyBoxRaw(previous);saveBox();renderBox();}
 function parseBoxImportDocument(raw){if(!isPlainBoxObject(raw))throw new Error('导入文件必须是 Box JSON 对象');const version=raw.version==null?1:Number(raw.version);if(![1,2,3].includes(version))throw new Error('不支持该 Box 文件版本');const hasOwned=Object.prototype.hasOwnProperty.call(raw,'owned'),hasBuilds=Object.prototype.hasOwnProperty.call(raw,'builds');if(!hasOwned&&!hasBuilds)throw new Error('文件没有 Box 角色或练度字段，未执行导入');if(!hasOwned||(version>1&&!hasBuilds))throw new Error('Box 文件缺少完整的拥有与练度字段，未执行导入');if(hasOwned&&!Array.isArray(raw.owned)&&!isPlainBoxObject(raw.owned))throw new Error('Box 拥有列表格式无效');if(hasBuilds&&!isPlainBoxObject(raw.builds))throw new Error('Box 练度记录格式无效');const aliases=boxAliasMap(),owned=[...new Set(rawOwnedList(raw).map(slug=>aliases.get(slug)||String(slug||'').trim()).filter(Boolean))].sort(),builds={};Object.entries(raw.builds||{}).forEach(([slug,build])=>{const resolved=aliases.get(slug)||String(slug||'').trim(),normalized=normalizeBuild(isPlainBoxObject(build)?build:{});if(resolved&&buildRecorded(normalized))builds[resolved]=normalized;});const normalizedBuilds=Object.fromEntries(Object.entries(builds).sort(([left],[right])=>left.localeCompare(right)));if(!owned.length&&!Object.keys(normalizedBuilds).length)throw new Error('导入文件没有角色或练度记录；如需清空请使用“清空整个 Box”');return{version:2,owned,buildSlug:'',builds:normalizedBuilds};}
 function boxImportPreview(raw){const next=parseBoxImportDocument(raw),current=boxSnapshot(),currentOwned=new Set(current.owned),nextOwned=new Set(next.owned),currentBuilds=current.builds,nextBuilds=next.builds;return{next,ownedAdded:[...nextOwned].filter(slug=>!currentOwned.has(slug)).length,ownedRemoved:[...currentOwned].filter(slug=>!nextOwned.has(slug)).length,buildAdded:Object.keys(nextBuilds).filter(slug=>!Object.prototype.hasOwnProperty.call(currentBuilds,slug)).length,buildChanged:Object.keys(nextBuilds).filter(slug=>Object.prototype.hasOwnProperty.call(currentBuilds,slug)&&JSON.stringify(nextBuilds[slug])!==JSON.stringify(currentBuilds[slug])).length,buildCleared:Object.keys(currentBuilds).filter(slug=>!Object.prototype.hasOwnProperty.call(nextBuilds,slug)).length};}
 function formatBoxImportPreview(preview){return`导入预览（将替换当前 Box）：\n拥有：新增 ${preview.ownedAdded}，移除 ${preview.ownedRemoved}\n练度：新增 ${preview.buildAdded}，变化 ${preview.buildChanged}，清除 ${preview.buildCleared}\n\n确认导入？此操作之后可以撤销。`;}
+function formatBoxBatchPreview(title,preview){return`批量修改预览（${title}）：\n拥有：新增 ${preview.ownedAdded||0}，移除 ${preview.ownedRemoved||0}\n练度：新增 ${preview.buildAdded||0}，变化 ${preview.buildChanged||0}，清除 ${preview.buildCleared||0}\n\n确认修改？此操作之后可以撤销。`;}
+function confirmBoxBatchPreview(title,preview){const total=(preview.ownedAdded||0)+(preview.ownedRemoved||0)+(preview.buildAdded||0)+(preview.buildChanged||0)+(preview.buildCleared||0);if(!total){box.exportStatus='当前筛选无需修改';renderBox();return false;}return globalThis.confirm(formatBoxBatchPreview(title,preview));}
 function clearEntireBox(){const snapshot=boxSnapshot(),buildCount=Object.keys(snapshot.builds).length;if(!snapshot.owned.length&&!buildCount){box.exportStatus='Box 已为空';renderBox();return;}if(!globalThis.confirm(`确认清空整个 Box？\n将移除 ${snapshot.owned.length} 个已拥有角色和 ${buildCount} 条练度记录。\n\n清空后仍可使用“撤销”恢复。`))return;commitBoxChange(()=>{box.owned.clear();box.builds={};box.buildSlug='';});}
 function enqueueBoxServerSave(pending){if(boxPendingSave===pending)boxPendingSave=null;const operation=boxSaveChain.catch(()=>undefined).then(()=>pending.revision===boxSaveRevision?saveBoxToServer(pending.payload,pending.revision):undefined);boxSaveChain=operation;operation.catch(()=>{});return operation;}
 function saveBox(){const payload=boxPayload();box.exportStatus='';const exportButton=$('boxExportBtn');if(exportButton&&!exportButton.disabled){exportButton.textContent='导出Box';exportButton.title='';}clearTimeout(boxSaveTimer);boxSaveTimer=null;if(!desktopMode){localStorage.setItem(BOX_KEY,JSON.stringify(payload));boxPendingSave=null;box.saveStatus='已保存到浏览器';}else{const pending={payload,revision:++boxSaveRevision};boxPendingSave=pending;box.saveStatus='正在保存到本机';boxSaveTimer=setTimeout(()=>{boxSaveTimer=null;if(boxPendingSave===pending)boxPendingSave=null;enqueueBoxServerSave(pending).catch(()=>{});},180);}if(state.page==='box'||state.page==='banner')requestAnimationFrame(()=>{if(state.page==='box')renderBox();else renderBanner();});}
@@ -457,19 +508,19 @@ function boxStatusLabel(){return{all:'全部状态',owned:'已拥有',missing:'�
 function boxStatusText(status){return{current:'当期UP',next:'后续卡池',recent:'历史参考',previous:'已结束'}[status]||status}
 function filteredRoster(){const q=box.search;return DATA.rosterRows.filter(r=>(box.element==='all'||r.element_cn===box.element)&&(box.path==='all'||r.path_cn===box.path)&&(box.role==='all'||String(r.role_groups||'').split(';').includes(box.role))&&(box.rarity==='all'||String(r.rarity)===box.rarity)&&matchesBoxStatus(r)&&(!q||[r.character_name_cn,r.character_name_en,r.character_slug,r.element_cn,r.path_cn,r.role_group_cns,r.banner_phase_titles].some(x=>String(x||'').toLowerCase().includes(q)))).sort((a,b)=>releaseOrder(a)-releaseOrder(b)||String(a.character_name_en).localeCompare(String(b.character_name_en)));}
 function toggleOwned(slug){const resolved=canonicalSlug(slug);commitBoxChange(()=>{if(box.owned.has(resolved)){box.owned.delete(resolved);if(box.buildSlug===resolved)box.buildSlug='';}else{box.owned.add(resolved);box.buildSlug=resolved;}});}
-function renderBox(){const rows=filteredRoster();const total=DATA.rosterRows.length;const owned=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)).length;const built=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)&&buildState(buildFor(r.character_slug)).ready).length;syncBoxUndoControl();renderBuildEditor();$('boxSubtitle').textContent=`展示 ${rows.length}/${total} 个角色，已拥有 ${owned} 个，已成型 ${built} 个。点击卡片切换拥有，点「练度」维护等级/光锥/星魂/专武/行迹/遗器。`;$('boxBadges').innerHTML=[box.exportStatus||box.saveStatus||'浏览器缓存',box.element==='all'?'全部属性':box.element,box.path==='all'?'全部命途':box.path,boxStatusLabel(),`成型 ${built}/${owned||0}`].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('boxGrid');grid.innerHTML='';rows.forEach(row=>{const owned=box.owned.has(row.character_slug);const buildText=owned?buildShortLabel(row.character_slug):'未拥有';const bannerTag=String(row.banner_statuses||'').split(';').filter(Boolean)[0];const card=document.createElement('article');card.tabIndex=0;card.setAttribute('role','button');card.className=`box-card ${owned?'owned':'missing'} ${box.buildSlug===row.character_slug?'selected':''}`;card.dataset.slug=row.character_slug;card.onclick=()=>toggleOwned(row.character_slug);card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleOwned(row.character_slug);}};card.onmouseenter=e=>showBoxTooltip(e,row);card.onmousemove=moveTooltip;card.onmouseleave=()=>{$('boxTooltip').hidden=true;};card.innerHTML=`<button class="build-button" type="button">练度</button><span class="owned-dot"></span><img src="${esc(row.icon_url)}" alt="" loading="lazy" decoding="async"><div class="box-name">${esc(row.character_name_cn||row.character_name_en||row.character_slug)}</div><div class="box-meta">${esc(row.element_cn||'')} · ${esc(row.path_cn||'')}${bannerTag?` · ${esc(boxStatusText(bannerTag))}`:''}</div><div class="box-meta">${esc(row.role_group_cns||'未分类')}</div><div class="box-meta box-build">${esc(buildText)}</div>`;card.querySelector('.build-button').onclick=e=>{e.stopPropagation();selectBuild(row.character_slug);};grid.appendChild(card);});}
+function renderBox(){const rows=filteredRoster();const total=DATA.rosterRows.length;const owned=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)).length;const built=DATA.rosterRows.filter(r=>box.owned.has(r.character_slug)&&buildState(buildFor(r.character_slug)).ready).length;syncBoxUndoControl();renderBuildEditor();$('boxSubtitle').textContent=`展示 ${rows.length}/${total} 个角色，已拥有 ${owned} 个，已成型 ${built} 个。点击卡片切换拥有，点「练度」维护等级/光锥/星魂/专武/行迹/遗器。`;$('boxBadges').innerHTML=[box.exportStatus||box.saveStatus||'浏览器缓存',box.element==='all'?'全部属性':box.element,box.path==='all'?'全部命途':box.path,boxStatusLabel(),`成型 ${built}/${owned||0}`].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('boxGrid');grid.innerHTML='';rows.forEach(row=>{const owned=box.owned.has(row.character_slug),name=row.character_name_cn||row.character_name_en||row.character_slug;const buildText=owned?buildShortLabel(row.character_slug):'未拥有';const bannerTag=String(row.banner_statuses||'').split(';').filter(Boolean)[0];const card=document.createElement('article');card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-pressed',String(owned));card.setAttribute('aria-label',`${name}：${owned?'已拥有':'未拥有'}，按回车或空格切换`);card.className=`box-card ${owned?'owned':'missing'} ${box.buildSlug===row.character_slug?'selected':''}`;card.dataset.slug=row.character_slug;card.onclick=()=>toggleOwned(row.character_slug);card.onkeydown=e=>{if(e.target===card&&(e.key==='Enter'||e.key===' ')){e.preventDefault();toggleOwned(row.character_slug);}};card.onmouseenter=e=>showBoxTooltip(e,row);card.onmousemove=moveTooltip;card.onmouseleave=()=>{$('boxTooltip').hidden=true;};card.innerHTML=`<button class="build-button" type="button" aria-label="编辑 ${esc(name)} 练度">练度</button><span class="owned-dot"></span><img src="${esc(row.icon_url)}" alt="" loading="lazy" decoding="async"><div class="box-name">${esc(name)}</div><div class="box-meta">${esc(row.element_cn||'')} · ${esc(row.path_cn||'')}${bannerTag?` · ${esc(boxStatusText(bannerTag))}`:''}</div><div class="box-meta">${esc(row.role_group_cns||'未分类')}</div><div class="box-meta box-build">${esc(buildText)}</div>`;card.querySelector('.build-button').onclick=e=>{e.stopPropagation();selectBuild(row.character_slug);};bindAccessibleDetail(card,'boxTooltip',event=>showBoxTooltip(event,row),'',{activateKeys:false});grid.appendChild(card);});}
 function selectBuild(slug){const resolved=canonicalSlug(slug);commitBoxChange(()=>{box.owned.add(resolved);box.buildSlug=resolved;});}
 function renderBuildEditor(){const panel=$('buildEditor');if(!box.buildSlug||!box.owned.has(box.buildSlug)){panel.classList.add('hidden');return;}const row=charInfo(box.buildSlug);const state=buildState(buildFor(box.buildSlug));panel.classList.remove('hidden');$('buildEditorIcon').src=row.icon_url||'';$('buildEditorTitle').textContent=`${charName(box.buildSlug)} · 练度`;$('buildEditorSubtitle').textContent=`${row.element_cn||'未知'} · ${row.path_cn||'未知'} · ${roleCn(row)}`;$('buildLevelSelect').value=String(state.level);$('buildLcSelect').value=String(state.lc);$('buildEidolonSelect').value=String(state.eidolon);$('buildSignatureSelect').value=state.signature;$('buildTraceSelect').value=state.traces;$('buildRelicSelect').value=state.relics;$('buildScoreText').textContent=`${state.label} · ${state.coreRecorded?state.basePercent:0}% · ${state.configLabel}`;}
 function updateBuildField(field,value){if(!box.buildSlug)return;commitBoxChange(()=>{const build=buildFor(box.buildSlug);build[field]=value;box.builds[box.buildSlug]=normalizeBuild(build);box.owned.add(box.buildSlug);});}
 function fullBuild(prev={}){const b=normalizeBuild(prev);return{...b,level:80,lc:80,traces:'max',relics:'great'}}
 function setBuildPreset(kind){if(!box.buildSlug)return;commitBoxChange(()=>{if(kind==='clear')delete box.builds[box.buildSlug];else box.builds[box.buildSlug]=fullBuild(box.builds[box.buildSlug]||{});box.owned.add(box.buildSlug);});}
-function setVisibleBuild(kind){commitBoxChange(()=>{filteredRoster().forEach(r=>{if(kind==='clear')delete box.builds[r.character_slug];else{box.owned.add(r.character_slug);box.builds[r.character_slug]=fullBuild(box.builds[r.character_slug]||{});}});});}
+function setVisibleBuild(kind){const rows=filteredRoster(),snapshot=boxSnapshot(),preview={ownedAdded:0,buildAdded:0,buildChanged:0,buildCleared:0};rows.forEach(r=>{const slug=r.character_slug,current=snapshot.builds[slug];if(kind==='clear'){if(current)preview.buildCleared+=1;return;}if(!box.owned.has(slug))preview.ownedAdded+=1;const next=fullBuild(current||{});if(!current)preview.buildAdded+=1;else if(JSON.stringify(current)!==JSON.stringify(next))preview.buildChanged+=1;});if(!confirmBoxBatchPreview(kind==='clear'?'清除当前筛选练度':'当前筛选设为满练',preview))return;commitBoxChange(()=>{rows.forEach(r=>{if(kind==='clear')delete box.builds[r.character_slug];else{box.owned.add(r.character_slug);box.builds[r.character_slug]=fullBuild(box.builds[r.character_slug]||{});}});});}
 function showBoxTooltip(evt,row){const tt=$('boxTooltip');const owned=box.owned.has(row.character_slug);const state=buildState(buildFor(row.character_slug));const eidolonText=state.eidolon==='unset'?'未录入':`${state.eidolon}魂`;tt.hidden=false;tt.innerHTML=`<div class="tooltip-head"><img src="${esc(row.icon_url)}" alt=""><div><strong>${esc(row.character_name_cn||row.character_name_en)}</strong><span>${esc(row.character_name_en)} · ${esc(row.character_slug)}</span></div></div><div class="tooltip-grid"><b>收集状态</b><div>${owned?'已拥有':'未拥有'}</div><b>练度</b><div>${owned?`${esc(state.label)} · ${state.coreRecorded?state.basePercent:0}%`:'未拥有'}</div><b>星魂/专武</b><div>${owned?`${esc(eidolonText)} · ${esc(signatureText(state.signature))}`:'未拥有'}</div><b>属性/命途</b><div>${esc(row.element_cn||'未知')} · ${esc(row.path_cn||'未知')}</div><b>星级</b><div>${esc(row.rarity||'未知')}</div><b>职能</b><div>${esc(row.role_group_cns||'未分类')}</div><b>排序</b><div>新旧序 #${esc(row.release_order)}</div><b>来源</b><div>${esc(row.source||'')}</div></div>`;moveTooltip(evt);}
-function markVisible(value){const rows=filteredRoster(),targets=new Set(rows.map(row=>row.character_slug));if(!value&&box.owned.size&&[...box.owned].every(slug=>targets.has(slug))){alert('该批量操作会清空整个 Box。请使用“清空整个 Box”并确认后执行。');return;}commitBoxChange(()=>{rows.forEach(r=>{if(value)box.owned.add(r.character_slug);else{box.owned.delete(r.character_slug);if(box.buildSlug===r.character_slug)box.buildSlug='';}});});}
+function markVisible(value){const rows=filteredRoster(),targets=new Set(rows.map(row=>row.character_slug));if(!value&&box.owned.size&&[...box.owned].every(slug=>targets.has(slug))){alert('该批量操作会清空整个 Box。请使用“清空整个 Box”并确认后执行。');return;}const preview=value?{ownedAdded:rows.filter(r=>!box.owned.has(r.character_slug)).length}:{ownedRemoved:rows.filter(r=>box.owned.has(r.character_slug)).length};if(!confirmBoxBatchPreview(value?'当前筛选标记为已拥有':'当前筛选移出已拥有',preview))return;commitBoxChange(()=>{rows.forEach(r=>{if(value)box.owned.add(r.character_slug);else{box.owned.delete(r.character_slug);if(box.buildSlug===r.character_slug)box.buildSlug='';}});});}
 async function exportBox(){const payload={...boxPayload(),exportedAt:new Date().toISOString()};const button=$('boxExportBtn');if(desktopMode){if(button.disabled)return;button.disabled=true;button.textContent='正在导出…';button.title='';box.exportStatus='正在导出 Box…';renderBox();try{const response=await fetch('/api/hsr/box/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!response.ok)throw new Error(`本机导出失败（${response.status}）`);const receipt=await response.json();if(receipt?.schema_version!=='miho-box-export-receipt-v1'||typeof receipt.file_name!=='string'||!receipt.file_name.startsWith('hsr_box_state')||!Number.isSafeInteger(receipt.bytes)||receipt.bytes<=0)throw new Error('本机导出回执无效');button.textContent='已导出到下载文件夹';button.title=receipt.file_name;box.exportStatus=`已导出到下载文件夹：${receipt.file_name}`;}catch(error){button.textContent='导出失败';button.title='';box.exportStatus=`导出失败：${error instanceof Error?error.message:'未知错误'}`;}finally{button.disabled=false;renderBox();}return;}const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='hsr_box_state.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function importBox(evt){const file=evt.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const preview=boxImportPreview(JSON.parse(String(reader.result||'{}')));if(!globalThis.confirm(formatBoxImportPreview(preview)))return;commitBoxChange(()=>applyBoxRaw(preview.next));}catch(err){alert(`导入失败：${err instanceof Error?err.message:'文件格式无效'}`);}finally{evt.target.value='';}};reader.readAsText(file);}
 
-function rosterBySlug(){if(!DATA._rosterBySlug){DATA._rosterBySlug=new Map();(DATA.rosterRows||[]).forEach(r=>{DATA._rosterBySlug.set(r.character_slug,r);String(r.alias_slugs||'').split(';').forEach(s=>{if(s)DATA._rosterBySlug.set(s,r);});});}return DATA._rosterBySlug;}
+function rosterBySlug(){if(!DATA._rosterBySlug){DATA._rosterBySlug=new Map(DATA_INDEX?.rosterBySlug||[]);(DATA.rosterRows||[]).forEach(r=>{DATA._rosterBySlug.set(r.character_slug,r);String(r.alias_slugs||'').split(';').forEach(s=>{if(s)DATA._rosterBySlug.set(s,r);});});}return DATA._rosterBySlug;}
 function charInfo(slug){return rosterBySlug().get(slug)||{character_slug:slug,character_name_cn:'',character_name_en:slug,element_cn:'',path_cn:'',role_groups:'unknown',role_group_cns:'未分类',icon_url:''};}
 function charName(slug){const r=charInfo(slug);return r.character_name_cn||r.character_name_en||slug}
 function phaseName(row){return row?.phase_name_cn||(row?.phase_name?'中文期名待维护':'')}
@@ -489,7 +540,7 @@ function freshnessBadgeHtml(freshness){return freshness.status==='active'?'':`<s
 function freshnessTemplateLabel(status,currentLabel){return status==='stale'?'历史模板（源滞后）':status==='future'?'未来周期样本（尚未开始）':status==='unknown'?'周期状态未知的样本':currentLabel}
 function syncFreshnessNavigation(mode=rec.mode){const root=$('appTabs');if(!root)return;const button=[...root.children].find(item=>item.dataset.value==='recommender');if(!button)return;const freshness=modeFreshness(mode),suffix=freshness.status==='active'?'':` · ${freshnessStatusLabel(freshness.status)}`;button.textContent=`组队推荐${suffix}`;button.classList.remove('freshness-stale','freshness-future','freshness-unknown');if(freshness.status!=='active')button.classList.add(`freshness-${freshness.status}`);button.title=`${MODES.find(([value])=>value===mode)?.[1]||mode}：${freshnessStatusLabel(freshness.status)}，不阻止浏览`;}
 function templateRecencyKey(t){return `${String(t.collect_date||'')}|${String(t.phase_ver||'')}|${String(t.snapshot_id||'')}`}
-function currentModeTemplates(mode){const rows=(DATA.teamTemplates||[]).filter(t=>t.mode===mode);const usable=rows.filter(t=>!['expired','future'].includes(t.phase_status));const pool=usable.length?usable:rows;const latest=pool.reduce((m,t)=>templateRecencyKey(t)>m?templateRecencyKey(t):m,'');return pool.filter(t=>templateRecencyKey(t)===latest);}
+function currentModeTemplates(mode){if(!DATA._currentModeTemplates)DATA._currentModeTemplates=new Map();if(DATA._currentModeTemplates.has(mode))return DATA._currentModeTemplates.get(mode);const rows=DATA_INDEX?.teamsByMode.get(mode)||(DATA.teamTemplates||[]).filter(t=>t.mode===mode),usable=rows.filter(t=>!['expired','future'].includes(t.phase_status)),pool=usable.length?usable:rows,latest=pool.reduce((m,t)=>templateRecencyKey(t)>m?templateRecencyKey(t):m,''),current=pool.filter(t=>templateRecencyKey(t)===latest);DATA._currentModeTemplates.set(mode,current);return current;}
 function templatePoolKey(template){return (template.chars||[]).map(canonicalSlug).sort().join('|')}
 function compareTemplatePerformance(candidate,current){const candidateEvidence=performanceEvidence(candidate),currentEvidence=performanceEvidence(current);if(candidateEvidence.valid!==currentEvidence.valid)return candidateEvidence.valid?-1:1;if(!candidateEvidence.valid||candidateEvidence.higherBetter==null)return 0;return candidateEvidence.higherBetter?currentEvidence.value-candidateEvidence.value:candidateEvidence.value-currentEvidence.value}
 function preferPoolTemplate(candidate,current){const candidateRank=rankSortValue(candidate.rank),currentRank=rankSortValue(current.rank);if(candidateRank!==currentRank)return candidateRank<currentRank;const candidateRate=num(candidate.app_rate)??-1,currentRate=num(current.app_rate)??-1;if(candidateRate!==currentRate)return candidateRate>currentRate;const performanceDiff=compareTemplatePerformance(candidate,current);if(performanceDiff)return performanceDiff<0;return Number(candidate.scope_order||99)<Number(current.scope_order||99);}
@@ -511,48 +562,26 @@ function canonicalSlug(slug){return charInfo(slug).character_slug||slug}
 function deploymentGroup(slug){const raw=String(slug||''),info=DATA?charInfo(raw):{},resolved=info.character_slug||raw,declared=info.deployment_group;if(declared)return declared;if(/^trailblazer(?:-|$)/.test(resolved))return'trailblazer';if(['march-7th','march-7th-swordmaster','march-7th-the-hunt'].includes(resolved))return'march-7th';return resolved}
 function isCoreMember(info){return roleList(info).some(role=>CORE_ROLES.has(role))}
 function tierMetaFor(slug,mode){
-  if(!DATA._tierRiskMeta){
-    DATA._tierRiskMeta=new Map();
-    (DATA.tierRows||[]).forEach(row=>{
-      const resolved=canonicalSlug(row.character_slug);
-      const key=`${row.tier_mode}|${resolved}`;
-      const rank=TIER_RANK[row.tier];
-      if(rank==null)return;
-      const current=DATA._tierRiskMeta.get(key);
-      if(!current||rank<current.rank)DATA._tierRiskMeta.set(key,{tier:row.tier,rank,role:row.role_group_cn||row.role_group||'',rating:num(row.rating)});
-    });
-  }
-  return DATA._tierRiskMeta.get(`${mode}|${canonicalSlug(slug)}`)||null;
+  if(!DATA._tierRiskMeta)DATA._tierRiskMeta=new Map();
+  const resolved=canonicalSlug(slug),key=`${mode}|${resolved}`;
+  if(DATA._tierRiskMeta.has(key))return DATA._tierRiskMeta.get(key);
+  const rows=DATA_INDEX?.tiersByModeCharacter.get(key)||(DATA.tierRows||[]).filter(row=>(row.tier_mode||row.mode)===mode&&canonicalSlug(row.character_slug)===resolved);
+  let best=null;
+  rows.forEach(row=>{const rank=TIER_RANK[row.tier];if(rank!=null&&(!best||rank<best.rank))best={tier:row.tier,rank,role:row.role_group_cn||row.role_group||'',rating:num(row.rating)};});
+  DATA._tierRiskMeta.set(key,best);
+  return best;
 }
 function usageTrendFor(slug,mode){
-  if(!DATA._usageTrendMeta){
-    DATA._usageTrendMeta=new Map();
-    const grouped=new Map();
-    (DATA.usageRows||DATA.trendRows||[]).forEach(row=>{
-      const rowMode=row.tier_mode||row.mode;
-      const resolved=canonicalSlug(row.character_slug);
-      if(!rowMode||!resolved||!row.collect_date)return;
-      const key=`${rowMode}|${resolved}|${row.collect_date}`;
-      const current=grouped.get(key);
-      const rate=num(row.app_rate);
-      if(rate==null)return;
-      if(!current||rate>current.app_rate)grouped.set(key,{mode:rowMode,slug:resolved,date:row.collect_date,app_rate:rate});
-    });
-    const byChar=new Map();
-    grouped.forEach(point=>{const key=`${point.mode}|${point.slug}`;if(!byChar.has(key))byChar.set(key,[]);byChar.get(key).push(point);});
-    byChar.forEach((points,key)=>{
-      points.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
-      const recent=points.slice(-4);
-      if(recent.length<3){DATA._usageTrendMeta.set(key,{risk:false,points:recent});return;}
-      const first=recent[0].app_rate,last=recent[recent.length-1].app_rate,prev=recent[recent.length-2].app_rate;
-      const drops=recent.slice(1).filter((p,i)=>p.app_rate<recent[i].app_rate).length;
-      const absoluteDrop=first-last;
-      const relativeDrop=first>0?absoluteDrop/first:0;
-      const risk=first>=3&&last<prev&&((drops>=2&&absoluteDrop>=3)||(relativeDrop>=0.45&&absoluteDrop>=2.2));
-      DATA._usageTrendMeta.set(key,{risk,points:recent,first,last,drop:absoluteDrop});
-    });
-  }
-  return DATA._usageTrendMeta.get(`${mode}|${canonicalSlug(slug)}`)||{risk:false,points:[]};
+  if(!DATA._usageTrendMeta)DATA._usageTrendMeta=new Map();
+  const resolved=canonicalSlug(slug),key=`${mode}|${resolved}`;
+  if(DATA._usageTrendMeta.has(key))return DATA._usageTrendMeta.get(key);
+  const rows=DATA_INDEX?.usageByModeCharacter.get(key)||indexedUsageRows(mode).filter(row=>canonicalSlug(row.character_slug)===resolved),grouped=new Map();
+  rows.forEach(row=>{if(!row.collect_date)return;const rate=num(row.app_rate),current=grouped.get(row.collect_date);if(rate!=null&&(!current||rate>current.app_rate))grouped.set(row.collect_date,{mode,slug:resolved,date:row.collect_date,app_rate:rate});});
+  const points=[...grouped.values()].sort((a,b)=>String(a.date).localeCompare(String(b.date))),recent=points.slice(-4);
+  if(recent.length<3){const result={risk:false,points:recent};DATA._usageTrendMeta.set(key,result);return result;}
+  const first=recent[0].app_rate,last=recent[recent.length-1].app_rate,prev=recent[recent.length-2].app_rate,drops=recent.slice(1).filter((p,i)=>p.app_rate<recent[i].app_rate).length,absoluteDrop=first-last,relativeDrop=first>0?absoluteDrop/first:0,risk=first>=3&&last<prev&&((drops>=2&&absoluteDrop>=3)||(relativeDrop>=0.45&&absoluteDrop>=2.2)),result={risk,points:recent,first,last,drop:absoluteDrop};
+  DATA._usageTrendMeta.set(key,result);
+  return result;
 }
 function memberRisk(member,mode){
   const reasons=[];const tier=tierMetaFor(member.slug,mode);const core=isCoreMember(member.info);const build=member.buildState||buildState(buildFor(member.slug));const built=member.owned&&build.ready;
@@ -653,24 +682,31 @@ function compareRecommendations(a,b,weaknessDriven,selected,sortMode){
   return a.missingCount-b.missingCount||rankSortValue(a.template.rank)-rankSortValue(b.template.rank)||templatePoolKey(a.template).localeCompare(templatePoolKey(b.template));
 }
 
-function rankedRecommendations(mode=rec.mode,scope=rec.scope,used=new Set(),options={}){
+function stableSetKey(values,mapper=value=>String(value||'')){return[...values].map(mapper).filter(Boolean).sort().join(',')}
+function putBoundedCache(cache,key,value,limit=48){if(!cache.has(key)&&cache.size>=limit)cache.delete(cache.keys().next().value);cache.set(key,value);return value}
+function scoredPoolContext(mode=rec.mode,scope=rec.scope,used=new Set(),options={}){
   const selected=recElementSet(mode,scope);
   const constraints=recConstraintSets(mode,scope);
   const reserved=new Set([...(options.reserved||[])].map(deploymentGroup));
   const weaknessDriven=isCustomScope(scope);
-  const maxGap=Number(options.maxGap??rec.gap);
-  const q=options.ignoreSearch?'':rec.search;
-  const sortMode=normalizeRecSortMode(options.sortMode??rec.sortMode);
-  const scored=finalizeRecommendationScores(scopeTemplates(mode,scope).filter(t=>templateMatchesConstraints(t,constraints)&&templateHasUniqueDeployments(t)).map(t=>scoreTemplate(t,selected,used,constraints,reserved,{targetScope:scope,weaknessDriven})),sortMode);
-  return scored.filter(item=>{
+  const key=JSON.stringify([dataEpoch,boxStateRevision,mode,scope,rec.strategy,stableSetKey(selected),stableSetKey(constraints.required,canonicalSlug),stableSetKey(constraints.excluded,canonicalSlug),stableSetKey(used,deploymentGroup),stableSetKey(reserved)]);
+  const templates=scopeTemplates(mode,scope).filter(t=>templateMatchesConstraints(t,constraints)&&templateHasUniqueDeployments(t));
+  return{key,mode,scope,selected,constraints,reserved,weaknessDriven,used,templates};
+}
+function buildScoredPoolSync(context){const existing=recScoredPoolCache.get(context.key);if(Array.isArray(existing))return existing;const scored=finalizeRecommendationScores(context.templates.map(template=>scoreTemplate(template,context.selected,context.used,context.constraints,context.reserved,{targetScope:context.scope,weaknessDriven:context.weaknessDriven})),'balanced');return putBoundedCache(recScoredPoolCache,context.key,scored)}
+function buildScoredPoolAsync(context){const existing=recScoredPoolCache.get(context.key);if(Array.isArray(existing))return Promise.resolve(existing);if(existing&&typeof existing.then==='function')return existing;const runtime=globalThis.MihoSlateSolver,promise=runtime.cooperativeMap(context.templates,template=>scoreTemplate(template,context.selected,context.used,context.constraints,context.reserved,{targetScope:context.scope,weaknessDriven:context.weaknessDriven}),{budgetMs:8}).then(scored=>{const finalized=finalizeRecommendationScores(scored,'balanced');if(recScoredPoolCache.get(context.key)===promise)recScoredPoolCache.set(context.key,finalized);return finalized;}).catch(error=>{if(recScoredPoolCache.get(context.key)===promise)recScoredPoolCache.delete(context.key);throw error;});return putBoundedCache(recScoredPoolCache,context.key,promise)}
+function projectRankedPool(scored,context,options={}){
+  const maxGap=Number(options.maxGap??rec.gap),q=options.ignoreSearch?'':rec.search,sortMode=normalizeRecSortMode(options.sortMode??rec.sortMode),riskMode=options.riskMode||rec.riskMode||'warn';
+  return scored.map(item=>({...item,scoreMode:sortMode,score:item.scores[sortMode]})).filter(item=>{
     if(Number.isFinite(maxGap)&&item.missingCount>maxGap)return false;
-    const riskMode=options.riskMode||rec.riskMode||'warn';
     if(riskMode==='filter'&&item.risks.length)return false;
-    if(reserved.size&&item.finalChars.some(slug=>reserved.has(deploymentGroup(slug))))return false;
+    if(context.reserved.size&&item.finalChars.some(slug=>context.reserved.has(deploymentGroup(slug))))return false;
     if(q&&!item.searchText.includes(q))return false;
     return true;
-  }).sort((a,b)=>compareRecommendations(a,b,weaknessDriven,selected,sortMode));
+  }).sort((a,b)=>compareRecommendations(a,b,context.weaknessDriven,context.selected,sortMode));
 }
+function rankedRecommendations(mode=rec.mode,scope=rec.scope,used=new Set(),options={}){const context=scoredPoolContext(mode,scope,used,options);return projectRankedPool(buildScoredPoolSync(context),context,options)}
+async function rankedRecommendationsAsync(mode=rec.mode,scope=rec.scope,used=new Set(),options={}){const context=scoredPoolContext(mode,scope,used,options),scored=await buildScoredPoolAsync(context);return projectRankedPool(scored,context,options)}
 
 function templateMatchesConstraints(template,constraints){const chars=new Set((template.chars||[]).map(canonicalSlug));return [...constraints.required].every(slug=>chars.has(slug))&&[...constraints.excluded].every(slug=>!chars.has(slug));}
 function templateHasUniqueDeployments(template){const groups=(template.chars||[]).map(deploymentGroup);return new Set(groups).size===groups.length}
@@ -744,12 +780,12 @@ function substituteCandidates(missingSlug,reserved){
 }
 
 function renderRecommender(options={}){
+  const listRequestId=++recListRequestId;
   ensureRecScope();syncRecControls();syncFreshnessNavigation();$('recTooltip').hidden=true;
   const modeLabel=MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode;
   const scope=recScopeOptions(rec.mode).find(o=>o.key===rec.scope);
   const custom=rec.strategy==='custom';
   const templates=scopeTemplates(rec.mode,rec.scope);
-  const ranked=rankedRecommendations().slice(0,Number(rec.limit)||8);
   const latest=templates[0]||{};
   const selected=[...recElementSet()];
   const constraints=recConstraintSets();
@@ -766,17 +802,16 @@ function renderRecommender(options={}){
   const tierRiskLabel=rec.riskMode==='off'?'当前模式T档不提醒':'当前模式T1及以下提醒';
   const freshnessBadge=freshnessBadgeHtml(freshness);
   $('recBadges').innerHTML=freshnessBadge+[`排序 ${sortMeta.label}`,custom?'自定义弱点池':'末层实战',`${plannedScopes.length} 队模型`,selected.length?`弱点 ${selected.join(' / ')}`:'未标弱点',constraints.required.size?`必上 ${constraints.required.size}`:'未设必上',constraints.excluded.size?`排除 ${constraints.excluded.size}`:'未设排除',`缺口 ≤ ${rec.gap}`,riskLabel,tierRiskLabel,`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');
-  const list=$('recList');list.innerHTML='';
-  if(!ranked.length){const constrained=constraints.required.size||constraints.excluded.size;const message=constrained&&!constraintMatchedCount?'当前角色硬约束没有匹配的真实队伍模板':constrained?'命中角色约束的模板被当前缺口、风险或搜索条件筛掉':'当前筛选没有可展示队伍';list.innerHTML=`<div class="rec-empty">${message}</div>`;if(options.recomputeSlate!==false)renderRecSlate();return;}
-  ranked.forEach((item,index)=>list.appendChild(recCard(item,index+1)));
+  const list=$('recList');list.innerHTML='<div class="rec-empty">正在分片计算完整候选池…</div>';
   if(options.recomputeSlate!==false)renderRecSlate();
+  rankedRecommendationsAsync().then(items=>{if(listRequestId!==recListRequestId)return;const ranked=items.slice(0,Number(rec.limit)||8);list.innerHTML='';if(!ranked.length){const constrained=constraints.required.size||constraints.excluded.size,message=constrained&&!constraintMatchedCount?'当前角色硬约束没有匹配的真实队伍模板':constrained?'命中角色约束的模板被当前缺口、风险或搜索条件筛掉':'当前筛选没有可展示队伍';list.innerHTML=`<div class="rec-empty">${message}</div>`;return;}ranked.forEach((item,index)=>list.appendChild(recCard(item,index+1)));}).catch(error=>{if(listRequestId!==recListRequestId)return;list.innerHTML=`<div class="rec-empty">推荐计算失败：${esc(error?.message||error)}</div>`;});
 }
 
 function phaseInfoFor(template){
-  const rows=DATA.phaseInfoRows||[];
+  const rows=DATA_INDEX?.phasesByMode.get(rec.mode)||(DATA.phaseInfoRows||[]).filter(row=>row.mode===rec.mode);
   const exact=rows.find(r=>r.mode===rec.mode&&r.phase_ver===template.phase_ver&&r.phase_name===template.phase_name);
   if(exact)return exact;
-  const modeRows=rows.filter(r=>r.mode===rec.mode).sort((a,b)=>String(b.collect_date).localeCompare(String(a.collect_date)));
+  const modeRows=rows.slice().sort((a,b)=>String(b.collect_date).localeCompare(String(a.collect_date)));
   return modeRows[0]||template||{};
 }
 
@@ -812,10 +847,11 @@ function recCard(item,index){
   card.className=`rec-card ${item.risks.length&&rec.riskMode!=='off'?'risky':''}`;
   card.onmouseenter=e=>showRecTooltip(e,item);
   card.onmousemove=moveTooltip;
-  card.onmouseleave=()=>{$('recTooltip').hidden=true;};
+  card.onmouseleave=()=>scheduleTooltipClose($('recTooltip'));
   const missingNames=item.members.filter(m=>!m.owned).map(m=>charName(m.slug));
   const sourceScope=recScopeDisplayLabel(t.mode,t.scope_key,t.scope_label);
   card.innerHTML=`<div class="rec-card-head"><div><h3>${index}. ${esc((t.names_cn||[]).filter(Boolean).join(' / ')||t.chars.map(charName).join(' / '))}</h3><div class="rec-meta">${esc(item.weaknessDriven?`来源 ${sourceScope}`:sourceScope)} · Rank ${esc(rankDisplayText(t.rank))} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${esc(performanceSummary(item.performance))}</div></div><div class="rec-score"><strong>${Math.round(item.score)}</strong><span>${esc(scoreMeta.scoreLabel)}</span><span>${item.ownedCount}/4 已拥有</span><span>练度已录入 ${item.buildRecordedCount}/${item.ownedCount}</span></div></div>${scoreReferencesHtml(item)}${scoreBreakdownHtml(item)}<div class="rec-team">${item.members.map(m=>recMemberHtml(m,item)).join('')}</div><div class="rec-tags">${recTags(item).map(tag=>`<span class="${tag.danger?'danger':tag.warn?'warn':''}">${esc(tag.text)}</span>`).join('')}</div>${riskNoteHtml(item)}${substitutionHtml(item)}${missingNames.length?`<div class="rec-note">缺：${esc(missingNames.join('、'))}</div>`:''}`;
+  bindAccessibleDetail(card,'recTooltip',event=>showRecTooltip(event,item),`查看第 ${index} 队推荐的完整证据与评分`);
   return card;
 }
 
@@ -890,23 +926,23 @@ function recPlanScopes(){
 
 function slateItemSlugs(item){return new Set(item.finalChars.map(deploymentGroup))}
 function compareSlateStates(a,b){return b.filled-a.filled||b.weaknessMatches-a.weaknessMatches||b.totalScore-a.totalScore||a.key.localeCompare(b.key)}
-function slateVariantMember(slug,mode,targetScope){const info=charInfo(slug),build=buildFor(slug),buildMeta=buildState(build),member={slug,info,build,buildState:buildMeta,owned:box.owned.has(canonicalSlug(slug)),selected:recElementSet(mode,targetScope).has(info.element_cn),used:false,core:isCoreMember(info)};member.risks=memberRisk(member,mode);return member}
+function slateVariantMember(slug,mode,targetScope,selectedElements=recElementSet(mode,targetScope)){const info=charInfo(slug),build=buildFor(slug),buildMeta=buildState(build),member={slug,info,build,buildState:buildMeta,owned:box.owned.has(canonicalSlug(slug)),selected:selectedElements.has(info.element_cn),used:false,core:isCoreMember(info)};member.risks=memberRisk(member,mode);return member}
 function slateVariantScoreModel(item,finalMembers){const owned=finalMembers.filter(member=>member.owned),missing=finalMembers.length-owned.length,ownedBuildScore=owned.reduce((sum,member)=>sum+member.buildState.score,0),boxParts=[scorePart('owned','拥有',owned.length*45,`${owned.length}/4，每人 +45`),scorePart('build','练度',ownedBuildScore*90,`最终阵容已拥有角色练度合计 ${ownedBuildScore.toFixed(3)} × 90`),scorePart('missing','缺口',-missing*66,`${missing} 人，每人 -66`),scorePart('conflict','跨队冲突',0,'联合求解已将跨队复用作为硬约束'),scorePart('substitute','可替补',0,'替补已纳入最终阵容，不额外加分'),scorePart('complete','满员',missing===0?95:0,missing===0?'最终阵容 4 人全部拥有 +95':'最终阵容未满员')],replacement=new Map(boxParts.map(part=>[part.key,part])),balancedParts=item.scoreParts.balanced.map(part=>replacement.has(part.key)?{...replacement.get(part.key)}:{...part}),historyParts=item.scoreParts.history.map(part=>({...part})),scoreParts={balanced:balancedParts,history:historyParts,box:boxParts},scores=Object.fromEntries(Object.entries(scoreParts).map(([mode,parts])=>[mode,scorePartsTotal(parts)])),scoreMode=normalizeRecSortMode(item.scoreMode);return{scoreParts,scores,scoreMode,score:scores[scoreMode],owned,missing};}
-function expandSlateItemVariants(item){
+function expandSlateItemVariants(item,options={}){
   const substitutions=item.substitutions||[],choices=substitutions.map(substitution=>[...substitution.candidates.slice(0,3).map((candidate,index)=>({candidate,index})),{candidate:null,index:3}]);
   const fixedGroups=new Set(item.members.filter(member=>member.owned).map(member=>deploymentGroup(member.slug)));
+  const required=options.required||recConstraintSets(item.template.mode,item.targetScope).required,selectedElements=options.selectedElements||recElementSet(item.template.mode,item.targetScope),riskMode=options.riskMode||rec.riskMode||'warn';
   const variants=[],seen=new Set();
   const walk=(index,assignments,usedGroups)=>{
     if(index<substitutions.length){const substitution=substitutions[index];choices[index].forEach(choice=>{const group=choice.candidate?deploymentGroup(choice.candidate.character_slug):deploymentGroup(substitution.missing.slug);if(usedGroups.has(group))return;const nextGroups=new Set(usedGroups);nextGroups.add(group);const nextAssignments=new Map(assignments);if(choice.candidate)nextAssignments.set(canonicalSlug(substitution.missing.slug),{missing:substitution.missing.slug,replacement:choice.candidate.character_slug,candidate:choice.candidate,optionIndex:choice.index});walk(index+1,nextAssignments,nextGroups);});return;}
-    const required=recConstraintSets(item.template.mode,item.targetScope).required;
     const finalChars=item.members.map(member=>member.owned||required.has(canonicalSlug(member.slug))?member.slug:(assignments.get(canonicalSlug(member.slug))?.replacement||member.slug));
     const groups=finalChars.map(deploymentGroup);if(new Set(groups).size!==groups.length)return;
     const assignmentRows=[...assignments.values()].sort((left,right)=>canonicalSlug(left.missing).localeCompare(canonicalSlug(right.missing)));
     const variantKey=`${item.template.mode}|${item.targetScope}|${templatePoolKey(item.template)}|${assignmentRows.length?assignmentRows.map(row=>`${canonicalSlug(row.missing)}>${canonicalSlug(row.replacement)}`).join(','):'real'}`;
     if(seen.has(variantKey))return;seen.add(variantKey);
-    const finalMembers=finalChars.map(slug=>item.members.find(member=>canonicalSlug(member.slug)===canonicalSlug(slug))||slateVariantMember(slug,item.template.mode,item.targetScope));
+    const finalMembers=finalChars.map(slug=>item.members.find(member=>canonicalSlug(member.slug)===canonicalSlug(slug))||slateVariantMember(slug,item.template.mode,item.targetScope,selectedElements));
     const replacementRisks=finalMembers.filter(member=>!item.members.includes(member)).flatMap(member=>member.risks.map(risk=>({...risk,slug:member.slug,name:charName(member.slug)})));
-    if((rec.riskMode||'warn')==='filter'&&replacementRisks.length)return;
+    if(riskMode==='filter'&&replacementRisks.length)return;
     const model=slateVariantScoreModel(item,finalMembers),finalOwned=model.owned,preference=assignmentRows.reduce((sum,row)=>sum+(3-row.optionIndex)*.00001,0);
     variants.push({...item,...model,finalChars,finalMembers,risks:[...item.risks,...replacementRisks],variantKey,slateScore:model.score+preference,substitutionAssignments:assignmentRows,isSubstituted:assignmentRows.length>0,evidenceConfidence:assignmentRows.length?'C':templateEvidenceGrade(item.template),finalOwnedCount:finalOwned.length,finalMissingCount:model.missing,finalBuildRecordedCount:finalOwned.filter(member=>member.buildState.recorded).length,finalBuildReadyCount:finalOwned.filter(member=>member.buildState.ready).length});
   };
@@ -916,6 +952,9 @@ function expandSlateItemVariants(item){
 function recSlateCandidateLists(scopes,limit=Number.MAX_SAFE_INTEGER){
   return scopes.map((scope,index)=>{const reserved=new Set(scopes.slice(index+1).flatMap(other=>[...recConstraintSets(rec.mode,other.key).required]));const variants=rankedRecommendations(rec.mode,scope.key,new Set(),{ignoreSearch:true,maxGap:Number(rec.gap),reserved}).flatMap(expandSlateItemVariants).sort((left,right)=>right.slateScore-left.slateScore||left.variantKey.localeCompare(right.variantKey));return Number.isFinite(limit)?variants.slice(0,limit):variants;});
 }
+function recSlateCandidateContext(scopes,index){const scope=scopes[index],reserved=new Set(scopes.slice(index+1).flatMap(other=>[...recConstraintSets(rec.mode,other.key).required])),scoreContext=scoredPoolContext(rec.mode,scope.key,new Set(),{reserved}),sortMode=normalizeRecSortMode(rec.sortMode),riskMode=rec.riskMode||'warn',maxGap=Number(rec.gap),key=JSON.stringify([scoreContext.key,sortMode,riskMode,maxGap]);return{key,scope,reserved,scoreContext,sortMode,riskMode,maxGap,required:new Set(scoreContext.constraints.required),selectedElements:new Set(scoreContext.selected)}}
+function recSlateCandidateListAsync(scopes,index){const context=recSlateCandidateContext(scopes,index),existing=recSlateCandidateCache.get(context.key);if(Array.isArray(existing))return Promise.resolve(existing);if(existing&&typeof existing.then==='function')return existing;const runtime=globalThis.MihoSlateSolver,promise=buildScoredPoolAsync(context.scoreContext).then(scored=>projectRankedPool(scored,context.scoreContext,{ignoreSearch:true,maxGap:context.maxGap,reserved:context.reserved,sortMode:context.sortMode,riskMode:context.riskMode})).then(items=>runtime.cooperativeFlatMap(items,item=>expandSlateItemVariants(item,{required:context.required,selectedElements:context.selectedElements,riskMode:context.riskMode}),{budgetMs:8})).then(variants=>runtime.cooperativeSort(variants,(left,right)=>right.slateScore-left.slateScore||(left.variantKey<right.variantKey?-1:left.variantKey>right.variantKey?1:0),{budgetMs:6,chunkSize:512})).then(variants=>{if(recSlateCandidateCache.get(context.key)===promise)recSlateCandidateCache.set(context.key,variants);return variants;}).catch(error=>{if(recSlateCandidateCache.get(context.key)===promise)recSlateCandidateCache.delete(context.key);throw error;});return putBoundedCache(recSlateCandidateCache,context.key,promise,24)}
+function recSlateCandidateListsAsync(scopes){return Promise.all(scopes.map((_,index)=>recSlateCandidateListAsync(scopes,index)))}
 function searchRecSlate(candidateLists,beamWidth){
   let states=[{picks:[],used:new Set(),filled:0,weaknessMatches:0,totalScore:0,key:''}];
   candidateLists.forEach(candidates=>{
@@ -928,17 +967,23 @@ function searchRecSlate(candidateLists,beamWidth){
   });
   return states.sort(compareSlateStates)[0]||{picks:candidateLists.map(()=>null),used:new Set(),filled:0,weaknessMatches:0,totalScore:0,key:''};
 }
-function prepareRecSlateSolve(scopes,{maxSolutions=3}={}){
-  const rawCandidateCounts=scopes.map(scope=>scopeTemplates(rec.mode,scope.key).length),fullCandidateLists=recSlateCandidateLists(scopes,Number.MAX_SAFE_INTEGER),eligibleCandidateCounts=fullCandidateLists.map(list=>list.length),lockedUsed=new Set(),messages=[];
+function reconcileRecSlateCandidateLists(scopes,fullCandidateLists){const lockedUsed=new Set(),messages=[];
   let settingsChanged=false;
   const lockedCandidateLists=fullCandidateLists.map((list,index)=>{const scope=scopes[index],lockedKey=recLockedVariantKey(scope.key);if(!lockedKey)return list;const match=list.find(item=>item.variantKey===lockedKey);if(!match){clearRecLock(scope.key);settingsChanged=true;messages.push(`${scope.label} 的锁定阵容已因当前 Box、缺口或角色约束失效，已自动解锁。`);return list;}const groups=slateItemSlugs(match);if([...groups].some(group=>lockedUsed.has(group))){clearRecLock(scope.key);settingsChanged=true;messages.push(`${scope.label} 的锁定阵容与前序锁队冲突，已自动解锁。`);return list;}groups.forEach(group=>lockedUsed.add(group));return[match];});
   if(settingsChanged)saveRecSettings();
   if(messages.length)recSlateNotice=[recSlateNotice,...messages].filter(Boolean).join(' ');
   const hardLockedLists=lockedCandidateLists.map((list,index)=>recLockedVariantKey(scopes[index].key)?list:list.filter(item=>![...slateItemSlugs(item)].some(group=>lockedUsed.has(group))));
   const beam=scopes.length>2,candidateLists=hardLockedLists.map((list,index)=>beam&&!recLockedVariantKey(scopes[index].key)?list.slice(0,240):list);
-  const input={candidateLists:candidateLists.map(list=>list.map(item=>({key:item.variantKey,teamKey:templatePoolKey(item.template),score:item.slateScore,weaknessMatches:Number(normalizeRecSortMode(rec.sortMode)==='balanced'&&item.weaknessDriven&&item.weaknessConfigured&&item.weaknessMatched),members:[...slateItemSlugs(item)]}))),rawCandidateCounts,eligibleCandidateCounts,originalCandidateCounts:rawCandidateCounts,maxSolutions,beamWidth:720,branchLimit:240};
+  return candidateLists;
+}
+function recSlateSolverCandidate(item){return{key:item.variantKey,teamKey:templatePoolKey(item.template),score:item.slateScore,weaknessMatches:Number(normalizeRecSortMode(item.scoreMode)==='balanced'&&item.weaknessDriven&&item.weaknessConfigured&&item.weaknessMatched),members:[...slateItemSlugs(item)]}}
+function recSlateSolverInput(candidateLists,rawCandidateCounts,eligibleCandidateCounts,maxSolutions){return{candidateLists:candidateLists.map(list=>list.map(recSlateSolverCandidate)),rawCandidateCounts,eligibleCandidateCounts,originalCandidateCounts:rawCandidateCounts,maxSolutions,beamWidth:720,branchLimit:240}}
+async function recSlateSolverInputAsync(candidateLists,rawCandidateCounts,eligibleCandidateCounts,maxSolutions){const mapped=[];for(const list of candidateLists)mapped.push(await globalThis.MihoSlateSolver.cooperativeMap(list,recSlateSolverCandidate,{budgetMs:8}));return{candidateLists:mapped,rawCandidateCounts,eligibleCandidateCounts,originalCandidateCounts:rawCandidateCounts,maxSolutions,beamWidth:720,branchLimit:240}}
+function prepareRecSlateSolve(scopes,{maxSolutions=3}={}){
+  const rawCandidateCounts=scopes.map(scope=>scopeTemplates(rec.mode,scope.key).length),fullCandidateLists=recSlateCandidateLists(scopes,Number.MAX_SAFE_INTEGER),eligibleCandidateCounts=fullCandidateLists.map(list=>list.length),candidateLists=reconcileRecSlateCandidateLists(scopes,fullCandidateLists),input=recSlateSolverInput(candidateLists,rawCandidateCounts,eligibleCandidateCounts,maxSolutions);
   return{scopes,fullCandidateLists,candidateLists,input};
 }
+async function prepareRecSlateCandidatePoolsAsync(scopes){const rawCandidateCounts=scopes.map(scope=>scopeTemplates(rec.mode,scope.key).length),fullCandidateLists=await recSlateCandidateListsAsync(scopes);return{scopes,rawCandidateCounts,fullCandidateLists,eligibleCandidateCounts:fullCandidateLists.map(list=>list.length)}}
 function runSharedSlateSolver(input){if(!globalThis.MihoSlateSolver||typeof globalThis.MihoSlateSolver.solve!=='function')throw new Error('联合推荐求解器未加载');return globalThis.MihoSlateSolver.solve(input)}
 function hydrateRecSlateResult(prepared,result,execution='sync'){
   const plans=(result?.solutions||[]).map(solution=>{const picks=solution.picks.map((pick,index)=>pick==null?null:(prepared.candidateLists[index]?.[pick]||null));return{...solution,candidateIndexes:[...solution.picks],picks,displayScore:picks.reduce((sum,item)=>sum+(item?.score||0),0)};});
@@ -963,10 +1008,10 @@ function recSlateSearchMeta(meta){if(!meta||!meta.search_type)return'';const typ
 function renderRecSlateTeamCard(scope,item,scoreMeta){
   const card=document.createElement('div');card.className=`rec-slate-card ${item?.risks?.length&&rec.riskMode!=='off'?'risky':''}`;
   if(!item){card.innerHTML=`<h3>${esc(scope.label)}</h3><div class="rec-note">没有同时满足缺口、角色约束与不复用要求的队伍</div>`;return card;}
-  card.onmouseenter=e=>showRecTooltip(e,item);card.onmousemove=moveTooltip;card.onmouseleave=()=>{$('recTooltip').hidden=true;};
+  card.onmouseenter=e=>showRecTooltip(e,item);card.onmousemove=moveTooltip;card.onmouseleave=()=>scheduleTooltipClose($('recTooltip'));
   const locked=recLockedVariantKey(scope.key)===item.variantKey,subText=item.isSubstituted?`<div class="rec-slate-evidence"><b>替补推演 · 证据最高 C</b>：${item.substitutionAssignments.map(row=>`${esc(charName(row.missing))} → ${esc(charName(row.replacement))}`).join('；')}。历史指标仍来自原模板「${esc((item.template.names_cn||[]).filter(Boolean).join(' / '))}」。</div>`:`<div class="rec-slate-evidence real">原始实证队伍 · ${esc(templateEvidenceSummary(item.template))}。${esc(item.template.evidence_comment||'')}</div>`;
   card.innerHTML=`<div class="rec-slate-card-head"><h3>${esc(scope.label)} · ${esc(scoreMeta.scoreLabel)} ${Math.round(item.score)} · 缺口 ${item.finalMissingCount}</h3><button type="button" class="rec-lock-button ${locked?'active':''}">${locked?'已锁定':'锁定本关'}</button></div><div class="rec-slate-team">${item.finalMembers.map(member=>`<img class="${member.owned?'':'missing'} ${member.risks.length&&rec.riskMode!=='off'?'risky':''}" src="${esc(member.info.icon_url)}" title="${esc(charName(member.slug))}" alt="">`).join('')}</div><div class="rec-slate-coverage">最终阵容 ${item.finalOwnedCount}/4 已拥有 · 练度已录入 ${item.finalBuildRecordedCount}/${item.finalOwnedCount} · 成型 ${item.finalBuildReadyCount}/${item.finalBuildRecordedCount}</div>${subText}${riskNoteHtml(item)}`;
-  card.querySelector('.rec-lock-button').onclick=event=>{event.stopPropagation();toggleRecSlateLock(scope,item);};return card;
+  const lockButton=card.querySelector('.rec-lock-button');lockButton.setAttribute('aria-pressed',String(locked));lockButton.onclick=event=>{event.stopPropagation();toggleRecSlateLock(scope,item);};bindAccessibleDetail(card,'recTooltip',event=>showRecTooltip(event,item),`查看 ${scope.label} 联合方案详情`);return card;
 }
 function recSlatePlanStats(plan){const items=plan.picks.filter(Boolean),members=new Set(items.flatMap(item=>item.finalMembers.map(member=>canonicalSlug(member.slug))));return{score:plan.displayScore,missing:items.reduce((sum,item)=>sum+item.finalMissingCount,0),owned:items.reduce((sum,item)=>sum+item.finalOwnedCount,0),recorded:items.reduce((sum,item)=>sum+item.finalBuildRecordedCount,0),ready:items.reduce((sum,item)=>sum+item.finalBuildReadyCount,0),members};}
 function signedSlateDelta(value,digits=0){const rounded=digits?Number(value).toFixed(digits):String(Math.round(value));return`${value>0?'+':''}${rounded}`}
@@ -980,8 +1025,8 @@ function renderRecSlateResult(result){
   recSlateNotice='';
 }
 function renderRecSlate(){
-  const scopes=recPlanScopes(),prepared=prepareRecSlateSolve(scopes,{maxSolutions:3}),requestId=++recSlateRequestId;recSlateCurrentPrepared=prepared;const status=$('recSlateStatus');if(status)status.textContent='正在联合优化完整候选池…';const list=$('recSlateList');if(list)list.innerHTML='<div class="rec-empty">正在生成最多 3 套不复用角色的完整方案…</div>';
-  solveRecSlateAsync(prepared.input,requestId).then(({result,execution})=>{if(requestId!==recSlateRequestId)return;const hydrated=hydrateRecSlateResult(prepared,result,execution);prepared.result=hydrated;recSlateCurrentPrepared=prepared;renderRecSlateResult(hydrated);}).catch(error=>{if(requestId!==recSlateRequestId)return;if(status)status.textContent=`联合推荐失败：${error?.message||error}`;if(list)list.innerHTML='<div class="rec-empty">联合推荐暂不可用，请重新载入页面。</div>';});
+  const scopes=recPlanScopes(),requestId=++recSlateRequestId;recSlateCurrentPrepared=null;const status=$('recSlateStatus');if(status)status.textContent='正在分片准备完整候选池…';const list=$('recSlateList');if(list)list.innerHTML='<div class="rec-empty">正在生成最多 3 套不复用角色的完整方案…</div>';
+  void(async()=>{try{const pools=await prepareRecSlateCandidatePoolsAsync(scopes);if(requestId!==recSlateRequestId)return;const candidateLists=reconcileRecSlateCandidateLists(scopes,pools.fullCandidateLists),input=await recSlateSolverInputAsync(candidateLists,pools.rawCandidateCounts,pools.eligibleCandidateCounts,3);if(requestId!==recSlateRequestId)return;const prepared={scopes,fullCandidateLists:pools.fullCandidateLists,candidateLists,input};recSlateCurrentPrepared=prepared;if(status)status.textContent='候选池已就绪，正在后台联合求解…';const{result,execution}=await solveRecSlateAsync(input,requestId);if(requestId!==recSlateRequestId)return;const hydrated=hydrateRecSlateResult(prepared,result,execution);prepared.result=hydrated;recSlateCurrentPrepared=prepared;renderRecSlateResult(hydrated);}catch(error){if(requestId!==recSlateRequestId)return;if(status)status.textContent=`联合推荐失败：${error?.message||error}`;if(list)list.innerHTML='<div class="rec-empty">联合推荐暂不可用，请重新载入页面。</div>';}})();
 }
 
 function showRecTooltip(evt,item){

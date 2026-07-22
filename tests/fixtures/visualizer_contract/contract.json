@@ -12,6 +12,7 @@
       "app.js",
       "assets/avatars/agent-alpha.webp",
       "data.json",
+      "data.v2.json",
       "index.html",
       "solver.js",
       "styles.css"
@@ -20,6 +21,7 @@
       "app.js",
       "assets/avatars/agent-alpha.webp",
       "data.json",
+      "data.v2.json",
       "index.html",
       "solver.js",
       "styles.css"
@@ -32,16 +34,16 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "46c17c8a403d838267defcc8a99bc83f60f14057bafdaba3319031cc80f6aac5",
-      "index.html": "569592f6e1914783cbad6a92003abe66defacc612a073c6f23cf29f314d60b56",
-      "solver.js": "a87262d824f7f3c93afd8babe6d0a47ea976186b3e9375e24c5cbf5511dc2e45",
-      "styles.css": "ebdb5b9961c159b88978643b99b8f3b734aa1cbd004dde0a9a77f1ae5cd44daf"
+      "app.js": "04a43a2402116ce881fbe41959861502d40f978a1e4d5b9d93ea8657e7f68004",
+      "index.html": "599d38eb25ca363607b5f7e2b50804a91db14e10414b71012a2c669c214411cc",
+      "solver.js": "98a2f0f9a760488f8f0f141f5f221b3cabf9c277ecfcf8abba0365d95451816a",
+      "styles.css": "d8664e94a3e8077ac794e878997076100527fbb626e4fe217a43d1a04835b86c"
     },
     "zzz": {
-      "app.js": "c33e1195240b1b090759dfe73b36ee3eb83b3a0496a38d86786ee42f744b963b",
-      "index.html": "d73940858a40691b83f98d03a536e3fac76e1d7331cf5a48c57cbdb4cb899c78",
-      "solver.js": "a87262d824f7f3c93afd8babe6d0a47ea976186b3e9375e24c5cbf5511dc2e45",
-      "styles.css": "e800834f39229804fba1c63ab65f2e5120e27f6a33f7a52a9fb9949f95284f29"
+      "app.js": "e2bf7f1be2455286d5ffbf4373859921cb7509a0e7072aff09b350b137b06ea5",
+      "index.html": "583c936f43d13ab44ba00c018bee997cac8c6567434486014aff96b9c204e3aa",
+      "solver.js": "98a2f0f9a760488f8f0f141f5f221b3cabf9c277ecfcf8abba0365d95451816a",
+      "styles.css": "f53ebce1a2e5b588dbdad6e5b58f35154e21dd3dc60928c4d839e81643fefa84"
     },
     "hub": {
       "app.js": "45043faae8d788fb9557335a1fffbf7f36f7f5c0778c489a85560f2c5ef2def0",

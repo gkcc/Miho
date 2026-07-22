@@ -1,14 +1,17 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Component, Path, PathBuf},
 };
 
 use chrono::NaiveDate;
+use futures_util::{stream, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
 
 pub use crate::contract::{ExportRequestV1 as ExportRequest, Game};
+
+const MAX_PIPELINE_FETCH_CONCURRENCY: usize = 4;
 
 use crate::{
     contract::{
@@ -372,7 +375,14 @@ pub async fn run_source_export<S: SnapshotSource>(
     // Python records a failed root-tree request and then fails at the stable
     // structural boundary below. Preserve that public error instead of
     // leaking transport-specific details through the CLI contract.
-    let root = source.list_tree("").await.unwrap_or_default();
+    let root = match source.list_tree("").await {
+        Ok(root) => root,
+        // Freshness-required callers need this typed, safe distinction so a
+        // rejected last-good fallback is not confused with a malformed live
+        // dataset that merely happens to coexist with cached files.
+        Err(error @ MihoError::CacheFallbackRejected(_)) => return Err(error),
+        Err(_) => Vec::new(),
+    };
     let mut snapshots = root
         .into_iter()
         .filter(|entry| entry.kind == "directory" && is_version(&entry.path))
@@ -388,6 +398,7 @@ pub async fn run_source_export<S: SnapshotSource>(
     let mut errors = vec![];
     let (config, config_loaded) = match source.read_json("config.json").await {
         Ok(value) => (value, true),
+        Err(error @ MihoError::CacheFallbackRejected(_)) => return Err(error),
         Err(error) => {
             errors.push(format!("failed to load config.json: {error}"));
             (Value::Object(Default::default()), false)
@@ -412,32 +423,60 @@ pub async fn run_source_export<S: SnapshotSource>(
     if snapshots.is_empty() {
         warnings.push("no Hugging Face snapshots matched the requested date range".into());
     }
+    let mut snapshot_inputs = Vec::with_capacity(snapshots.len());
+    for (snapshot, result) in fetch_tree_batch(source, snapshots).await {
+        let tree = match result {
+            Ok(tree) => tree,
+            Err(error @ MihoError::CacheFallbackRejected(_)) => return Err(error),
+            Err(error) => {
+                errors.push(format!("failed to list {snapshot}: {error}"));
+                Vec::new()
+            }
+        };
+        snapshot_inputs.push((snapshot, tree));
+    }
     let (bundle, collected) = match request.game {
         Game::Hsr => {
             let mut dataset = HsrExportDataset::default();
             if config_loaded {
                 push_hsr_raw_json(&mut dataset, "config.json", &config)?;
             }
-            for snapshot in snapshots {
-                let snapshot_tree = match source.list_tree(&snapshot).await {
-                    Ok(value) => value,
-                    Err(error) => {
-                        errors.push(format!("failed to list {snapshot}: {error}"));
-                        Vec::new()
-                    }
-                };
+            for (snapshot, snapshot_tree) in snapshot_inputs {
                 let snapshot_paths = snapshot_tree
                     .iter()
                     .map(|entry| entry.path.as_str())
                     .collect::<Vec<_>>();
                 let mut mode_files = BTreeMap::new();
+                let mode_tree_paths = request
+                    .modes
+                    .iter()
+                    .flat_map(|mode| {
+                        [
+                            format!("{snapshot}/{mode}/chars"),
+                            format!("{snapshot}/{mode}/comps"),
+                        ]
+                    })
+                    .collect::<Vec<_>>();
+                let mut mode_trees = fetch_tree_batch(source, mode_tree_paths).await.into_iter();
                 for mode in &request.modes {
-                    let chars_path = format!("{snapshot}/{mode}/chars");
-                    let comps_path = format!("{snapshot}/{mode}/comps");
-                    let chars =
-                        list_optional_tree(source, &chars_path, &mut warnings, &mut errors).await;
-                    let comps =
-                        list_optional_tree(source, &comps_path, &mut warnings, &mut errors).await;
+                    let (chars_path, chars_result) = mode_trees
+                        .next()
+                        .expect("each requested mode should have a chars tree result");
+                    let (comps_path, comps_result) = mode_trees
+                        .next()
+                        .expect("each requested mode should have a comps tree result");
+                    let chars = optional_tree_result(
+                        &chars_path,
+                        chars_result,
+                        &mut warnings,
+                        &mut errors,
+                    )?;
+                    let comps = optional_tree_result(
+                        &comps_path,
+                        comps_result,
+                        &mut warnings,
+                        &mut errors,
+                    )?;
                     mode_files.insert(*mode, (chars, comps));
                 }
                 let builds_path = format!("{snapshot}/builds.json");
@@ -454,6 +493,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                                 Value::Array(vec![])
                             }
                         }
+                        Err(error @ MihoError::CacheFallbackRejected(_)) => return Err(error),
                         Err(error) => {
                             errors.push(error.to_string());
                             Value::Array(vec![])
@@ -474,6 +514,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                                 Value::Array(vec![])
                             }
                         }
+                        Err(error @ MihoError::CacheFallbackRejected(_)) => return Err(error),
                         Err(error) => {
                             errors.push(error.to_string());
                             warnings.push(format!("{histograph_path} was not a list; skipped"));
@@ -498,63 +539,67 @@ pub async fn run_source_export<S: SnapshotSource>(
                         row.source_file = builds_path.clone();
                         row.source_url = source.raw_url(&builds_path);
                     }
-                    if characters.is_empty() {
-                        for file in char_files
+                    let char_paths = if characters.is_empty() {
+                        char_files
                             .iter()
                             .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
-                        {
-                            match source.read_json(&file.path).await {
-                                Ok(value) => {
-                                    push_hsr_raw_json(&mut dataset, &file.path, &value)?;
-                                    let mut parsed = crate::hsr::parse_chars_file_character_rows(
-                                        &value,
-                                        mode.code(),
-                                    );
-                                    for row in &mut parsed {
-                                        row.source_file = file.path.clone();
-                                        row.source_url = source.raw_url(&file.path);
-                                    }
-                                    characters.extend(parsed);
+                            .map(|entry| entry.path.clone())
+                            .collect::<BTreeSet<_>>()
+                    } else {
+                        BTreeSet::new()
+                    };
+                    let comp_paths = if request.features.hf_teams {
+                        comp_files
+                            .iter()
+                            .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
+                            .map(|entry| entry.path.clone())
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+                    let fetched_files = fetch_json_batch(
+                        source,
+                        char_paths.iter().cloned().chain(comp_paths).collect(),
+                    )
+                    .await;
+                    let mut teams = vec![];
+                    for (path, result) in fetched_files {
+                        match result {
+                            Ok(value) if char_paths.contains(&path) => {
+                                push_hsr_raw_json(&mut dataset, &path, &value)?;
+                                let mut parsed = crate::hsr::parse_chars_file_character_rows(
+                                    &value,
+                                    mode.code(),
+                                );
+                                for row in &mut parsed {
+                                    row.source_file = path.clone();
+                                    row.source_url = source.raw_url(&path);
                                 }
-                                Err(error) => errors.push(error.to_string()),
+                                characters.extend(parsed);
                             }
+                            Ok(value) => {
+                                push_hsr_raw_json(&mut dataset, &path, &value)?;
+                                let phase_ver = entry
+                                    .pointer(&format!("/{mode}/ver"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or(&snapshot);
+                                let mut parsed =
+                                    parse_hsr_teams(&value, mode.code(), phase_ver, &path, None);
+                                for row in &mut parsed {
+                                    row.source_kind = "hf_comps".into();
+                                    row.source_file = path.clone();
+                                    row.source_url = source.raw_url(&path);
+                                }
+                                teams.extend(parsed);
+                            }
+                            Err(error @ MihoError::CacheFallbackRejected(_)) => return Err(error),
+                            Err(error) => errors.push(error.to_string()),
                         }
                     }
                     let histograph_rows =
                         parse_hsr_histograph(&histograph, mode.code(), &histograph_path);
                     if characters.is_empty() && !histograph_rows.is_empty() {
                         characters = histograph_fallback_character_rows(&histograph_rows);
-                    }
-                    let mut teams = vec![];
-                    if request.features.hf_teams {
-                        for file in comp_files
-                            .iter()
-                            .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
-                        {
-                            match source.read_json(&file.path).await {
-                                Ok(value) => {
-                                    push_hsr_raw_json(&mut dataset, &file.path, &value)?;
-                                    let phase_ver = entry
-                                        .pointer(&format!("/{mode}/ver"))
-                                        .and_then(Value::as_str)
-                                        .unwrap_or(&snapshot);
-                                    let mut parsed = parse_hsr_teams(
-                                        &value,
-                                        mode.code(),
-                                        phase_ver,
-                                        &file.path,
-                                        None,
-                                    );
-                                    for row in &mut parsed {
-                                        row.source_kind = "hf_comps".into();
-                                        row.source_file = file.path.clone();
-                                        row.source_url = source.raw_url(&file.path);
-                                    }
-                                    teams.extend(parsed);
-                                }
-                                Err(error) => errors.push(error.to_string()),
-                            }
-                        }
                     }
                     let collect_date = entry
                         .get("collect_date")
@@ -594,14 +639,7 @@ pub async fn run_source_export<S: SnapshotSource>(
             if config_loaded {
                 push_zzz_raw_json(&mut dataset, "config.json", &config)?;
             }
-            for snapshot in snapshots {
-                let snapshot_tree = match source.list_tree(&snapshot).await {
-                    Ok(value) => value,
-                    Err(error) => {
-                        errors.push(format!("failed to list {snapshot}: {error}"));
-                        Vec::new()
-                    }
-                };
+            for (snapshot, snapshot_tree) in snapshot_inputs {
                 let paths = snapshot_tree
                     .iter()
                     .map(|entry| entry.path.as_str())
@@ -618,6 +656,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                                 Value::Array(vec![])
                             }
                         }
+                        Err(error @ MihoError::CacheFallbackRejected(_)) => return Err(error),
                         Err(error) => {
                             errors.push(error.to_string());
                             Value::Array(vec![])
@@ -626,13 +665,36 @@ pub async fn run_source_export<S: SnapshotSource>(
                 } else {
                     Value::Array(vec![])
                 };
+                let mode_tree_paths = request
+                    .modes
+                    .iter()
+                    .flat_map(|mode| {
+                        [
+                            format!("{snapshot}/{mode}/chars"),
+                            format!("{snapshot}/{mode}/comps"),
+                        ]
+                    })
+                    .collect::<Vec<_>>();
+                let mut mode_trees = fetch_tree_batch(source, mode_tree_paths).await.into_iter();
                 for mode in &request.modes {
-                    let chars_tree = format!("{snapshot}/{mode}/chars");
-                    let comps_tree = format!("{snapshot}/{mode}/comps");
-                    let char_files =
-                        list_optional_tree(source, &chars_tree, &mut warnings, &mut errors).await;
-                    let comp_files =
-                        list_optional_tree(source, &comps_tree, &mut warnings, &mut errors).await;
+                    let (chars_tree, chars_result) = mode_trees
+                        .next()
+                        .expect("each requested mode should have a chars tree result");
+                    let (comps_tree, comps_result) = mode_trees
+                        .next()
+                        .expect("each requested mode should have a comps tree result");
+                    let char_files = optional_tree_result(
+                        &chars_tree,
+                        chars_result,
+                        &mut warnings,
+                        &mut errors,
+                    )?;
+                    let comp_files = optional_tree_result(
+                        &comps_tree,
+                        comps_result,
+                        &mut warnings,
+                        &mut errors,
+                    )?;
                     let config_missing = config.get(&snapshot).is_none();
                     let entry = config.get(&snapshot).cloned().unwrap_or_else(
                         || serde_json::json!({"collect_date":"", (mode.code()):{"ver":snapshot}}),
@@ -687,50 +749,60 @@ pub async fn run_source_export<S: SnapshotSource>(
                         }
                         usage.extend(parsed);
                     }
-                    for file in char_files.iter().filter(|entry| {
-                        entry.kind == "file" && entry.path.ends_with("bangboo_all.json")
-                    }) {
-                        match source.read_json(&file.path).await {
-                            Ok(value) => {
-                                push_zzz_raw_json(&mut dataset, &file.path, &value)?;
+                    let bangboo_paths = char_files
+                        .iter()
+                        .filter(|entry| {
+                            entry.kind == "file" && entry.path.ends_with("bangboo_all.json")
+                        })
+                        .map(|entry| entry.path.clone())
+                        .collect::<BTreeSet<_>>();
+                    let comp_paths = if request.features.hf_teams {
+                        comp_files
+                            .iter()
+                            .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
+                            .map(|entry| entry.path.clone())
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+                    let fetched_files = fetch_json_batch(
+                        source,
+                        bangboo_paths.iter().cloned().chain(comp_paths).collect(),
+                    )
+                    .await;
+                    let mut teams = vec![];
+                    for (path, result) in fetched_files {
+                        match result {
+                            Ok(value) if bangboo_paths.contains(&path) => {
+                                push_zzz_raw_json(&mut dataset, &path, &value)?;
                                 if let Some(rows) = value.as_array() {
                                     usage.extend(parse_zzz_bangboo(
                                         rows,
-                                        &file.path,
-                                        &source.raw_url(&file.path),
+                                        &path,
+                                        &source.raw_url(&path),
                                     ));
                                 }
                             }
-                            Err(error) => errors.push(error.to_string()),
-                        }
-                    }
-                    let mut teams = vec![];
-                    if request.features.hf_teams {
-                        for file in comp_files
-                            .iter()
-                            .filter(|entry| entry.kind == "file" && entry.path.ends_with(".json"))
-                        {
-                            match source.read_json(&file.path).await {
-                                Ok(value) => {
-                                    push_zzz_raw_json(&mut dataset, &file.path, &value)?;
-                                    if let Some(rows) = value.as_array() {
-                                        let mut parsed = parse_zzz_teams(
-                                            rows.clone(),
-                                            mode.code(),
-                                            Path::new(&file.path)
-                                                .file_name()
-                                                .and_then(|v| v.to_str())
-                                                .unwrap_or_default(),
-                                        );
-                                        for row in &mut parsed {
-                                            row.source_file = file.path.clone();
-                                            row.source_url = source.raw_url(&file.path);
-                                        }
-                                        teams.extend(parsed);
+                            Ok(value) => {
+                                push_zzz_raw_json(&mut dataset, &path, &value)?;
+                                if let Some(rows) = value.as_array() {
+                                    let mut parsed = parse_zzz_teams(
+                                        rows.clone(),
+                                        mode.code(),
+                                        Path::new(&path)
+                                            .file_name()
+                                            .and_then(|value| value.to_str())
+                                            .unwrap_or_default(),
+                                    );
+                                    for row in &mut parsed {
+                                        row.source_file = path.clone();
+                                        row.source_url = source.raw_url(&path);
                                     }
+                                    teams.extend(parsed);
                                 }
-                                Err(error) => errors.push(error.to_string()),
                             }
+                            Err(error @ MihoError::CacheFallbackRejected(_)) => return Err(error),
+                            Err(error) => errors.push(error.to_string()),
                         }
                     }
                     dataset.slices.push(ZzzExportSlice {
@@ -971,17 +1043,60 @@ fn diagnostic_from_message(
     }
 }
 
-async fn list_optional_tree<S: SnapshotSource>(
+async fn fetch_tree_batch<S: SnapshotSource>(
     source: &S,
+    paths: Vec<String>,
+) -> Vec<(String, Result<Vec<TreeEntry>>)> {
+    let mut fetched = stream::iter(paths.into_iter().enumerate().map(
+        |(ordinal, path)| async move {
+            let result = source.list_tree(&path).await;
+            (ordinal, path, result)
+        },
+    ))
+    .buffer_unordered(MAX_PIPELINE_FETCH_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+    fetched.sort_by_key(|(ordinal, _, _)| *ordinal);
+    fetched
+        .into_iter()
+        .map(|(_, path, result)| (path, result))
+        .collect()
+}
+
+async fn fetch_json_batch<S: SnapshotSource>(
+    source: &S,
+    mut paths: Vec<String>,
+) -> Vec<(String, Result<Value>)> {
+    paths.sort();
+    paths.dedup();
+    let mut fetched = stream::iter(paths.into_iter().enumerate().map(
+        |(ordinal, path)| async move {
+            let result = source.read_json(&path).await;
+            (ordinal, path, result)
+        },
+    ))
+    .buffer_unordered(MAX_PIPELINE_FETCH_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+    fetched.sort_by_key(|(ordinal, _, _)| *ordinal);
+    fetched
+        .into_iter()
+        .map(|(_, path, result)| (path, result))
+        .collect()
+}
+
+fn optional_tree_result(
     path: &str,
+    result: Result<Vec<TreeEntry>>,
     warnings: &mut Vec<String>,
     errors: &mut Vec<String>,
-) -> Vec<TreeEntry> {
-    match source.list_tree(path).await {
-        Ok(files) => files,
+) -> Result<Vec<TreeEntry>> {
+    match result {
+        Ok(files) => Ok(files),
+        Err(error @ MihoError::CacheFallbackRejected(_)) => Err(error),
         Err(error) => {
             record_optional_tree_error(path, error, warnings, errors);
-            Vec::new()
+            Ok(Vec::new())
         }
     }
 }
@@ -1046,7 +1161,10 @@ mod tests {
         fs,
         io::{Read, Write},
         net::TcpListener,
-        sync::Mutex,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        },
         thread,
         time::Duration,
     };
@@ -1093,6 +1211,116 @@ mod tests {
         fn raw_url(&self, path: &str) -> String {
             format!("memory://fixture/{path}")
         }
+    }
+
+    struct CacheFallbackRootSource;
+
+    impl SnapshotSource for CacheFallbackRootSource {
+        fn list_tree<'a>(&'a self, _path: &'a str) -> SourceFuture<'a, Vec<TreeEntry>> {
+            Box::pin(async {
+                Err(MihoError::CacheFallbackRejected(
+                    ".trees/root.json".to_owned(),
+                ))
+            })
+        }
+
+        fn read_json<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Value> {
+            Box::pin(async move {
+                Err(MihoError::Unsupported(format!(
+                    "unexpected cache fallback test read for {path}"
+                )))
+            })
+        }
+
+        fn raw_url(&self, path: &str) -> String {
+            format!("memory://cache-fallback/{path}")
+        }
+    }
+
+    struct CacheFallbackNestedSource {
+        inner: MemorySource,
+        rejected_tree: String,
+    }
+
+    impl SnapshotSource for CacheFallbackNestedSource {
+        fn list_tree<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Vec<TreeEntry>> {
+            if path == self.rejected_tree {
+                return Box::pin(async move {
+                    Err(MihoError::CacheFallbackRejected(format!(
+                        ".trees/{path}/tree.json"
+                    )))
+                });
+            }
+            self.inner.list_tree(path)
+        }
+
+        fn read_json<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Value> {
+            self.inner.read_json(path)
+        }
+
+        fn raw_url(&self, path: &str) -> String {
+            self.inner.raw_url(path)
+        }
+    }
+
+    #[derive(Default)]
+    struct ConcurrencyProbeSource {
+        active: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    impl SnapshotSource for ConcurrencyProbeSource {
+        fn list_tree<'a>(&'a self, _path: &'a str) -> SourceFuture<'a, Vec<TreeEntry>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn read_json<'a>(&'a self, path: &'a str) -> SourceFuture<'a, Value> {
+            Box::pin(async move {
+                let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+                self.peak.fetch_max(active, Ordering::SeqCst);
+                let ordinal = path
+                    .strip_prefix("item-")
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or_default();
+                tokio::time::sleep(Duration::from_millis(2 + (ordinal % 4) * 3)).await;
+                self.active.fetch_sub(1, Ordering::SeqCst);
+                if path == "item-05" {
+                    Err(MihoError::Unsupported("injected item failure".into()))
+                } else {
+                    Ok(serde_json::json!({"path": path}))
+                }
+            })
+        }
+
+        fn raw_url(&self, path: &str) -> String {
+            format!("probe://{path}")
+        }
+    }
+
+    #[tokio::test]
+    async fn bounded_fetch_caps_peak_at_four_and_restores_stable_ordinals() {
+        let source = Arc::new(ConcurrencyProbeSource::default());
+        let paths = (0..12)
+            .rev()
+            .map(|index| format!("item-{index:02}"))
+            .collect::<Vec<_>>();
+        let fetched = fetch_json_batch(source.as_ref(), paths).await;
+        assert_eq!(source.active.load(Ordering::SeqCst), 0);
+        assert_eq!(source.peak.load(Ordering::SeqCst), 4);
+        assert_eq!(
+            fetched
+                .iter()
+                .map(|(path, _)| path.as_str())
+                .collect::<Vec<_>>(),
+            (0..12)
+                .map(|index| format!("item-{index:02}"))
+                .collect::<Vec<_>>()
+        );
+        assert!(fetched[5].1.is_err());
+        assert!(fetched
+            .iter()
+            .enumerate()
+            .all(|(index, (_, result))| index == 5 || result.is_ok()));
     }
 
     fn tree_entry(path: &str, kind: &str) -> TreeEntry {
@@ -1913,6 +2141,39 @@ mod tests {
                 .to_string()
                 .contains("no version directories found in Hugging Face dataset root"));
         }
+    }
+
+    #[tokio::test]
+    async fn generic_pipeline_preserves_typed_rejected_root_cache_fallback() {
+        let error = match run_source_export(&CacheFallbackRootSource, &hsr_request()).await {
+            Ok(_) => panic!("freshness rejection must remain distinguishable"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, MihoError::CacheFallbackRejected(_)));
+    }
+
+    #[tokio::test]
+    async fn generic_pipeline_preserves_typed_rejected_nested_cache_fallback() {
+        let mut inner = MemorySource::default();
+        inner
+            .trees
+            .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+        inner.trees.insert("1.0.0".into(), Vec::new());
+        inner.json.insert(
+            "config.json".into(),
+            serde_json::json!({
+                "1.0.0": {"collect_date": "2026-01-01", "moc": {"ver": "1.0.0"}}
+            }),
+        );
+        let source = CacheFallbackNestedSource {
+            inner,
+            rejected_tree: "1.0.0/moc/chars".into(),
+        };
+        let error = match run_source_export(&source, &hsr_request()).await {
+            Ok(_) => panic!("nested freshness rejection must remain distinguishable"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, MihoError::CacheFallbackRejected(_)));
     }
 
     #[tokio::test]

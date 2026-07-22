@@ -1,6 +1,7 @@
 import json
 
 from hsr_endgame_exporter.visualizer import _recommender_scope, write_visualizer_app
+from miho_core.visualizer_data import expand_visualizer_data
 
 
 def test_recommender_scope_labels_nodes_and_aggregate_pool_precisely():
@@ -147,10 +148,15 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert (visualizer_dir / "index.html").exists()
     assert (visualizer_dir / "styles.css").exists()
     assert (visualizer_dir / "app.js").exists()
+    assert (visualizer_dir / "data.v2.json").exists()
 
     index_text = (visualizer_dir / "index.html").read_text(encoding="utf-8")
     app_text = (visualizer_dir / "app.js").read_text(encoding="utf-8")
     data = json.loads((visualizer_dir / "data.json").read_text(encoding="utf-8"))
+    compact_data = expand_visualizer_data(
+        json.loads((visualizer_dir / "data.v2.json").read_text(encoding="utf-8"))
+    )
+    assert compact_data == data
 
     assert 'id="viewControl"' in index_text
     assert 'id="boxView"' in index_text
@@ -161,6 +167,7 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "banner={phase:'current'" in app_text
     assert "banner_next" in app_text
     assert "no-store" in app_text
+    assert "./data.v2.json" in app_text
     assert "T1及以下提醒" in app_text
     assert "当前模式T1及以下提醒" in app_text
     assert "tierSummaryFor" in app_text

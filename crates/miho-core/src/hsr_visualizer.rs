@@ -6,7 +6,7 @@ use crate::{
     normalize::character_slug,
     output::ArtifactBundle,
     visualizer::{
-        attach_avatar_assets, attach_hsr_static_assets, compact_json,
+        attach_avatar_assets, attach_hsr_static_assets, attach_visualizer_data,
         effective_banner_status as shared_effective_banner_status, local_avatar_url,
         python_scalar_text, python_value_truthy, read_csv_rows, safe_link_url, safe_relative_url,
         strict_utf8, validate_json_surrogate_escapes, VisualizerContext,
@@ -74,10 +74,7 @@ pub fn attach_hsr_visualizer(
     });
     attach_hsr_static_assets(bundle)?;
     attach_avatar_assets(bundle, context)?;
-    bundle.add_bytes(
-        "visualizer/data.json",
-        compact_json("visualizer/data.json", &data)?,
-    )?;
+    attach_visualizer_data(bundle, &data)?;
     Ok(())
 }
 
@@ -2220,8 +2217,13 @@ mod tests {
                 .unwrap(),
         );
         attach_hsr_visualizer(&mut bundle, &context).unwrap();
-        let payload: Value =
+        let legacy: Value =
             serde_json::from_slice(bundle.get("visualizer/data.json").unwrap()).unwrap();
+        let payload: Value = crate::visualizer::expand_visualizer_data(
+            serde_json::from_slice(bundle.get("visualizer/data.v2.json").unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(legacy, payload);
         assert_eq!(payload["data_quality"], quality);
         assert_eq!(payload["freshness"], freshness);
     }

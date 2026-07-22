@@ -7,14 +7,17 @@ import vm from 'node:vm';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const HSR_APP = path.join(ROOT, 'crates/miho-core/assets/visualizer/hsr/app.js');
+const HSR_INDEX = path.join(ROOT, 'crates/miho-core/assets/visualizer/hsr/index.html');
+const HSR_STYLE = path.join(ROOT, 'crates/miho-core/assets/visualizer/hsr/styles.css');
 const ZZZ_APP = path.join(ROOT, 'crates/miho-core/assets/visualizer/zzz/app.js');
 const ZZZ_INDEX = path.join(ROOT, 'crates/miho-core/assets/visualizer/zzz/index.html');
+const ZZZ_STYLE = path.join(ROOT, 'crates/miho-core/assets/visualizer/zzz/styles.css');
 const SLATE_SOLVER = path.join(ROOT, 'crates/miho-core/assets/visualizer/solver.js');
 
 const HSR_HARNESS = String.raw`
 ;globalThis.__recommenderContract = {
   reset(data, settings = {}, owned = [], builds = {}) {
-    DATA = data;
+    initializeVisualizerData(data);
     rec = {
       mode: settings.mode || 'as',
       scope: settings.scope || '4-1',
@@ -31,6 +34,7 @@ const HSR_HARNESS = String.raw`
       search: settings.search || '',
     };
     box = {...box, owned: new Set(owned), builds, buildSlug: ''};
+    invalidateRecommendationCaches();
     boxUndoStack = [];
   },
   setElements(mode, scope, values) {
@@ -63,6 +67,42 @@ const HSR_HARNESS = String.raw`
         candidates: entry.candidates.map(candidate => candidate.character_slug),
       })),
     }));
+  },
+  async rankedAsync(mode, scope, used = [], options = {}) {
+    return (await rankedRecommendationsAsync(mode, scope, new Set(used), options)).map(item => ({id: item.template.id, score: item.score}));
+  },
+  cacheState() {
+    return {dataEpoch, boxStateRevision, size: recScoredPoolCache.size};
+  },
+  setSearch(value) {
+    rec.search = String(value || '').toLowerCase();
+  },
+  setRiskAndGap(riskMode, gap) {
+    rec.riskMode = riskMode;
+    rec.gap = String(gap);
+  },
+  mutateOwned(slug) {
+    box.owned.add(slug);
+    invalidateRecommendationCaches();
+  },
+  async debounceProbe(values) {
+    let calls = 0;
+    for (const value of values) {
+      rec.search = value;
+      scheduleRecSearchRender(() => { calls += 1; });
+    }
+    await new Promise(resolve => setTimeout(resolve, 95));
+    return calls;
+  },
+  installSnapshot(data) {
+    initializeVisualizerData(data);
+    return {
+      roster: [...DATA_INDEX.rosterBySlug.keys()],
+      teams: (DATA_INDEX.teamsByModeScope.get('as|4-1') || []).map(row => ({id: row.id, chars: [...row.chars]})),
+      usage: (DATA_INDEX.usageByModeSubMode.get('as|all') || []).map(row => row.id),
+      tier: (DATA_INDEX.tiersByModeCharacter.get('as|alpha') || []).map(row => row.id),
+      phase: (DATA_INDEX.phasesByModeVersion.get('as|1.0') || []).map(row => row.id),
+    };
   },
   pool(mode) {
     return customPoolTemplates(mode).map(template => ({id: template.id, scope: template.scope_key, evidenceScopes: [...template.evidenceScopes]}));
@@ -155,13 +195,41 @@ const HSR_HARNESS = String.raw`
   freshness(mode, fallback = {}) {
     return modeFreshness(mode, fallback);
   },
+  tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
+    return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
+  },
+  detailBindings() {
+    const events = [];
+    const element = {
+      matches: () => false,
+      hasAttribute: () => false,
+      setAttribute: () => {},
+      addEventListener: name => events.push(name),
+    };
+    bindAccessibleDetail(element, 'tooltip', () => {}, '详情');
+    return events;
+  },
+  pressedState(value) {
+    const attrs = {};
+    let active = false;
+    setPressedState({classList: {toggle: (_name, next) => { active = next; }}, setAttribute: (name, next) => { attrs[name] = next; }}, value);
+    return {active, ariaPressed: attrs['aria-pressed']};
+  },
+  detailContains(triggerHit, tooltipHit) {
+    activeDetailTrigger = {contains: () => triggerHit};
+    activeDetailTooltip = {contains: () => tooltipHit};
+    const result = activeDetailContains({});
+    activeDetailTrigger = null;
+    activeDetailTooltip = null;
+    return result;
+  },
 };
 `;
 
 const ZZZ_HARNESS = String.raw`
 ;globalThis.__recommenderContract = {
   reset(data, settings = {}, owned = [], builds = {}) {
-    DATA = normalizeVisualizerData(data);
+    installVisualizerData(data);
     rec = {
       mode: settings.mode || 'sd',
       scope: settings.scope || 's1',
@@ -176,6 +244,7 @@ const ZZZ_HARNESS = String.raw`
       search: settings.search || '',
     };
     box = {...box, owned: new Set(owned), builds, buildSlug: ''};
+    invalidateRecommendationBoxState();
     boxUndoStack = [];
   },
   constraints(mode, scope) {
@@ -199,6 +268,56 @@ const ZZZ_HARNESS = String.raw`
       risks: item.risks.map(risk => risk.text),
     }));
   },
+  async rankedAsync(mode, scope, used = [], options = {}) {
+    return (await rankedForAsync(mode, scope, new Set(used), options)).map(item => ({id: item.template.id, score: item.score}));
+  },
+  cacheState() {
+    return {dataEpoch, boxRevision, size: recScoredPoolCache.size};
+  },
+  setSearch(value) {
+    rec.search = String(value || '').toLowerCase();
+  },
+  setRiskAndGap(riskMode, gap) {
+    rec.riskMode = riskMode;
+    rec.gap = String(gap);
+  },
+  mutateOwned(slug) {
+    box.owned.add(slug);
+    invalidateRecommendationBoxState();
+  },
+  async debounceProbe(values) {
+    let calls = 0;
+    for (const value of values) {
+      rec.search = value;
+      scheduleRecSearchRender(() => { calls += 1; });
+    }
+    await new Promise(resolve => setTimeout(resolve, 95));
+    return calls;
+  },
+  async candidateComparison(scopeKeys) {
+    const scopeList = scopeKeys.map(scope => ({key: scope, label: scope}));
+    const sync = recSlateCandidateLists(scopeList).map(list => list.map(item => item.template.id));
+    const asyncLists = await recSlateCandidateListsAsync(scopeList);
+    return {sync, async: asyncLists.map(list => list.map(item => item.template.id))};
+  },
+  async lockBoundary(scopeKey) {
+    const scopeList = [{key: scopeKey, label: scopeKey}];
+    rec.locks[recLockKey(scopeKey)] = 'invalid-lock';
+    const draft = await prepareRecSlateSolveAsync(scopeList);
+    const afterDraft = {...rec.locks};
+    finalizeRecSlateSolve(draft.scopeList, draft.fullCandidateLists, draft.rawCandidateCounts, {maxSolutions: 3});
+    return {afterDraft, afterFinalize: {...rec.locks}};
+  },
+  installSnapshot(data) {
+    installVisualizerData(data);
+    return {
+      roster: [...DATA_INDEX.rosterBySlug.keys()],
+      teams: indexedTeams('sd', 's1').map(row => ({id: row.id, chars: [...row.chars]})),
+      usage: indexedRows('usageByModeSubMode', 'sd|all').map(row => row.id),
+      tier: indexedRows('tiersByModeCharacter', 'sd|norma').map(row => row.id),
+      phase: indexedRows('phasesByModeVersion', 'sd|1.0').map(row => row.id),
+    };
+  },
   scopes(mode = rec.mode) {
     return scopes(mode).map(scope => scope.key);
   },
@@ -218,7 +337,7 @@ const ZZZ_HARNESS = String.raw`
     return {sortValue: rankSortValue(value), positive: positiveMetric(value)};
   },
   identityView(data, settings = {}) {
-    DATA = normalizeVisualizerData(data);
+    installVisualizerData(data);
     banner = {...banner, phase: settings.bannerPhase || 'all', search: settings.bannerSearch || ''};
     box = {...box, element: settings.element || 'all', style: settings.style || 'all', status: settings.boxStatus || 'all', search: settings.boxSearch || ''};
     return {
@@ -261,6 +380,34 @@ const ZZZ_HARNESS = String.raw`
   freshness(mode, fallback = {}) {
     return modeFreshness(mode, fallback);
   },
+  tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
+    return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
+  },
+  detailBindings() {
+    const events = [];
+    const element = {
+      matches: () => false,
+      hasAttribute: () => false,
+      setAttribute: () => {},
+      addEventListener: name => events.push(name),
+    };
+    bindAccessibleDetail(element, 'tooltip', () => {}, '详情');
+    return events;
+  },
+  pressedState(value) {
+    const attrs = {};
+    let active = false;
+    setPressedState({classList: {toggle: (_name, next) => { active = next; }}, setAttribute: (name, next) => { attrs[name] = next; }}, value);
+    return {active, ariaPressed: attrs['aria-pressed']};
+  },
+  detailContains(triggerHit, tooltipHit) {
+    activeDetailTrigger = {contains: () => triggerHit};
+    activeDetailTooltip = {contains: () => tooltipHit};
+    const result = activeDetailContains({});
+    activeDetailTrigger = null;
+    activeDetailTooltip = null;
+    return result;
+  },
 };
 `;
 
@@ -277,6 +424,9 @@ function loadContract(appPath, harness) {
     document,
     fetch: () => new Promise(() => {}),
     location: {hash: '', href: 'http://localhost/', origin: 'http://localhost'},
+    performance,
+    setTimeout,
+    clearTimeout,
     localStorage: {
       getItem: key => storage.get(String(key)) ?? null,
       setItem: (key, value) => storage.set(String(key), String(value)),
@@ -522,6 +672,57 @@ function hsrFullBuild() {
 function allBuilds(slugs, factory) {
   return Object.fromEntries(slugs.map(slug => [slug, factory()]));
 }
+
+test('HSR hydrates v2 data before building every runtime index', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const snapshot = plain(api.installSnapshot({
+    schema_version: 'miho-visualizer-data-v2',
+    payload: {bannerRows: [], changelogRows: []},
+    tables: {
+      rosterRows: {columns: ['character_slug', 'character_name_cn'], rows: [['alpha', '甲']]},
+      teamTemplates: {columns: ['id', 'mode', 'scope_key', 'scope_label', 'chars'], rows: [['team-1', 'as', '4-1', '第一侧', ['alpha']]]},
+      usageRows: {columns: ['id', 'tier_mode', 'sub_mode', 'character_slug'], rows: [['usage-1', 'as', 'all', 'alpha']]},
+      tierRows: {columns: ['id', 'tier_mode', 'character_slug', 'tier'], rows: [['tier-1', 'as', 'alpha', 'T0']]},
+      phaseInfoRows: {columns: ['id', 'mode', 'phase_ver'], rows: [['phase-1', 'as', '1.0']]},
+    },
+  }));
+  assert.deepEqual(snapshot, {
+    roster: ['alpha'],
+    teams: [{id: 'team-1', chars: ['alpha']}],
+    usage: ['usage-1'],
+    tier: ['tier-1'],
+    phase: ['phase-1'],
+  });
+});
+
+test('HSR async scoring cache ignores search and post-score filters, then invalidates on Box changes', async () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const slugs = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
+  const rosterRows = slugs.map((slug, index) => hsrCharacter(slug, index ? '冰' : '火', index ? 'support' : 'main_dps', index ? '同谐' : '毁灭', index + 1));
+  const templates = [
+    hsrTemplate('alpha-team', '4-1', ['alpha', 'beta', 'gamma', 'delta'], 1, 20),
+    hsrTemplate('epsilon-team', '4-1', ['epsilon', 'beta', 'gamma', 'delta'], 2, 10),
+  ];
+  api.reset(hsrData(rosterRows, templates), {mode: 'as', scope: '4-1', gap: '4', riskMode: 'warn'});
+
+  await api.rankedAsync('as', '4-1');
+  const first = plain(api.cacheState());
+  assert.equal(first.size, 1);
+
+  api.setSearch('alpha');
+  await api.rankedAsync('as', '4-1');
+  api.setRiskAndGap('filter', 0);
+  await api.rankedAsync('as', '4-1');
+  assert.equal(plain(api.cacheState()).size, 1, 'search, risk, and max-gap filtering must reuse the scored pool');
+
+  api.mutateOwned('alpha');
+  const invalidated = plain(api.cacheState());
+  assert.equal(invalidated.size, 0);
+  assert.ok(invalidated.boxStateRevision > first.boxStateRevision);
+  await api.rankedAsync('as', '4-1');
+  assert.equal(plain(api.cacheState()).size, 1);
+  assert.equal(await api.debounceProbe(['a', 'al', 'alpha']), 1);
+});
 
 function weaknessFixture() {
   const rosterRows = [
@@ -1379,6 +1580,64 @@ function zzzData(rosterRows, teamTemplates, tierRows = []) {
   return {rosterRows, teamTemplates, tierRows, usageRows: []};
 }
 
+test('ZZZ hydrates v2 data before alias normalization and builds every runtime index', () => {
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const snapshot = plain(api.installSnapshot({
+    schema_version: 'miho-visualizer-data-v2',
+    payload: {bannerRows: [], nameRows: [], changelogRows: []},
+    tables: {
+      rosterRows: {columns: ['character_slug', 'character_name_cn'], rows: [['nom', '诺姆']]},
+      teamTemplates: {columns: ['id', 'mode', 'scope_key', 'scope_label', 'chars'], rows: [['team-1', 'sd', 's1', '第一关', ['nom']]]},
+      usageRows: {columns: ['id', 'mode', 'sub_mode', 'character_slug'], rows: [['usage-1', 'sd', 'all', 'nom']]},
+      tierRows: {columns: ['id', 'tier_mode', 'character_slug', 'tier'], rows: [['tier-1', 'sd', 'nom', 'T0']]},
+      phaseInfoRows: {columns: ['id', 'mode', 'phase_ver'], rows: [['phase-1', 'sd', '1.0']]},
+    },
+  }));
+  assert.deepEqual(snapshot, {
+    roster: ['norma'],
+    teams: [{id: 'team-1', chars: ['norma']}],
+    usage: ['usage-1'],
+    tier: ['tier-1'],
+    phase: ['phase-1'],
+  });
+});
+
+test('ZZZ async scoring cache ignores search, limit-adjacent filters, and debounces left-list search', async () => {
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const slugs = ['alpha', 'beta', 'gamma', 'delta'];
+  const rosterRows = slugs.map((slug, index) => zzzCharacter(slug, index === 0 ? 'crit_dps' : 'support', index + 1));
+  const templates = [
+    {...zzzTemplate('alpha-team', 's1', ['alpha', 'beta', 'gamma'], 1, 20), avg_score: 30_000},
+    {...zzzTemplate('delta-team', 's1', ['delta', 'beta', 'gamma'], 2, 10), avg_score: 29_000},
+    {...zzzTemplate('second-stage', 's2', ['alpha', 'beta', 'delta'], 1, 15), avg_score: 31_000},
+  ];
+  api.reset(zzzData(rosterRows, templates), {mode: 'sd', scope: 's1', gap: '3', riskMode: 'warn'});
+
+  await api.rankedAsync('sd', 's1');
+  const first = plain(api.cacheState());
+  assert.equal(first.size, 1);
+
+  api.setSearch('alpha');
+  await api.rankedAsync('sd', 's1');
+  api.setRiskAndGap('filter', 0);
+  await api.rankedAsync('sd', 's1');
+  assert.equal(plain(api.cacheState()).size, 1, 'search, risk, and max-gap filtering must reuse the scored pool');
+
+  api.mutateOwned('alpha');
+  const invalidated = plain(api.cacheState());
+  assert.equal(invalidated.size, 0);
+  assert.ok(invalidated.boxRevision > first.boxRevision);
+  await api.rankedAsync('sd', 's1');
+  assert.equal(plain(api.cacheState()).size, 1);
+  assert.equal(await api.debounceProbe(['a', 'al', 'alpha']), 1);
+  const candidates = plain(await api.candidateComparison(['s1', 's2']));
+  assert.deepEqual(candidates.async, candidates.sync, 'cooperative joint preparation must preserve synchronous oracle ordering');
+  assert.deepEqual(plain(await api.lockBoundary('s1')), {
+    afterDraft: {'sd|s1': 'invalid-lock'},
+    afterFinalize: {},
+  }, 'asynchronous candidate work must remain pure until the current request reconciles locks');
+});
+
 test('ZZZ warn only displays risks, off keeps identical scores, and filter alone removes risky teams', () => {
   const safe = ['safe-core', 'safe-a', 'safe-b'];
   const risky = ['risky-core', 'risky-a', 'risky-b'];
@@ -1434,7 +1693,7 @@ test('ZZZ distinguishes unknown, T1, and T5 tiers without treating missing tier 
   assert.equal(byId['t1-team'].score, byId['t5-team'].score, 'even an explicit T5 warning is display-only outside filter mode');
 });
 
-test('ZZZ treats unrecorded builds as neutral and penalizes only explicitly recorded low investment', () => {
+test('ZZZ treats unrecorded builds as unavailable evidence and scores only explicitly recorded investment', () => {
   const unknown = ['unknown-core', 'unknown-a', 'unknown-b'];
   const low = ['low-core', 'low-a', 'low-b'];
   const ready = ['ready-core', 'ready-a', 'ready-b'];
@@ -1459,8 +1718,14 @@ test('ZZZ treats unrecorded builds as neutral and penalizes only explicitly reco
   assert.equal(byId['ready-team'].recordedCount, 3);
   assert.deepEqual(byId['unrecorded-team'].risks, [], 'an absent build record must not become a low-build warning');
   assert.ok(byId['low-team'].risks.every(risk => risk.includes('练度待补')));
+  assert.deepEqual(
+    byId['unrecorded-team'].scoreParts.box.find(part => part.key === 'build'),
+    {key: 'build', label: '练度（录入 0/3）', value: 0, available: false},
+    'unknown investment must contribute neither a positive baseline nor a negative penalty',
+  );
   assert.ok(byId['ready-team'].scores.box > byId['unrecorded-team'].scores.box);
-  assert.ok(byId['unrecorded-team'].scores.box > byId['low-team'].scores.box, 'unknown investment must use a neutral baseline above confirmed low investment');
+  assert.ok(byId['ready-team'].scores.box > byId['low-team'].scores.box);
+  assert.ok(byId['low-team'].scores.box > byId['unrecorded-team'].scores.box, 'known partial investment is positive Box evidence while unknown investment is no evidence');
 
   api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'filter', sortMode: 'box'}, slugs, builds);
   assert.deepEqual(
@@ -1866,6 +2131,22 @@ test('ZZZ Box import preview canonicalizes aliases and applies the same empty-do
   assert.deepEqual(plain(api.boxHistoryProbe(24)), {length: 20, first: 'unit-4', last: 'unit-23'});
 });
 
+test('both visualizers preview every bulk Box mutation before committing it', () => {
+  const sources = [
+    ['HSR', readFileSync(HSR_APP, 'utf8')],
+    ['ZZZ', readFileSync(ZZZ_APP, 'utf8')],
+  ];
+  for (const [name, source] of sources) {
+    assert.match(source, /function formatBoxBatchPreview\(/, `${name} lacks a bulk-change preview formatter`);
+    assert.match(source, /function confirmBoxBatchPreview\(/, `${name} lacks a bulk-change confirmation gate`);
+    assert.match(source, /if\(!confirmBoxBatchPreview\([^)]*preview\)\)return;commitBoxChange/, `${name} bulk changes bypass preview confirmation`);
+  }
+  assert.match(sources[0][1], /function markVisible\(value\).*confirmBoxBatchPreview/s);
+  assert.match(sources[0][1], /function setVisibleBuild\(kind\).*confirmBoxBatchPreview/s);
+  assert.match(sources[1][1], /function markVisibleOwned\(\).*confirmBoxBatchPreview/s);
+  assert.match(sources[1][1], /function setVisibleBuild\(value\).*confirmBoxBatchPreview/s);
+});
+
 test('both visualizers read freshness from snake/camel data-quality fallbacks without blocking legacy data', () => {
   const hsr = loadContract(HSR_APP, HSR_HARNESS);
   hsr.reset({
@@ -1882,6 +2163,47 @@ test('both visualizers read freshness from snake/camel data-quality fallbacks wi
   });
   assert.deepEqual(plain(zzz.freshness('da')), {status: 'unknown', sampleDate: '2026-08-02', startDate: '', endDate: '', source: 'fixture-camel'});
   assert.equal(plain(zzz.freshness('sd', {phase_status: 'current'})).status, 'active');
+});
+
+function assertVisualizerAccessibilityMarkup(indexPath, stylePath) {
+  const html = readFileSync(indexPath, 'utf8');
+  const css = readFileSync(stylePath, 'utf8');
+  const labels = [...html.matchAll(/<label\b([^>]*)>([\s\S]*?)<\/label>/g)];
+  assert.ok(labels.length > 0);
+  for (const [, attributes, content] of labels) {
+    assert.ok(/\bfor\s*=/.test(attributes) || /<(?:input|select|textarea)\b/.test(content), `unassociated label: ${content.slice(0, 80)}`);
+  }
+  for (const [, id] of html.matchAll(/aria-labelledby="([^"]+)"/g)) {
+    assert.match(html, new RegExp(`\\bid="${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`));
+  }
+  assert.ok((html.match(/role="tooltip"/g) || []).length >= 4);
+  assert.match(css, /:focus-visible/);
+  assert.match(css, /max-width:calc\(100vw - /);
+  assert.match(css, /max-height:calc\(100vh - /);
+  assert.match(css, /\.tooltip\{pointer-events:auto;overflow-x:hidden;overflow-y:auto;/);
+  assert.match(css, /touch-action:pan-y/);
+}
+
+test('both visualizers expose associated labels, pressed state, keyboard/touch details, and bounded tooltips', () => {
+  assertVisualizerAccessibilityMarkup(HSR_INDEX, HSR_STYLE);
+  assertVisualizerAccessibilityMarkup(ZZZ_INDEX, ZZZ_STYLE);
+
+  for (const [game, api, tooltipWidth, tooltipHeight, pad] of [
+    ['HSR', loadContract(HSR_APP, HSR_HARNESS), 292, 540, 14],
+    ['ZZZ', loadContract(ZZZ_APP, ZZZ_HARNESS), 296, 544, 12],
+  ]) {
+    assert.deepEqual(plain(api.pressedState(true)), {active: true, ariaPressed: 'true'});
+    assert.deepEqual(plain(api.pressedState(false)), {active: false, ariaPressed: 'false'});
+    assert.deepEqual(plain(api.detailBindings()), ['focus', 'blur', 'keydown', 'pointerup']);
+    assert.equal(api.detailContains(true, false), true, `${game} trigger should be inside the active detail`);
+    assert.equal(api.detailContains(false, true), true, `${game} tooltip should be inside the active detail`);
+    assert.equal(api.detailContains(false, false), false, `${game} outside pointer should dismiss the active detail`);
+    const position = plain(api.tooltipPosition(320, 568, tooltipWidth, tooltipHeight, 319, 567, pad));
+    assert.ok(position.x >= pad, `${game} tooltip left escaped`);
+    assert.ok(position.y >= pad, `${game} tooltip top escaped`);
+    assert.ok(position.x + tooltipWidth <= 320 - pad, `${game} tooltip right escaped`);
+    assert.ok(position.y + tooltipHeight <= 568 - pad, `${game} tooltip bottom escaped`);
+  }
 });
 
 for (const [game, appPath] of [['HSR', HSR_APP], ['ZZZ', ZZZ_APP]]) {

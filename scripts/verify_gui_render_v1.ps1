@@ -7,7 +7,17 @@ param(
     [int]$TimeoutSeconds = 20,
 
     [ValidateSet("Installed", "Portable")]
-    [string]$Mode = "Installed"
+    [string]$Mode = "Installed",
+
+    [string]$ProductProbeScript = "",
+
+    [int]$ExpectedHsrOwned = -1,
+
+    [int]$ExpectedZzzOwned = -1,
+
+    [int]$ExpectedHsrTotal = -1,
+
+    [int]$ExpectedZzzTotal = -1
 )
 
 $ErrorActionPreference = "Stop"
@@ -81,6 +91,7 @@ function Test-MihoRenderedDomV1 {
         [string]$Dom.ready -cne "v1" -or
         [string]$Dom.brandText -cne "MIHO ENDGAME" -or
         [int]$Dom.appChildCount -lt 2 -or
+        [bool]$Dom.visualizerLoaded -ne $true -or
         [bool]$Dom.tauriInternals -ne $true -or
         [bool]$Dom.neterror) {
         return $false
@@ -183,7 +194,7 @@ function Invoke-MihoCdpDomProbeV1 {
     $cancellation = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(10))
     try {
         $null = $socket.ConnectAsync([Uri]$webSocketUrl, $cancellation.Token).GetAwaiter().GetResult()
-        $expression = "(()=>({href:location.href,readyState:document.readyState,ready:document.documentElement?.dataset?.mihoAppReady??'',brandText:document.querySelector('.brand .eyebrow')?.textContent??'',appChildCount:document.querySelector('#app')?.childElementCount??0,tauriInternals:typeof window.__TAURI_INTERNALS__==='object',bodyText:(document.body?.innerText??'').slice(0,2000),neterror:!!document.querySelector('body.neterror')}))()"
+        $expression = "(()=>({href:location.href,readyState:document.readyState,ready:document.documentElement?.dataset?.mihoAppReady??'',brandText:document.querySelector('.brand .eyebrow')?.textContent??'',appChildCount:document.querySelector('#app')?.childElementCount??0,visualizerLoaded:[...document.querySelectorAll('iframe.visualizer-frame')].some(frame=>!!frame.getAttribute('src')&&frame.dataset.loaded==='true'),tauriInternals:typeof window.__TAURI_INTERNALS__==='object',bodyText:(document.body?.innerText??'').slice(0,2000),neterror:!!document.querySelector('body.neterror')}))()"
         $command = @{
             id = 17
             method = "Runtime.evaluate"
@@ -573,6 +584,22 @@ else {
     Join-Path $workingDirectory "data\.miho\webview2"
 }
 $expectedWebViewUserDataDirectory = Join-Path $expectedWebViewDataRoot "EBWebView"
+$fullProductProbeScript = ""
+$nodeCommand = $null
+if (-not [string]::IsNullOrWhiteSpace($ProductProbeScript)) {
+    $fullProductProbeScript = [System.IO.Path]::GetFullPath($ProductProbeScript)
+    $probeItem = Get-Item -LiteralPath $fullProductProbeScript -Force -ErrorAction Stop
+    if ($probeItem.PSIsContainer -or
+        ($probeItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Product UI probe requires a normal script file"
+    }
+    if ($ExpectedHsrOwned -lt 0 -or $ExpectedZzzOwned -lt 0 -or
+        $ExpectedHsrTotal -le 0 -or $ExpectedZzzTotal -le 0 -or
+        $ExpectedHsrOwned -gt $ExpectedHsrTotal -or $ExpectedZzzOwned -gt $ExpectedZzzTotal) {
+        throw "Product UI probe requires valid expected Box and roster counts"
+    }
+    $nodeCommand = Get-Command node -CommandType Application -ErrorAction Stop
+}
 
 foreach ($candidate in @(Get-Process -Name $executableItem.BaseName -ErrorAction SilentlyContinue)) {
     $candidatePath = $null
@@ -616,6 +643,7 @@ $stderr = ""
 $probeFailure = $null
 $receiptJson = $null
 $cleanupFailure = $null
+$productProbeReceipt = $null
 try {
     if (-not $process.Start()) {
         throw "GUI render probe could not start the desktop process"
@@ -704,6 +732,38 @@ try {
     }
     if ([string]::IsNullOrWhiteSpace($boundWebViewUserDataDirectory)) {
         throw "GUI DOM rendered without a bound WebView2 user-data directory"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($fullProductProbeScript)) {
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $productProbeOutput = @(& $nodeCommand.Source `
+                $fullProductProbeScript `
+                "--ws" ([string]$readyTarget.webSocketDebuggerUrl) `
+                "--expected-hsr-owned" ([string]$ExpectedHsrOwned) `
+                "--expected-zzz-owned" ([string]$ExpectedZzzOwned) `
+                "--expected-hsr-total" ([string]$ExpectedHsrTotal) `
+                "--expected-zzz-total" ([string]$ExpectedZzzTotal) `
+                "--timeout-ms" "120000" 2>&1)
+            $productProbeExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        $productProbeText = (($productProbeOutput | ForEach-Object { [string]$_ }) -join "`n").Trim()
+        if ($productProbeExitCode -ne 0) {
+            throw "Product UI probe failed (exit=$productProbeExitCode): $productProbeText"
+        }
+        try {
+            $productProbeReceipt = $productProbeText | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            throw "Product UI probe returned an invalid receipt: $productProbeText"
+        }
+        if ([string]$productProbeReceipt.schema_version -cne "miho-product-ui-probe-v1") {
+            throw "Product UI probe returned an unexpected schema"
+        }
     }
 
     if (-not (Wait-MihoCurrentDescendantProcessIdentitiesV1 `
@@ -802,6 +862,7 @@ try {
         dom_ready_state = [string]$renderedDom.readyState
         dom_brand = [string]$renderedDom.brandText
         dom_app_child_count = [int]$renderedDom.appChildCount
+        visualizer_loaded_before_close = [bool]$renderedDom.visualizerLoaded
         tauri_internals = [bool]$renderedDom.tauriInternals
         error_page_rejected = $true
         minimum_alive_seconds = 5
@@ -817,7 +878,8 @@ try {
         webview_data_isolated = ($Mode -ceq "Portable")
         webview_data_scope = $(if ($Mode -ceq "Portable") { "portable-layout" } else { "default-installed-cache" })
         webview_user_data_directory_bound = $true
-    } | ConvertTo-Json -Depth 4
+        product_probe = $productProbeReceipt
+    } | ConvertTo-Json -Depth 20
 }
 catch {
     $probeFailure = $_

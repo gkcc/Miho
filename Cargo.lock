@@ -2012,6 +2012,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2035,6 +2036,7 @@ dependencies = [
  "chrono",
  "csv",
  "curl",
+ "futures-util",
  "reqwest 0.12.28",
  "rust_xlsxwriter",
  "serde",
