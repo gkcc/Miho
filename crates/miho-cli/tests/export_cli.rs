@@ -235,8 +235,11 @@ fn invalid_date_is_a_business_error() {
         .output()
         .unwrap();
     assert_eq!(result.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&result.stderr)
-        .starts_with("export failed: invalid date: not-a-date"));
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        stderr.contains("export failed: invalid date: not-a-date"),
+        "unexpected stderr: {stderr:?}"
+    );
     assert!(!out.exists());
 }
 

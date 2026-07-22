@@ -8,6 +8,7 @@ import vm from 'node:vm';
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const HSR_APP = path.join(ROOT, 'crates/miho-core/assets/visualizer/hsr/app.js');
 const ZZZ_APP = path.join(ROOT, 'crates/miho-core/assets/visualizer/zzz/app.js');
+const ZZZ_INDEX = path.join(ROOT, 'crates/miho-core/assets/visualizer/zzz/index.html');
 
 const HSR_HARNESS = String.raw`
 ;globalThis.__recommenderContract = {
@@ -50,6 +51,9 @@ const HSR_HARNESS = String.raw`
       coreElementHits: item.coreElementHits,
       weaknessMatched: item.weaknessMatched,
       targetScope: item.targetScope,
+      ownedCount: item.ownedCount,
+      buildRecordedCount: item.buildRecordedCount,
+      buildReadyCount: item.buildReadyCount,
       risks: item.risks.map(risk => risk.type || risk.text),
       substitutions: item.substitutions.map(entry => ({
         missing: entry.missing.slug,
@@ -82,6 +86,18 @@ const HSR_HARNESS = String.raw`
   rankFacts(value) {
     return {sortValue: rankSortValue(value), display: rankDisplayText(value)};
   },
+  analysis(rows, mode, metric = 'avg_round') {
+    state = {...state, mode, metric};
+    const policy = analysisMetricPolicy(mode, metric);
+    return {
+      policy: {label: policy.label, higherBetter: policy.higherBetter, sortable: policy.sortable},
+      values: rows.map(row => analysisMetricValue(row, mode, metric)),
+      order: groupSeries(rows).map(series => series.slug),
+    };
+  },
+  deploymentGroups(slugs) {
+    return slugs.map(deploymentGroup);
+  },
 };
 `;
 
@@ -97,6 +113,7 @@ const ZZZ_HARNESS = String.raw`
       constraints: settings.constraints || {},
       gap: settings.gap || '3',
       riskMode: settings.riskMode || 'warn',
+      sortMode: normalizeRecSortMode(settings.sortMode),
       limit: settings.limit || '20',
       search: settings.search || '',
     };
@@ -111,6 +128,13 @@ const ZZZ_HARNESS = String.raw`
       id: item.template.id,
       chars: [...item.template.chars],
       score: item.score,
+      scoreMode: item.scoreMode,
+      scores: {...item.scores},
+      scoreParts: Object.fromEntries(Object.entries(item.scoreParts).map(([mode, parts]) => [mode, parts.map(part => ({...part}))])),
+      performance: {...item.performance},
+      ownedCount: item.ownedCount,
+      recordedCount: item.recordedCount,
+      readyCount: item.readyCount,
       elementHits: item.elementHits,
       coreHits: item.coreHits,
       risks: item.risks.map(risk => risk.text),
@@ -126,7 +150,13 @@ const ZZZ_HARNESS = String.raw`
     return bestRecSlatePlan(recPlanScopes()).map(item => item?.template.id || null);
   },
   planSnapshot() {
-    return bestRecSlatePlan(recPlanScopes()).map(item => item ? {id: item.template.id, score: item.score} : null);
+    return bestRecSlatePlan(recPlanScopes()).map(item => item ? {id: item.template.id, score: item.score, scoreMode: item.scoreMode, scores: {...item.scores}} : null);
+  },
+  tier(slug, mode = rec.mode) {
+    return tierMeta(slug, mode);
+  },
+  rankFacts(value) {
+    return {sortValue: rankSortValue(value), positive: positiveMetric(value)};
   },
   identityView(data, settings = {}) {
     DATA = normalizeVisualizerData(data);
@@ -147,6 +177,11 @@ const ZZZ_HARNESS = String.raw`
     localStorage.setItem(REC_KEY, JSON.stringify(raw));
     loadRec();
     return rec.constraints;
+  },
+  migrateSort(raw) {
+    localStorage.setItem(REC_KEY, JSON.stringify(raw));
+    loadRec();
+    return rec.sortMode;
   },
 };
 `;
@@ -815,6 +850,102 @@ test('HSR historical performance uses mode-specific direction and excludes senti
   }
 });
 
+test('HSR analysis metrics use mode-specific scale, direction, and missing sentinels', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const rows = values => values.map(([slug, avg_round], index) => ({
+    character_slug: slug,
+    collect_date: '2026-07-01',
+    avg_round,
+    app_rate: index + 1,
+    rating: 0,
+  }));
+
+  const moc = plain(api.analysis(rows([
+    ['high-round', 8],
+    ['zero', 0],
+    ['low-round', 2],
+    ['sentinel', 99.99],
+    ['missing', null],
+  ]), 'moc'));
+  assert.deepEqual(moc.policy, {label: '平均回合', higherBetter: false, sortable: true});
+  assert.deepEqual(moc.order.slice(0, 2), ['low-round', 'high-round']);
+  assert.deepEqual(moc.values, [8, null, 2, null, null]);
+
+  for (const [mode, label] of [['pf', '虚构得分'], ['as', '末日得分']]) {
+    const score = plain(api.analysis(rows([
+      ['low-score', 3000],
+      ['zero', 0],
+      ['high-score', 4000],
+      ['sentinel', 99.99],
+    ]), mode));
+    assert.deepEqual(score.policy, {label, higherBetter: true, sortable: true});
+    assert.deepEqual(score.order.slice(0, 2), ['high-score', 'low-score']);
+    assert.deepEqual(score.values, [3000, null, 4000, null]);
+  }
+
+  const aaRows = rows([
+    ['aa-high', 9999],
+    ['aa-low', 1],
+    ['aa-zero', 0],
+    ['aa-sentinel', 99.99],
+  ]);
+  const aa = plain(api.analysis(aaRows, 'aa'));
+  assert.deepEqual(aa.policy, {label: '表现原值', higherBetter: null, sortable: false});
+  assert.deepEqual(aa.order, aaRows.map(row => row.character_slug), 'AA raw values must preserve source order');
+  assert.deepEqual(aa.values, [9999, 1, null, null]);
+});
+
+test('HSR deployment groups prevent Trailblazer and March 7th forms from crossing teams', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  assert.deepEqual(
+    plain(api.deploymentGroups(['trailblazer-harmony', 'trailblazer-preservation', 'march-7th', 'march-7th-swordmaster', 'march-7th-the-hunt', 'evernight'])),
+    ['trailblazer', 'trailblazer', 'march-7th', 'march-7th', 'march-7th', 'evernight'],
+  );
+
+  const assertMutuallyExclusivePlan = (leftForm, rightForm) => {
+    const left = [leftForm, 'left-a', 'left-b', 'left-c'];
+    const right = [rightForm, 'right-a', 'right-b', 'right-c'];
+    const slugs = [...left, ...right];
+    const rosterRows = slugs.map((slug, index) => hsrCharacter(slug, '火', index % 4 === 0 ? 'main_dps' : 'support', '同谐', index + 1));
+    const templates = [
+      hsrTemplate('left-form-team', '4-1', left, 1, 30),
+      hsrTemplate('right-form-team', '4-2', right, 1, 30),
+    ];
+    api.reset(
+      hsrData(rosterRows, templates),
+      {mode: 'as', scope: '4-1', strategy: 'final', targetScopes: {as: ['4-1', '4-2']}, gap: '4'},
+      slugs,
+      allBuilds(slugs, hsrFullBuild),
+    );
+    assert.equal(plain(api.plan()).filter(Boolean).length, 1);
+  };
+
+  assertMutuallyExclusivePlan('trailblazer-harmony', 'trailblazer-preservation');
+  assertMutuallyExclusivePlan('march-7th', 'march-7th-swordmaster');
+});
+
+test('HSR unknown build coverage is disclosed without becoming a low-build risk', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const chars = ['core', 'support-a', 'support-b', 'sustain'];
+  const rosterRows = chars.map((slug, index) => hsrCharacter(slug, '火', index === 0 ? 'main_dps' : index === 3 ? 'sustain' : 'support', index === 3 ? '丰饶' : '同谐', index + 1));
+  const data = hsrData(rosterRows, [hsrTemplate('unknown-build-team', '4-1', chars, 1, 30)]);
+
+  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'filter', gap: '4'}, chars, {});
+  const unknown = plain(api.ranked('as', '4-1'));
+  assert.equal(unknown.length, 1, 'missing build records must not be filtered as low build');
+  assert.equal(unknown[0].ownedCount, 4);
+  assert.equal(unknown[0].buildRecordedCount, 0);
+  assert.equal(unknown[0].buildReadyCount, 0);
+  assert.ok(!unknown[0].risks.some(risk => String(risk).startsWith('build-')));
+
+  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'warn', gap: '4'}, chars, {
+    core: {level: 20, lc: 20, eidolon: 0, signature: 'no', traces: 'low', relics: 'none'},
+  });
+  const recordedLow = plain(api.ranked('as', '4-1'))[0];
+  assert.equal(recordedLow.buildRecordedCount, 1);
+  assert.ok(recordedLow.risks.includes('build-low'), 'an explicitly recorded low core build must still warn');
+});
+
 test('HSR legacy and invalid recommendation settings default safely to balanced sorting', () => {
   const api = loadContract(HSR_APP, HSR_HARNESS);
   const fixture = endgameRankingFixture();
@@ -911,6 +1042,175 @@ function zzzTemplate(id, scope, chars, rank, appRate, mode = 'sd') {
 function zzzFullBuild() {
   return {level: 60, engine: 60, mindscape: 0, signature: 'no', skills: 'max', discs: 'great'};
 }
+
+function zzzLowBuild() {
+  return {level: 20, engine: 20, mindscape: 0, signature: 'no', skills: 'low', discs: 'none'};
+}
+
+function zzzData(rosterRows, teamTemplates, tierRows = []) {
+  return {rosterRows, teamTemplates, tierRows, usageRows: []};
+}
+
+test('ZZZ warn only displays risks, off keeps identical scores, and filter alone removes risky teams', () => {
+  const safe = ['safe-core', 'safe-a', 'safe-b'];
+  const risky = ['risky-core', 'risky-a', 'risky-b'];
+  const slugs = [...safe, ...risky];
+  const rosterRows = slugs.map((slug, index) => zzzCharacter(slug, slug.includes('core') ? 'crit_dps' : 'support', index + 1));
+  const teamTemplates = [
+    {...zzzTemplate('safe-team', 's1', safe, 10, 10), avg_score: 30_000},
+    {...zzzTemplate('risky-team', 's1', risky, 10, 10), avg_score: 30_000},
+  ];
+  const tierRows = slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: slug === 'risky-core' ? 'T5' : 'T0'}));
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+
+  api.reset(zzzData(rosterRows, teamTemplates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'warn'}, slugs, allBuilds(slugs, zzzFullBuild));
+  const warn = plain(api.ranked('sd', 's1'));
+  assert.ok(warn.find(item => item.id === 'risky-team').risks.some(risk => risk.includes('T5')));
+
+  api.reset(zzzData(rosterRows, teamTemplates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'off'}, slugs, allBuilds(slugs, zzzFullBuild));
+  const off = plain(api.ranked('sd', 's1'));
+  assert.deepEqual(
+    off.map(item => ({id: item.id, score: item.score, scores: item.scores})),
+    warn.map(item => ({id: item.id, score: item.score, scores: item.scores})),
+    'warn must not change any score or recommendation order relative to off',
+  );
+
+  api.reset(zzzData(rosterRows, teamTemplates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'filter'}, slugs, allBuilds(slugs, zzzFullBuild));
+  assert.deepEqual(plain(api.ranked('sd', 's1')).map(item => item.id), ['safe-team']);
+});
+
+test('ZZZ distinguishes unknown, T1, and T5 tiers without treating missing tier data as the worst tier', () => {
+  const teams = [
+    ['unknown-team', ['unknown-core', 'unknown-a', 'unknown-b']],
+    ['t1-team', ['t1-core', 't1-a', 't1-b']],
+    ['t5-team', ['t5-core', 't5-a', 't5-b']],
+  ];
+  const slugs = teams.flatMap(([, chars]) => chars);
+  const rosterRows = slugs.map((slug, index) => zzzCharacter(slug, slug.includes('core') ? 'crit_dps' : 'support', index + 1));
+  const templates = teams.map(([id, chars]) => ({...zzzTemplate(id, 's1', chars, 10, 10), avg_score: 30_000}));
+  const tierRows = [
+    {character_slug: 't1-core', tier_mode: 'sd', tier: 'T1'},
+    {character_slug: 't5-core', tier_mode: 'sd', tier: 'T5'},
+  ];
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'warn'}, slugs, allBuilds(slugs, zzzFullBuild));
+  const byId = Object.fromEntries(plain(api.ranked('sd', 's1')).map(item => [item.id, item]));
+
+  assert.equal(api.tier('unknown-core', 'sd'), null);
+  assert.equal(plain(api.tier('t1-core', 'sd')).tier, 'T1');
+  assert.equal(plain(api.tier('t5-core', 'sd')).tier, 'T5');
+  assert.deepEqual(byId['unknown-team'].risks, [], 'missing tier data is unknown evidence, not T5');
+  assert.deepEqual(byId['t1-team'].risks, [], 'a fully built T1 agent does not need a low-investment warning');
+  assert.ok(byId['t5-team'].risks.some(risk => risk.includes('T5')), 'an explicit T5 record remains a visible risk');
+  assert.equal(byId['unknown-team'].score, byId['t1-team'].score, 'tier warnings must not silently change warn-mode scores');
+  assert.equal(byId['t1-team'].score, byId['t5-team'].score, 'even an explicit T5 warning is display-only outside filter mode');
+});
+
+test('ZZZ treats unrecorded builds as neutral and penalizes only explicitly recorded low investment', () => {
+  const unknown = ['unknown-core', 'unknown-a', 'unknown-b'];
+  const low = ['low-core', 'low-a', 'low-b'];
+  const ready = ['ready-core', 'ready-a', 'ready-b'];
+  const slugs = [...unknown, ...low, ...ready];
+  const rosterRows = slugs.map((slug, index) => zzzCharacter(slug, slug.includes('core') ? 'crit_dps' : 'support', index + 1));
+  const templates = [
+    {...zzzTemplate('unrecorded-team', 's1', unknown, 10, 10), avg_score: 30_000},
+    {...zzzTemplate('low-team', 's1', low, 10, 10), avg_score: 30_000},
+    {...zzzTemplate('ready-team', 's1', ready, 10, 10), avg_score: 30_000},
+  ];
+  const tierRows = slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: 'T0'}));
+  const builds = {
+    ...allBuilds(low, zzzLowBuild),
+    ...allBuilds(ready, zzzFullBuild),
+  };
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'warn', sortMode: 'box'}, slugs, builds);
+  const byId = Object.fromEntries(plain(api.ranked('sd', 's1')).map(item => [item.id, item]));
+
+  assert.equal(byId['unrecorded-team'].recordedCount, 0);
+  assert.equal(byId['low-team'].recordedCount, 3);
+  assert.equal(byId['ready-team'].recordedCount, 3);
+  assert.deepEqual(byId['unrecorded-team'].risks, [], 'an absent build record must not become a low-build warning');
+  assert.ok(byId['low-team'].risks.every(risk => risk.includes('练度待补')));
+  assert.ok(byId['ready-team'].scores.box > byId['unrecorded-team'].scores.box);
+  assert.ok(byId['unrecorded-team'].scores.box > byId['low-team'].scores.box, 'unknown investment must use a neutral baseline above confirmed low investment');
+
+  api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'filter', sortMode: 'box'}, slugs, builds);
+  assert.deepEqual(
+    plain(api.ranked('sd', 's1')).map(item => item.id),
+    ['ready-team', 'unrecorded-team'],
+    'filter mode must retain unknown build coverage and remove only the explicitly low team',
+  );
+});
+
+test('ZZZ treats Rank null and zero as missing and uses positive average score only within the same mode', () => {
+  const ids = ['rank-null', 'rank-zero', 'rank-one', 'score-null', 'score-zero', 'score-low', 'score-high'];
+  const rosterRows = ids.flatMap((id, teamIndex) => [0, 1, 2].map(memberIndex => zzzCharacter(`${id}-${memberIndex}`, memberIndex === 0 ? 'crit_dps' : 'support', teamIndex * 3 + memberIndex)));
+  const chars = id => [0, 1, 2].map(index => `${id}-${index}`);
+  const templates = [
+    {...zzzTemplate('rank-null', 'rank', chars('rank-null'), null, 0), avg_score: 0},
+    {...zzzTemplate('rank-zero', 'rank', chars('rank-zero'), 0, 0), avg_score: 0},
+    {...zzzTemplate('rank-one', 'rank', chars('rank-one'), 1, 0), avg_score: 0},
+    {...zzzTemplate('score-null', 'score', chars('score-null'), 0, 0), avg_score: null},
+    {...zzzTemplate('score-zero', 'score', chars('score-zero'), 0, 0), avg_score: 0},
+    {...zzzTemplate('score-low', 'score', chars('score-low'), 0, 0), avg_score: 100},
+    {...zzzTemplate('score-high', 'score', chars('score-high'), 0, 0), avg_score: 200},
+    {...zzzTemplate('other-mode-outlier', 'score', chars('score-high'), 0, 0, 'da'), avg_score: 999_999},
+  ];
+  const slugs = rosterRows.map(row => row.character_slug);
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  api.reset(zzzData(rosterRows, templates), {mode: 'sd', scope: 'rank', sortMode: 'history'}, slugs, allBuilds(slugs, zzzFullBuild));
+  const ranks = Object.fromEntries(plain(api.ranked('sd', 'rank')).map(item => [item.id, item]));
+  assert.equal(ranks['rank-null'].scores.history, ranks['rank-zero'].scores.history);
+  assert.ok(ranks['rank-one'].scores.history > ranks['rank-zero'].scores.history);
+  assert.equal(api.rankFacts(null).positive, null);
+  assert.equal(api.rankFacts(0).positive, null);
+  assert.equal(api.rankFacts(1).positive, 1);
+
+  api.reset(zzzData(rosterRows, templates), {mode: 'sd', scope: 'score', sortMode: 'history'}, slugs, allBuilds(slugs, zzzFullBuild));
+  const scores = Object.fromEntries(plain(api.ranked('sd', 'score')).map(item => [item.id, item]));
+  assert.equal(scores['score-null'].performance.valid, false);
+  assert.equal(scores['score-zero'].performance.valid, false);
+  assert.equal(scores['score-low'].performance.valid, true);
+  assert.equal(scores['score-high'].performance.valid, true);
+  assert.equal(scores['score-low'].performance.normalized, 0);
+  assert.equal(scores['score-high'].performance.normalized, 1, 'the DA outlier must not affect SD normalization');
+  assert.ok(scores['score-high'].scores.history > scores['score-low'].scores.history);
+});
+
+test('ZZZ exposes balanced, history, and Box score models with auditable additive parts', () => {
+  const boxTeam = ['box-core', 'box-a', 'box-b'];
+  const historyTeam = ['history-core', 'history-a', 'history-b'];
+  const slugs = [...boxTeam, ...historyTeam];
+  const rosterRows = slugs.map((slug, index) => zzzCharacter(slug, slug.includes('core') ? 'crit_dps' : 'support', index + 1));
+  const templates = [
+    {...zzzTemplate('box-team', 's1', boxTeam, 120, 1), avg_score: 10_000},
+    {...zzzTemplate('history-team', 's1', historyTeam, 1, 35), avg_score: 40_000},
+  ];
+  const tierRows = slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: 'T0'}));
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const index = readFileSync(ZZZ_INDEX, 'utf8');
+  assert.match(index, /id="recSortSelect"/);
+  for (const mode of ['balanced', 'history', 'box']) assert.match(index, new RegExp(`value="${mode}"`));
+  const snapshots = {};
+  for (const sortMode of ['balanced', 'history', 'box']) {
+    api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', sortMode, gap: '3'}, boxTeam, allBuilds(boxTeam, zzzFullBuild));
+    snapshots[sortMode] = plain(api.ranked('sd', 's1'));
+    for (const item of snapshots[sortMode]) {
+      assert.equal(item.scoreMode, sortMode);
+      assert.equal(item.score, item.scores[sortMode]);
+      for (const mode of ['balanced', 'history', 'box']) {
+        const total = item.scoreParts[mode].reduce((sum, part) => sum + (part.available ? part.value : 0), 0);
+        assert.ok(Math.abs(total - item.scores[mode]) < 1e-9, `${mode} parts must add up for ${item.id}`);
+      }
+    }
+  }
+  assert.equal(snapshots.history[0].id, 'history-team');
+  assert.equal(snapshots.box[0].id, 'box-team');
+  assert.equal(snapshots.balanced[0].id, 'box-team');
+  assert.equal(api.migrateSort({}), 'balanced');
+  assert.equal(api.migrateSort({sortMode: 'invalid'}), 'balanced');
+  assert.equal(api.migrateSort({sortMode: 'history'}), 'history');
+});
 
 test('ZZZ hard constraints are scope-isolated and reserved characters remove conflicting teams', () => {
   const rosterRows = [

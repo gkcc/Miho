@@ -9,6 +9,9 @@
   "scripts": {
     "deps:install": "pnpm install --frozen-lockfile",
     "build": "pnpm --filter miho-desktop build",
+    "test:recommender": "node --test tests/recommender_logic_contract.mjs",
+    "test:live": "python -m pytest -q -o addopts= -m live",
+    "verify:fast": "python -m pytest -q && pnpm run test:recommender && cargo test --workspace --locked && pnpm run build",
     "tauri:build": "pnpm run build && cargo build --locked --release -p miho-desktop --features custom-protocol",
     "tauri:build:no-bundle": "pnpm run tauri:build",
     "tauri:package:legacy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_rust_app.ps1 -Release"

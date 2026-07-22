@@ -32,7 +32,14 @@ const $=id=>document.getElementById(id);
 const ns='http://www.w3.org/2000/svg';
 function number(v){const n=Number(v);return Number.isFinite(n)?n:null}
 function pct(v){const n=number(v);return n==null?'':`${n.toFixed(2)}%`}
-function fmtMetric(v){const n=number(v);if(n==null)return '';return state.metric==='app_rate'?`${n.toFixed(2)}%`:n.toFixed(2)}
+function analysisMetricPolicy(mode=state.mode,metric=state.metric){
+  if(metric==='app_rate')return{key:'app_rate',label:'出场率 %',summary:'出场率',higherBetter:true,sortable:true,valid:value=>value!=null&&value>=0,format:value=>`${value.toFixed(2)}%`};
+  const scoreMode=mode==='pf'||mode==='as';
+  const label=mode==='moc'?'平均回合':mode==='pf'?'虚构得分':mode==='as'?'末日得分':'表现原值';
+  return{key:'avg_round',label,summary:label,higherBetter:scoreMode?true:mode==='moc'?false:null,sortable:mode!=='aa',valid:value=>value!=null&&value>0&&Math.abs(value-99.99)>.001,format:value=>Number.isInteger(value)?String(value):value.toFixed(2)};
+}
+function analysisMetricValue(row,mode=state.mode,metric=state.metric){const policy=analysisMetricPolicy(mode,metric),raw=row?.[policy.key];if(raw==null||raw==='')return null;const value=number(raw);return policy.valid(value)?value:null}
+function fmtMetric(v){const policy=analysisMetricPolicy(),value=number(v);return value!=null&&policy.valid(value)?policy.format(value):'缺失'}
 function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function safeRelativeUrl(v,requirePath=false){const text=String(v??'').trim();if(!text||text.startsWith('/')||text.includes('\\')||/[\u0000-\u001f\u007f]/.test(text)||/^[a-z][a-z0-9+.-]*:/i.test(text)||text.startsWith('//'))return '';let path=text.split(/[?#]/,1)[0];try{for(let i=0;i<3;i++){const decoded=decodeURIComponent(path);if(decoded===path)break;path=decoded;}}catch{return '';}if(path.startsWith('/')||path.includes('\\')||path.split('/').includes('..')||(requirePath&&!path))return '';return text}
 function safeLinkUrl(v){const text=String(v??'').trim();if(!text||text.includes('\\')||/[\u0000-\u001f\u007f]/.test(text))return '';if(/^[a-z][a-z0-9+.-]*:/i.test(text)){try{const url=new URL(text);return ['http:','https:'].includes(url.protocol)&&url.host?text:'';}catch{return '';}}return safeRelativeUrl(text,false)}
@@ -226,9 +233,10 @@ function groupSeries(rows){
   const list=[...map.entries()].map(([slug,points])=>{
     points.sort((a,b)=>String(a.collect_date).localeCompare(String(b.collect_date)));
     const latest=points[points.length-1];
-    return{slug,points,latest,max:Math.max(...points.map(p=>number(p[state.metric])||0),0)};
+    return{slug,points,latest,max:Math.max(...points.map(p=>analysisMetricValue(p)??0),0)};
   });
-  list.sort((a,b)=>(number(b.latest.app_rate)||0)-(number(a.latest.app_rate)||0)||(number(b.latest.rating)||0)-(number(a.latest.rating)||0)||a.slug.localeCompare(b.slug));
+  const policy=analysisMetricPolicy();
+  if(policy.sortable)list.sort((a,b)=>{const av=analysisMetricValue(a.latest),bv=analysisMetricValue(b.latest);if(av==null||bv==null){if(av==null&&bv==null)return a.slug.localeCompare(b.slug);return av==null?1:-1;}const diff=policy.higherBetter?bv-av:av-bv;return diff||(number(b.latest.rating)||0)-(number(a.latest.rating)||0)||a.slug.localeCompare(b.slug);});
   return list;
 }
 
@@ -255,10 +263,11 @@ function renderAnalysis(){
   const modeRows=sourceRows().filter(r=>r.tier_mode===state.mode);
   const sample=latestSampleMeta(modeRows,state.mode);
   $('chartTitle').textContent=`${modeLabel} · ${roleLabel} · ${viewLabel}`;
-  const aaNote=state.mode==='aa'?' · AA 为全 Boss / 未拆分本地数据':'';
+  const metricPolicy=analysisMetricPolicy();
+  const aaNote=state.mode==='aa'?' · AA 为全 Boss / 未拆分本地数据，表现原值仅展示不排序':'';
   const emptyNote=rows.length?'':modeRows.length?' · 当前筛选无匹配':' · 该模式数据未生成';
   $('chartSubtitle').textContent=`展示 ${series.length}/${allSeries.length} 个角色，${rows.length} 个采样点 · 最新采样 ${sample.date} · ${sample.label}${emptyNote}${aaNote}`;
-  $('summaryBadges').innerHTML=[`${[...state.tiers].join(' / ')||'未选T档'}`,state.metric==='app_rate'?'出场率':'平均值',state.limit==='all'?'全量':`Top ${state.limit}`].map(x=>`<span>${esc(x)}</span>`).join('');
+  $('summaryBadges').innerHTML=[`${[...state.tiers].join(' / ')||'未选T档'}`,metricPolicy.summary,state.limit==='all'?'全量':`Top ${state.limit}`].map(x=>`<span>${esc(x)}</span>`).join('');
   if(state.view==='latest')renderLatest(series);else if(state.view==='heatmap')renderHeatmap(series);else renderTrend(series,rows);
   renderCharacters(series);
   renderChangelog(series.length?series:allSeries);
@@ -271,15 +280,14 @@ function renderEmpty(svg,width,height){add(svg,'text',{x:width/2,y:height/2,'tex
 function renderTrend(series,rows){
   const {svg,width,height}=chartBox();if(!series.length){renderEmpty(svg,width,height);return;}
   const margin={l:62,r:28,t:34,b:54};const cw=width-margin.l-margin.r,ch=height-margin.t-margin.b;
-  const dates=[...new Set(rows.map(r=>r.collect_date))].sort();const metric=state.metric;
-  const values=rows.map(r=>number(r[metric])).filter(v=>v!=null&&v>=0&&(metric!=='avg_round'||v<99));const max=Math.max(10,...values)*1.14;
+  const dates=[...new Set(rows.map(r=>r.collect_date))].sort();const metric=state.metric,policy=analysisMetricPolicy();
+  const values=rows.map(r=>analysisMetricValue(r));const max=Math.max(10,...values.filter(v=>v!=null))*1.14;
   const x=d=>margin.l+(dates.length<=1?cw/2:cw*dates.indexOf(d)/(dates.length-1));const y=v=>margin.t+ch-ch*(Math.min(v,max))/max;
-  drawAxes(svg,margin,cw,ch,max,dates,x,y,metric);const defs=add(svg,'defs',{});
-  series.forEach((s,idx)=>{const color=COLORS[idx%COLORS.length];const pts=s.points.map(p=>[x(p.collect_date),y(number(p[metric])||0),p]).filter(p=>Number.isFinite(p[1]));if(!pts.length)return;const path=pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');const line=add(svg,'path',{d:path,stroke:color,class:`series-line ${dimClass(s.slug)}`});line.dataset.slug=s.slug;const hit=add(svg,'path',{d:path,class:'series-hit'});hit.dataset.slug=s.slug;bindHover(hit,s.latest,s.slug);pts.forEach(([xx,yy,p],pi)=>drawPoint(svg,defs,xx,yy,p,s.slug,color,idx,pi,11));});
+  drawAxes(svg,margin,cw,ch,max,dates,x,y,policy.label);const defs=add(svg,'defs',{});
+  series.forEach((s,idx)=>{const color=COLORS[idx%COLORS.length];const points=s.points.map(p=>{const value=analysisMetricValue(p);return value==null?null:[x(p.collect_date),y(value),p];});const segments=[];let segment=[];points.forEach(point=>{if(point)segment.push(point);else if(segment.length){segments.push(segment);segment=[];}});if(segment.length)segments.push(segment);if(!segments.length)return;segments.forEach(pts=>{const path=pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');const line=add(svg,'path',{d:path,stroke:color,class:`series-line ${dimClass(s.slug)}`});line.dataset.slug=s.slug;const hit=add(svg,'path',{d:path,class:'series-hit'});hit.dataset.slug=s.slug;bindHover(hit,pts[pts.length-1][2],s.slug);});points.filter(Boolean).forEach(([xx,yy,p],pi)=>drawPoint(svg,defs,xx,yy,p,s.slug,color,idx,pi,11));});
 }
 
-function drawAxes(svg,margin,cw,ch,max,dates,x,y,metric){
-  const label=metric==='app_rate'?'出场率 %':'平均值';
+function drawAxes(svg,margin,cw,ch,max,dates,x,y,label){
   for(let i=0;i<=5;i++){const val=max*i/5,yy=y(val);add(svg,'line',{x1:margin.l,y1:yy,x2:margin.l+cw,y2:yy,class:'grid'});add(svg,'text',{x:margin.l-10,y:yy+4,'text-anchor':'end',class:'axis-label'}).textContent=val.toFixed(0);}
   add(svg,'line',{x1:margin.l,y1:margin.t,x2:margin.l,y2:margin.t+ch,class:'axis-line'});add(svg,'line',{x1:margin.l,y1:margin.t+ch,x2:margin.l+cw,y2:margin.t+ch,class:'axis-line'});add(svg,'text',{x:margin.l,y:22,class:'axis-label'}).textContent=label;
   dates.forEach((d,i)=>{if(dates.length>14&&i%2===1)return;add(svg,'text',{x:x(d),y:margin.t+ch+24,'text-anchor':'middle',class:'axis-label'}).textContent=String(d).slice(5);});
@@ -292,18 +300,18 @@ function drawPoint(svg,defs,x,y,row,slug,color,seriesIndex,pointIndex,radius){
 
 function renderLatest(series){
   const {svg,width,height}=chartBox();if(!series.length){renderEmpty(svg,width,height);return;}
-  const margin={l:158,r:48,t:36,b:38};const rowH=Math.max(34,Math.min(48,(height-margin.t-margin.b)/Math.max(series.length,1)));const chartH=rowH*series.length;const metric=state.metric;
-  const values=series.map(s=>number(s.latest[metric])).filter(v=>v!=null&&v>=0&&(metric!=='avg_round'||v<99));const max=Math.max(10,...values)*1.12;const x=v=>margin.l+(width-margin.l-margin.r)*Math.min(v,max)/max;
-  add(svg,'text',{x:margin.l,y:22,class:'axis-label'}).textContent=metric==='app_rate'?'最近一期出场率 %':'最近一期平均值';
+  const margin={l:158,r:48,t:36,b:38};const rowH=Math.max(34,Math.min(48,(height-margin.t-margin.b)/Math.max(series.length,1)));const chartH=rowH*series.length;const policy=analysisMetricPolicy();
+  const values=series.map(s=>analysisMetricValue(s.latest)).filter(v=>v!=null);const max=Math.max(10,...values)*1.12;const x=v=>margin.l+(width-margin.l-margin.r)*Math.min(v,max)/max;
+  add(svg,'text',{x:margin.l,y:22,class:'axis-label'}).textContent=`最近一期${policy.label}`;
   for(let i=0;i<=4;i++){const val=max*i/4,xx=x(val);add(svg,'line',{x1:xx,y1:margin.t-10,x2:xx,y2:margin.t+chartH,class:'grid'});add(svg,'text',{x:xx,y:margin.t+chartH+22,'text-anchor':'middle',class:'axis-label'}).textContent=val.toFixed(0);}
-  const defs=add(svg,'defs',{});series.forEach((s,idx)=>{const row=s.latest;const color=COLORS[idx%COLORS.length];const yy=margin.t+idx*rowH+rowH/2;const val=number(row[metric])||0;const xx=x(val);add(svg,'text',{x:18,y:yy-2,class:`rank-label ${dimClass(s.slug)}`}).textContent=`${idx+1}. ${row.character_name_cn||row.character_name_en||s.slug}`;add(svg,'text',{x:18,y:yy+14,class:`muted-label ${dimClass(s.slug)}`}).textContent=`${row.tier} · ${row.tags||row.path_cn||row.character_name_en||''}`;const bar=add(svg,'line',{x1:margin.l,y1:yy,x2:xx,y2:yy,stroke:color,'stroke-width':8,'stroke-linecap':'round',class:`bar-line ${dimClass(s.slug)}`});bar.dataset.slug=s.slug;bindHover(bar,row,s.slug);drawPoint(svg,defs,xx,yy,row,s.slug,color,idx,0,14);add(svg,'text',{x:Math.min(width-42,xx+18),y:yy+4,class:'axis-label'}).textContent=fmtMetric(val);});
+  const defs=add(svg,'defs',{});series.forEach((s,idx)=>{const row=s.latest;const color=COLORS[idx%COLORS.length];const yy=margin.t+idx*rowH+rowH/2;const val=analysisMetricValue(row);add(svg,'text',{x:18,y:yy-2,class:`rank-label ${dimClass(s.slug)}`}).textContent=`${idx+1}. ${row.character_name_cn||row.character_name_en||s.slug}`;add(svg,'text',{x:18,y:yy+14,class:`muted-label ${dimClass(s.slug)}`}).textContent=`${row.tier} · ${row.tags||row.path_cn||row.character_name_en||''}`;if(val==null){add(svg,'text',{x:margin.l+8,y:yy+4,class:'axis-label'}).textContent='缺失';return;}const xx=x(val);const bar=add(svg,'line',{x1:margin.l,y1:yy,x2:xx,y2:yy,stroke:color,'stroke-width':8,'stroke-linecap':'round',class:`bar-line ${dimClass(s.slug)}`});bar.dataset.slug=s.slug;bindHover(bar,row,s.slug);drawPoint(svg,defs,xx,yy,row,s.slug,color,idx,0,14);add(svg,'text',{x:Math.min(width-42,xx+18),y:yy+4,class:'axis-label'}).textContent=fmtMetric(val);});
 }
 
 function renderHeatmap(series){
   const {svg,width,height}=chartBox();if(!series.length){renderEmpty(svg,width,height);return;}
-  const rows=series.flatMap(s=>s.points);const dates=[...new Set(rows.map(r=>r.collect_date))].sort();const metric=state.metric;const margin={l:156,r:24,t:42,b:36};const cellGap=4;const cw=(width-margin.l-margin.r-(dates.length-1)*cellGap)/Math.max(dates.length,1);const rowH=Math.max(28,Math.min(42,(height-margin.t-margin.b)/Math.max(series.length,1)));const values=rows.map(r=>number(r[metric])).filter(v=>v!=null&&v>=0&&(metric!=='avg_round'||v<99));const max=Math.max(10,...values);const defs=add(svg,'defs',{});
+  const rows=series.flatMap(s=>s.points);const dates=[...new Set(rows.map(r=>r.collect_date))].sort();const metric=state.metric;const margin={l:156,r:24,t:42,b:36};const cellGap=4;const cw=(width-margin.l-margin.r-(dates.length-1)*cellGap)/Math.max(dates.length,1);const rowH=Math.max(28,Math.min(42,(height-margin.t-margin.b)/Math.max(series.length,1)));const values=rows.map(r=>analysisMetricValue(r)).filter(v=>v!=null);const max=Math.max(10,...values);const defs=add(svg,'defs',{});
   dates.forEach((d,i)=>add(svg,'text',{x:margin.l+i*(cw+cellGap)+cw/2,y:24,'text-anchor':'middle',class:'heat-head'}).textContent=String(d).slice(5));
-  series.forEach((s,idx)=>{const rowY=margin.t+idx*rowH;const latest=s.latest;add(svg,'text',{x:48,y:rowY+rowH/2+4,class:`heat-name ${dimClass(s.slug)}`}).textContent=latest.character_name_cn||latest.character_name_en||s.slug;drawMiniAvatar(svg,defs,24,rowY+rowH/2,latest,s.slug,idx);const byDate=new Map(s.points.map(p=>[p.collect_date,p]));dates.forEach((d,j)=>{const p=byDate.get(d);const val=number(p?.[metric])||0;const intensity=Math.max(.08,Math.min(1,val/max));const fill=metric==='app_rate'?`rgba(23,76,90,${intensity})`:`rgba(37,99,235,${intensity})`;const rect=add(svg,'rect',{x:margin.l+j*(cw+cellGap),y:rowY+5,width:Math.max(10,cw),height:rowH-10,fill,class:`heat-cell ${dimClass(s.slug)}`});rect.dataset.slug=s.slug;if(p)bindHover(rect,p,s.slug);rect.addEventListener('click',()=>toggleFocus(s.slug));});});
+  series.forEach((s,idx)=>{const rowY=margin.t+idx*rowH;const latest=s.latest;add(svg,'text',{x:48,y:rowY+rowH/2+4,class:`heat-name ${dimClass(s.slug)}`}).textContent=latest.character_name_cn||latest.character_name_en||s.slug;drawMiniAvatar(svg,defs,24,rowY+rowH/2,latest,s.slug,idx);const byDate=new Map(s.points.map(p=>[p.collect_date,p]));dates.forEach((d,j)=>{const p=byDate.get(d);const val=analysisMetricValue(p);const intensity=val==null?0:Math.max(.08,Math.min(1,val/max));const fill=val==null?'transparent':metric==='app_rate'?`rgba(23,76,90,${intensity})`:`rgba(37,99,235,${intensity})`;const rect=add(svg,'rect',{x:margin.l+j*(cw+cellGap),y:rowY+5,width:Math.max(10,cw),height:rowH-10,fill,class:`heat-cell ${val==null?'missing ':''}${dimClass(s.slug)}`});rect.dataset.slug=s.slug;if(p)bindHover(rect,p,s.slug);rect.addEventListener('click',()=>toggleFocus(s.slug));});});
 }
 
 function drawMiniAvatar(svg,defs,x,y,row,slug,index){const icon=safeAvatarUrl(row.icon_url);if(!icon)return;const clipId=`mini-${index}-${slug}`;const clip=add(svg,'clipPath',{id:clipId},defs);add(svg,'circle',{cx:x,cy:y,r:14},clip);const img=add(svg,'image',{href:icon,x:x-14,y:y-14,width:28,height:28,'clip-path':`url(#${clipId})`,class:`avatar-node ${dimClass(slug)}`});img.dataset.slug=slug;bindHover(img,row,slug);img.addEventListener('click',()=>toggleFocus(slug));}
@@ -317,7 +325,8 @@ function bindHover(el,row,slug){el.addEventListener('mouseenter',evt=>{setHover(
 
 function showTooltip(evt,row){
   const tt=$('tooltip');tt.hidden=false;
-  tt.innerHTML=`<div class="tooltip-head"><img src="${esc(row.icon_url)}" alt=""><div><strong>${esc(row.character_name_cn||row.character_name_en||row.character_slug)}</strong><span>${esc(row.character_name_en)} · ${esc(row.character_slug)}</span></div></div><div class="tooltip-grid"><b>模式</b><div>${esc(row.tier_mode_cn)}${row.sub_mode_cn?` · ${esc(row.sub_mode_cn)}`:''}</div><b>职能/T档</b><div>${esc(row.role_group_cn)} · ${esc(row.tier)}${row.rating?` (${esc(row.rating)})`:''}</div><b>属性/命途</b><div>${esc(row.element_cn||'')} ${esc(row.path_cn||'')}</div><b>日期/期数</b><div>${esc(row.collect_date)} · ${esc(row.phase_ver)}</div><b>出场率</b><div>${pct(row.app_rate)}</div><b>平均值</b><div>${esc(row.avg_round??'')}</div><b>标签</b><div>${esc(row.tags||'')}</div><b>质量标记</b><div>${esc(row.quality_flag||'')}</div></div>`;
+  const policy=analysisMetricPolicy(row.tier_mode||state.mode,'avg_round'),rawValue=number(row.avg_round),metricText=rawValue!=null&&policy.valid(rawValue)?policy.format(rawValue):'缺失';
+  tt.innerHTML=`<div class="tooltip-head"><img src="${esc(row.icon_url)}" alt=""><div><strong>${esc(row.character_name_cn||row.character_name_en||row.character_slug)}</strong><span>${esc(row.character_name_en)} · ${esc(row.character_slug)}</span></div></div><div class="tooltip-grid"><b>模式</b><div>${esc(row.tier_mode_cn)}${row.sub_mode_cn?` · ${esc(row.sub_mode_cn)}`:''}</div><b>职能/T档</b><div>${esc(row.role_group_cn)} · ${esc(row.tier)}${row.rating?` (${esc(row.rating)})`:''}</div><b>属性/命途</b><div>${esc(row.element_cn||'')} ${esc(row.path_cn||'')}</div><b>日期/期数</b><div>${esc(row.collect_date)} · ${esc(row.phase_ver)}</div><b>出场率</b><div>${pct(row.app_rate)}</div><b>${esc(policy.label)}</b><div>${esc(metricText)}${policy.higherBetter==null&&metricText!=='缺失'?' · 仅展示':''}</div><b>标签</b><div>${esc(row.tags||'')}</div><b>质量标记</b><div>${esc(row.quality_flag||'')}</div></div>`;
   moveTooltip(evt);
 }
 function moveTooltip(evt){const target=evt.currentTarget;const tt=target?.closest?.('.box-card')?$('boxTooltip'):(target?.closest?.('.rec-card')||target?.closest?.('.rec-slate-card'))?$('recTooltip'):$('tooltip');const pad=14;let x=evt.clientX+16,y=evt.clientY+16;const rect=tt.getBoundingClientRect();if(x+rect.width+pad>window.innerWidth)x=evt.clientX-rect.width-16;if(y+rect.height+pad>window.innerHeight)y=evt.clientY-rect.height-16;tt.style.left=`${Math.max(pad,x)}px`;tt.style.top=`${Math.max(pad,y)}px`;}
@@ -428,7 +437,8 @@ function phaseStatusLabel(status){return status==='expired'?'已过期':status==
 function templateRecencyKey(t){return `${String(t.collect_date||'')}|${String(t.phase_ver||'')}|${String(t.snapshot_id||'')}`}
 function currentModeTemplates(mode){const rows=(DATA.teamTemplates||[]).filter(t=>t.mode===mode);const usable=rows.filter(t=>!['expired','future'].includes(t.phase_status));const pool=usable.length?usable:rows;const latest=pool.reduce((m,t)=>templateRecencyKey(t)>m?templateRecencyKey(t):m,'');return pool.filter(t=>templateRecencyKey(t)===latest);}
 function templatePoolKey(template){return (template.chars||[]).map(canonicalSlug).sort().join('|')}
-function preferPoolTemplate(candidate,current){const candidateRank=rankSortValue(candidate.rank),currentRank=rankSortValue(current.rank);if(candidateRank!==currentRank)return candidateRank<currentRank;const candidateRate=num(candidate.app_rate)??-1,currentRate=num(current.app_rate)??-1;if(candidateRate!==currentRate)return candidateRate>currentRate;return Number(candidate.scope_order||99)<Number(current.scope_order||99);}
+function compareTemplatePerformance(candidate,current){const candidateEvidence=performanceEvidence(candidate),currentEvidence=performanceEvidence(current);if(candidateEvidence.valid!==currentEvidence.valid)return candidateEvidence.valid?-1:1;if(!candidateEvidence.valid||candidateEvidence.higherBetter==null)return 0;return candidateEvidence.higherBetter?currentEvidence.value-candidateEvidence.value:candidateEvidence.value-currentEvidence.value}
+function preferPoolTemplate(candidate,current){const candidateRank=rankSortValue(candidate.rank),currentRank=rankSortValue(current.rank);if(candidateRank!==currentRank)return candidateRank<currentRank;const candidateRate=num(candidate.app_rate)??-1,currentRate=num(current.app_rate)??-1;if(candidateRate!==currentRate)return candidateRate>currentRate;const performanceDiff=compareTemplatePerformance(candidate,current);if(performanceDiff)return performanceDiff<0;return Number(candidate.scope_order||99)<Number(current.scope_order||99);}
 function customPoolTemplates(mode){
   if(!DATA._customTeamPools)DATA._customTeamPools=new Map();
   if(DATA._customTeamPools.has(mode))return DATA._customTeamPools.get(mode);
@@ -444,6 +454,7 @@ function metricNumber(v){return v==null||v===''?null:num(v)}
 function rankSortValue(v){const value=metricNumber(v);return value!=null&&value>0?value:Number.POSITIVE_INFINITY}
 function rankDisplayText(v){const value=metricNumber(v);return value!=null&&value>0?metricValueText(value):'缺失'}
 function canonicalSlug(slug){return charInfo(slug).character_slug||slug}
+function deploymentGroup(slug){const raw=String(slug||''),info=DATA?charInfo(raw):{},resolved=info.character_slug||raw,declared=info.deployment_group;if(declared)return declared;if(/^trailblazer(?:-|$)/.test(resolved))return'trailblazer';if(['march-7th','march-7th-swordmaster','march-7th-the-hunt'].includes(resolved))return'march-7th';return resolved}
 function isCoreMember(info){return roleList(info).some(role=>CORE_ROLES.has(role))}
 function tierMetaFor(slug,mode){
   if(!DATA._tierRiskMeta){
@@ -492,9 +503,8 @@ function usageTrendFor(slug,mode){
 function memberRisk(member,mode){
   const reasons=[];const tier=tierMetaFor(member.slug,mode);const core=isCoreMember(member.info);const build=member.buildState||buildState(buildFor(member.slug));const built=member.owned&&build.ready;
   if(member.owned){
-    if(!build.coreRecorded)reasons.push({type:'build-missing',text:'练度未录入',penalty:core?44:24});
-    else if(build.baseScore<.68)reasons.push({type:'build-low',text:`练度待补 ${build.basePercent}%`,penalty:core?70:38,severe:core});
-    else if(build.baseScore<.86)reasons.push({type:'build-mid',text:`练度未成型 ${build.basePercent}%`,penalty:core?32:16});
+    if(build.coreRecorded&&build.baseScore<.68)reasons.push({type:'build-low',text:`练度待补 ${build.basePercent}%`,penalty:core?70:38,severe:core});
+    else if(build.coreRecorded&&build.baseScore<.86)reasons.push({type:'build-mid',text:`练度未成型 ${build.basePercent}%`,penalty:core?32:16});
   }
   if(tier){
     if(tier.rank>=5)reasons.push({type:'tier-forgotten',text:`${tier.tier}不建议投入${built?'（已练，降权）':''}`,penalty:built?(core?55:30):(core?120:70),severe:true});
@@ -592,28 +602,31 @@ function compareRecommendations(a,b,weaknessDriven,selected,sortMode){
 function rankedRecommendations(mode=rec.mode,scope=rec.scope,used=new Set(),options={}){
   const selected=recElementSet(mode,scope);
   const constraints=recConstraintSets(mode,scope);
-  const reserved=new Set([...(options.reserved||[])].map(canonicalSlug));
+  const reserved=new Set([...(options.reserved||[])].map(deploymentGroup));
   const weaknessDriven=isCustomScope(scope);
   const maxGap=Number(options.maxGap??rec.gap);
   const q=options.ignoreSearch?'':rec.search;
   const sortMode=normalizeRecSortMode(options.sortMode??rec.sortMode);
-  const scored=finalizeRecommendationScores(scopeTemplates(mode,scope).filter(t=>templateMatchesConstraints(t,constraints)).map(t=>scoreTemplate(t,selected,used,constraints,reserved,{targetScope:scope,weaknessDriven})),sortMode);
+  const scored=finalizeRecommendationScores(scopeTemplates(mode,scope).filter(t=>templateMatchesConstraints(t,constraints)&&templateHasUniqueDeployments(t)).map(t=>scoreTemplate(t,selected,used,constraints,reserved,{targetScope:scope,weaknessDriven})),sortMode);
   return scored.filter(item=>{
     if(Number.isFinite(maxGap)&&item.missingCount>maxGap)return false;
     const riskMode=options.riskMode||rec.riskMode||'warn';
     if(riskMode==='filter'&&item.risks.length)return false;
-    if(reserved.size&&item.finalChars.some(slug=>reserved.has(canonicalSlug(slug))))return false;
+    if(reserved.size&&item.finalChars.some(slug=>reserved.has(deploymentGroup(slug))))return false;
     if(q&&!item.searchText.includes(q))return false;
     return true;
   }).sort((a,b)=>compareRecommendations(a,b,weaknessDriven,selected,sortMode));
 }
 
 function templateMatchesConstraints(template,constraints){const chars=new Set((template.chars||[]).map(canonicalSlug));return [...constraints.required].every(slug=>chars.has(slug))&&[...constraints.excluded].every(slug=>!chars.has(slug));}
+function templateHasUniqueDeployments(template){const groups=(template.chars||[]).map(deploymentGroup);return new Set(groups).size===groups.length}
 
 function scoreTemplate(template,selectedElements,used,constraints=recConstraintSets(template.mode,template.scope_key),externalReserved=new Set(),options={}){
   const chars=template.chars||[];
-  const members=chars.map(slug=>{const info=charInfo(slug);const resolved=canonicalSlug(slug);const build=buildFor(resolved);const buildMeta=buildState(build);return{slug,info,build,buildState:buildMeta,owned:box.owned.has(resolved),selected:selectedElements.has(info.element_cn),used:used.has(resolved),core:isCoreMember(info)}});
+  const usedGroups=new Set([...used].map(deploymentGroup));
+  const members=chars.map(slug=>{const info=charInfo(slug);const resolved=canonicalSlug(slug);const build=buildFor(resolved);const buildMeta=buildState(build);return{slug,info,build,buildState:buildMeta,owned:box.owned.has(resolved),selected:selectedElements.has(info.element_cn),used:usedGroups.has(deploymentGroup(resolved)),core:isCoreMember(info)}});
   const ownedCount=members.filter(m=>m.owned).length;
+  const buildRecordedCount=members.filter(m=>m.owned&&m.buildState.recorded).length;
   const buildReadyCount=members.filter(m=>m.owned&&m.buildState.ready).length;
   const ownedBuildScore=members.filter(m=>m.owned).reduce((sum,m)=>sum+m.buildState.score,0);
   const missing=members.filter(m=>!m.owned);
@@ -622,9 +635,9 @@ function scoreTemplate(template,selectedElements,used,constraints=recConstraintS
   const coreMembers=members.filter(m=>m.core);
   const coreElementHits=coreMembers.filter(m=>m.selected).length;
   members.forEach(m=>{m.risks=memberRisk(m,template.mode);});
-  const reserved=new Set([...chars,...used,...constraints.excluded,...externalReserved].map(canonicalSlug));
+  const reserved=new Set([...chars,...used,...constraints.excluded,...externalReserved].map(deploymentGroup));
   const substitutions=[];
-  missing.forEach(member=>{const candidates=constraints.required.has(canonicalSlug(member.slug))?[]:substituteCandidates(member.slug,reserved);substitutions.push({missing:member,candidates});if(candidates[0])reserved.add(canonicalSlug(candidates[0].character_slug));});
+  missing.forEach(member=>{const candidates=constraints.required.has(canonicalSlug(member.slug))?[]:substituteCandidates(member.slug,reserved);substitutions.push({missing:member,candidates});if(candidates[0])reserved.add(deploymentGroup(candidates[0].character_slug));});
   const fillCount=substitutions.filter(s=>s.candidates.length).length;
   const memberRisks=members.flatMap(m=>m.risks.map(r=>({...r,slug:m.slug,name:charName(m.slug)})));
   const attributeRisks=teamRisk(members,selectedElements);
@@ -653,13 +666,13 @@ function scoreTemplate(template,selectedElements,used,constraints=recConstraintS
   const finalChars=members.map(m=>m.owned||constraints.required.has(canonicalSlug(m.slug))?m.slug:(substitutions.find(s=>s.missing.slug===m.slug)?.candidates[0]?.character_slug||m.slug));
   const searchText=[template.phase_name_cn,template.phase_name,template.source_kind,template.scope_label,...(template.evidenceScopes||[]),...chars, ...chars.map(charName),...risks.map(r=>r.text)].join(' ').toLowerCase();
   const scoreMode=normalizeRecSortMode(rec.sortMode);
-  return{template,targetScope:options.targetScope||template.scope_key,weaknessDriven:Boolean(options.weaknessDriven),weaknessConfigured,weaknessMatched,members,missingCount:missing.length,ownedCount,buildReadyCount,conflictCount,elementHits,coreElementHits,substitutions,risks,performance,scoreParts,scores,scoreMode,score:scores[scoreMode],finalChars,searchText};
+  return{template,targetScope:options.targetScope||template.scope_key,weaknessDriven:Boolean(options.weaknessDriven),weaknessConfigured,weaknessMatched,members,missingCount:missing.length,ownedCount,buildRecordedCount,buildReadyCount,conflictCount,elementHits,coreElementHits,substitutions,risks,performance,scoreParts,scores,scoreMode,score:scores[scoreMode],finalChars,searchText};
 }
 
 function substituteCandidates(missingSlug,reserved){
   const missing=charInfo(missingSlug);
   const missingRoles=new Set(roleList(missing));
-  return (DATA.rosterRows||[]).filter(r=>box.owned.has(r.character_slug)&&!reserved.has(canonicalSlug(r.character_slug))).map(r=>{
+  return (DATA.rosterRows||[]).filter(r=>box.owned.has(r.character_slug)&&!reserved.has(deploymentGroup(r.character_slug))).map(r=>{
     const roles=roleList(r);
     const roleOverlap=roles.some(role=>missingRoles.has(role));
     let score=0;
@@ -744,7 +757,7 @@ function recCard(item,index){
   card.onmouseleave=()=>{$('recTooltip').hidden=true;};
   const missingNames=item.members.filter(m=>!m.owned).map(m=>charName(m.slug));
   const sourceScope=recScopeDisplayLabel(t.mode,t.scope_key,t.scope_label);
-  card.innerHTML=`<div class="rec-card-head"><div><h3>${index}. ${esc((t.names_cn||[]).filter(Boolean).join(' / ')||t.chars.map(charName).join(' / '))}</h3><div class="rec-meta">${esc(item.weaknessDriven?`来源 ${sourceScope}`:sourceScope)} · Rank ${esc(rankDisplayText(t.rank))} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${esc(performanceSummary(item.performance))}</div></div><div class="rec-score"><strong>${Math.round(item.score)}</strong><span>${esc(scoreMeta.scoreLabel)}</span><span>${item.ownedCount}/4 已拥有</span></div></div>${scoreReferencesHtml(item)}${scoreBreakdownHtml(item)}<div class="rec-team">${item.members.map(m=>recMemberHtml(m,item)).join('')}</div><div class="rec-tags">${recTags(item).map(tag=>`<span class="${tag.danger?'danger':tag.warn?'warn':''}">${esc(tag.text)}</span>`).join('')}</div>${riskNoteHtml(item)}${substitutionHtml(item)}${missingNames.length?`<div class="rec-note">缺：${esc(missingNames.join('、'))}</div>`:''}`;
+  card.innerHTML=`<div class="rec-card-head"><div><h3>${index}. ${esc((t.names_cn||[]).filter(Boolean).join(' / ')||t.chars.map(charName).join(' / '))}</h3><div class="rec-meta">${esc(item.weaknessDriven?`来源 ${sourceScope}`:sourceScope)} · Rank ${esc(rankDisplayText(t.rank))} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${esc(performanceSummary(item.performance))}</div></div><div class="rec-score"><strong>${Math.round(item.score)}</strong><span>${esc(scoreMeta.scoreLabel)}</span><span>${item.ownedCount}/4 已拥有</span><span>练度已录入 ${item.buildRecordedCount}/${item.ownedCount}</span></div></div>${scoreReferencesHtml(item)}${scoreBreakdownHtml(item)}<div class="rec-team">${item.members.map(m=>recMemberHtml(m,item)).join('')}</div><div class="rec-tags">${recTags(item).map(tag=>`<span class="${tag.danger?'danger':tag.warn?'warn':''}">${esc(tag.text)}</span>`).join('')}</div>${riskNoteHtml(item)}${substitutionHtml(item)}${missingNames.length?`<div class="rec-note">缺：${esc(missingNames.join('、'))}</div>`:''}`;
   return card;
 }
 
@@ -759,7 +772,8 @@ function recMemberHtml(member,item){
 function recTags(item){
   const t=item.template;
   const tags=[{text:item.missingCount?`缺 ${item.missingCount}`:'可成队',warn:item.missingCount>0},{text:t.source_kind||'source',warn:false}];
-  if(item.ownedCount)tags.push({text:`练度 ${item.buildReadyCount}/${item.ownedCount}`,warn:item.buildReadyCount<item.ownedCount});
+  if(item.ownedCount)tags.push({text:`练度已录入 ${item.buildRecordedCount}/${item.ownedCount}`,warn:false});
+  if(item.buildRecordedCount)tags.push({text:`成型 ${item.buildReadyCount}/${item.buildRecordedCount}`,warn:item.buildReadyCount<item.buildRecordedCount});
   if(recElementSet(t.mode,item.targetScope).size)tags.push({text:`弱点核心命中 ${item.coreElementHits}`,warn:item.coreElementHits===0});
   if(item.weaknessDriven&&item.template.evidenceScopeCount)tags.push({text:`实战侧覆盖 ${item.template.evidenceScopeCount}`,warn:false});
   if(item.risks.length&&rec.riskMode!=='off')tags.push({text:`风险 ${item.risks.length}`,danger:item.risks.some(r=>r.severe),warn:true});
@@ -813,7 +827,7 @@ function recPlanScopes(){
   return selectedFinalRecScopes(rec.mode,rec.scope);
 }
 
-function slateItemSlugs(item){return new Set(item.finalChars.map(canonicalSlug))}
+function slateItemSlugs(item){return new Set(item.finalChars.map(deploymentGroup))}
 function compareSlateStates(a,b){return b.filled-a.filled||b.weaknessMatches-a.weaknessMatches||b.totalScore-a.totalScore||a.key.localeCompare(b.key)}
 function recSlateCandidateLists(scopes,limit){
   return scopes.map((scope,index)=>{const reserved=new Set(scopes.slice(index+1).flatMap(other=>[...recConstraintSets(rec.mode,other.key).required]));return rankedRecommendations(rec.mode,scope.key,new Set(),{ignoreSearch:true,maxGap:Number(rec.gap),reserved}).slice(0,limit);});
@@ -868,6 +882,6 @@ function showRecTooltip(evt,item){
   tt.hidden=false;
   const dataRange=item.weaknessDriven?`当前模式全部具体战斗侧去重池${t.evidenceScopes?.length?`（${t.evidenceScopes.join(' / ')}）`:''}`:'同模式 / 同战斗侧 / 最新采样';
   const weaknessUse=item.weaknessDriven?'用于匹配核心输出':rec.riskMode==='filter'?'默认仅标注；当前“过滤风险”会硬筛':'仅标注，不参与加减分';
-  tt.innerHTML=`<div class="tooltip-head"><div><strong>${esc(t.mode_cn)} · ${esc(recScopeDisplayLabel(t.mode,t.scope_key,t.scope_label))}</strong><span>${esc(phaseLabel(t))} · ${esc(t.collect_date)}</span></div></div><div class="tooltip-grid"><b>数据范围</b><div>${esc(dataRange)}</div><b>排序参考</b><div>${esc(scoreMeta.label)}：${esc(scoreMeta.description)}</div><b>角色硬约束</b><div>${esc(constraintText)}</div><b>敌方弱点</b><div>${esc(selected)}（${esc(weaknessUse)}）</div><b>风险模式</b><div>${esc(riskMode)}</div><b>模板表现</b><div>Rank ${esc(rankDisplayText(t.rank))} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${esc(performanceSummary(item.performance))}</div><b>Box命中</b><div>${item.ownedCount}/4，成型 ${item.buildReadyCount}/${item.ownedCount}，缺 ${item.missingCount}</div><b>弱点命中</b><div>全队 ${item.elementHits} · 核心 ${item.coreElementHits}</div><b>风险</b><div>${esc(riskText)}</div><b>评分拆分</b><div>${esc(scoreBreakdownText(item))}</div><b>三套参考</b><div>综合 ${esc(scoreValueText(item.scores.balanced))} · 历史 ${esc(scoreValueText(item.scores.history))} · Box ${esc(scoreValueText(item.scores.box))}（量纲不同）</div><b>${esc(scoreMeta.scoreLabel)}</b><div>${Math.round(item.score)}</div><b>来源</b><div>${esc(t.source_kind||'')} · ${esc(t.source_file||'')}</div></div>`;
+  tt.innerHTML=`<div class="tooltip-head"><div><strong>${esc(t.mode_cn)} · ${esc(recScopeDisplayLabel(t.mode,t.scope_key,t.scope_label))}</strong><span>${esc(phaseLabel(t))} · ${esc(t.collect_date)}</span></div></div><div class="tooltip-grid"><b>数据范围</b><div>${esc(dataRange)}</div><b>排序参考</b><div>${esc(scoreMeta.label)}：${esc(scoreMeta.description)}</div><b>角色硬约束</b><div>${esc(constraintText)}</div><b>敌方弱点</b><div>${esc(selected)}（${esc(weaknessUse)}）</div><b>风险模式</b><div>${esc(riskMode)}</div><b>模板表现</b><div>Rank ${esc(rankDisplayText(t.rank))} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${esc(performanceSummary(item.performance))}</div><b>Box命中</b><div>${item.ownedCount}/4，练度已录入 ${item.buildRecordedCount}/${item.ownedCount}，成型 ${item.buildReadyCount}/${item.buildRecordedCount}，缺 ${item.missingCount}</div><b>弱点命中</b><div>全队 ${item.elementHits} · 核心 ${item.coreElementHits}</div><b>风险</b><div>${esc(riskText)}</div><b>评分拆分</b><div>${esc(scoreBreakdownText(item))}</div><b>三套参考</b><div>综合 ${esc(scoreValueText(item.scores.balanced))} · 历史 ${esc(scoreValueText(item.scores.history))} · Box ${esc(scoreValueText(item.scores.box))}（量纲不同）</div><b>${esc(scoreMeta.scoreLabel)}</b><div>${Math.round(item.score)}</div><b>来源</b><div>${esc(t.source_kind||'')} · ${esc(t.source_file||'')}</div></div>`;
   moveTooltip(evt);
 }

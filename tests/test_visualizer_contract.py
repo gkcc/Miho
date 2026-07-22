@@ -373,6 +373,7 @@ def test_rust_hsr_visualizer_file_set_and_asset_hashes_are_exact(
         assert binary_sha256(rust_hsr_visualizer_root / name) == expected_hash
 
 
+@pytest.mark.live
 def test_real_hsr_cli_visualizer_matches_the_complete_python_oracle(
     cli_hsr_visualizer_root: tuple[Path, Path],
 ) -> None:
@@ -417,6 +418,7 @@ def test_rust_zzz_visualizer_file_set_and_asset_hashes_are_exact(
         assert binary_sha256(rust_zzz_visualizer_root / name) == expected_hash
 
 
+@pytest.mark.live
 def test_real_zzz_cli_visualizer_matches_the_complete_python_oracle(
     cli_zzz_visualizer_root: tuple[Path, Path, Path, Path],
 ) -> None:

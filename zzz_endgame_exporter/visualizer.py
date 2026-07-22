@@ -1001,3 +1001,10 @@ function searchRecSlate(candidateLists,beamWidth){let states=[{picks:[],used:new
 function bestRecSlatePlan(scopeList){const fast=searchRecSlate(recSlateCandidateLists(scopeList,50),180);if(scopeList.length>2&&fast.filled===scopeList.length)return fast.picks;const fallback=searchRecSlate(recSlateCandidateLists(scopeList,240),720);return(compareSlateStates(fast,fallback)<=0?fast:fallback).picks;}
 function renderRecSlate(){const list=$('recSlateList'),scopeList=recPlanScopes(),picks=bestRecSlatePlan(scopeList),chosen=scopeList.map((scope,index)=>({scope,item:picks[index]||null}));list.innerHTML='';$('recSlateSubtitle').textContent=`${chosen.filter(x=>x.item).length}/${scopeList.length} 队 · 只优化已选关卡 · 遵守各关必上/排除 · 不复用代理人`;if(!chosen.length){list.innerHTML='<div class="empty">暂无已选参战关卡</div>';return;}chosen.forEach(({scope,item})=>{const card=document.createElement('div');card.className=`rec-slate-card ${item?.risks?.length&&rec.riskMode!=='off'?'risky':''}`;if(!item){card.innerHTML=`<h3>${esc(scope.label)}</h3><div class="rec-meta">没有同时满足缺口、角色约束与不复用要求的队伍</div>`;}else{card.innerHTML=`<h3>${esc(scope.label)} · ${Math.round(item.score)} · ${item.ownedCount}/3</h3><div class="rec-slate-team">${item.members.map(m=>`<img class="${m.owned?'':'missing'} ${m.risks.length&&rec.riskMode!=='off'?'risky':''}" src="${esc(m.info.icon_url)}" title="${esc(charName(m.slug))}" alt="">`).join('')}</div>${riskHtml(item)}`;}list.appendChild(card);});}
 """
+
+# Python remains a migration oracle; static UI assets are owned by the Rust
+# crate and read here to prevent a second embedded copy from drifting.
+_CANONICAL_VISUALIZER_DIR = Path(__file__).resolve().parents[1] / "crates" / "miho-core" / "assets" / "visualizer" / "zzz"
+INDEX_HTML = (_CANONICAL_VISUALIZER_DIR / "index.html").read_text(encoding="utf-8")
+STYLES_CSS = (_CANONICAL_VISUALIZER_DIR / "styles.css").read_text(encoding="utf-8")
+APP_JS = (_CANONICAL_VISUALIZER_DIR / "app.js").read_text(encoding="utf-8")

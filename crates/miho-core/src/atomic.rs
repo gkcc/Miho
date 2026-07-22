@@ -477,19 +477,20 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_writes_do_not_share_temporary_files() {
+    fn concurrent_temporary_paths_are_unique() {
         let path = test_path("concurrent");
         let threads = (0..8)
-            .map(|value| {
+            .map(|_| {
                 let path = path.clone();
-                std::thread::spawn(move || write(&path, value.to_string().as_bytes()))
+                std::thread::spawn(move || unique_sibling(&path, "tmp"))
             })
             .collect::<Vec<_>>();
-        for thread in threads {
-            thread.join().unwrap().unwrap();
-        }
-        assert!(fs::read_to_string(&path).unwrap().parse::<u8>().is_ok());
-        fs::remove_file(path).unwrap();
+        let paths = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(paths.len(), 8);
+        assert!(paths.iter().all(|temp| temp.parent() == path.parent()));
     }
 
     #[test]

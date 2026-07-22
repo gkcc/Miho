@@ -53,6 +53,12 @@ pub fn attach_hsr_visualizer(
             "localDate": context.local_date.to_string(),
             "source": "Prydwen Tier List + local MocStats processed dataset + HoYoWiki roster",
         },
+        "metric_policy": {
+            "moc": {"field": "avg_round", "label": "平均回合", "direction": "lower", "sentinels": [0, 99.99]},
+            "pf": {"field": "avg_round", "label": "虚构得分", "direction": "higher", "sentinels": [0, 99.99]},
+            "as": {"field": "avg_round", "label": "末日得分", "direction": "higher", "sentinels": [0, 99.99]},
+            "aa": {"field": "avg_round", "label": "表现原值", "direction": null, "sentinels": [0, 99.99]},
+        },
         "trendRows": trend_json,
         "usageRows": usage_json,
         "tierRows": tier_json,
@@ -533,6 +539,7 @@ fn roster_entry(
     let usage_value = |key| usage.map(|row| get(row, key)).unwrap_or("");
     Map::from_iter([
         ("character_slug".into(), slug.into()),
+        ("deployment_group".into(), deployment_group(slug).into()),
         (
             "character_name_en".into(),
             first(&[
@@ -970,6 +977,7 @@ fn merge_banner_into_roster(roster: &mut Vec<Value>, banner: &[Value]) {
                 slug.into(),
                 json!({
                     "character_slug": slug,
+                    "deployment_group": deployment_group(slug),
                     "character_name_en": first(&[b["character_name_en"].as_str(), Some(slug)]),
                     "character_name_cn": b["character_name_cn"].as_str().unwrap_or(""),
                     "element_cn": b["element_cn"].as_str().unwrap_or(""),
@@ -1166,8 +1174,11 @@ fn build_teams(
     let mut output = Vec::new();
     for ((_mode, scope_key), mut rows) in per_scope {
         rows.sort_by(template_cmp);
-        let limit = if scope_key == "all" { 240 } else { 1000 };
-        output.extend(rows.into_iter().take(limit));
+        if scope_key == "all" {
+            output.extend(rows.into_iter().take(240));
+        } else {
+            output.extend(rows);
+        }
     }
     output.sort_by(|left, right| {
         value_str(left, "mode")
@@ -1237,13 +1248,30 @@ fn template_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
             template_number(right, "app_rate", -1.0)
                 .total_cmp(&template_number(left, "app_rate", -1.0))
         })
-        .then_with(|| {
-            template_number(left, "avg_round", 1_000_000.0).total_cmp(&template_number(
-                right,
-                "avg_round",
-                1_000_000.0,
-            ))
-        })
+        .then_with(|| template_performance_cmp(left, right))
+}
+
+fn template_performance_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
+    if value_str(left, "mode") == "aa" {
+        return std::cmp::Ordering::Equal;
+    }
+    let left_value = template_valid_performance(left);
+    let right_value = template_valid_performance(right);
+    match (left_value, right_value) {
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+        (Some(left_value), Some(right_value)) => match value_str(left, "mode") {
+            "moc" => left_value.total_cmp(&right_value),
+            "pf" | "as" => right_value.total_cmp(&left_value),
+            _ => std::cmp::Ordering::Equal,
+        },
+    }
+}
+
+fn template_valid_performance(value: &Value) -> Option<f64> {
+    let performance = value.get("avg_round").and_then(Value::as_f64)?;
+    (performance > 0.0 && (performance - 99.99).abs() > 0.001).then_some(performance)
 }
 
 fn template_scope_priority(value: &Value) -> u8 {
@@ -1299,6 +1327,16 @@ fn canonical(v: &str) -> String {
         _ => return character_slug(v),
     }
     .into()
+}
+
+fn deployment_group(slug: &str) -> &str {
+    if slug == "march-7th" || matches!(slug, "march-7th-swordmaster" | "march-7th-the-hunt") {
+        "march-7th"
+    } else if slug == "trailblazer" || slug.starts_with("trailblazer-") {
+        "trailblazer"
+    } else {
+        slug
+    }
 }
 fn role_order(v: &str) -> u8 {
     match v {
@@ -1813,7 +1851,7 @@ mod tests {
     }
 
     #[test]
-    fn teams_use_exact_phase_dedupe_priority_and_scope_limits() {
+    fn teams_use_exact_phase_dedupe_priority_and_aggregate_scope_limit() {
         let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
         let phases = build_phase_info(
             &[
@@ -1903,5 +1941,76 @@ mod tests {
             many.push(team);
         }
         assert_eq!(build_teams(&many, &[], &[], &context).unwrap().len(), 240);
+
+        let mut many_concrete = Vec::new();
+        for index in 0..1001 {
+            let mut team = row(&[
+                ("mode", "as"),
+                ("scope", "4-1"),
+                ("collect_date", "2026-07-12"),
+                ("phase_ver", "4.3.1"),
+                ("rank", "1"),
+            ]);
+            for slot in 1..=4 {
+                team.insert(format!("char_{slot}_slug"), format!("agent-{index}-{slot}"));
+            }
+            many_concrete.push(team);
+        }
+        assert_eq!(
+            build_teams(&many_concrete, &[], &[], &context)
+                .unwrap()
+                .len(),
+            1001
+        );
+    }
+
+    #[test]
+    fn teams_dedupe_performance_by_mode_and_ignore_aa_direction() {
+        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let team = |mode: &str, avg_round: &str| {
+            let mut team = row(&[
+                ("mode", mode),
+                ("scope", "4-1"),
+                ("collect_date", "2026-07-12"),
+                ("rank", "1"),
+                ("app_rate", "10"),
+                ("avg_round", avg_round),
+                ("source_kind", "hf_comps"),
+            ]);
+            for (index, slug) in ["a", "b", "c", "d"].iter().enumerate() {
+                team.insert(format!("char_{}_slug", index + 1), (*slug).into());
+            }
+            team
+        };
+
+        let selected = |mode: &str, first: &str, second: &str| {
+            build_teams(
+                &[team(mode, first), team(mode, second)],
+                &[],
+                &[],
+                &context,
+            )
+            .unwrap()
+            .remove(0)["avg_round"]
+                .as_f64()
+                .unwrap()
+        };
+        assert_eq!(selected("moc", "8", "2"), 2.0);
+        assert_eq!(selected("pf", "3000", "4000"), 4000.0);
+        assert_eq!(selected("as", "3000", "4000"), 4000.0);
+        assert_eq!(selected("aa", "1", "9999"), 1.0);
+        assert_eq!(selected("pf", "99.99", "4000"), 4000.0);
+        assert_eq!(selected("moc", "0", "2"), 2.0);
+    }
+
+    #[test]
+    fn deployment_groups_only_merge_true_form_variants() {
+        assert_eq!(deployment_group("trailblazer-harmony"), "trailblazer");
+        assert_eq!(deployment_group("trailblazer-the-preservation"), "trailblazer");
+        assert_eq!(deployment_group("march-7th"), "march-7th");
+        assert_eq!(deployment_group("march-7th-swordmaster"), "march-7th");
+        assert_eq!(deployment_group("march-7th-the-hunt"), "march-7th");
+        assert_eq!(deployment_group("march-7th-evernight"), "march-7th-evernight");
+        assert_eq!(deployment_group("evernight"), "evernight");
     }
 }

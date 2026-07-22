@@ -15,3 +15,9 @@ test = ["pytest"]
 
 [tool.setuptools.packages.find]
 include = ["hsr_endgame_exporter*", "zzz_endgame_exporter*", "miho_core*"]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not live'"
+markers = [
+  "live: mutable product-path probes that are excluded from the deterministic default suite",
+]

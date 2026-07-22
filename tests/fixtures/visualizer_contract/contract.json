@@ -30,14 +30,14 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "81a2adb704e4465d65b72a4f6172deac4cdaff7e1b865861bb2cfc289e189f3b",
+      "app.js": "4c84a2aca9f98248bec8e3e0ba53b1a26fdd1e3ddc50648c64ac9d6193741a56",
       "index.html": "8f97ac99c15fb830a1e29f02581adc91342048744b7f599626057aff574673a2",
       "styles.css": "7b24fe21809ddff346f860eaa192eb0c321167b556e9f2d7cbb5bf547cfe29ee"
     },
     "zzz": {
-      "app.js": "7a6cdd5c9572481c8e026a052e01804821a9e0df0d68330c501e9ef18e09644f",
-      "index.html": "abc0a9b6bbd4052b5ddcf04d8ad8e9481f0ed6b6b8a1bd2ae381625d5884fd41",
-      "styles.css": "0d8d3f5e47459ce7fe5cc9e6e7642b09c6a8914c62308a55e9e7a20757bd3575"
+      "app.js": "a5adfd6ac5a66e25ff278d089fece0f27fe3f8336587f1c30180a41593ae83f7",
+      "index.html": "959a8f00e0f39a634c4027929530ac4ea4c5ee3368b896b7fdc1f1ed38d073e0",
+      "styles.css": "0d6766842e3b848fd7f1489342af0a2e8c814c5bdbe96702a2b52908a1be0fc6"
     },
     "hub": {
       "app.js": "45043faae8d788fb9557335a1fffbf7f36f7f5c0778c489a85560f2c5ef2def0",
