@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import re
 import urllib.error
 import urllib.parse
@@ -201,10 +202,20 @@ def write_visualizer_app(
     safe_tier_rows = _sanitize_link_rows(_sanitize_avatar_rows(tier_rows, roster_rows), "source_url")
     safe_changelog_rows = _sanitize_link_rows(changelog_rows, "source_url")
     team_templates = _build_recommender_rows(
-        team_rank_rows if team_rank_rows is not None else _read_csv(out_dir / "team_rank_raw.csv"),
+        team_rank_rows
+        if team_rank_rows is not None
+        else _read_csv(
+            out_dir
+            / (
+                "team_rank_dedup_unordered.csv"
+                if (out_dir / "team_rank_dedup_unordered.csv").exists()
+                else "team_rank_raw.csv"
+            )
+        ),
         roster_rows,
         phase_info_rows,
     )
+    data_quality = _read_data_quality(out_dir)
     data = {
         "meta": {
             "generatedAt": _latest_value(tier_rows, "fetched_at"),
@@ -228,6 +239,8 @@ def write_visualizer_app(
         "phaseInfoRows": phase_info_rows,
         "teamTemplates": team_templates,
         "bannerRows": banner_rows,
+        "data_quality": data_quality,
+        "freshness": _data_quality_freshness(data_quality),
     }
     (visualizer_dir / "data.json").write_text(
         json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
@@ -236,6 +249,7 @@ def write_visualizer_app(
     (visualizer_dir / "index.html").write_text(_INDEX_HTML, encoding="utf-8")
     (visualizer_dir / "styles.css").write_text(_STYLES_CSS + _BANNER_CSS + _BUILD_CSS + _RECOMMENDER_CSS, encoding="utf-8")
     (visualizer_dir / "app.js").write_text(_APP_JS, encoding="utf-8")
+    (visualizer_dir / "solver.js").write_text(_SOLVER_JS, encoding="utf-8")
 
 
 def _latest_value(rows: list[dict[str, Any]], key: str) -> str:
@@ -268,6 +282,26 @@ def _read_json_first(paths: list[Path]) -> dict[str, Any] | None:
         if isinstance(value, dict):
             return value
     return None
+
+
+def _read_data_quality(out_dir: Path) -> dict[str, Any]:
+    path = out_dir / "data_quality.json"
+    if not path.exists():
+        return {}
+    value = json.loads(path.read_text(encoding="utf-8"))
+    return value if isinstance(value, dict) else {}
+
+
+def _data_quality_freshness(data_quality: dict[str, Any]) -> dict[str, Any]:
+    modes = data_quality.get("modes")
+    if not isinstance(modes, dict):
+        return {}
+    return {
+        str(mode): quality.get("freshness", {})
+        if isinstance(quality, dict) and isinstance(quality.get("freshness"), dict)
+        else {}
+        for mode, quality in modes.items()
+    }
 
 
 def _first_filter_value(row: dict[str, Any], key: str) -> str:
@@ -781,6 +815,14 @@ def _build_recommender_rows(
         scope = str(row.get("scope") or "")
         scope_key, scope_label, scope_order = _recommender_scope(mode, scope)
         phase_info = _lookup_phase_info(phase_lookup, row)
+        stability_component = any(
+            "sustain" in {
+                role.strip()
+                for role in str(roster_lookup.get(char, {}).get("role_groups") or "").split(";")
+                if role.strip()
+            }
+            for char in chars
+        )
         template = {
             "mode": mode,
             "mode_cn": row.get("mode_cn") or MODE_CN.get(mode, mode),
@@ -800,26 +842,131 @@ def _build_recommender_rows(
             "app_rate": _numeric_value(row.get("app_rate")),
             "avg_round": _numeric_value(row.get("avg_round")),
             "source_kind": row.get("source_kind", ""),
+            "merged_source_kinds": row.get("merged_source_kinds") or row.get("source_kind", ""),
             "source_file": row.get("source_file", ""),
+            "source_url": row.get("source_url", ""),
+            "merged_source_files": row.get("merged_source_files") or row.get("source_file", ""),
+            "quality_flag": row.get("quality_flag", ""),
+            "duplicate_count": _evidence_duplicate_count(row.get("duplicate_count")),
+            "stability_component": stability_component,
             "chars": chars,
             "names_cn": [
                 str(roster_lookup.get(char, {}).get("character_name_cn") or row.get(f"char_{index}_name_cn") or "")
                 for index, char in enumerate(chars, start=1)
             ],
         }
+        _refresh_hsr_evidence(template)
         key = f"{mode}|{scope_key}|{'>'.join(sorted(chars))}"
         current = grouped.get(key)
-        if current is None or _template_sort_key(template) < _template_sort_key(current):
+        if current is None:
             grouped[key] = template
+        else:
+            grouped[key] = _merge_hsr_template(current, template)
 
-    output: list[dict[str, Any]] = []
-    per_scope: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for row in grouped.values():
-        per_scope.setdefault((str(row["mode"]), str(row["scope_key"])), []).append(row)
-    for (_mode, scope_key), rows in per_scope.items():
-        limit = 240 if scope_key == "all" else RECOMMENDER_LATEST_LIMIT_PER_SCOPE
-        output.extend(sorted(rows, key=_template_sort_key)[:limit])
-    return sorted(output, key=lambda row: (str(row.get("mode", "")), int(row.get("scope_order") or 99), _template_sort_key(row)))
+    return sorted(
+        grouped.values(),
+        key=lambda row: (
+            str(row.get("mode", "")),
+            int(row.get("scope_order") or 99),
+            _template_sort_key(row),
+        ),
+    )
+
+
+def _evidence_duplicate_count(value: Any) -> int:
+    try:
+        return max(1, int(str(value).strip()))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _merged_evidence_values(*values: Any) -> str:
+    return ";".join(
+        sorted(
+            {
+                item.strip()
+                for value in values
+                for item in str(value or "").split(";")
+                if item.strip()
+            }
+        )
+    )
+
+
+def _evidence_quality_allows_a(value: Any) -> bool:
+    return all(
+        not flag.strip() or flag.strip().lower() in {"ok", "valid", "complete", "clean"}
+        for flag in str(value or "").split(";")
+    )
+
+
+def _positive_template_number(template: dict[str, Any], key: str) -> float | None:
+    value = template.get(key)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def _valid_hsr_performance(template: dict[str, Any]) -> float | None:
+    value = template.get("avg_round")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number <= 0 or abs(number - 99.99) <= 0.001:
+        return None
+    return number
+
+
+def _refresh_hsr_evidence(template: dict[str, Any]) -> None:
+    count = _evidence_duplicate_count(template.get("duplicate_count"))
+    limitations: list[str] = []
+    if count < 2:
+        limitations.append("仅 1 条记录")
+    if _positive_template_number(template, "rank") is None:
+        limitations.append("Rank 缺失")
+    if _positive_template_number(template, "app_rate") is None:
+        limitations.append("占比缺失")
+    if _valid_hsr_performance(template) is None:
+        limitations.append("表现缺失或为 sentinel")
+    if not str(template.get("source_kind") or "") or not str(template.get("merged_source_files") or ""):
+        limitations.append("来源字段不完整")
+    if not _evidence_quality_allows_a(template.get("quality_flag")):
+        limitations.append("质量标记限制")
+    if not bool(template.get("stability_component")):
+        limitations.append("缺少已知生存/稳定组件")
+    if limitations:
+        template["evidence_grade"] = "B"
+        template["evidence_comment"] = f"真实队伍记录；保守按 B：{'；'.join(limitations)}。"
+    else:
+        template["evidence_grade"] = "A"
+        template["evidence_comment"] = f"重复记录 {count} 条，Rank、占比、表现与来源字段完整。"
+
+
+def _merge_hsr_template(current: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    duplicate_count = _evidence_duplicate_count(current.get("duplicate_count")) + _evidence_duplicate_count(
+        candidate.get("duplicate_count")
+    )
+    source_files = _merged_evidence_values(
+        current.get("merged_source_files"),
+        current.get("source_file"),
+        candidate.get("merged_source_files"),
+        candidate.get("source_file"),
+    )
+    source_kinds = _merged_evidence_values(
+        current.get("merged_source_kinds"),
+        current.get("source_kind"),
+        candidate.get("merged_source_kinds"),
+        candidate.get("source_kind"),
+    )
+    quality_flags = _merged_evidence_values(current.get("quality_flag"), candidate.get("quality_flag"))
+    selected = dict(candidate if _template_sort_key(candidate) < _template_sort_key(current) else current)
+    selected["duplicate_count"] = duplicate_count
+    selected["merged_source_files"] = source_files
+    selected["merged_source_kinds"] = source_kinds
+    selected["quality_flag"] = quality_flags
+    _refresh_hsr_evidence(selected)
+    return selected
 
 
 def _build_phase_lookup(phase_info_rows: list[dict[str, Any]]) -> dict[tuple[str, str, str], dict[str, Any]]:
@@ -1067,7 +1214,7 @@ def _numeric_value(value: Any) -> float | int | None:
     return int(number) if number.is_integer() else number
 
 
-def _template_sort_key(row: dict[str, Any]) -> tuple[int, int, float, float, float]:
+def _template_sort_key(row: dict[str, Any]) -> tuple[int, int, float, float, int, float]:
     source_scope = str(row.get("scope") or "")
     normalized_scope = re.sub(r"[^a-z0-9]+", "-", source_scope.lower()).strip("-")
     scope_priority = 0 if "-" in normalized_scope and normalized_scope not in {"all", "top"} else 1
@@ -1076,9 +1223,19 @@ def _template_sort_key(row: dict[str, Any]) -> tuple[int, int, float, float, flo
     rank_value = float(rank) if isinstance(rank, (int, float)) else 1_000_000.0
     app_rate = row.get("app_rate")
     app_value = float(app_rate) if isinstance(app_rate, (int, float)) else -1.0
-    avg_round = row.get("avg_round")
-    avg_value = float(avg_round) if isinstance(avg_round, (int, float)) else 1_000_000.0
-    return scope_priority, source_priority, rank_value, -app_value, avg_value
+    performance = _valid_hsr_performance(row)
+    mode = str(row.get("mode") or "")
+    if mode == "aa":
+        performance_missing, performance_value = 0, 0.0
+    elif performance is None:
+        performance_missing, performance_value = 1, 0.0
+    elif mode == "moc":
+        performance_missing, performance_value = 0, performance
+    elif mode in {"pf", "as"}:
+        performance_missing, performance_value = 0, -performance
+    else:
+        performance_missing, performance_value = 0, 0.0
+    return scope_priority, source_priority, rank_value, -app_value, performance_missing, performance_value
 
 
 _INDEX_HTML = """<!doctype html>
@@ -1267,6 +1424,7 @@ _BANNER_CSS = ""
 _BUILD_CSS = ""
 _RECOMMENDER_CSS = ""
 _APP_JS = (_CANONICAL_VISUALIZER_DIR / "app.js").read_text(encoding="utf-8")
+_SOLVER_JS = (_CANONICAL_VISUALIZER_DIR.parent / "solver.js").read_text(encoding="utf-8")
 
 
 _STYLES_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f7f8;color:#172126;font-family:Inter,Segoe UI,Arial,'Microsoft YaHei',sans-serif}button,input,select{font:inherit}.hidden{display:none!important}.app-shell{min-height:100vh;padding:18px 20px 24px}.topbar{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:14px}.topbar h1{margin:0 0 6px;font-size:24px;line-height:1.2;letter-spacing:0}.topbar p{margin:0;color:#607079;font-size:13px}.toolbar-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.toolbar-actions a,.toolbar-actions button,.box-actions button{border:1px solid #bac7cc;background:white;color:#1d3942;text-decoration:none;border-radius:6px;padding:8px 12px;cursor:pointer}.toolbar-actions a:hover,.toolbar-actions button:hover,.box-actions button:hover{border-color:#36606a;background:#f8fbfb}.app-tabs{display:flex;gap:6px}.app-tabs button.active{background:#174c5a;color:#fff;border-color:#174c5a}.controls,.box-controls{display:grid;grid-template-columns:1fr .9fr 1.25fr 1.15fr .58fr .58fr 1.1fr .5fr;gap:10px;align-items:end;background:#fff;border:1px solid #d8e1e5;border-radius:8px;padding:12px;margin-bottom:14px}.box-controls{grid-template-columns:1.35fr 1.55fr 1.15fr .5fr .55fr 1fr 2fr}.control-group{min-width:0}.control-group label{display:block;color:#607079;font-size:12px;margin-bottom:6px}.control-group input[type=search],.control-group select{width:100%;height:36px;border:1px solid #c8d4d9;background:#fff;border-radius:6px;padding:7px 9px;color:#172126}.segmented,.tier-checks{display:flex;gap:6px;flex-wrap:wrap}.segmented button,.tier-checks button{border:1px solid #c8d4d9;background:#f9fbfb;color:#263a43;border-radius:6px;padding:7px 9px;cursor:pointer;white-space:nowrap}.segmented button:hover,.tier-checks button:hover{border-color:#4f737d}.segmented button.active,.tier-checks button.active{background:#174c5a;color:#fff;border-color:#174c5a}.checkline{display:flex!important;align-items:center;gap:6px;height:36px;border:1px solid #c8d4d9;border-radius:6px;padding:0 9px;background:#f9fbfb;color:#263a43!important;margin:0!important}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px}.chart-panel,.side-panel,.box-panel{background:white;border:1px solid #d8e1e5;border-radius:8px}.panel-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;padding:14px 16px 10px;border-bottom:1px solid #edf1f3}.panel-head h2{margin:0 0 4px;font-size:18px;letter-spacing:0}.panel-head p{margin:0;color:#697b83;font-size:12px}.summary-badges{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:440px}.summary-badges span{border:1px solid #d6e1e5;background:#f8fafb;border-radius:999px;padding:4px 8px;color:#39505a;font-size:11px;font-weight:650}.chart-wrap{position:relative;height:620px;overflow:hidden}#chart{width:100%;height:620px;display:block}.tooltip{position:fixed;z-index:20;width:308px;background:#101820;color:white;border-radius:8px;padding:12px;box-shadow:0 16px 36px rgba(0,0,0,.24);pointer-events:none}.tooltip-head{display:flex;gap:10px;align-items:center;margin-bottom:8px}.tooltip img{width:42px;height:42px;border-radius:50%;border:2px solid rgba(255,255,255,.32);background:#22313a}.tooltip strong{display:block;font-size:15px}.tooltip span{display:block;color:#c9d5da;font-size:12px}.tooltip-grid{display:grid;grid-template-columns:86px 1fr;gap:4px 8px;font-size:12px;line-height:1.35}.tooltip-grid b{color:#9fb7c0;font-weight:500}.side-panel{padding:12px;display:flex;flex-direction:column;gap:12px;max-height:748px;overflow:hidden}.side-section{min-height:0;display:flex;flex-direction:column}.side-section.characters{flex:1 1 auto}.side-section.changelog{flex:0 0 230px}.side-section h3{margin:0 0 8px;font-size:15px;letter-spacing:0}.character-list,.changelog-list{overflow:auto;display:flex;flex-direction:column;gap:7px;padding-right:4px}.character-card{border:1px solid #d8e1e5;background:#fbfcfd;border-radius:7px;padding:8px;display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:8px;align-items:center;cursor:pointer;text-align:left}.character-card:hover{border-color:#86a6af;background:#f4f9fa}.character-card.active{border-color:#174c5a;background:#eaf4f5}.character-card.dim{opacity:.42}.character-card img{width:38px;height:38px;border-radius:50%;background:#e7ecef}.character-card .name{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.character-card .meta{color:#6b7c84;font-size:11px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pill{display:inline-flex;align-items:center;justify-content:center;min-width:40px;padding:3px 6px;border-radius:999px;background:#174c5a;color:#fff;font-size:11px;font-weight:700}.rate{font-size:13px;font-weight:700;color:#172126;text-align:right;margin-top:3px}.changelog-item{border-left:3px solid #8aa3ad;background:#f8fafb;border-radius:5px;padding:8px 9px}.changelog-item time{font-weight:700;font-size:12px;color:#174c5a}.changelog-item p{margin:4px 0 0;color:#405158;font-size:12px;line-height:1.45}.axis-label{fill:#51646d;font-size:11px}.grid{stroke:#e7ecef}.axis-line{stroke:#32464f}.series-line{fill:none;stroke-width:2.4;opacity:.88;transition:opacity .12s,stroke-width .12s}.series-hit{fill:none;stroke:transparent;stroke-width:12;pointer-events:stroke;cursor:pointer}.series-line.dim,.avatar-node.dim,.point-node.dim,.bar-line.dim,.heat-cell.dim,.rank-label.dim{opacity:.12}.series-line.focused,.bar-line.focused{stroke-width:4;opacity:1}.avatar-node,.point-node,.heat-cell{cursor:pointer}.avatar-ring{stroke:white;stroke-width:2;filter:drop-shadow(0 1px 2px rgba(0,0,0,.24));pointer-events:none}.rank-label{fill:#263a43;font-size:12px;font-weight:650}.muted-label{fill:#6b7c84;font-size:11px}.empty-state{fill:#6b7c84;font-size:15px}.heat-cell{rx:4;ry:4;stroke:#fff;stroke-width:1}.heat-head{fill:#51646d;font-size:10px}.heat-name{fill:#263a43;font-size:12px;font-weight:650}.box-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:end}.box-panel{min-height:660px}.box-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px;padding:14px}.box-card{position:relative;border:1px solid #d8e1e5;background:#fbfcfd;border-radius:8px;padding:10px 8px 9px;min-height:142px;cursor:pointer;text-align:center}.box-card:hover{border-color:#86a6af;background:#f4f9fa}.box-card.owned{border-color:#2f7b69;background:#f4fbf8}.box-card.missing img{filter:grayscale(1);opacity:.36}.box-card img{width:64px;height:64px;border-radius:50%;background:#e6ecef;object-fit:cover;transition:filter .12s,opacity .12s}.box-card .box-name{margin-top:7px;font-size:12px;font-weight:700;line-height:1.25;min-height:30px;display:flex;align-items:center;justify-content:center}.box-card .box-meta{font-size:11px;color:#637780;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.owned-dot{position:absolute;top:8px;right:8px;width:18px;height:18px;border-radius:50%;background:#dce5e8;border:1px solid #c3d0d5}.box-card.owned .owned-dot{background:#1e7c64;border-color:#1e7c64;box-shadow:inset 0 0 0 4px white}@media(max-width:1180px){.controls,.box-controls{grid-template-columns:1fr 1fr 1fr}.workspace{grid-template-columns:1fr}.side-panel{max-height:none}.chart-wrap,#chart{height:600px}.side-section.changelog{flex-basis:auto}}@media(max-width:720px){.app-shell{padding:14px 12px}.topbar{flex-direction:column}.controls,.box-controls{grid-template-columns:1fr 1fr}.panel-head{flex-direction:column}.summary-badges{justify-content:flex-start}.chart-wrap,#chart{height:560px}.workspace{gap:10px}.side-panel{padding:10px}.box-grid{grid-template-columns:repeat(auto-fill,minmax(92px,1fr));padding:10px}}"""

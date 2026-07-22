@@ -9,6 +9,7 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const HSR_APP = path.join(ROOT, 'crates/miho-core/assets/visualizer/hsr/app.js');
 const ZZZ_APP = path.join(ROOT, 'crates/miho-core/assets/visualizer/zzz/app.js');
 const ZZZ_INDEX = path.join(ROOT, 'crates/miho-core/assets/visualizer/zzz/index.html');
+const SLATE_SOLVER = path.join(ROOT, 'crates/miho-core/assets/visualizer/solver.js');
 
 const HSR_HARNESS = String.raw`
 ;globalThis.__recommenderContract = {
@@ -23,6 +24,7 @@ const HSR_HARNESS = String.raw`
       targetScopes: settings.targetScopes || {},
       elements: settings.elements || {},
       constraints: settings.constraints || {},
+      locks: settings.locks || {},
       gap: settings.gap || '4',
       riskMode: settings.riskMode || 'warn',
       limit: settings.limit || '20',
@@ -78,6 +80,41 @@ const HSR_HARNESS = String.raw`
     const scopes = recPlanScopes();
     return bestRecSlatePlan(scopes).map(item => item ? {id: item.template.id, score: item.score, scoreMode: item.scoreMode, scores: {...item.scores}} : null);
   },
+  slates() {
+    const result = solveRecSlates(recPlanScopes(), {maxSolutions: 3});
+    return {
+      solver_meta: {...result.solver_meta},
+      plans: result.plans.map(plan => ({
+        totalScore: plan.totalScore,
+        picks: plan.picks.map(item => item ? {
+          id: item.template.id,
+          variantKey: item.variantKey,
+          score: item.score,
+          scores: {...item.scores},
+          finalChars: [...item.finalChars],
+          finalMissingCount: item.finalMissingCount,
+          finalBuildRecordedCount: item.finalBuildRecordedCount,
+          finalBuildReadyCount: item.finalBuildReadyCount,
+          evidenceConfidence: item.evidenceConfidence,
+          substitutions: item.substitutionAssignments.map(row => ({missing: row.missing, replacement: row.replacement})),
+        } : null),
+      })),
+    };
+  },
+  lockCandidate(scopeKey, templateId) {
+    const scopes = recPlanScopes();
+    const scopeIndex = scopes.findIndex(scope => scope.key === scopeKey);
+    const candidate = scopeIndex < 0 ? null : recSlateCandidateLists(scopes)[scopeIndex].find(item => item.template.id === templateId);
+    if (!candidate) return null;
+    rec.locks[recLockKey(scopeKey)] = candidate.variantKey;
+    return candidate.variantKey;
+  },
+  locks() {
+    return {...normalizeRecLocks(rec.locks)};
+  },
+  setConstraints(mode, scope, required = [], excluded = []) {
+    rec.constraints[recSettingKey(mode, scope)] = {required: [...required], excluded: [...excluded]};
+  },
   migrateSettings(raw) {
     localStorage.setItem(REC_KEY, JSON.stringify(raw));
     loadRecSettings();
@@ -111,6 +148,7 @@ const ZZZ_HARNESS = String.raw`
       targetScopes: settings.targetScopes || {},
       elements: settings.elements || {},
       constraints: settings.constraints || {},
+      locks: settings.locks || {},
       gap: settings.gap || '3',
       riskMode: settings.riskMode || 'warn',
       sortMode: normalizeRecSortMode(settings.sortMode),
@@ -207,14 +245,146 @@ function loadContract(appPath, harness) {
   });
   context.global = context;
   context.window = context;
-  const source = `${readFileSync(appPath, 'utf8')}\n${harness}`;
+  const source = `${readFileSync(SLATE_SOLVER, 'utf8')}\n${readFileSync(appPath, 'utf8')}\n${harness}`;
   new vm.Script(source, {filename: appPath}).runInContext(context, {timeout: 2_000});
   return context.__recommenderContract;
+}
+
+function solveSlate(input) {
+  const context = vm.createContext({console});
+  new vm.Script(readFileSync(SLATE_SOLVER, 'utf8'), {filename: SLATE_SOLVER}).runInContext(context, {timeout: 2_000});
+  return plain(context.MihoSlateSolver.solve(input));
 }
 
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
+
+test('shared slate solver keeps the 241st single-stage candidate when it forms the exact global optimum', () => {
+  const blocked = Array.from({length: 240}, (_, index) => ({
+    key: `left-${String(index).padStart(3, '0')}`,
+    score: 100,
+    members: [`blocked-${index}`, 'shared'],
+  }));
+  const result = solveSlate({
+    candidateLists: [
+      [...blocked, {key: 'left-241', score: 99, members: ['free']}],
+      [{key: 'right-best', score: 1000, members: ['shared']}],
+    ],
+  });
+  assert.equal(result.solver_meta.search_type, 'exact');
+  assert.deepEqual(result.solutions[0].picks, [240, 0]);
+  assert.equal(result.solutions[0].totalScore, 1099);
+});
+
+test('shared slate solver returns monotonic unique Top 3 solutions without cross-team reuse', () => {
+  const lists = [
+    [
+      {key: 'a', score: 30, members: ['a']},
+      {key: 'b', score: 20, members: ['b']},
+      {key: 'c', score: 10, members: ['c']},
+    ],
+    [
+      {key: 'x', score: 30, members: ['a']},
+      {key: 'y', score: 25, members: ['y']},
+      {key: 'z', score: 15, members: ['z']},
+    ],
+  ];
+  const result = solveSlate({candidateLists: lists, maxSolutions: 3});
+  assert.equal(result.solutions.length, 3);
+  assert.ok(result.solutions.every(solution => solution.filled === 2));
+  assert.ok(result.solutions.every((solution, index, all) => index === 0 || all[index - 1].totalScore >= solution.totalScore));
+  assert.equal(new Set(result.solutions.map(solution => solution.picks.join('|'))).size, 3);
+  result.solutions.forEach(solution => {
+    const members = solution.picks.flatMap((pick, scope) => lists[scope][pick].members);
+    assert.equal(new Set(members).size, members.length);
+  });
+});
+
+test('shared slate solver prefers alternatives that change a whole source team before same-team variants', () => {
+  const result = solveSlate({
+    candidateLists: [
+      [
+        {key: 'alpha-real', teamKey: 'alpha', score: 100, members: ['a']},
+        {key: 'alpha-sub-1', teamKey: 'alpha', score: 99, members: ['b']},
+        {key: 'alpha-sub-2', teamKey: 'alpha', score: 98, members: ['c']},
+        {key: 'beta-real', teamKey: 'beta', score: 90, members: ['d']},
+        {key: 'gamma-real', teamKey: 'gamma', score: 80, members: ['e']},
+      ],
+    ],
+    maxSolutions: 3,
+  });
+  assert.deepEqual(result.solutions.map(solution => solution.teamKeys[0]), ['alpha', 'beta', 'gamma']);
+  assert.deepEqual(result.solutions.map(solution => solution.totalScore), [100, 90, 80]);
+});
+
+test('shared slate solver orders complete solutions by the original score objective, not weakness metadata', () => {
+  const result = solveSlate({
+    candidateLists: [[
+      {key: 'lower-with-hit', score: 10, weaknessMatches: 1, members: ['a']},
+      {key: 'higher-without-hit', score: 20, weaknessMatches: 0, members: ['b']},
+    ]],
+  });
+  assert.deepEqual(result.solutions.map(solution => solution.totalScore), [20, 10]);
+});
+
+test('shared slate solver returns no public solution when every multi-stage slate is incomplete', () => {
+  const result = solveSlate({
+    candidateLists: [
+      [{key: 'left', score: 20, members: ['shared']}],
+      [{key: 'right', score: 30, members: ['shared']}],
+    ],
+  });
+  assert.deepEqual(result.solutions, []);
+  assert.equal(result.solver_meta.max_filled, 1);
+  assert.equal(result.solver_meta.complete_solution_count, 0);
+});
+
+test('shared exact two-stage solver looks past same-team variants for diverse alternatives', () => {
+  const result = solveSlate({
+    candidateLists: [
+      [{key: 'left', teamKey: 'left', score: 100, members: ['left']}],
+      [
+        {key: 'alpha-1', teamKey: 'alpha', score: 50, members: ['a1']},
+        {key: 'alpha-2', teamKey: 'alpha', score: 49, members: ['a2']},
+        {key: 'alpha-3', teamKey: 'alpha', score: 48, members: ['a3']},
+        {key: 'beta', teamKey: 'beta', score: 40, members: ['b']},
+        {key: 'gamma', teamKey: 'gamma', score: 30, members: ['c']},
+      ],
+    ],
+    maxSolutions: 3,
+  });
+  assert.deepEqual(result.solutions.map(solution => solution.teamKeys[1]), ['alpha', 'beta', 'gamma']);
+  assert.deepEqual(result.solutions.map(solution => solution.totalScore), [150, 140, 130]);
+});
+
+test('shared slate solver deduplicates different evidence keys that converge to the same final deployment', () => {
+  const result = solveSlate({
+    candidateLists: [[
+      {key: 'source-a', teamKey: 'source-a', score: 30, members: ['same-2', 'same-1']},
+      {key: 'source-b', teamKey: 'source-b', score: 29, members: ['same-1', 'same-2']},
+      {key: 'different', teamKey: 'different', score: 20, members: ['other-1', 'other-2']},
+    ]],
+  });
+  assert.equal(result.solutions.length, 2);
+  assert.deepEqual(result.solutions.map(solution => solution.totalScore), [30, 20]);
+});
+
+test('shared slate solver marks three-stage search as bounded beam with auditable limits', () => {
+  const result = solveSlate({
+    candidateLists: [
+      [{key: 'a', score: 3, members: ['a']}],
+      [{key: 'b', score: 2, members: ['b']}],
+      [{key: 'c', score: 1, members: ['c']}],
+    ],
+    beamWidth: 17,
+    branchLimit: 9,
+  });
+  assert.equal(result.solver_meta.search_type, 'beam');
+  assert.equal(result.solver_meta.exact, false);
+  assert.equal(result.solver_meta.beam_width, 17);
+  assert.equal(result.solver_meta.branch_limit, 9);
+});
 
 function hsrCharacter(slug, element, roles, pathName, releaseOrder) {
   return {
@@ -756,6 +926,78 @@ test('HSR multiple missing slots receive distinct substitutes', () => {
   assert.equal(new Set(ranked.finalChars).size, 4, 'the recommended final team must not repeat one substitute');
 });
 
+test('HSR joint planning assigns substitutes globally and caps theoretical evidence at C', () => {
+  const rosterRows = [
+    hsrCharacter('core-a', '火', 'main_dps', '毁灭', 10),
+    hsrCharacter('missing-support-a', '冰', 'support', '同谐', 11),
+    hsrCharacter('sustain-a', '虚数', 'sustain', '丰饶', 12),
+    hsrCharacter('flex-a', '量子', 'sub_dps', '虚无', 13),
+    hsrCharacter('core-b', '雷', 'main_dps', '智识', 20),
+    hsrCharacter('missing-support-b', '风', 'support', '同谐', 21),
+    hsrCharacter('sustain-b', '物理', 'sustain', '存护', 22),
+    hsrCharacter('flex-b', '量子', 'sub_dps', '虚无', 23),
+    hsrCharacter('shared-substitute', '冰', 'support', '同谐', 1),
+    hsrCharacter('alternate-substitute', '风', 'support', '同谐', 2),
+  ];
+  const templates = [
+    hsrTemplate('scope-a-team', '4-1', ['core-a', 'missing-support-a', 'sustain-a', 'flex-a'], 1, 30),
+    hsrTemplate('scope-b-team', '4-2', ['core-b', 'missing-support-b', 'sustain-b', 'flex-b'], 1, 30),
+  ];
+  const owned = rosterRows.map(row => row.character_slug).filter(slug => !slug.startsWith('missing-'));
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  api.reset(
+    hsrData(rosterRows, templates),
+    {mode: 'as', scope: '4-1', targetScopes: {as: ['4-1', '4-2']}, gap: '4'},
+    owned,
+    allBuilds(owned, hsrFullBuild),
+  );
+
+  const result = plain(api.slates());
+  assert.equal(result.solver_meta.search_type, 'exact');
+  const picks = result.plans[0].picks;
+  assert.deepEqual(picks.map(item => item.id), ['scope-a-team', 'scope-b-team']);
+  const assigned = picks.flatMap(item => item.substitutions.map(row => row.replacement));
+  assert.equal(new Set(assigned).size, 2, 'two teams must not greedily claim the same substitute');
+  assert.equal(new Set(picks.flatMap(item => item.finalChars)).size, 8, 'the final joint slate must not reuse any deployment entity');
+  assert.ok(picks.every(item => item.evidenceConfidence === 'C'), 'any substituted team must remain theoretical C evidence');
+  assert.ok(picks.every(item => item.finalMissingCount === 0));
+  const originalScores = Object.fromEntries(plain(api.ranked('as', '4-1')).concat(plain(api.ranked('as', '4-2'))).map(item => [item.id, item.score]));
+  assert.ok(picks.every(item => item.score > originalScores[item.id]), 'final owned substitutes must update the Box-aware objective instead of keeping the missing-template score');
+});
+
+test('HSR locked final teams reserve their deployment entities and invalid locks auto-clear', () => {
+  const shared = 'shared-star';
+  const leftShared = [shared, 'left-a', 'left-b', 'left-c'];
+  const leftAlternative = ['left-alt-core', 'left-alt-a', 'left-alt-b', 'left-alt-c'];
+  const rightShared = [shared, 'right-a', 'right-b', 'right-c'];
+  const rightAlternative = ['right-alt-core', 'right-alt-a', 'right-alt-b', 'right-alt-c'];
+  const slugs = [...new Set([...leftShared, ...leftAlternative, ...rightShared, ...rightAlternative])];
+  const rosterRows = slugs.map((slug, index) => hsrCharacter(slug, '火', index % 4 === 0 ? 'main_dps' : 'support', '同谐', index + 1));
+  const templates = [
+    hsrTemplate('left-shared', '4-1', leftShared, 1, 35),
+    hsrTemplate('left-alternative', '4-1', leftAlternative, 30, 1),
+    hsrTemplate('right-shared', '4-2', rightShared, 1, 35),
+    hsrTemplate('right-alternative', '4-2', rightAlternative, 30, 1),
+  ];
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  api.reset(
+    hsrData(rosterRows, templates),
+    {mode: 'as', scope: '4-1', targetScopes: {as: ['4-1', '4-2']}, gap: '4'},
+    slugs,
+    allBuilds(slugs, hsrFullBuild),
+  );
+
+  const lockKey = api.lockCandidate('4-1', 'left-shared');
+  assert.ok(lockKey);
+  const locked = plain(api.slates()).plans[0].picks;
+  assert.deepEqual(locked.map(item => item.id), ['left-shared', 'right-alternative']);
+  assert.equal(new Set(locked.flatMap(item => item.finalChars)).size, 8);
+
+  api.setConstraints('as', '4-1', [], [shared]);
+  plain(api.slates());
+  assert.deepEqual(plain(api.locks()), {}, 'a lock that violates a new hard constraint must be removed explicitly');
+});
+
 test('HSR exposes balanced, historical, and Box rankings for the reported Apocalyptic Shadow teams', () => {
   const api = loadContract(HSR_APP, HSR_HARNESS);
   const fixture = endgameRankingFixture();
@@ -905,11 +1147,13 @@ test('HSR deployment groups prevent Trailblazer and March 7th forms from crossin
   const assertMutuallyExclusivePlan = (leftForm, rightForm) => {
     const left = [leftForm, 'left-a', 'left-b', 'left-c'];
     const right = [rightForm, 'right-a', 'right-b', 'right-c'];
-    const slugs = [...left, ...right];
+    const fallback = ['fallback-core', 'fallback-a', 'fallback-b', 'fallback-c'];
+    const slugs = [...left, ...right, ...fallback];
     const rosterRows = slugs.map((slug, index) => hsrCharacter(slug, '火', index % 4 === 0 ? 'main_dps' : 'support', '同谐', index + 1));
     const templates = [
       hsrTemplate('left-form-team', '4-1', left, 1, 30),
       hsrTemplate('right-form-team', '4-2', right, 1, 30),
+      hsrTemplate('right-fallback-team', '4-2', fallback, 20, 5),
     ];
     api.reset(
       hsrData(rosterRows, templates),
@@ -917,7 +1161,7 @@ test('HSR deployment groups prevent Trailblazer and March 7th forms from crossin
       slugs,
       allBuilds(slugs, hsrFullBuild),
     );
-    assert.equal(plain(api.plan()).filter(Boolean).length, 1);
+    assert.deepEqual(plain(api.plan()), ['left-form-team', 'right-fallback-team']);
   };
 
   assertMutuallyExclusivePlan('trailblazer-harmony', 'trailblazer-preservation');

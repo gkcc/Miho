@@ -28,7 +28,7 @@ pub fn attach_hsr_visualizer(
     let changelog = read_csv_rows(bundle, "prydwen_tier_changelog_history.csv")?;
     let charts = read_csv_rows(bundle, "prydwen_tier_charts.csv")?;
     let characters = read_csv_rows(bundle, "character_usage_long.csv")?;
-    let teams = read_csv_rows(bundle, "team_rank_raw.csv")?;
+    let teams = read_hsr_team_rows(bundle)?;
     let names = read_csv_rows(bundle, "name_map.csv")?;
     let phases = read_csv_rows(bundle, "phase_index.csv")?;
 
@@ -45,6 +45,7 @@ pub fn attach_hsr_visualizer(
     } else {
         usage
     };
+    let (data_quality, freshness) = read_data_quality(bundle)?;
     let data = json!({
         "meta": {
             "generatedAt": latest(&tiers, "fetched_at"),
@@ -68,6 +69,8 @@ pub fn attach_hsr_visualizer(
         "phaseInfoRows": phase_info,
         "teamTemplates": team_templates,
         "bannerRows": banner,
+        "data_quality": data_quality,
+        "freshness": freshness,
     });
     attach_hsr_static_assets(bundle)?;
     attach_avatar_assets(bundle, context)?;
@@ -76,6 +79,53 @@ pub fn attach_hsr_visualizer(
         compact_json("visualizer/data.json", &data)?,
     )?;
     Ok(())
+}
+
+fn read_hsr_team_rows(bundle: &ArtifactBundle) -> Result<Vec<Row>> {
+    if bundle.get("team_rank_dedup_unordered.csv").is_some() {
+        read_csv_rows(bundle, "team_rank_dedup_unordered.csv")
+    } else {
+        // Legacy bundles did not always contain the unordered table.  Raw is
+        // retained only as a compatibility/provenance fallback; current
+        // bundles must rank from the complete deduplicated evidence pool.
+        read_csv_rows(bundle, "team_rank_raw.csv")
+    }
+}
+
+fn read_data_quality(bundle: &ArtifactBundle) -> Result<(Value, Value)> {
+    let Some(bytes) = bundle.get("data_quality.json") else {
+        return Ok((json!({}), json!({})));
+    };
+    let path = "data_quality.json";
+    let text = strict_utf8(bytes, path)?;
+    validate_json_surrogate_escapes(text, path)?;
+    let value: Value = serde_json::from_str(text).map_err(|source| MihoError::Json {
+        path: path.into(),
+        source,
+    })?;
+    let data_quality = value
+        .is_object()
+        .then_some(value)
+        .unwrap_or_else(|| json!({}));
+    let freshness = data_quality_freshness(&data_quality);
+    Ok((data_quality, freshness))
+}
+
+fn data_quality_freshness(data_quality: &Value) -> Value {
+    let mut freshness = Map::new();
+    if let Some(modes) = data_quality.get("modes").and_then(Value::as_object) {
+        for (mode, quality) in modes {
+            freshness.insert(
+                mode.clone(),
+                quality
+                    .get("freshness")
+                    .filter(|value| value.is_object())
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            );
+        }
+    }
+    Value::Object(freshness)
 }
 
 fn latest(rows: &[Row], key: &str) -> String {
@@ -1121,7 +1171,14 @@ fn build_teams(
                 ])
             })
             .collect::<Vec<_>>();
-        let template = json!({
+        let stability_component = chars.iter().any(|slug| {
+            lookup
+                .get(slug)
+                .and_then(|value| value.get("role_groups"))
+                .and_then(Value::as_str)
+                .is_some_and(|roles| roles.split(';').any(|role| role.trim() == "sustain"))
+        });
+        let mut template = json!({
             "mode": mode,
             "mode_cn": first(&[nonempty(row,"mode_cn").as_deref(), Some(mode_cn(mode))]),
             "scope_key": scope_key,
@@ -1140,46 +1197,35 @@ fn build_teams(
             "app_rate": numeric(get(row,"app_rate"))?,
             "avg_round": numeric(get(row,"avg_round"))?,
             "source_kind": get(row,"source_kind"),
+            "merged_source_kinds": first(&[
+                nonempty(row,"merged_source_kinds").as_deref(),
+                nonempty(row,"source_kind").as_deref(),
+            ]),
             "source_file": get(row,"source_file"),
+            "source_url": get(row,"source_url"),
+            "merged_source_files": first(&[
+                nonempty(row,"merged_source_files").as_deref(),
+                nonempty(row,"source_file").as_deref(),
+            ]),
+            "quality_flag": get(row,"quality_flag"),
+            "duplicate_count": evidence_duplicate_count(get(row,"duplicate_count")),
+            "stability_component": stability_component,
             "chars": chars,
             "names_cn": names_cn,
         });
+        refresh_hsr_evidence(&mut template);
         let mut signature_chars = chars.clone();
         signature_chars.sort();
         let key = format!("{mode}|{}|{}", scope_key, signature_chars.join(">"));
         if let Some(index) = grouped_indices.get(&key).copied() {
-            if template_cmp(&template, &grouped[index]).is_lt() {
-                grouped[index] = template;
-            }
+            merge_hsr_template(&mut grouped[index], template);
         } else {
             grouped_indices.insert(key, grouped.len());
             grouped.push(template);
         }
     }
 
-    let mut per_scope = Vec::<((String, String), Vec<Value>)>::new();
-    let mut per_scope_indices = HashMap::<(String, String), usize>::new();
-    for template in grouped {
-        let key = (
-            value_str(&template, "mode").into(),
-            value_str(&template, "scope_key").into(),
-        );
-        if let Some(index) = per_scope_indices.get(&key).copied() {
-            per_scope[index].1.push(template);
-        } else {
-            per_scope_indices.insert(key.clone(), per_scope.len());
-            per_scope.push((key, vec![template]));
-        }
-    }
-    let mut output = Vec::new();
-    for ((_mode, scope_key), mut rows) in per_scope {
-        rows.sort_by(template_cmp);
-        if scope_key == "all" {
-            output.extend(rows.into_iter().take(240));
-        } else {
-            output.extend(rows);
-        }
-    }
+    let mut output = grouped;
     output.sort_by(|left, right| {
         value_str(left, "mode")
             .cmp(value_str(right, "mode"))
@@ -1231,6 +1277,124 @@ fn lookup_phase<'a>(
 
 fn value_str<'a>(value: &'a Value, key: &str) -> &'a str {
     value.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
+fn evidence_duplicate_count(value: &str) -> u64 {
+    value.trim().parse::<u64>().unwrap_or(1).max(1)
+}
+
+fn template_duplicate_count(value: &Value) -> u64 {
+    value
+        .get("duplicate_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .max(1)
+}
+
+fn merged_evidence_values(values: &[&str]) -> String {
+    values
+        .iter()
+        .flat_map(|value| value.split(';'))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+fn evidence_quality_allows_a(value: &str) -> bool {
+    value.split(';').map(str::trim).all(|flag| {
+        flag.is_empty()
+            || matches!(
+                flag.to_ascii_lowercase().as_str(),
+                "ok" | "valid" | "complete" | "clean"
+            )
+    })
+}
+
+fn positive_template_number(value: &Value, key: &str) -> bool {
+    value
+        .get(key)
+        .and_then(Value::as_f64)
+        .is_some_and(|number| number.is_finite() && number > 0.0)
+}
+
+fn refresh_hsr_evidence(template: &mut Value) {
+    let count = template_duplicate_count(template);
+    let mut limitations = Vec::new();
+    if count < 2 {
+        limitations.push("仅 1 条记录");
+    }
+    if !positive_template_number(template, "rank") {
+        limitations.push("Rank 缺失");
+    }
+    if !positive_template_number(template, "app_rate") {
+        limitations.push("占比缺失");
+    }
+    if template_valid_performance(template).is_none() {
+        limitations.push("表现缺失或为 sentinel");
+    }
+    if value_str(template, "source_kind").is_empty()
+        || value_str(template, "merged_source_files").is_empty()
+    {
+        limitations.push("来源字段不完整");
+    }
+    if !evidence_quality_allows_a(value_str(template, "quality_flag")) {
+        limitations.push("质量标记限制");
+    }
+    if !template
+        .get("stability_component")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        limitations.push("缺少已知生存/稳定组件");
+    }
+    let (grade, comment) = if limitations.is_empty() {
+        (
+            "A",
+            format!("重复记录 {count} 条，Rank、占比、表现与来源字段完整。"),
+        )
+    } else {
+        (
+            "B",
+            format!("真实队伍记录；保守按 B：{}。", limitations.join("；")),
+        )
+    };
+    let object = template.as_object_mut().expect("team template is object");
+    object.insert("evidence_grade".into(), grade.into());
+    object.insert("evidence_comment".into(), comment.into());
+}
+
+fn merge_hsr_template(current: &mut Value, candidate: Value) {
+    let duplicate_count =
+        template_duplicate_count(current).saturating_add(template_duplicate_count(&candidate));
+    let source_files = merged_evidence_values(&[
+        value_str(current, "merged_source_files"),
+        value_str(current, "source_file"),
+        value_str(&candidate, "merged_source_files"),
+        value_str(&candidate, "source_file"),
+    ]);
+    let source_kinds = merged_evidence_values(&[
+        value_str(current, "merged_source_kinds"),
+        value_str(current, "source_kind"),
+        value_str(&candidate, "merged_source_kinds"),
+        value_str(&candidate, "source_kind"),
+    ]);
+    let quality_flags = merged_evidence_values(&[
+        value_str(current, "quality_flag"),
+        value_str(&candidate, "quality_flag"),
+    ]);
+    if template_cmp(&candidate, current).is_lt() {
+        *current = candidate;
+    }
+    let object = current.as_object_mut().expect("team template is object");
+    object.insert("duplicate_count".into(), duplicate_count.into());
+    object.insert("merged_source_files".into(), source_files.into());
+    object.insert("merged_source_kinds".into(), source_kinds.into());
+    object.insert("quality_flag".into(), quality_flags.into());
+    refresh_hsr_evidence(current);
 }
 
 fn template_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
@@ -1851,7 +2015,7 @@ mod tests {
     }
 
     #[test]
-    fn teams_use_exact_phase_dedupe_priority_and_aggregate_scope_limit() {
+    fn teams_use_exact_phase_dedupe_priority_and_keep_full_aggregate_scope() {
         let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
         let phases = build_phase_info(
             &[
@@ -1884,21 +2048,33 @@ mod tests {
             ("app_rate", "10"),
             ("avg_round", "4"),
             ("source_kind", "hf_comps"),
+            ("source_file", "hf.csv"),
+            ("source_url", "https://example.com/hf"),
+            ("quality_flag", "ok"),
+            ("duplicate_count", "2"),
         ]);
         let mut second = first.clone();
         second.insert("rank".into(), "1".into());
         second.insert("source_kind".into(), "prydwen_page".into());
+        second.insert("source_file".into(), "prydwen.csv".into());
+        second.insert("duplicate_count".into(), "3".into());
         for (index, slug) in ["a", "b", "c", "d"].iter().enumerate() {
             first.insert(format!("char_{}_slug", index + 1), (*slug).into());
         }
         for (index, slug) in ["d", "c", "b", "a"].iter().enumerate() {
             second.insert(format!("char_{}_slug", index + 1), (*slug).into());
         }
-        let templates = build_teams(&[first, second], &phases, &[], &context).unwrap();
+        let roster = vec![json!({"character_slug":"a","role_groups":"sustain"})];
+        let templates = build_teams(&[first, second], &phases, &roster, &context).unwrap();
         assert_eq!(templates.len(), 1);
         assert_eq!(templates[0]["source_kind"], "hf_comps");
         assert_eq!(templates[0]["rank"], 2);
         assert_eq!(templates[0]["phase_status"], "expired");
+        assert_eq!(templates[0]["duplicate_count"], 5);
+        assert_eq!(templates[0]["merged_source_files"], "hf.csv;prydwen.csv");
+        assert_eq!(templates[0]["merged_source_kinds"], "hf_comps;prydwen_page");
+        assert_eq!(templates[0]["stability_component"], true);
+        assert_eq!(templates[0]["evidence_grade"], "A");
 
         let tied_team = |prefix: &str| {
             let mut team = row(&[
@@ -1940,7 +2116,7 @@ mod tests {
             }
             many.push(team);
         }
-        assert_eq!(build_teams(&many, &[], &[], &context).unwrap().len(), 240);
+        assert_eq!(build_teams(&many, &[], &[], &context).unwrap().len(), 241);
 
         let mut many_concrete = Vec::new();
         for index in 0..1001 {
@@ -1965,6 +2141,92 @@ mod tests {
     }
 
     #[test]
+    fn teams_keep_sentinel_performance_at_b_evidence() {
+        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let mut team = row(&[
+            ("mode", "as"),
+            ("scope", "4-2"),
+            ("collect_date", "2026-07-12"),
+            ("rank", "1"),
+            ("app_rate", "10"),
+            ("avg_round", "99.99"),
+            ("source_kind", "hf_comps"),
+            ("source_file", "as.csv"),
+            ("duplicate_count", "2"),
+        ]);
+        for (index, slug) in ["a", "b", "c", "d"].iter().enumerate() {
+            team.insert(format!("char_{}_slug", index + 1), (*slug).into());
+        }
+        let templates = build_teams(&[team], &[], &[], &context).unwrap();
+        assert_eq!(templates[0]["evidence_grade"], "B");
+        assert!(templates[0]["evidence_comment"]
+            .as_str()
+            .unwrap()
+            .contains("sentinel"));
+    }
+
+    #[test]
+    fn team_reader_prefers_dedup_and_falls_back_to_raw() {
+        let mut bundle = ArtifactBundle::default();
+        bundle
+            .add_text("team_rank_raw.csv", "mode,rank\nraw,9\n")
+            .unwrap();
+        bundle
+            .add_text("team_rank_dedup_unordered.csv", "mode,rank\ndedup,1\n")
+            .unwrap();
+        assert_eq!(read_hsr_team_rows(&bundle).unwrap()[0]["mode"], "dedup");
+
+        let mut legacy = ArtifactBundle::default();
+        legacy
+            .add_text("team_rank_raw.csv", "mode,rank\nraw,9\n")
+            .unwrap();
+        assert_eq!(read_hsr_team_rows(&legacy).unwrap()[0]["mode"], "raw");
+    }
+
+    #[test]
+    fn data_quality_defaults_empty_and_exposes_mode_freshness() {
+        let (quality, freshness) = read_data_quality(&ArtifactBundle::default()).unwrap();
+        assert_eq!(quality, json!({}));
+        assert_eq!(freshness, json!({}));
+
+        let mut bundle = ArtifactBundle::default();
+        bundle
+            .add_text(
+                "data_quality.json",
+                r#"{"schema_version":"miho-data-quality-v1","game":"hsr","status":"ok","warnings":[],"alias_conflict_count":0,"modes":{"as":{"row_count":1,"valid_rank_count":1,"valid_performance_count":1,"sentinel_count":0,"sentinel_rate":0.0,"source_coverage":["hf_comps"],"freshness":{"status":"active","sample_date":"2026-07-12","start_date":"2026-07-01","end_date":"2026-07-31","source":"fixture"}}}}"#,
+            )
+            .unwrap();
+        let (quality, freshness) = read_data_quality(&bundle).unwrap();
+        assert_eq!(quality["schema_version"], "miho-data-quality-v1");
+        assert_eq!(freshness["as"]["status"], "active");
+        assert_eq!(freshness["as"]["source"], "fixture");
+
+        for path in [
+            "prydwen_tier_usage_trend.csv",
+            "prydwen_tier_current.csv",
+            "prydwen_tier_changelog_history.csv",
+            "prydwen_tier_charts.csv",
+            "character_usage_long.csv",
+            "team_rank_dedup_unordered.csv",
+            "name_map.csv",
+            "phase_index.csv",
+        ] {
+            bundle.add_text(path, "placeholder\n").unwrap();
+        }
+        let context = VisualizerContext::new_with_local_datetime(
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 12)
+                .unwrap()
+                .and_hms_opt(13, 0, 0)
+                .unwrap(),
+        );
+        attach_hsr_visualizer(&mut bundle, &context).unwrap();
+        let payload: Value =
+            serde_json::from_slice(bundle.get("visualizer/data.json").unwrap()).unwrap();
+        assert_eq!(payload["data_quality"], quality);
+        assert_eq!(payload["freshness"], freshness);
+    }
+
+    #[test]
     fn teams_dedupe_performance_by_mode_and_ignore_aa_direction() {
         let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
         let team = |mode: &str, avg_round: &str| {
@@ -1984,14 +2246,9 @@ mod tests {
         };
 
         let selected = |mode: &str, first: &str, second: &str| {
-            build_teams(
-                &[team(mode, first), team(mode, second)],
-                &[],
-                &[],
-                &context,
-            )
-            .unwrap()
-            .remove(0)["avg_round"]
+            build_teams(&[team(mode, first), team(mode, second)], &[], &[], &context)
+                .unwrap()
+                .remove(0)["avg_round"]
                 .as_f64()
                 .unwrap()
         };
@@ -2006,11 +2263,17 @@ mod tests {
     #[test]
     fn deployment_groups_only_merge_true_form_variants() {
         assert_eq!(deployment_group("trailblazer-harmony"), "trailblazer");
-        assert_eq!(deployment_group("trailblazer-the-preservation"), "trailblazer");
+        assert_eq!(
+            deployment_group("trailblazer-the-preservation"),
+            "trailblazer"
+        );
         assert_eq!(deployment_group("march-7th"), "march-7th");
         assert_eq!(deployment_group("march-7th-swordmaster"), "march-7th");
         assert_eq!(deployment_group("march-7th-the-hunt"), "march-7th");
-        assert_eq!(deployment_group("march-7th-evernight"), "march-7th-evernight");
+        assert_eq!(
+            deployment_group("march-7th-evernight"),
+            "march-7th-evernight"
+        );
         assert_eq!(deployment_group("evernight"), "evernight");
     }
 }

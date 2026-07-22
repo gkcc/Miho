@@ -118,6 +118,8 @@ def run_visualizer(args: argparse.Namespace) -> None:
 
 
 def rebuild_visualizer_from_outputs(out_dir: Path) -> None:
+    dedup_team_path = out_dir / "team_rank_dedup_unordered.csv"
+    team_path = dedup_team_path if dedup_team_path.exists() else out_dir / "team_rank_raw.csv"
     write_visualizer_app(
         out_dir,
         trend_rows=read_csv(out_dir / "prydwen_tier_usage_trend.csv"),
@@ -125,7 +127,7 @@ def rebuild_visualizer_from_outputs(out_dir: Path) -> None:
         changelog_rows=read_csv(out_dir / "prydwen_tier_changelog_history.csv"),
         chart_rows=read_csv(out_dir / "prydwen_tier_charts.csv"),
         character_usage_rows=read_csv(out_dir / "character_usage_long.csv"),
-        team_rank_rows=read_csv(out_dir / "team_rank_raw.csv"),
+        team_rank_rows=read_csv(team_path),
     )
 
 

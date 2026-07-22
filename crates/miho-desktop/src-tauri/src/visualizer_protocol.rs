@@ -18,7 +18,7 @@ const MAX_VISUALIZER_DATA_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
 const BOX_EXPORT_RECEIPT_SCHEMA_V1: &str = "miho-box-export-receipt-v1";
 const MAX_BOX_EXPORT_COLLISIONS: usize = 10_000;
-const VISUALIZER_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost http://localhost:5173 http://127.0.0.1:5173";
+const VISUALIZER_CSP: &str = "default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost http://localhost:5173 http://127.0.0.1:5173";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Route {
@@ -380,7 +380,7 @@ fn parse_route(raw_path: &str) -> Result<Route, StatusCode> {
     }
     let game =
         parse_game(segments.first().copied().unwrap_or_default()).ok_or(StatusCode::NOT_FOUND)?;
-    if let [_, name @ ("index.html" | "app.js" | "styles.css" | "data.json")] = segments.as_slice()
+    if let [_, name @ ("index.html" | "app.js" | "solver.js" | "styles.css" | "data.json")] = segments.as_slice()
     {
         let (mime, cache) = static_headers(name);
         return Ok(Route::Static {
@@ -416,7 +416,7 @@ fn parse_game(game: &str) -> Option<&'static str> {
 fn static_headers(name: &str) -> (&'static str, &'static str) {
     match name {
         "index.html" => ("text/html; charset=utf-8", "no-store"),
-        "app.js" => ("text/javascript; charset=utf-8", "no-store"),
+        "app.js" | "solver.js" => ("text/javascript; charset=utf-8", "no-store"),
         "styles.css" => ("text/css; charset=utf-8", "no-cache"),
         "data.json" => ("application/json; charset=utf-8", "no-store"),
         _ => ("application/octet-stream", "no-store"),
@@ -516,13 +516,18 @@ fn tokenized_index(bytes: &[u8], workspace_id: &str) -> std::io::Result<Vec<u8>>
     if !valid_workspace_token(workspace_id) {
         return Err(std::io::Error::other("invalid workspace token"));
     }
-    if !html.contains("href=\"./styles.css\"") || !html.contains("src=\"./app.js\"") {
+    if !html.contains("href=\"./styles.css\"")
+        || !html.contains("src=\"./solver.js\"")
+        || !html.contains("src=\"./app.js\"")
+    {
         return Err(std::io::Error::other("unsupported trusted index"));
     }
     let styles = format!("href=\"./styles.css?workspace={workspace_id}\"");
+    let solver = format!("src=\"./solver.js?workspace={workspace_id}\"");
     let script = format!("src=\"./app.js?workspace={workspace_id}\"");
     let html = html
         .replace("href=\"./styles.css\"", &styles)
+        .replace("src=\"./solver.js\"", &solver)
         .replace("src=\"./app.js\"", &script);
     Ok(html.into_bytes())
 }
@@ -875,6 +880,7 @@ mod tests {
             for (name, data) in [
                 ("index.html", b"html".as_slice()),
                 ("app.js", b"js"),
+                ("solver.js", b"solver"),
                 ("styles.css", b"css"),
                 ("data.json", b"{}"),
             ] {
@@ -964,7 +970,7 @@ mod tests {
             assert!(app.contains("setTimeout(()=>URL.revokeObjectURL(url),1000)"));
             assert!(!app.contains("a.click();URL.revokeObjectURL"));
         }
-        for name in ["index.html", "styles.css"] {
+        for name in ["index.html", "solver.js", "styles.css"] {
             let trusted = handle_request(
                 &root,
                 "main",
@@ -975,6 +981,7 @@ mod tests {
                 assert_eq!(trusted.body(), &tokenized_index(expected, TOKEN).unwrap());
                 let html = String::from_utf8_lossy(trusted.body());
                 assert!(html.contains("./app.js?workspace=workspace-test-session-0001"));
+                assert!(html.contains("./solver.js?workspace=workspace-test-session-0001"));
                 assert!(html.contains("./styles.css?workspace=workspace-test-session-0001"));
             } else {
                 assert_eq!(trusted.body(), expected);
@@ -1347,7 +1354,7 @@ mod tests {
         let base = root();
         let root = base.join("CANARY_SECRET_WORKSPACE");
         fs::create_dir_all(root.join("out/visualizer/assets/avatars")).unwrap();
-        for name in ["index.html", "app.js", "styles.css", "data.json"] {
+        for name in ["index.html", "app.js", "solver.js", "styles.css", "data.json"] {
             let bytes = if name == "data.json" {
                 b"{}".as_slice()
             } else {
@@ -1480,6 +1487,7 @@ mod tests {
         for (method, path) in [
             (Method::GET, "/hsr/index.html"),
             (Method::GET, "/hsr/app.js"),
+            (Method::GET, "/hsr/solver.js"),
             (Method::GET, "/hsr/styles.css"),
             (Method::GET, "/hsr/assets/avatars/agent-one.webp"),
             (Method::GET, "/api/hsr/box"),

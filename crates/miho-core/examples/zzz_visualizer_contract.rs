@@ -66,6 +66,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bundle.add_bytes(relative, fs::read(path)?)?;
         }
     }
+    let data_quality_path = csv_root.join("data_quality.json");
+    if data_quality_path.is_file() {
+        bundle.add_bytes("data_quality.json", fs::read(data_quality_path)?)?;
+    }
 
     let mut context = VisualizerContext::new_with_local_datetime(local_datetime);
     for (name, path) in [

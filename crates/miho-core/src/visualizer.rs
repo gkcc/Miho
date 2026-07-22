@@ -15,6 +15,7 @@ pub const VISUALIZER_CONTEXT_SCHEMA_VERSION: u16 = 2;
 const HSR_INDEX_HTML: &str = include_str!("../assets/visualizer/hsr/index.html");
 const HSR_STYLES_CSS: &str = include_str!("../assets/visualizer/hsr/styles.css");
 const HSR_APP_JS: &str = include_str!("../assets/visualizer/hsr/app.js");
+const SLATE_SOLVER_JS: &str = include_str!("../assets/visualizer/solver.js");
 const ZZZ_INDEX_HTML: &str = include_str!("../assets/visualizer/zzz/index.html");
 const ZZZ_STYLES_CSS: &str = include_str!("../assets/visualizer/zzz/styles.css");
 const ZZZ_APP_JS: &str = include_str!("../assets/visualizer/zzz/app.js");
@@ -27,9 +28,11 @@ pub fn visualizer_static_asset(game: &str, name: &str) -> Option<&'static [u8]> 
     match (game, name) {
         ("hsr", "index.html") => Some(HSR_INDEX_HTML.as_bytes()),
         ("hsr", "app.js") => Some(HSR_APP_JS.as_bytes()),
+        ("hsr", "solver.js") => Some(SLATE_SOLVER_JS.as_bytes()),
         ("hsr", "styles.css") => Some(HSR_STYLES_CSS.as_bytes()),
         ("zzz", "index.html") => Some(ZZZ_INDEX_HTML.as_bytes()),
         ("zzz", "app.js") => Some(ZZZ_APP_JS.as_bytes()),
+        ("zzz", "solver.js") => Some(SLATE_SOLVER_JS.as_bytes()),
         ("zzz", "styles.css") => Some(ZZZ_STYLES_CSS.as_bytes()),
         _ => None,
     }
@@ -136,6 +139,7 @@ pub fn attach_hsr_static_assets(bundle: &mut ArtifactBundle) -> Result<()> {
     bundle.add_text("visualizer/index.html", HSR_INDEX_HTML)?;
     bundle.add_text("visualizer/styles.css", HSR_STYLES_CSS)?;
     bundle.add_text("visualizer/app.js", HSR_APP_JS)?;
+    bundle.add_text("visualizer/solver.js", SLATE_SOLVER_JS)?;
     Ok(())
 }
 
@@ -143,6 +147,7 @@ pub fn attach_zzz_static_assets(bundle: &mut ArtifactBundle) -> Result<()> {
     bundle.add_text("visualizer/index.html", ZZZ_INDEX_HTML)?;
     bundle.add_text("visualizer/styles.css", ZZZ_STYLES_CSS)?;
     bundle.add_text("visualizer/app.js", ZZZ_APP_JS)?;
+    bundle.add_text("visualizer/solver.js", SLATE_SOLVER_JS)?;
     Ok(())
 }
 
@@ -935,6 +940,7 @@ mod tests {
     fn trusted_static_asset_api_excludes_mutable_visualizer_data() {
         assert!(visualizer_static_asset("hsr", "index.html").is_some());
         assert!(visualizer_static_asset("zzz", "app.js").is_some());
+        assert!(visualizer_static_asset("zzz", "solver.js").is_some());
         assert!(visualizer_static_asset("hsr", "styles.css").is_some());
         assert!(visualizer_static_asset("hsr", "data.json").is_none());
         assert!(visualizer_static_asset("hsr", "assets/avatars/a.webp").is_none());
@@ -1060,7 +1066,7 @@ mod tests {
         attach_hsr_static_assets(&mut bundle).unwrap();
         attach_avatar_assets(&mut bundle, &context).unwrap();
 
-        for name in ["app.js", "index.html", "styles.css"] {
+        for name in ["app.js", "index.html", "solver.js", "styles.css"] {
             let expected = contract["static_text_sha256"]["hsr"][name]
                 .as_str()
                 .unwrap();
@@ -1094,7 +1100,7 @@ mod tests {
         let mut bundle = ArtifactBundle::default();
         attach_zzz_static_assets(&mut bundle).unwrap();
 
-        for name in ["app.js", "index.html", "styles.css"] {
+        for name in ["app.js", "index.html", "solver.js", "styles.css"] {
             let expected = contract["static_text_sha256"]["zzz"][name]
                 .as_str()
                 .unwrap();

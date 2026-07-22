@@ -11,7 +11,6 @@ const HSR_VISUALIZER_CSVS: &[&str] = &[
     "prydwen_tier_changelog_history.csv",
     "prydwen_tier_charts.csv",
     "character_usage_long.csv",
-    "team_rank_raw.csv",
     "name_map.csv",
     "phase_index.csv",
 ];
@@ -50,6 +49,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut bundle = ArtifactBundle::default();
     for relative in HSR_VISUALIZER_CSVS {
         bundle.add_bytes(relative, fs::read(csv_root.join(relative))?)?;
+    }
+    let team_path = if csv_root.join("team_rank_dedup_unordered.csv").is_file() {
+        "team_rank_dedup_unordered.csv"
+    } else {
+        "team_rank_raw.csv"
+    };
+    bundle.add_bytes(team_path, fs::read(csv_root.join(team_path))?)?;
+    let data_quality_path = csv_root.join("data_quality.json");
+    if data_quality_path.is_file() {
+        bundle.add_bytes("data_quality.json", fs::read(data_quality_path)?)?;
     }
     for relative in [
         "raw/hoyowiki/hsr_characters_zh-cn.json",

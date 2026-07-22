@@ -154,6 +154,8 @@ def visualizer_workspace(tmp_path_factory: pytest.TempPathFactory) -> Path:
     _stabilize_final_csvs(zzz_root, "zzz")
     _densify_zzz_visualizer_inputs(zzz_root)
     _write_hsr_official_roster_fixture(hsr_root)
+    _write_data_quality_fixture(hsr_root, game="hsr", mode="moc")
+    _write_data_quality_fixture(zzz_root, game="zzz", mode="sd")
 
     _write_dense_hsr_banner_plan(
         FIXTURES / "hsr_banner_plan.json", hsr_root / "hsr_banner_plan.json"
@@ -576,12 +578,12 @@ def test_zzz_dense_oracle_exercises_explicit_context_and_selection_contracts(
     teams = data["teamTemplates"]
     assert [(row["mode"], row["source_file"], row["rank"]) for row in teams] == [
         ("da", "4.0/override-team.json", 3.0),
+        ("sd", "3.2/permuted-later.json", 1.0),
         ("sd", "3.2/second-key.json", 2.0),
-        ("sd", "3.2/stable-first.json", 5.0),
     ]
     assert all(row["bangboo_name"] == "邦布甲密" for row in teams)
     assert not any(
-        row["source_file"] in {"3.1/old-team.json", "3.2/permuted-later.json"}
+        row["source_file"] in {"3.1/old-team.json", "3.2/stable-first.json"}
         for row in teams
     )
 
@@ -830,7 +832,7 @@ def test_formula_and_html_payloads_remain_data_not_static_markup(
     assert HTML_PAYLOAD in data_text
     assert data["changelogRows"][0]["text"] == SECURITY_TEXT
     assert type(data["changelogRows"][0]["text"]) is str
-    for name in ("index.html", "styles.css", "app.js"):
+    for name in ("index.html", "styles.css", "solver.js", "app.js"):
         static_text = (visualizer / name).read_text(encoding="utf-8")
         assert SECURITY_TEXT not in static_text
         assert HTML_PAYLOAD not in static_text
@@ -1145,9 +1147,9 @@ def _stabilize_final_csvs(out_dir: Path, game: str) -> None:
         lambda row: {**row, "text": SECURITY_TEXT},
     )
     if game == "hsr":
-        # HSR recommender fills dates from phase_index when team CSV dates are
-        # absent. Keeping this explicit makes that cross-file contract visible.
-        assert (out_dir / "team_rank_raw.csv").exists()
+        # The recommender consumes the complete unordered evidence pool. Raw
+        # remains available only as a compatibility/provenance fallback.
+        assert (out_dir / "team_rank_dedup_unordered.csv").exists()
     else:
         assert (out_dir / "team_rank_dedup_unordered.csv").exists()
 
@@ -1183,6 +1185,37 @@ def _first_csv_row(path: Path) -> dict[str, str]:
         return next(csv.DictReader(handle))
 
 
+def _write_data_quality_fixture(out_dir: Path, *, game: str, mode: str) -> None:
+    payload = {
+        "schema_version": "miho-data-quality-v1",
+        "game": game,
+        "status": "ok",
+        "warnings": [],
+        "alias_conflict_count": 0,
+        "modes": {
+            mode: {
+                "row_count": 3,
+                "valid_rank_count": 3,
+                "valid_performance_count": 2,
+                "sentinel_count": 1,
+                "sentinel_rate": 1 / 3,
+                "source_coverage": ["fixture"],
+                "freshness": {
+                    "status": "active",
+                    "sample_date": "2026-07-12",
+                    "start_date": "2026-07-01",
+                    "end_date": "2026-07-14",
+                    "source": "dense-fixture",
+                },
+            }
+        },
+    }
+    (out_dir / "data_quality.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _densify_hsr_visualizer_csvs(out_dir: Path) -> None:
     phase_seed = _first_csv_row(out_dir / "phase_index.csv")
     phase_specs = [
@@ -1209,7 +1242,7 @@ def _densify_hsr_visualizer_csvs(out_dir: Path) -> None:
         )
     _append_csv_rows(out_dir / "phase_index.csv", phases)
 
-    team_seed = _first_csv_row(out_dir / "team_rank_raw.csv")
+    team_seed = _first_csv_row(out_dir / "team_rank_dedup_unordered.csv")
     teams = [
         {
             **team_seed,
@@ -1247,7 +1280,7 @@ def _densify_hsr_visualizer_csvs(out_dir: Path) -> None:
             "raw_index": 4,
         },
     ]
-    _append_csv_rows(out_dir / "team_rank_raw.csv", teams)
+    _append_csv_rows(out_dir / "team_rank_dedup_unordered.csv", teams)
 
     tier_seed = _first_csv_row(out_dir / "prydwen_tier_current.csv")
     tiers = [

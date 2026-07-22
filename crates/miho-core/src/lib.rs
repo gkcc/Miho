@@ -2,6 +2,7 @@ pub mod atomic;
 pub mod box_state;
 pub mod config;
 pub mod contract;
+pub mod data_quality;
 pub mod decision_legacy;
 pub mod error;
 pub mod evidence;

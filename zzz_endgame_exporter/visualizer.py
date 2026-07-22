@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import re
 import urllib.error
 import urllib.parse
@@ -105,6 +106,7 @@ def write_visualizer_app(
     roster_rows = _merge_banner_rows_into_roster(roster_rows, banner_rows)
     team_templates = _build_team_templates(team_rows, roster_rows, name_rows, phase_info_rows)
     decision_cards = _load_decision_cards(out_dir)
+    data_quality = _read_data_quality(out_dir)
     data = {
         "meta": {
             "game": "绝区零",
@@ -123,6 +125,8 @@ def write_visualizer_app(
         "bannerRows": banner_rows,
         "decisionMethodVersion": "legacy-v0",
         "decisionCards": decision_cards,
+        "data_quality": data_quality,
+        "freshness": _data_quality_freshness(data_quality),
     }
     data = _sanitize_output_urls(data)
     (visualizer_dir / "data.json").write_text(
@@ -132,6 +136,7 @@ def write_visualizer_app(
     (visualizer_dir / "index.html").write_text(INDEX_HTML, encoding="utf-8")
     (visualizer_dir / "styles.css").write_text(STYLES_CSS, encoding="utf-8")
     (visualizer_dir / "app.js").write_text(APP_JS, encoding="utf-8")
+    (visualizer_dir / "solver.js").write_text(SOLVER_JS, encoding="utf-8")
 
 
 def read_csv(path: Path) -> list[dict[str, Any]]:
@@ -409,6 +414,26 @@ def _read_json_first(paths: list[Path]) -> dict[str, Any] | None:
     return None
 
 
+def _read_data_quality(out_dir: Path) -> dict[str, Any]:
+    path = out_dir / "data_quality.json"
+    if not path.exists():
+        return {}
+    value = json.loads(path.read_text(encoding="utf-8"))
+    return value if isinstance(value, dict) else {}
+
+
+def _data_quality_freshness(data_quality: dict[str, Any]) -> dict[str, Any]:
+    modes = data_quality.get("modes")
+    if not isinstance(modes, dict):
+        return {}
+    return {
+        str(mode): quality.get("freshness", {})
+        if isinstance(quality, dict) and isinstance(quality.get("freshness"), dict)
+        else {}
+        for mode, quality in modes.items()
+    }
+
+
 def _read_json_list(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -643,8 +668,7 @@ def _build_team_templates(
         recency = _team_recency_tuple(row, phase_collect_dates)
         if mode and recency >= latest.get(mode, ((0,), "")):
             latest[mode] = recency
-    output: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in team_rows:
         mode = str(row.get("mode") or "")
         if not mode or _team_recency_tuple(row, phase_collect_dates) != latest.get(mode):
@@ -654,31 +678,141 @@ def _build_team_templates(
         if any(not c for c in chars):
             continue
         key = "|".join([mode, str(row.get("sub_mode") or ""), ">".join(sorted(chars))])
-        if key in seen:
-            continue
-        seen.add(key)
-        output.append(
+        bangboo = normalize_character_id(row.get("bangboo_slug"))
+        stability_component = any(
+            str(names.get(char, {}).get("role_group") or "") == "support" for char in chars
+        )
+        template = {
+            "mode": mode,
+            "mode_cn": row.get("mode_cn") or MODE_CN.get(mode, mode),
+            "scope_key": row.get("sub_mode") or "all",
+            "scope_label": row.get("sub_mode_cn") or row.get("sub_mode") or "全部",
+            "collect_date": collect_date,
+            "phase_ver": row.get("phase_ver", ""),
+            "phase_name": row.get("phase_name", ""),
+            "rank": _num(row.get("rank")),
+            "app_rate": _num(row.get("app_rate")),
+            "avg_score": _num(row.get("avg_score")),
+            "bangboo": bangboo,
+            "bangboo_name": row.get("bangboo_name_cn")
+            or name_map.get(bangboo, {}).get("character_name_cn", ""),
+            "source_kind": row.get("source_kind", ""),
+            "merged_source_kinds": row.get("merged_source_kinds") or row.get("source_kind", ""),
+            "source_file": row.get("source_file", ""),
+            "source_url": row.get("source_url", ""),
+            "merged_source_files": row.get("merged_source_files") or row.get("source_file", ""),
+            "quality_flag": row.get("quality_flag", ""),
+            "duplicate_count": _evidence_duplicate_count(row.get("duplicate_count")),
+            "stability_component": stability_component,
+            "recency_key": _team_recency_key(row, phase_collect_dates),
+            "chars": chars,
+            "names_cn": [
+                names.get(char, {}).get("character_name_cn")
+                or names.get(char, {}).get("character_name_en")
+                or char
+                for char in chars
+            ],
+        }
+        _refresh_zzz_evidence(template)
+        grouped.setdefault(key, []).append(template)
+
+    output = [_finalize_zzz_template_group(templates) for templates in grouped.values()]
+    return sorted(
+        output,
+        key=lambda row: (str(row.get("mode") or ""), str(row.get("scope_key") or ""), _zzz_template_sort_key(row)),
+    )
+
+
+def _evidence_duplicate_count(value: Any) -> int:
+    try:
+        return max(1, int(str(value).strip()))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _merged_evidence_values(*values: Any) -> str:
+    return ";".join(
+        sorted(
             {
-                "mode": mode,
-                "mode_cn": row.get("mode_cn") or MODE_CN.get(mode, mode),
-                "scope_key": row.get("sub_mode") or "all",
-                "scope_label": row.get("sub_mode_cn") or row.get("sub_mode") or "全部",
-                "collect_date": collect_date,
-                "phase_ver": row.get("phase_ver", ""),
-                "phase_name": row.get("phase_name", ""),
-                "rank": _num(row.get("rank")),
-                "app_rate": _num(row.get("app_rate")),
-                "avg_score": _num(row.get("avg_score")),
-                "bangboo": row.get("bangboo_slug", ""),
-                "bangboo_name": row.get("bangboo_name_cn") or name_map.get(normalize_character_id(row.get("bangboo_slug")), {}).get("character_name_cn", ""),
-                "source_kind": row.get("source_kind", ""),
-                "source_file": row.get("source_file", ""),
-                "recency_key": _team_recency_key(row, phase_collect_dates),
-                "chars": chars,
-                "names_cn": [names.get(char, {}).get("character_name_cn") or names.get(char, {}).get("character_name_en") or char for char in chars],
+                item.strip()
+                for value in values
+                for item in str(value or "").split(";")
+                if item.strip()
             }
         )
-    return sorted(output, key=lambda r: (str(r["mode"]), str(r["scope_key"]), _num(r.get("rank")) or 9999))[:20000]
+    )
+
+
+def _evidence_quality_allows_a(value: Any) -> bool:
+    return all(
+        not flag.strip() or flag.strip().lower() in {"ok", "valid", "complete", "clean"}
+        for flag in str(value or "").split(";")
+    )
+
+
+def _positive_template_number(template: dict[str, Any], key: str) -> float | None:
+    value = template.get(key)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def _refresh_zzz_evidence(template: dict[str, Any]) -> None:
+    count = _evidence_duplicate_count(template.get("duplicate_count"))
+    limitations: list[str] = []
+    if count < 2:
+        limitations.append("仅 1 条记录")
+    if _positive_template_number(template, "rank") is None:
+        limitations.append("Rank 缺失")
+    if _positive_template_number(template, "app_rate") is None:
+        limitations.append("占比缺失")
+    if _positive_template_number(template, "avg_score") is None:
+        limitations.append("表现缺失或为 sentinel")
+    if not str(template.get("merged_source_kinds") or "") or not str(template.get("merged_source_files") or ""):
+        limitations.append("来源字段不完整")
+    if not _evidence_quality_allows_a(template.get("quality_flag")):
+        limitations.append("质量标记限制")
+    if not bool(template.get("stability_component")):
+        limitations.append("缺少已知稳定组件")
+    if limitations:
+        template["evidence_grade"] = "B"
+        template["evidence_comment"] = f"真实队伍记录；保守按 B：{'；'.join(limitations)}。"
+    else:
+        template["evidence_grade"] = "A"
+        template["evidence_comment"] = f"重复记录 {count} 条，Rank、占比、表现与来源字段完整。"
+
+
+def _zzz_template_sort_key(template: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        _positive_template_number(template, "rank") or float("inf"),
+        -(_positive_template_number(template, "app_rate") or -1.0),
+        -(_positive_template_number(template, "avg_score") or -1.0),
+        -_evidence_duplicate_count(template.get("duplicate_count")),
+        str(template.get("source_kind") or ""),
+        str(template.get("source_file") or ""),
+        str(template.get("bangboo") or ""),
+        str(template.get("phase_ver") or ""),
+        str(template.get("phase_name") or ""),
+        ">".join(str(char) for char in template.get("chars") or []),
+    )
+
+
+def _finalize_zzz_template_group(templates: list[dict[str, Any]]) -> dict[str, Any]:
+    selected = dict(min(templates, key=_zzz_template_sort_key))
+    selected["duplicate_count"] = max(
+        (_evidence_duplicate_count(template.get("duplicate_count")) for template in templates),
+        default=1,
+    )
+    selected["merged_source_files"] = _merged_evidence_values(
+        *(value for template in templates for value in (template.get("merged_source_files"), template.get("source_file")))
+    )
+    selected["merged_source_kinds"] = _merged_evidence_values(
+        *(value for template in templates for value in (template.get("merged_source_kinds"), template.get("source_kind")))
+    )
+    selected["quality_flag"] = _merged_evidence_values(*(template.get("quality_flag") for template in templates))
+    _refresh_zzz_evidence(selected)
+    return selected
 
 
 def _team_recency_tuple(row: dict[str, Any], phase_collect_dates: dict[tuple[str, str], str] | None = None) -> tuple[tuple[int, ...], str]:
@@ -1008,3 +1142,4 @@ _CANONICAL_VISUALIZER_DIR = Path(__file__).resolve().parents[1] / "crates" / "mi
 INDEX_HTML = (_CANONICAL_VISUALIZER_DIR / "index.html").read_text(encoding="utf-8")
 STYLES_CSS = (_CANONICAL_VISUALIZER_DIR / "styles.css").read_text(encoding="utf-8")
 APP_JS = (_CANONICAL_VISUALIZER_DIR / "app.js").read_text(encoding="utf-8")
+SOLVER_JS = (_CANONICAL_VISUALIZER_DIR.parent / "solver.js").read_text(encoding="utf-8")

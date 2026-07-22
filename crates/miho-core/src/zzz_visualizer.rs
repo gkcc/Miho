@@ -37,6 +37,9 @@ pub fn attach_zzz_visualizer(
     let team_templates = build_team_templates(&teams, &roster, &names, &phase_info)?;
     let decision_cards = read_object_sidecar(bundle, context, "decision_cards.json")?
         .unwrap_or_else(|| json!({"summary":{},"cards":[]}));
+    let data_quality =
+        read_bundle_object(bundle, "data_quality.json")?.unwrap_or_else(|| json!({}));
+    let freshness = data_quality_freshness(&data_quality);
 
     let mut data = json!({
         "meta": {
@@ -56,6 +59,8 @@ pub fn attach_zzz_visualizer(
         "bannerRows": banner,
         "decisionMethodVersion": "legacy-v0",
         "decisionCards": decision_cards,
+        "data_quality": data_quality,
+        "freshness": freshness,
     });
     sanitize_urls(&mut data, "");
     attach_zzz_static_assets(bundle)?;
@@ -173,6 +178,37 @@ fn read_object_sidecar(
     path: &str,
 ) -> Result<Option<Value>> {
     Ok(read_json_value(bundle, context, path)?.filter(Value::is_object))
+}
+
+fn read_bundle_object(bundle: &ArtifactBundle, path: &str) -> Result<Option<Value>> {
+    let Some(bytes) = bundle.get(path) else {
+        return Ok(None);
+    };
+    let text = strict_utf8(bytes, path)?;
+    validate_json_surrogate_escapes(text, path)?;
+    let mut value: Value = serde_json::from_str(text).map_err(|source| MihoError::Json {
+        path: path.into(),
+        source,
+    })?;
+    normalize_python_json_numbers(&mut value, path)?;
+    Ok(value.is_object().then_some(value))
+}
+
+fn data_quality_freshness(data_quality: &Value) -> Value {
+    let mut freshness = Map::new();
+    if let Some(modes) = data_quality.get("modes").and_then(Value::as_object) {
+        for (mode, quality) in modes {
+            freshness.insert(
+                mode.clone(),
+                quality
+                    .get("freshness")
+                    .filter(|value| value.is_object())
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            );
+        }
+    }
+    Value::Object(freshness)
 }
 
 fn read_json_array(
@@ -653,8 +689,8 @@ fn build_team_templates(
             latest.insert(mode.into(), recency);
         }
     }
-    let mut output = Vec::new();
-    let mut seen = BTreeSet::new();
+    let mut grouped = Vec::<Vec<Value>>::new();
+    let mut grouped_indices = HashMap::<String, usize>::new();
     for row in teams {
         let mode = get(row, "mode");
         if mode.is_empty() || latest.get(mode) != Some(&team_recency(row, &phase_dates)) {
@@ -669,9 +705,6 @@ fn build_team_templates(
         let mut signature = chars.clone();
         signature.sort();
         let key = format!("{mode}|{}|{}", get(row, "sub_mode"), signature.join(">"));
-        if !seen.insert(key) {
-            continue;
-        }
         let collect_date = first(&[
             nonempty(row, "collect_date"),
             phase_dates
@@ -679,24 +712,49 @@ fn build_team_templates(
                 .map(String::as_str),
         ]);
         let bangboo = canonical(get(row, "bangboo_slug"));
-        output.push(json!({
+        let stability_component = chars.iter().any(|slug| {
+            roster_map
+                .get(slug.as_str())
+                .and_then(|value| value.get("role_group"))
+                .and_then(Value::as_str)
+                .is_some_and(|role| role == "support")
+        });
+        let mut template = json!({
             "mode":mode,"mode_cn":first(&[nonempty(row,"mode_cn"),Some(mode_cn(mode))]),
             "scope_key":first(&[nonempty(row,"sub_mode"),Some("all")]),
             "scope_label":first(&[nonempty(row,"sub_mode_cn"),nonempty(row,"sub_mode"),Some("全部")]),
             "collect_date":collect_date,"phase_ver":get(row,"phase_ver"),"phase_name":get(row,"phase_name"),
             "rank":numeric_float(get(row,"rank"))?,"app_rate":numeric_float(get(row,"app_rate"))?,"avg_score":numeric_float(get(row,"avg_score"))?,
             "bangboo":bangboo,"bangboo_name":first(&[nonempty(row,"bangboo_name_cn"),name_map.get(&bangboo).and_then(|row|nonempty(row,"character_name_cn"))]),
-            "source_kind":get(row,"source_kind"),"source_file":get(row,"source_file"),"recency_key":team_recency_key(row,&phase_dates),
+            "source_kind":get(row,"source_kind"),
+            "merged_source_kinds":first(&[nonempty(row,"merged_source_kinds"),nonempty(row,"source_kind")]),
+            "source_file":get(row,"source_file"),
+            "source_url":get(row,"source_url"),
+            "merged_source_files":first(&[nonempty(row,"merged_source_files"),nonempty(row,"source_file")]),
+            "quality_flag":get(row,"quality_flag"),
+            "duplicate_count":evidence_duplicate_count(get(row,"duplicate_count")),
+            "stability_component":stability_component,
+            "recency_key":team_recency_key(row,&phase_dates),
             "chars":chars,"names_cn":chars.iter().map(|slug|roster_map.get(slug.as_str()).map(|row|first(&[nonempty_value(row,"character_name_cn"),nonempty_value(row,"character_name_en"),Some(slug)])).unwrap_or_else(||slug.clone())).collect::<Vec<_>>(),
-        }));
+        });
+        refresh_zzz_evidence(&mut template);
+        if let Some(index) = grouped_indices.get(&key).copied() {
+            grouped[index].push(template);
+        } else {
+            grouped_indices.insert(key, grouped.len());
+            grouped.push(vec![template]);
+        }
     }
+    let mut output = grouped
+        .into_iter()
+        .map(finalize_zzz_template_group)
+        .collect::<Vec<_>>();
     output.sort_by(|left, right| {
         value_str(left, "mode")
             .cmp(value_str(right, "mode"))
             .then_with(|| value_str(left, "scope_key").cmp(value_str(right, "scope_key")))
-            .then_with(|| team_rank_value(left).total_cmp(&team_rank_value(right)))
+            .then_with(|| zzz_template_cmp(left, right))
     });
-    output.truncate(20_000);
     Ok(output)
 }
 
@@ -713,13 +771,155 @@ fn python_or_value(values: &[Option<&Value>]) -> Value {
         .map(|value| (*value).clone())
         .unwrap_or_else(|| Value::String(String::new()))
 }
-fn team_rank_value(value: &Value) -> f64 {
-    let rank = value.get("rank").and_then(Value::as_f64).unwrap_or(0.0);
-    if rank == 0.0 {
-        9999.0
-    } else {
-        rank
+fn evidence_duplicate_count(value: &str) -> u64 {
+    value.trim().parse::<u64>().unwrap_or(1).max(1)
+}
+fn template_duplicate_count(value: &Value) -> u64 {
+    value
+        .get("duplicate_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .max(1)
+}
+fn merged_evidence_values<'a>(values: impl IntoIterator<Item = &'a str>) -> String {
+    values
+        .into_iter()
+        .flat_map(|value| value.split(';'))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(";")
+}
+fn evidence_quality_allows_a(value: &str) -> bool {
+    value.split(';').map(str::trim).all(|flag| {
+        flag.is_empty()
+            || matches!(
+                flag.to_ascii_lowercase().as_str(),
+                "ok" | "valid" | "complete" | "clean"
+            )
+    })
+}
+fn positive_template_number(value: &Value, key: &str) -> Option<f64> {
+    value
+        .get(key)
+        .and_then(Value::as_f64)
+        .filter(|number| number.is_finite() && *number > 0.0)
+}
+fn refresh_zzz_evidence(template: &mut Value) {
+    let count = template_duplicate_count(template);
+    let mut limitations = Vec::new();
+    if count < 2 {
+        limitations.push("仅 1 条记录");
     }
+    if positive_template_number(template, "rank").is_none() {
+        limitations.push("Rank 缺失");
+    }
+    if positive_template_number(template, "app_rate").is_none() {
+        limitations.push("占比缺失");
+    }
+    if positive_template_number(template, "avg_score").is_none() {
+        limitations.push("表现缺失或为 sentinel");
+    }
+    if value_str(template, "merged_source_kinds").is_empty()
+        || value_str(template, "merged_source_files").is_empty()
+    {
+        limitations.push("来源字段不完整");
+    }
+    if !evidence_quality_allows_a(value_str(template, "quality_flag")) {
+        limitations.push("质量标记限制");
+    }
+    if !template
+        .get("stability_component")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        limitations.push("缺少已知稳定组件");
+    }
+    let (grade, comment) = if limitations.is_empty() {
+        (
+            "A",
+            format!("重复记录 {count} 条，Rank、占比、表现与来源字段完整。"),
+        )
+    } else {
+        (
+            "B",
+            format!("真实队伍记录；保守按 B：{}。", limitations.join("；")),
+        )
+    };
+    let object = template.as_object_mut().expect("team template is object");
+    object.insert("evidence_grade".into(), grade.into());
+    object.insert("evidence_comment".into(), comment.into());
+}
+fn finalize_zzz_template_group(mut templates: Vec<Value>) -> Value {
+    templates.sort_by(zzz_template_cmp);
+    let duplicate_count = templates
+        .iter()
+        .map(template_duplicate_count)
+        .max()
+        .unwrap_or(1);
+    let source_files = merged_evidence_values(templates.iter().flat_map(|template| {
+        [
+            value_str(template, "merged_source_files"),
+            value_str(template, "source_file"),
+        ]
+    }));
+    let source_kinds = merged_evidence_values(templates.iter().flat_map(|template| {
+        [
+            value_str(template, "merged_source_kinds"),
+            value_str(template, "source_kind"),
+        ]
+    }));
+    let quality_flags = merged_evidence_values(
+        templates
+            .iter()
+            .map(|template| value_str(template, "quality_flag")),
+    );
+    let mut selected = templates
+        .into_iter()
+        .next()
+        .expect("team template group is non-empty");
+    let object = selected.as_object_mut().expect("team template is object");
+    object.insert("duplicate_count".into(), duplicate_count.into());
+    object.insert("merged_source_files".into(), source_files.into());
+    object.insert("merged_source_kinds".into(), source_kinds.into());
+    object.insert("quality_flag".into(), quality_flags.into());
+    refresh_zzz_evidence(&mut selected);
+    selected
+}
+fn zzz_template_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
+    positive_template_number(left, "rank")
+        .unwrap_or(f64::INFINITY)
+        .total_cmp(&positive_template_number(right, "rank").unwrap_or(f64::INFINITY))
+        .then_with(|| {
+            positive_template_number(right, "app_rate")
+                .unwrap_or(-1.0)
+                .total_cmp(&positive_template_number(left, "app_rate").unwrap_or(-1.0))
+        })
+        .then_with(|| {
+            positive_template_number(right, "avg_score")
+                .unwrap_or(-1.0)
+                .total_cmp(&positive_template_number(left, "avg_score").unwrap_or(-1.0))
+        })
+        .then_with(|| template_duplicate_count(right).cmp(&template_duplicate_count(left)))
+        .then_with(|| value_str(left, "source_kind").cmp(value_str(right, "source_kind")))
+        .then_with(|| value_str(left, "source_file").cmp(value_str(right, "source_file")))
+        .then_with(|| value_str(left, "bangboo").cmp(value_str(right, "bangboo")))
+        .then_with(|| value_str(left, "phase_ver").cmp(value_str(right, "phase_ver")))
+        .then_with(|| value_str(left, "phase_name").cmp(value_str(right, "phase_name")))
+        .then_with(|| template_chars_key(left).cmp(&template_chars_key(right)))
+}
+fn template_chars_key(value: &Value) -> String {
+    value
+        .get("chars")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(">")
 }
 fn team_recency(row: &Row, phase_dates: &HashMap<(String, String), String>) -> (Vec<u64>, String) {
     let version = first_nonempty_version(&[
@@ -1324,8 +1524,7 @@ mod tests {
     }
 
     #[test]
-    fn teams_use_version_recency_first_seen_dedupe_and_float_types() {
-        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+    fn teams_use_version_recency_and_deterministic_best_candidate() {
         let mut old = row(&[
             ("mode", "sd"),
             ("snapshot_id", "2.9"),
@@ -1338,9 +1537,13 @@ mod tests {
             ("snapshot_id", "3.0"),
             ("collect_date", "2026-07-01"),
             ("sub_mode", "all"),
-            ("rank", "1"),
+            ("rank", "2"),
             ("app_rate", "12.5"),
             ("avg_score", "32000"),
+            ("source_kind", "processed"),
+            ("source_file", "z.csv"),
+            ("duplicate_count", "2"),
+            ("bangboo_slug", "zeta"),
         ]);
         for (index, slug) in ["a", "b", "c"].iter().enumerate() {
             old.insert(format!("char_{}_slug", index + 1), (*slug).into());
@@ -1350,13 +1553,159 @@ mod tests {
         for (index, slug) in ["c", "b", "a"].iter().enumerate() {
             permuted.insert(format!("char_{}_slug", index + 1), (*slug).into());
         }
-        let rows = build_team_templates(&[old, latest, permuted], &[], &[], &[]).unwrap();
+        permuted.insert("rank".into(), "1".into());
+        permuted.insert("app_rate".into(), "15".into());
+        permuted.insert("avg_score".into(), "33000".into());
+        permuted.insert("source_file".into(), "a.csv".into());
+        permuted.insert("bangboo_slug".into(), "alpha".into());
+        let mut high_score_lower_rate = latest.clone();
+        high_score_lower_rate.insert("rank".into(), "1".into());
+        high_score_lower_rate.insert("app_rate".into(), "10".into());
+        high_score_lower_rate.insert("avg_score".into(), "40000".into());
+        high_score_lower_rate.insert("source_file".into(), "m.csv".into());
+
+        let input = vec![old, latest, permuted, high_score_lower_rate];
+        let roster = vec![json!({"character_slug":"b","role_group":"support"})];
+        let rows = build_team_templates(&input, &roster, &[], &[]).unwrap();
+        let mut reversed = input;
+        reversed.reverse();
+        assert_eq!(
+            rows,
+            build_team_templates(&reversed, &roster, &[], &[]).unwrap()
+        );
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["rank"], json!(1.0));
+        assert_eq!(rows[0]["app_rate"], json!(15.0));
+        assert_eq!(rows[0]["avg_score"], json!(33000.0));
         assert_eq!(rows[0]["recency_key"], "0003.0000|2026-07-01");
-        assert_eq!(rows[0]["chars"], json!(["a", "b", "c"]));
+        assert_eq!(rows[0]["chars"], json!(["c", "b", "a"]));
+        assert_eq!(rows[0]["bangboo"], "alpha");
+        assert_eq!(rows[0]["merged_source_files"], "a.csv;m.csv;z.csv");
+        assert_eq!(rows[0]["duplicate_count"], 2);
+        assert_eq!(rows[0]["stability_component"], true);
+        assert_eq!(rows[0]["evidence_grade"], "A");
         assert!(numeric_float("NaN").is_err());
-        let _ = context;
+    }
+
+    #[test]
+    fn teams_do_not_count_bangboo_variants_as_duplicate_evidence() {
+        let team = |bangboo: &str, score: &str, duplicate_count: &str| {
+            let mut team = row(&[
+                ("mode", "da"),
+                ("snapshot_id", "3.0"),
+                ("collect_date", "2026-07-01"),
+                ("sub_mode", "all"),
+                ("rank", "1"),
+                ("app_rate", "10"),
+                ("avg_score", score),
+                ("source_kind", "processed"),
+                ("source_file", "da.csv"),
+                ("duplicate_count", duplicate_count),
+                ("bangboo_slug", bangboo),
+            ]);
+            for (index, slug) in ["a", "b", "c"].iter().enumerate() {
+                team.insert(format!("char_{}_slug", index + 1), (*slug).into());
+            }
+            team
+        };
+
+        let roster = vec![json!({"character_slug":"b","role_group":"support"})];
+        let rows = build_team_templates(
+            &[team("zeta", "32000", "1"), team("alpha", "32000", "1")],
+            &roster,
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(rows[0]["duplicate_count"], 1);
+        assert_eq!(rows[0]["bangboo"], "alpha");
+        assert_eq!(rows[0]["evidence_grade"], "B");
+
+        let zero = build_team_templates(&[team("alpha", "0", "2")], &roster, &[], &[]).unwrap();
+        assert_eq!(zero[0]["evidence_grade"], "B");
+        let valid_99 = build_team_templates(&[team("alpha", "99.99", "2")], &roster, &[], &[]).unwrap();
+        assert_eq!(valid_99[0]["evidence_grade"], "A");
+    }
+
+    #[test]
+    fn team_pool_keeps_more_than_twenty_thousand_unique_formations() {
+        let teams = (0..20_001)
+            .map(|index| {
+                let mut team = row(&[
+                    ("mode", "sd"),
+                    ("snapshot_id", "3.0"),
+                    ("collect_date", "2026-07-01"),
+                    ("sub_mode", "all"),
+                    ("rank", "1"),
+                    ("app_rate", "1"),
+                    ("avg_score", "1"),
+                    ("source_kind", "processed"),
+                    ("source_file", "all.csv"),
+                ]);
+                team.insert("char_1_slug".into(), format!("agent-{index:05}"));
+                team.insert("char_2_slug".into(), format!("support-{index:05}"));
+                team.insert("char_3_slug".into(), format!("flex-{index:05}"));
+                team
+            })
+            .collect::<Vec<_>>();
+
+        let rows = build_team_templates(&teams, &[], &[], &[]).unwrap();
+        assert_eq!(rows.len(), 20_001);
+    }
+
+    #[test]
+    fn data_quality_freshness_defaults_empty_and_maps_each_mode() {
+        assert!(
+            read_bundle_object(&ArtifactBundle::default(), "data_quality.json")
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(data_quality_freshness(&json!({})), json!({}));
+        let expected = json!({
+            "schema_version": "miho-data-quality-v1",
+            "game": "zzz",
+            "status": "ok",
+            "warnings": [],
+            "alias_conflict_count": 0,
+            "modes": {
+                "sd": {"freshness": {"status":"active","sample_date":"2026-07-01","start_date":"2026-07-01","end_date":"2026-07-31","source":"fixture"}},
+                "da": {}
+            }
+        });
+        let mut bundle = ArtifactBundle::default();
+        bundle
+            .add_bytes("data_quality.json", serde_json::to_vec(&expected).unwrap())
+            .unwrap();
+        let quality = read_bundle_object(&bundle, "data_quality.json")
+            .unwrap()
+            .unwrap();
+        assert_eq!(quality, expected);
+        let freshness = data_quality_freshness(&quality);
+        assert_eq!(freshness["sd"]["status"], "active");
+        assert_eq!(freshness["sd"]["source"], "fixture");
+        assert_eq!(freshness["da"], json!({}));
+
+        for path in [
+            "character_usage_long.csv",
+            "prydwen_tier_current.csv",
+            "team_rank_dedup_unordered.csv",
+            "name_map.csv",
+            "prydwen_tier_changelog_history.csv",
+            "phase_index.csv",
+        ] {
+            bundle.add_text(path, "placeholder\n").unwrap();
+        }
+        let context = VisualizerContext::new_with_local_datetime(
+            chrono::NaiveDate::from_ymd_opt(2026, 7, 12)
+                .unwrap()
+                .and_hms_opt(13, 0, 0)
+                .unwrap(),
+        );
+        attach_zzz_visualizer(&mut bundle, &context).unwrap();
+        let payload: Value =
+            serde_json::from_slice(bundle.get("visualizer/data.json").unwrap()).unwrap();
+        assert_eq!(payload["data_quality"], quality);
+        assert_eq!(payload["freshness"], freshness);
     }
 
     #[test]
