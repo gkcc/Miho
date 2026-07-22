@@ -2,6 +2,7 @@ use std::{
     any::Any,
     collections::BTreeMap,
     fmt,
+    path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, MutexGuard,
@@ -14,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     execute_export_observed_with_hub_v1, execute_task_observed_v1, AppInvocation,
     ExecutionControlError, ExecutionObserver, ExportInvocation, ExportObserver, TaskFailureV1,
-    TaskOperationV1, TaskReceiptV1, TaskRequestV1, TrustedExportTaskV1, WorkspaceWriteLease,
-    TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
+    TaskFreshnessSummaryV1, TaskOperationV1, TaskReceiptV1, TaskRequestV1, TrustedExportTaskV1,
+    WorkspaceWriteLease, TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
 };
 
 pub const TASK_SNAPSHOT_SCHEMA_V1: &str = "miho-task-snapshot-v1";
@@ -81,8 +82,10 @@ pub struct PublicArtifactV1 {
 #[serde(deny_unknown_fields)]
 pub struct PublicTaskFailureV1 {
     pub code: String,
+    pub stage: String,
     pub retryable: bool,
     pub message: String,
+    pub action: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -96,6 +99,8 @@ pub struct PublicTaskSnapshotV1 {
     pub cancellation_requested: bool,
     pub artifacts: Vec<PublicArtifactV1>,
     pub failure: Option<PublicTaskFailureV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freshness: Option<TaskFreshnessSummaryV1>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -149,19 +154,74 @@ impl TaskSnapshotV1 {
                 Vec::new()
             },
             failure: if status == TaskStatusV1::Failed {
-                self.failure.as_ref().map(|failure| PublicTaskFailureV1 {
-                    code: failure.code.clone(),
-                    retryable: failure.retryable,
-                    message: if failure.code == "task.panicked" {
-                        "Task failed unexpectedly.".to_owned()
-                    } else {
-                        "Task failed. Check native logs for details.".to_owned()
-                    },
-                })
+                self.failure.as_ref().map(public_task_failure)
+            } else {
+                None
+            },
+            freshness: if status == TaskStatusV1::Succeeded
+                && matches!(
+                    self.operation,
+                    TaskOperationV1::HsrExport | TaskOperationV1::ZzzExport
+                ) {
+                self.receipt
+                    .as_ref()
+                    .and_then(|receipt| receipt.freshness.clone())
             } else {
                 None
             },
         }
+    }
+}
+
+fn public_task_failure(failure: &TaskFailureV1) -> PublicTaskFailureV1 {
+    let (stage, message, action) = match failure.code.as_str() {
+        "workspace.write_busy" => (
+            "workspace",
+            "Another process is currently updating this workspace.",
+            "Wait for the other update to finish, then retry.",
+        ),
+        "workspace.write_unsafe" => (
+            "workspace",
+            "The workspace path is not trusted for writing.",
+            "Select a normal local folder without links or reparse points.",
+        ),
+        "workspace.write_unavailable" | "workspace.permission_denied" => (
+            "workspace",
+            "The workspace could not be written.",
+            "Check folder permissions and free space, then retry.",
+        ),
+        "source.unavailable" => (
+            "source",
+            "An upstream data source is temporarily unavailable.",
+            "Check the network connection and retry later.",
+        ),
+        "data.invalid" => (
+            "input",
+            "An input data file is invalid.",
+            "Review the configured JSON or YAML input before retrying.",
+        ),
+        "request.unsupported" => (
+            "input",
+            "This request is not supported by the current application version.",
+            "Refresh the form and submit it again.",
+        ),
+        "task.panicked" => (
+            "runtime",
+            "The task stopped because of an unexpected internal error.",
+            "Restart the application and retry once.",
+        ),
+        _ => (
+            "execution",
+            "The task could not be completed.",
+            "Review the task inputs and retry.",
+        ),
+    };
+    PublicTaskFailureV1 {
+        code: failure.code.clone(),
+        stage: stage.to_owned(),
+        retryable: failure.retryable,
+        message: message.to_owned(),
+        action: action.to_owned(),
     }
 }
 
@@ -345,6 +405,7 @@ impl ExportTaskExecutor for CoreExportTaskExecutor {
                 .into_iter()
                 .map(|diagnostic| diagnostic.code)
                 .collect(),
+            freshness: Some(receipt.freshness),
         })
     }
 }
@@ -596,6 +657,19 @@ impl TaskManager {
             .into_iter()
             .map(|snapshot| snapshot.to_public())
             .collect()
+    }
+
+    /// Resolve an opaque public artifact identifier inside the trusted native
+    /// task manager. The WebView never receives or supplies filesystem paths.
+    pub fn artifact_path(&self, artifact_id: &str) -> Option<PathBuf> {
+        let (task_id, index) = artifact_id.rsplit_once(":artifact:")?;
+        let index = index.parse::<usize>().ok()?;
+        let state = self.inner.lock_state();
+        let record = state.tasks.get(task_id)?;
+        if record.status != TaskStatusV1::Succeeded {
+            return None;
+        }
+        record.receipt.as_ref()?.outputs.get(index).cloned()
     }
 
     pub fn public_updates_since(

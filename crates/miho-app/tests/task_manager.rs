@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::PathBuf,
     sync::{
@@ -15,10 +16,10 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use miho_app::{
     AppInvocation, CancelOutcomeV1, EvidenceTaskV1, ExecutionObserver, ExportInvocation,
     ExportSourceV1, ExportTaskExecutor, ExportTaskV1, PublicTaskSnapshotV1, PullTaskV1,
-    TaskExecutor, TaskFailureV1, TaskManager, TaskManagerError, TaskOperationV1, TaskReceiptV1,
-    TaskRequestV1, TaskSnapshotV1, TaskSpawner, TaskSpecV1, TaskStatusV1, TrustedExportTaskV1,
-    WorkspaceLayout, WorkspaceWriteLease, TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
-    TASK_SNAPSHOT_SCHEMA_V1,
+    TaskExecutor, TaskFailureV1, TaskFreshnessSummaryV1, TaskManager, TaskManagerError,
+    TaskModeFreshnessV1, TaskOperationV1, TaskReceiptV1, TaskRequestV1, TaskSnapshotV1,
+    TaskSpawner, TaskSpecV1, TaskStatusV1, TrustedExportTaskV1, WorkspaceLayout,
+    WorkspaceWriteLease, TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1, TASK_SNAPSHOT_SCHEMA_V1,
 };
 use miho_core::{
     contract::{FeatureFlags, GameMode},
@@ -110,6 +111,22 @@ fn receipt() -> TaskReceiptV1 {
         local_datetime: "2026-07-13T09:10:11".to_owned(),
         outputs: Vec::new(),
         notices: Vec::new(),
+        freshness: None,
+    }
+}
+
+fn freshness() -> TaskFreshnessSummaryV1 {
+    TaskFreshnessSummaryV1 {
+        status: "warning".to_owned(),
+        modes: BTreeMap::from([(
+            "sd".to_owned(),
+            TaskModeFreshnessV1 {
+                status: "stale".to_owned(),
+                sample_date: "2026-07-01".to_owned(),
+                start_date: "2026-06-01".to_owned(),
+                end_date: "2026-06-30".to_owned(),
+            },
+        )]),
     }
 }
 
@@ -192,6 +209,7 @@ impl ExportTaskExecutor for ControlledExportExecutor {
             local_datetime: invocation.local_datetime().to_string(),
             outputs: vec![request.task.output_root.clone()],
             notices: Vec::new(),
+            freshness: Some(freshness()),
         })
     }
 }
@@ -328,8 +346,9 @@ fn default_task_executor_respects_the_cross_process_workspace_lease() {
     let failed = wait_terminal(&manager, &queued.task_id);
     assert_eq!(failed.status, TaskStatusV1::Failed);
     let failure = failed.failure.unwrap();
-    assert_eq!(failure.code, "task.failed");
+    assert_eq!(failure.code, "workspace.write_busy");
     assert_eq!(failure.message, "workspace.write_busy");
+    assert!(failure.retryable);
     drop(lease);
     fs::remove_dir_all(root).unwrap();
 }
@@ -380,12 +399,44 @@ fn default_managed_export_executes_fixture_and_returns_a_pathless_bundle_receipt
         succeeded.receipt.as_ref().unwrap().outputs,
         [root.join("out/artifact_manifest.json")]
     );
+    let native_freshness = succeeded
+        .receipt
+        .as_ref()
+        .unwrap()
+        .freshness
+        .as_ref()
+        .unwrap();
+    assert_eq!(native_freshness.status, "warning");
+    assert_eq!(native_freshness.modes["moc"].status, "stale");
+    assert_eq!(native_freshness.modes["moc"].sample_date, "2026-06-25");
+    assert_eq!(native_freshness.modes["moc"].start_date, "2026-06-01");
+    assert_eq!(native_freshness.modes["moc"].end_date, "2026-06-15");
     assert!(root.join("out/artifact_manifest.json").is_file());
     let public = succeeded.to_public();
     assert_eq!(public.artifacts.len(), 1);
     assert_eq!(public.artifacts[0].name, "hsr-export-bundle");
-    let public_json = serde_json::to_string(&public).unwrap();
+    assert_eq!(
+        manager.artifact_path(&public.artifacts[0].artifact_id),
+        Some(root.join("out/artifact_manifest.json"))
+    );
+    assert!(manager
+        .artifact_path(&format!("{}:artifact:1", succeeded.task_id))
+        .is_none());
+    assert_eq!(public.freshness.as_ref(), Some(native_freshness));
+    let updates = manager.public_updates_since(&succeeded.task_id, 0).unwrap();
+    assert!(updates[..updates.len() - 1]
+        .iter()
+        .all(|update| update.task.freshness.is_none()));
+    assert_eq!(updates.last().unwrap().task.freshness, public.freshness);
+    let mut public_value = serde_json::to_value(&public).unwrap();
+    assert!(public_value["freshness"]["modes"]["moc"]
+        .get("source")
+        .is_none());
+    let public_json = serde_json::to_string(&public_value).unwrap();
     assert!(!public_json.contains(&root.to_string_lossy().to_string()));
+    public_value.as_object_mut().unwrap().remove("freshness");
+    let old_snapshot: PublicTaskSnapshotV1 = serde_json::from_value(public_value).unwrap();
+    assert!(old_snapshot.freshness.is_none());
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -443,12 +494,14 @@ fn hsr_cancel_and_zzz_receipt_share_global_state_without_public_native_leaks() {
             assert_eq!(terminal.status, TaskStatusV1::Cancelled);
             assert!(!output.exists());
             assert!(public.artifacts.is_empty());
+            assert!(public.freshness.is_none());
         } else {
             assert_eq!(terminal.status, TaskStatusV1::Succeeded);
             assert_eq!(fs::read(&output).unwrap(), b"export committed");
             assert_eq!(public.artifacts.len(), 1);
             assert_eq!(public.artifacts[0].name, "zzz-export-bundle");
             assert_eq!(public.artifacts[0].kind, "artifact-bundle");
+            assert_eq!(public.freshness, Some(freshness()));
         }
         fs::remove_dir_all(root).unwrap();
     }
@@ -475,7 +528,9 @@ fn export_failure_snapshot_keeps_raw_error_native_only() {
     let public_json = serde_json::to_string(&failed.to_public()).unwrap();
     assert!(!public_json.contains("CANARY_RAW_EXPORT_ERROR"));
     assert!(!public_json.contains("CANARY_EXPORT_PATH"));
-    assert!(public_json.contains("Task failed. Check native logs for details."));
+    assert!(!public_json.contains("freshness"));
+    assert!(public_json.contains("The task could not be completed."));
+    assert!(public_json.contains("Review the task inputs and retry."));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -780,12 +835,14 @@ fn public_snapshot_omits_native_paths_and_raw_failure_details() {
             local_datetime: "2026-07-13T09:10:11".to_owned(),
             outputs: vec![PathBuf::from("C:/CANARY_ROOT/CANARY_FILE.md")],
             notices: Vec::new(),
+            freshness: Some(freshness()),
         }),
         failure: None,
     };
     let public = succeeded_native.to_public();
     assert_eq!(public.artifacts.len(), 1);
     assert_eq!(public.artifacts[0].name, "evidence_pool_summary.md");
+    assert!(public.freshness.is_none());
     let succeeded_json = serde_json::to_string(&public).unwrap();
 
     let failed_native = TaskSnapshotV1 {

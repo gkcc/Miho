@@ -211,8 +211,11 @@ fn pathless_intent_schema_is_strict_and_parse_failures_are_structured() {
         local_datetime: "2026-07-13T09:10:11".to_owned(),
         outputs: vec![PathBuf::from("out.md")],
         notices: Vec::new(),
+        freshness: None,
     };
     let mut receipt_json = serde_json::to_value(receipt).unwrap();
+    assert!(receipt_json.get("freshness").is_none());
+    assert!(serde_json::from_value::<TaskReceiptV1>(receipt_json.clone()).is_ok());
     receipt_json["unknown"] = serde_json::json!(true);
     assert!(serde_json::from_value::<TaskReceiptV1>(receipt_json).is_err());
 
@@ -519,7 +522,7 @@ fn decision_executes_and_failures_adapt_without_partial_outputs() {
     let failure = execute_task_result_v1(&bad_request, &invocation).unwrap_err();
     assert_eq!(failure.operation, Some(TaskOperationV1::Evidence));
     assert_eq!(failure.schema_version, TASK_FAILURE_SCHEMA_V1);
-    assert_eq!(failure.code, "task.failed");
+    assert_eq!(failure.code, "request.unsupported");
     assert!(failure.message.contains("unsupported task request schema"));
 
     fs::remove_dir_all(root).unwrap();

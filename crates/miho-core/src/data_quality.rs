@@ -30,6 +30,18 @@ pub struct ModeDataQualityV1 {
     pub sentinel_rate: f64,
     pub source_coverage: Vec<String>,
     pub freshness: FreshnessV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_from_previous: Option<ModeDataQualityChangeV1>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModeDataQualityChangeV1 {
+    pub row_count_delta: i64,
+    pub valid_rank_count_delta: i64,
+    pub valid_performance_count_delta: i64,
+    pub sentinel_rate_delta: f64,
+    pub sources_added: Vec<String>,
+    pub sources_removed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -114,6 +126,7 @@ pub fn attach_data_quality_v1(
                 sentinel_rate: ratio(sentinel_count, rows.len()),
                 source_coverage: sources.into_iter().collect(),
                 freshness: mode_freshness(&phases, mode.code(), local_date),
+                change_from_previous: None,
             },
         );
     }
@@ -126,14 +139,20 @@ pub fn attach_data_quality_v1(
         alias_conflict_count: 0,
         modes,
     };
-    if let Some(previous) = previous.and_then(parse_previous) {
-        compare_previous(&mut report, &previous);
+    if let Some(previous) = previous {
+        match parse_previous(previous) {
+            Ok(previous) => compare_previous(&mut report, &previous),
+            Err(()) => report.warnings.push(
+                "previous data-quality report is unreadable or incompatible; generation comparison is unavailable"
+                    .to_owned(),
+            ),
+        }
     }
     for (mode, quality) in &report.modes {
         if quality.freshness.status == "stale" {
-            report
-                .warnings
-                .push(format!("{mode}: phase is stale and recommendations use historical samples"));
+            report.warnings.push(format!(
+                "{mode}: phase is stale and recommendations use historical samples"
+            ));
         }
     }
     report.warnings.sort();
@@ -145,10 +164,11 @@ pub fn attach_data_quality_v1(
     Ok(report)
 }
 
-fn parse_previous(bytes: &[u8]) -> Option<DataQualityReportV1> {
-    serde_json::from_slice::<DataQualityReportV1>(bytes)
-        .ok()
-        .filter(|report| report.schema_version == DATA_QUALITY_SCHEMA_V1)
+fn parse_previous(bytes: &[u8]) -> std::result::Result<DataQualityReportV1, ()> {
+    let report = serde_json::from_slice::<DataQualityReportV1>(bytes).map_err(|_| ())?;
+    (report.schema_version == DATA_QUALITY_SCHEMA_V1)
+        .then_some(report)
+        .ok_or(())
 }
 
 fn compare_previous(current: &mut DataQualityReportV1, previous: &DataQualityReportV1) {
@@ -158,32 +178,57 @@ fn compare_previous(current: &mut DataQualityReportV1, previous: &DataQualityRep
             .push("previous data-quality identity differs from the current game".to_owned());
         return;
     }
-    for (mode, quality) in &current.modes {
+    let mut warnings = Vec::new();
+    for (mode, quality) in &mut current.modes {
         let Some(old) = previous.modes.get(mode) else {
             continue;
         };
+        let old_sources = old.source_coverage.iter().cloned().collect::<BTreeSet<_>>();
+        let current_sources = quality
+            .source_coverage
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        quality.change_from_previous = Some(ModeDataQualityChangeV1 {
+            row_count_delta: count_delta(quality.row_count, old.row_count),
+            valid_rank_count_delta: count_delta(quality.valid_rank_count, old.valid_rank_count),
+            valid_performance_count_delta: count_delta(
+                quality.valid_performance_count,
+                old.valid_performance_count,
+            ),
+            sentinel_rate_delta: quality.sentinel_rate - old.sentinel_rate,
+            sources_added: current_sources.difference(&old_sources).cloned().collect(),
+            sources_removed: old_sources.difference(&current_sources).cloned().collect(),
+        });
         if old.valid_performance_count > 0
-            && quality.valid_performance_count * 10 <= old.valid_performance_count * 7
+            && (quality.valid_performance_count as u128) * 10
+                <= (old.valid_performance_count as u128) * 7
         {
-            current.warnings.push(format!(
+            warnings.push(format!(
                 "{mode}: valid performance count dropped by at least 30% ({} -> {})",
                 old.valid_performance_count, quality.valid_performance_count
             ));
         }
         if quality.sentinel_rate - old.sentinel_rate >= 0.20 - f64::EPSILON {
-            current.warnings.push(format!(
+            warnings.push(format!(
                 "{mode}: sentinel rate increased by at least 20 percentage points ({:.1}% -> {:.1}%)",
                 old.sentinel_rate * 100.0,
                 quality.sentinel_rate * 100.0
             ));
         }
     }
+    current.warnings.extend(warnings);
 }
 
-fn validate_dataset_identity(
-    game: Game,
-    rows: &[BTreeMap<String, String>],
-) -> Result<()> {
+fn count_delta(current: usize, previous: usize) -> i64 {
+    if current >= previous {
+        i64::try_from(current - previous).unwrap_or(i64::MAX)
+    } else {
+        -i64::try_from(previous - current).unwrap_or(i64::MAX)
+    }
+}
+
+fn validate_dataset_identity(game: Game, rows: &[BTreeMap<String, String>]) -> Result<()> {
     let allowed = match game {
         Game::Hsr => ["moc", "pf", "as", "aa"].as_slice(),
         Game::Zzz => ["sd", "da"].as_slice(),
@@ -309,6 +354,21 @@ mod tests {
     use super::*;
 
     fn bundle(rows: &[&[&str]]) -> ArtifactBundle {
+        bundle_with_phases(
+            rows,
+            &[&[
+                "as",
+                "2026-07-01",
+                "4.3",
+                "2026-07-01",
+                "2026-07-30",
+                "fixture",
+                "",
+            ]],
+        )
+    }
+
+    fn bundle_with_phases(rows: &[&[&str]], phases: &[&[&str]]) -> ArtifactBundle {
         let mut bundle = ArtifactBundle::default();
         bundle
             .add_csv(
@@ -320,8 +380,16 @@ mod tests {
         bundle
             .add_csv(
                 "phase_index.csv",
-                &["mode", "collect_date", "phase_ver", "start_date", "end_date", "source", "source_path"],
-                [["as", "2026-07-01", "4.3", "2026-07-01", "2026-07-30", "fixture", ""]],
+                &[
+                    "mode",
+                    "collect_date",
+                    "phase_ver",
+                    "start_date",
+                    "end_date",
+                    "source",
+                    "source_path",
+                ],
+                phases.iter().copied(),
             )
             .unwrap();
         bundle
@@ -332,6 +400,28 @@ mod tests {
             )
             .unwrap();
         bundle
+    }
+
+    fn previous_report(mode: &str, quality: ModeDataQualityV1) -> Vec<u8> {
+        serde_json::to_vec(&DataQualityReportV1 {
+            schema_version: DATA_QUALITY_SCHEMA_V1.to_owned(),
+            game: "hsr".to_owned(),
+            status: "ok".to_owned(),
+            warnings: Vec::new(),
+            alias_conflict_count: 0,
+            modes: BTreeMap::from([(mode.to_owned(), quality)]),
+        })
+        .unwrap()
+    }
+
+    fn unknown_freshness() -> FreshnessV1 {
+        FreshnessV1 {
+            status: "unknown".to_owned(),
+            sample_date: String::new(),
+            start_date: String::new(),
+            end_date: String::new(),
+            source: String::new(),
+        }
     }
 
     #[test]
@@ -353,8 +443,174 @@ mod tests {
         assert_eq!(mode.valid_rank_count, 1);
         assert_eq!(mode.valid_performance_count, 1);
         assert_eq!(mode.sentinel_count, 1);
+        assert!((mode.sentinel_rate - 0.5).abs() <= f64::EPSILON);
+        assert_eq!(mode.source_coverage, ["fixture"]);
         assert_eq!(mode.freshness.status, "active");
         assert!(bundle.get("data_quality.json").is_some());
+    }
+
+    #[test]
+    fn reports_active_stale_future_and_unknown_freshness() {
+        let mut bundle = bundle_with_phases(
+            &[
+                &["moc", "1", "1", "hf_comps"],
+                &["pf", "1", "30000", "hf_comps"],
+                &["as", "1", "3500", "supplemental"],
+                &["aa", "1", "2.5", "hf_comps"],
+            ],
+            &[
+                &[
+                    "moc",
+                    "2026-07-10",
+                    "4.3",
+                    "2026-07-01",
+                    "2026-07-31",
+                    "hf",
+                    "",
+                ],
+                &[
+                    "pf",
+                    "2026-07-09",
+                    "4.3",
+                    "2026-06-01",
+                    "2026-07-11",
+                    "hf",
+                    "",
+                ],
+                &[
+                    "as",
+                    "2026-07-11",
+                    "4.3",
+                    "2026-07-13",
+                    "2026-08-01",
+                    "hf",
+                    "",
+                ],
+                &["aa", "2026-07-08", "4.3", "", "", "", "raw/aa.json"],
+            ],
+        );
+        let report = attach_data_quality_v1(
+            &mut bundle,
+            Game::Hsr,
+            &[
+                GameMode::HsrMoc,
+                GameMode::HsrPf,
+                GameMode::HsrAs,
+                GameMode::HsrAa,
+            ],
+            NaiveDate::from_ymd_opt(2026, 7, 12).unwrap(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(report.modes["moc"].freshness.status, "active");
+        assert_eq!(report.modes["pf"].freshness.status, "stale");
+        assert_eq!(report.modes["as"].freshness.status, "future");
+        assert_eq!(report.modes["aa"].freshness.status, "unknown");
+        assert_eq!(report.modes["moc"].freshness.sample_date, "2026-07-10");
+        assert_eq!(report.modes["aa"].freshness.source, "raw/aa.json");
+        assert_eq!(report.status, "warning");
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("pf: phase is stale")));
+    }
+
+    #[test]
+    fn exact_degradation_thresholds_warn_and_record_generation_changes() {
+        let mut bundle = bundle(&[
+            &["as", "1", "1", "current-a"],
+            &["as", "2", "2", "current-a"],
+            &["as", "3", "3", "current-a"],
+            &["as", "4", "4", "current-a"],
+            &["as", "5", "5", "current-a"],
+            &["as", "6", "6", "current-a"],
+            &["as", "7", "7", "current-a"],
+            &["as", "8", "99.99", "current-b"],
+            &["as", "9", "99.99", "current-b"],
+            &["as", "10", "", "current-a"],
+        ]);
+        let previous = previous_report(
+            "as",
+            ModeDataQualityV1 {
+                row_count: 10,
+                valid_rank_count: 10,
+                valid_performance_count: 10,
+                sentinel_count: 0,
+                sentinel_rate: 0.0,
+                source_coverage: vec!["current-a".to_owned(), "retired".to_owned()],
+                freshness: unknown_freshness(),
+                change_from_previous: None,
+            },
+        );
+        let report = attach_data_quality_v1(
+            &mut bundle,
+            Game::Hsr,
+            &[GameMode::HsrAs],
+            NaiveDate::from_ymd_opt(2026, 7, 12).unwrap(),
+            Some(&previous),
+        )
+        .unwrap();
+
+        assert_eq!(report.status, "warning");
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning
+                .contains("valid performance count dropped by at least 30% (10 -> 7)")));
+        assert!(report.warnings.iter().any(|warning| warning
+            .contains("sentinel rate increased by at least 20 percentage points (0.0% -> 20.0%)")));
+        let change = report.modes["as"].change_from_previous.as_ref().unwrap();
+        assert_eq!(change.row_count_delta, 0);
+        assert_eq!(change.valid_rank_count_delta, 0);
+        assert_eq!(change.valid_performance_count_delta, -3);
+        assert!((change.sentinel_rate_delta - 0.2).abs() <= f64::EPSILON);
+        assert_eq!(change.sources_added, ["current-b"]);
+        assert_eq!(change.sources_removed, ["retired"]);
+
+        let emitted: serde_json::Value =
+            serde_json::from_slice(bundle.get("data_quality.json").unwrap()).unwrap();
+        assert_eq!(
+            emitted["modes"]["as"]["change_from_previous"]["valid_performance_count_delta"],
+            -3
+        );
+    }
+
+    #[test]
+    fn corrupt_previous_report_warns_without_blocking_current_generation() {
+        let mut bundle = bundle(&[&["as", "1", "3500", "fixture"]]);
+        let report = attach_data_quality_v1(
+            &mut bundle,
+            Game::Hsr,
+            &[GameMode::HsrAs],
+            NaiveDate::from_ymd_opt(2026, 7, 12).unwrap(),
+            Some(br#"{"schema_version":"miho-data-quality-v1","game":}broken"#),
+        )
+        .unwrap();
+
+        assert_eq!(report.status, "warning");
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("generation comparison is unavailable")));
+        let emitted: DataQualityReportV1 =
+            serde_json::from_slice(bundle.get("data_quality.json").unwrap()).unwrap();
+        assert_eq!(emitted, report);
+    }
+
+    #[test]
+    fn foreign_game_mode_fails_dataset_identity_validation() {
+        let mut bundle = bundle(&[&["sd", "1", "3500", "fixture"]]);
+        let error = attach_data_quality_v1(
+            &mut bundle,
+            Game::Hsr,
+            &[GameMode::HsrAs],
+            NaiveDate::from_ymd_opt(2026, 7, 12).unwrap(),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("dataset identity conflict"));
+        assert!(bundle.get("data_quality.json").is_none());
     }
 
     #[test]

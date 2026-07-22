@@ -32,16 +32,16 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "b08a9a5656375b5d830b90be9ca815d20397ab52bb9defc1b5f3f54dc706f9c3",
-      "index.html": "1c01d8d1572f9bdd85f9bfdc97ce5735920aa527424a76aac728f6b6e3fba090",
+      "app.js": "46c17c8a403d838267defcc8a99bc83f60f14057bafdaba3319031cc80f6aac5",
+      "index.html": "569592f6e1914783cbad6a92003abe66defacc612a073c6f23cf29f314d60b56",
       "solver.js": "a87262d824f7f3c93afd8babe6d0a47ea976186b3e9375e24c5cbf5511dc2e45",
-      "styles.css": "503391eb54b0d6cc095f17164bb3d4c79f158285434ce5f200a3ca7716f84e17"
+      "styles.css": "ebdb5b9961c159b88978643b99b8f3b734aa1cbd004dde0a9a77f1ae5cd44daf"
     },
     "zzz": {
-      "app.js": "97a449368883e23d3675920c50e14ef36ab067822e4e22d6b4b118e1782cbda6",
-      "index.html": "9c2d079f4bbfa820cd1f4eb636d22222285424383b56153098417a43c36e15e4",
+      "app.js": "c33e1195240b1b090759dfe73b36ee3eb83b3a0496a38d86786ee42f744b963b",
+      "index.html": "d73940858a40691b83f98d03a536e3fac76e1d7331cf5a48c57cbdb4cb899c78",
       "solver.js": "a87262d824f7f3c93afd8babe6d0a47ea976186b3e9375e24c5cbf5511dc2e45",
-      "styles.css": "5f4c4038999f90742a7c947ed7f0b5ada88cd1b362067327642ec38884c73c38"
+      "styles.css": "e800834f39229804fba1c63ab65f2e5120e27f6a33f7a52a9fb9949f95284f29"
     },
     "hub": {
       "app.js": "45043faae8d788fb9557335a1fffbf7f36f7f5c0778c489a85560f2c5ef2def0",

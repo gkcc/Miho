@@ -1,4 +1,5 @@
 use std::{
+    ffi::{OsStr, OsString},
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
@@ -18,9 +19,10 @@ use miho_app::{
 use miho_core::pipeline::Game;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+use crate::secure_log::SafeLogV1;
 use crate::workspace::{
     trusted_workspace_file, validate_existing_file_chain, validate_selected_root,
     validate_workspace_target, workspace_storage_scope, workspace_storage_scope_from_identity,
@@ -1443,7 +1445,14 @@ pub fn start_task(
         .to_public();
     let sequence = snapshot.status_history.len() as u64;
     emit_update(&app, sequence, snapshot.clone());
-    spawn_task_monitor(app, state.tasks.clone(), snapshot.task_id.clone(), sequence);
+    let _ = app.state::<SafeLogV1>().record_task_started(&snapshot);
+    spawn_task_monitor(
+        app,
+        state.tasks.clone(),
+        snapshot.task_id.clone(),
+        sequence,
+        Instant::now(),
+    );
     Ok(snapshot)
 }
 
@@ -1463,7 +1472,14 @@ pub fn start_export_task(
         .to_public();
     let sequence = snapshot.status_history.len() as u64;
     emit_update(&app, sequence, snapshot.clone());
-    spawn_task_monitor(app, state.tasks.clone(), snapshot.task_id.clone(), sequence);
+    let _ = app.state::<SafeLogV1>().record_task_started(&snapshot);
+    spawn_task_monitor(
+        app,
+        state.tasks.clone(),
+        snapshot.task_id.clone(),
+        sequence,
+        Instant::now(),
+    );
     Ok(snapshot)
 }
 
@@ -1483,15 +1499,222 @@ pub fn list_tasks(state: State<'_, DesktopState>) -> Vec<PublicTaskSnapshotV1> {
 }
 
 #[tauri::command]
-pub fn cancel_task(task_id: String, state: State<'_, DesktopState>) -> PublicCancelTaskResultV1 {
+pub fn open_artifact(
+    artifact_id: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), PublicCommandFailureV1> {
+    let _gate = state.lock_gate()?;
+    let (root, _) = state
+        .workspaces
+        .active_access()
+        .map_err(map_workspace_error)?;
+    let path = trusted_artifact_path(&state, &root, &artifact_id)?;
+    open_native_target(path.as_os_str()).map_err(|_| {
+        PublicCommandFailureV1::new(
+            "artifact.open_failed",
+            "The result file could not be opened.",
+            true,
+        )
+    })
+}
+
+#[tauri::command]
+pub fn reveal_artifact(
+    artifact_id: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), PublicCommandFailureV1> {
+    let _gate = state.lock_gate()?;
+    let (root, _) = state
+        .workspaces
+        .active_access()
+        .map_err(map_workspace_error)?;
+    let path = trusted_artifact_path(&state, &root, &artifact_id)?;
+    reveal_native_target(&path).map_err(|_| {
+        PublicCommandFailureV1::new(
+            "artifact.reveal_failed",
+            "The result file could not be shown in the file manager.",
+            true,
+        )
+    })
+}
+
+#[tauri::command]
+pub fn open_external_https(url: String) -> Result<(), PublicCommandFailureV1> {
+    let parsed = validated_external_https(&url)?;
+    open_native_target(OsStr::new(parsed.as_str())).map_err(|_| {
+        PublicCommandFailureV1::new(
+            "external_url.open_failed",
+            "The source link could not be opened.",
+            true,
+        )
+    })
+}
+
+fn validated_external_https(url: &str) -> Result<tauri::Url, PublicCommandFailureV1> {
+    if url.len() > 2_048 || url.chars().any(char::is_control) {
+        return Err(PublicCommandFailureV1::new(
+            "external_url.invalid",
+            "Only valid HTTPS source links can be opened.",
+            false,
+        ));
+    }
+    let parsed = tauri::Url::parse(url).map_err(|_| {
+        PublicCommandFailureV1::new(
+            "external_url.invalid",
+            "Only valid HTTPS source links can be opened.",
+            false,
+        )
+    })?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(PublicCommandFailureV1::new(
+            "external_url.invalid",
+            "Only valid HTTPS source links can be opened.",
+            false,
+        ));
+    }
+    Ok(parsed)
+}
+
+#[tauri::command]
+pub fn open_log_location(logger: State<'_, SafeLogV1>) -> Result<(), PublicCommandFailureV1> {
+    let directory = logger.trusted_directory().map_err(|_| {
+        PublicCommandFailureV1::new(
+            "log.location_unavailable",
+            "The application log folder is unavailable or no longer trusted.",
+            true,
+        )
+    })?;
+    open_native_target(directory.as_os_str()).map_err(|_| {
+        PublicCommandFailureV1::new(
+            "log.open_failed",
+            "The application log folder could not be opened.",
+            true,
+        )
+    })?;
+    let _ = logger.record_log_location_opened();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_task(
+    app: AppHandle,
+    task_id: String,
+    state: State<'_, DesktopState>,
+) -> PublicCancelTaskResultV1 {
     let result = state.tasks.cancel(&task_id);
     let task = result.snapshot.map(|snapshot| snapshot.to_public());
-    PublicCancelTaskResultV1 {
+    let public = PublicCancelTaskResultV1 {
         schema_version: CANCEL_TASK_RESULT_SCHEMA_V1.to_owned(),
         task_id: result.task_id,
         outcome: result.outcome,
         task,
+    };
+    let _ = app.state::<SafeLogV1>().record_task_cancel(
+        &public.task_id,
+        public.outcome,
+        public.task.as_ref().map(|task| task.status),
+    );
+    public
+}
+
+fn trusted_artifact_path(
+    state: &DesktopState,
+    root: &Path,
+    artifact_id: &str,
+) -> Result<PathBuf, PublicCommandFailureV1> {
+    let path = state.tasks.artifact_path(artifact_id).ok_or_else(|| {
+        PublicCommandFailureV1::new(
+            "artifact.not_found",
+            "The requested result file is no longer available.",
+            false,
+        )
+    })?;
+    validate_workspace_target(root, &path).map_err(|_| {
+        PublicCommandFailureV1::new(
+            "artifact.untrusted",
+            "The requested result file is outside the active workspace.",
+            false,
+        )
+    })?;
+    validate_existing_file_chain(&path).map_err(|_| {
+        PublicCommandFailureV1::new(
+            "artifact.unavailable",
+            "The requested result file is missing or no longer trusted.",
+            false,
+        )
+    })?;
+    Ok(path)
+}
+
+#[cfg(windows)]
+fn open_native_target(target: &OsStr) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+
+    let verb = OsStr::new("open")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let target = target
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            target.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result as isize <= 32 {
+        Err(std::io::Error::other("ShellExecuteW failed"))
+    } else {
+        Ok(())
     }
+}
+
+#[cfg(not(windows))]
+fn open_native_target(target: &OsStr) -> std::io::Result<()> {
+    let program = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    Command::new(program)
+        .arg(target)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(windows)]
+fn reveal_native_target(path: &Path) -> std::io::Result<()> {
+    let mut select = OsString::from("/select,");
+    select.push(path.as_os_str());
+    Command::new("explorer.exe")
+        .arg(select)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(not(windows))]
+fn reveal_native_target(path: &Path) -> std::io::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| std::io::Error::other("missing parent"))?;
+    open_native_target(parent.as_os_str())
 }
 
 fn capabilities(state: &DesktopState) -> Result<DesktopCapabilitiesV1, PublicCommandFailureV1> {
@@ -1533,7 +1756,7 @@ fn capabilities(state: &DesktopState) -> Result<DesktopCapabilitiesV1, PublicCom
         operations,
         max_concurrent_tasks: 1,
         supports_cancel: true,
-        task_history_persistent: false,
+        task_history_persistent: true,
         task_update_event: TASK_UPDATE_EVENT_V1.to_owned(),
         task_queries_are_authoritative: true,
         abrupt_termination_supported: false,
@@ -1738,7 +1961,13 @@ fn pending_updates(
     tasks.public_updates_since(task_id, after_sequence)
 }
 
-fn spawn_task_monitor(app: AppHandle, tasks: TaskManager, task_id: String, mut last_sequence: u64) {
+fn spawn_task_monitor(
+    app: AppHandle,
+    tasks: TaskManager,
+    task_id: String,
+    mut last_sequence: u64,
+    started_at: Instant,
+) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1748,6 +1977,9 @@ fn spawn_task_monitor(app: AppHandle, tasks: TaskManager, task_id: String, mut l
             for update in updates {
                 last_sequence = update.sequence;
                 let terminal = update.task.status.is_terminal();
+                let _ = app
+                    .state::<SafeLogV1>()
+                    .record_task_status(&update.task, started_at.elapsed());
                 emit_update(&app, update.sequence, update.task);
                 if terminal {
                     return;
@@ -1778,6 +2010,10 @@ mod tests {
     static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
     struct ImmediateSuccess;
+
+    struct FixedOutputSuccess {
+        output: PathBuf,
+    }
 
     const TEST_OWNER_INSTANCE_ID: &str = "11111111-1111-4111-8111-111111111111";
     const TEST_OWNER_EPOCH: &str = "33333333-3333-4333-8333-333333333333";
@@ -1816,6 +2052,28 @@ mod tests {
                 local_datetime: "2026-07-13T00:00:00".to_owned(),
                 outputs: Vec::new(),
                 notices: Vec::new(),
+                freshness: None,
+            })
+        }
+    }
+
+    impl TaskExecutor for FixedOutputSuccess {
+        fn execute(
+            &self,
+            request: &TaskRequestV1,
+            _invocation: &AppInvocation,
+            observer: &dyn ExecutionObserver,
+        ) -> anyhow::Result<TaskReceiptV1> {
+            observer.before_commit()?;
+            Ok(TaskReceiptV1 {
+                schema_version: TASK_RECEIPT_SCHEMA_V1.to_owned(),
+                operation: request.operation(),
+                method_version: "artifact-test".to_owned(),
+                output_schema: "test".to_owned(),
+                local_datetime: "2026-07-23T00:00:00".to_owned(),
+                outputs: vec![self.output.clone()],
+                notices: Vec::new(),
+                freshness: None,
             })
         }
     }
@@ -2004,9 +2262,159 @@ mod tests {
         assert!(value.contains("\"cross_process_recovery_supported\":false"));
         assert!(value.contains("\"max_concurrent_tasks\":1"));
         assert!(value.contains("\"supports_cancel\":true"));
-        assert!(value.contains("\"task_history_persistent\":false"));
+        assert!(value.contains("\"task_history_persistent\":true"));
         assert!(value.contains("\"enabled\":false"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn external_links_accept_only_bounded_https_without_credentials() {
+        let accepted = validated_external_https("https://example.com/source?q=1#section").unwrap();
+        assert_eq!(accepted.scheme(), "https");
+        assert_eq!(accepted.host_str(), Some("example.com"));
+
+        for invalid in [
+            "http://example.com",
+            "javascript:alert(1)",
+            "https://user@example.com/source",
+            "https://user:password@example.com/source",
+            "https://",
+            "https://[::1",
+            "https://example.com/\nsource",
+        ] {
+            let failure = validated_external_https(invalid).unwrap_err();
+            assert_eq!(failure.code, "external_url.invalid", "{invalid}");
+            assert!(!failure.retryable, "{invalid}");
+        }
+        let oversized = format!("https://example.com/{}", "a".repeat(2_048));
+        assert_eq!(
+            validated_external_https(&oversized).unwrap_err().code,
+            "external_url.invalid"
+        );
+    }
+
+    #[test]
+    fn artifact_ids_are_bound_to_existing_files_in_the_active_workspace() {
+        let base = std::env::temp_dir().join(format!(
+            "miho-desktop-artifact-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let workspace = base.join("workspace");
+        let other_workspace = base.join("other");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&other_workspace).unwrap();
+        let output = workspace.join("report.md");
+        fs::write(&output, "report").unwrap();
+        let manager = TaskManager::with_executor(Arc::new(FixedOutputSuccess {
+            output: output.clone(),
+        }));
+        let request = TaskRequestV1::new(
+            WorkspaceLayout {
+                data_dir: workspace.join("data"),
+                box_path: workspace.join("box.json"),
+            },
+            TaskSpecV1::Decision(DecisionTaskV1 {
+                method: "legacy-v0".to_owned(),
+                rules_path: workspace.join("rules.yaml"),
+            }),
+        );
+        let queued = manager
+            .start(
+                request,
+                AppInvocation::capture_in(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !manager.get(&queued.task_id).unwrap().status.is_terminal() {
+            assert!(Instant::now() < deadline, "artifact task did not finish");
+            std::thread::yield_now();
+        }
+        let artifact_id = manager.get_public(&queued.task_id).unwrap().artifacts[0]
+            .artifact_id
+            .clone();
+        let workspaces =
+            WorkspaceRegistry::initialize(workspace.clone(), base.join("config"), None, None);
+        let state = DesktopState::new(workspaces, manager);
+
+        assert_eq!(
+            trusted_artifact_path(&state, &workspace, &artifact_id).unwrap(),
+            output
+        );
+        fs::remove_file(&output).unwrap();
+        assert_eq!(
+            trusted_artifact_path(&state, &workspace, &artifact_id)
+                .unwrap_err()
+                .code,
+            "artifact.unavailable"
+        );
+        fs::write(&output, "report").unwrap();
+        state.workspaces.select(other_workspace.clone()).unwrap();
+        assert_eq!(
+            trusted_artifact_path(&state, &other_workspace, &artifact_id)
+                .unwrap_err()
+                .code,
+            "artifact.untrusted"
+        );
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn artifact_reparse_targets_are_rejected() {
+        use std::os::windows::fs::symlink_file;
+
+        let base = std::env::temp_dir().join(format!(
+            "miho-desktop-artifact-link-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let workspace = base.join("workspace");
+        fs::create_dir_all(&workspace).unwrap();
+        let external = base.join("external.md");
+        let linked = workspace.join("report.md");
+        fs::write(&external, "outside").unwrap();
+        if symlink_file(&external, &linked).is_err() {
+            fs::remove_dir_all(base).unwrap();
+            return;
+        }
+        let manager = TaskManager::with_executor(Arc::new(FixedOutputSuccess {
+            output: linked.clone(),
+        }));
+        let request = TaskRequestV1::new(
+            WorkspaceLayout {
+                data_dir: workspace.join("data"),
+                box_path: workspace.join("box.json"),
+            },
+            TaskSpecV1::Decision(DecisionTaskV1 {
+                method: "legacy-v0".to_owned(),
+                rules_path: workspace.join("rules.yaml"),
+            }),
+        );
+        let queued = manager
+            .start(
+                request,
+                AppInvocation::capture_in(workspace.clone()).unwrap(),
+            )
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !manager.get(&queued.task_id).unwrap().status.is_terminal() {
+            assert!(Instant::now() < deadline, "artifact task did not finish");
+            std::thread::yield_now();
+        }
+        let artifact_id = manager.get_public(&queued.task_id).unwrap().artifacts[0]
+            .artifact_id
+            .clone();
+        let workspaces =
+            WorkspaceRegistry::initialize(workspace.clone(), base.join("config"), None, None);
+        let state = DesktopState::new(workspaces, manager);
+        let failure = trusted_artifact_path(&state, &workspace, &artifact_id).unwrap_err();
+        assert!(matches!(
+            failure.code.as_str(),
+            "artifact.untrusted" | "artifact.unavailable"
+        ));
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

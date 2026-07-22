@@ -7,11 +7,13 @@ use tauri::{Manager, State};
 use uuid::Uuid;
 
 mod portable;
+mod secure_log;
 mod tasks;
 mod visualizer_protocol;
 mod workspace;
 
 use portable::{detect_portable_workspace_v1, PortableWorkspaceError};
+use secure_log::SafeLogV1;
 use tasks::{
     acquire_automation_coordinator, acquire_automation_workspace_binding,
     powershell_automation_probe_v1, AutomationExpectedOwnerV1, DesktopState,
@@ -512,6 +514,9 @@ pub fn run() {
         .setup(|app| {
             let cwd = std::env::current_dir().ok();
             let current_executable = std::env::current_exe()?;
+            let safe_log = SafeLogV1::initialize_app_local(app.path().app_local_data_dir()?)?;
+            safe_log.record_desktop_started()?;
+            app.manage(safe_log);
             let automation_root = app
                 .path()
                 .local_data_dir()?
@@ -657,6 +662,10 @@ pub fn run() {
             tasks::start_export_task,
             tasks::get_task,
             tasks::list_tasks,
+            tasks::open_artifact,
+            tasks::reveal_artifact,
+            tasks::open_external_https,
+            tasks::open_log_location,
             tasks::cancel_task,
         ])
         .run(tauri::generate_context!())
@@ -865,8 +874,14 @@ mod tests {
         assert!(frontend.contains("main.append(visualizerSection)"));
         assert!(frontend.contains("pageUrl.hash = \"box\""));
         assert!(frontend.contains(
-            "visualizerFrame.setAttribute(\"sandbox\", \"allow-scripts allow-same-origin allow-downloads\")"
+            "frame.setAttribute(\"sandbox\", \"allow-scripts allow-same-origin allow-downloads\")"
         ));
+        assert!(frontend.contains("miho-visualizer-box-flush-request-v1"));
+        assert!(frontend.contains("onCloseRequested"));
+        assert!(frontend.contains("open_log_location"));
+        assert!(frontend.contains("miho-desktop:task-history-v1:${workspaceId}"));
+        assert!(frontend.contains("task.interrupted"));
+        assert!(frontend.contains("slice(-20)"));
         assert!(!frontend.contains("save_box_state"));
         assert!(!frontend.contains("ownedInput"));
         let binary_entry = include_str!("main.rs");

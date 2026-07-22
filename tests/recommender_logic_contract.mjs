@@ -31,6 +31,7 @@ const HSR_HARNESS = String.raw`
       search: settings.search || '',
     };
     box = {...box, owned: new Set(owned), builds, buildSlug: ''};
+    boxUndoStack = [];
   },
   setElements(mode, scope, values) {
     rec.elements[recSettingKey(mode, scope)] = [...values];
@@ -135,6 +136,25 @@ const HSR_HARNESS = String.raw`
   deploymentGroups(slugs) {
     return slugs.map(deploymentGroup);
   },
+  boxPreview(raw) {
+    return boxImportPreview(raw);
+  },
+  boxImportError(raw) {
+    try { parseBoxImportDocument(raw); return ''; } catch (error) { return error.message; }
+  },
+  boxHistoryProbe(count) {
+    boxUndoStack = [];
+    for (let index = 0; index < count; index += 1) {
+      box.owned = new Set(['unit-' + index]);
+      box.builds = {};
+      box.buildSlug = '';
+      rememberBoxUndo();
+    }
+    return {length: boxUndoStack.length, first: boxUndoStack[0]?.owned[0], last: boxUndoStack.at(-1)?.owned[0]};
+  },
+  freshness(mode, fallback = {}) {
+    return modeFreshness(mode, fallback);
+  },
 };
 `;
 
@@ -156,6 +176,7 @@ const ZZZ_HARNESS = String.raw`
       search: settings.search || '',
     };
     box = {...box, owned: new Set(owned), builds, buildSlug: ''};
+    boxUndoStack = [];
   },
   constraints(mode, scope) {
     const sets = constraintSets(mode, scope);
@@ -221,6 +242,25 @@ const ZZZ_HARNESS = String.raw`
     loadRec();
     return rec.sortMode;
   },
+  boxPreview(raw) {
+    return boxImportPreview(raw);
+  },
+  boxImportError(raw) {
+    try { parseBoxImportDocument(raw); return ''; } catch (error) { return error.message; }
+  },
+  boxHistoryProbe(count) {
+    boxUndoStack = [];
+    for (let index = 0; index < count; index += 1) {
+      box.owned = new Set(['unit-' + index]);
+      box.builds = {};
+      box.buildSlug = '';
+      rememberBoxUndo();
+    }
+    return {length: boxUndoStack.length, first: boxUndoStack[0]?.owned[0], last: boxUndoStack.at(-1)?.owned[0]};
+  },
+  freshness(mode, fallback = {}) {
+    return modeFreshness(mode, fallback);
+  },
 };
 `;
 
@@ -248,6 +288,50 @@ function loadContract(appPath, harness) {
   const source = `${readFileSync(SLATE_SOLVER, 'utf8')}\n${readFileSync(appPath, 'utf8')}\n${harness}`;
   new vm.Script(source, {filename: appPath}).runInContext(context, {timeout: 2_000});
   return context.__recommenderContract;
+}
+
+function loadBoxFlushContract(appPath, {putOk = true} = {}) {
+  const storage = new Map();
+  let putCount = 0;
+  const context = vm.createContext({
+    console,
+    __MIHO_DESKTOP__: true,
+    document: {body: {innerHTML: ''}, getElementById: () => null, createElement: () => ({})},
+    location: {hash: '', href: 'http://localhost/', origin: 'http://localhost'},
+    localStorage: {
+      getItem: key => storage.get(String(key)) ?? null,
+      setItem: (key, value) => storage.set(String(key), String(value)),
+      removeItem: key => storage.delete(String(key)),
+    },
+    setTimeout,
+    clearTimeout,
+    requestAnimationFrame: () => 0,
+    fetch: (url, options = {}) => {
+      if (options.method !== 'PUT') return new Promise(() => {});
+      putCount += 1;
+      const payload = JSON.parse(String(options.body || '{}'));
+      return Promise.resolve({ok: putOk, json: () => Promise.resolve(payload)});
+    },
+  });
+  context.global = context;
+  context.window = context;
+  const harness = String.raw`
+;globalThis.__boxFlushContract = {
+  async saveOne(slug) {
+    DATA = {rosterRows: []};
+    state = {...state, page: 'not-rendered'};
+    box = {...box, owned: new Set([slug]), builds: {}, buildSlug: ''};
+    boxSaveRevision = 0;
+    boxPendingSave = null;
+    boxSaveChain = Promise.resolve();
+    saveBox();
+    await flushBoxSave();
+    return box.saveStatus;
+  },
+};
+`;
+  new vm.Script(`${readFileSync(appPath, 'utf8')}\n${harness}`, {filename: appPath}).runInContext(context, {timeout: 2_000});
+  return {api: context.__boxFlushContract, putCount: () => putCount};
 }
 
 function solveSlate(input) {
@@ -1701,3 +1785,117 @@ test('ZZZ migrates legacy Nom Box state and scoped recommendation constraints wi
     'sd|s2': {required: [], excluded: ['norma']},
   });
 });
+
+test('HSR Box import previews every replacement delta, rejects empty documents, and bounds undo history', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const rosterRows = [
+    hsrCharacter('alpha', '火', 'main_dps', '毁灭', 1),
+    hsrCharacter('beta', '冰', 'support', '同谐', 2),
+    hsrCharacter('gamma', '量子', 'sustain', '存护', 3),
+  ];
+  api.reset(
+    hsrData(rosterRows, []),
+    {},
+    ['alpha', 'beta'],
+    {
+      alpha: hsrFullBuild(),
+      beta: {level: 20, lc: 20, eidolon: 0, signature: 'no', traces: 'low', relics: 'none'},
+    },
+  );
+  const preview = plain(api.boxPreview({
+    version: 2,
+    owned: ['beta', 'gamma'],
+    builds: {
+      beta: hsrFullBuild(),
+      gamma: {level: 80, lc: 80, eidolon: 0, signature: 'no', traces: 'high', relics: 'good'},
+    },
+  }));
+  assert.deepEqual(
+    {
+      ownedAdded: preview.ownedAdded,
+      ownedRemoved: preview.ownedRemoved,
+      buildAdded: preview.buildAdded,
+      buildChanged: preview.buildChanged,
+      buildCleared: preview.buildCleared,
+    },
+    {ownedAdded: 1, ownedRemoved: 1, buildAdded: 1, buildChanged: 1, buildCleared: 1},
+  );
+  assert.match(api.boxImportError({}), /没有 Box/);
+  assert.match(api.boxImportError({version: 2}), /没有 Box/);
+  assert.match(api.boxImportError({version: 2, owned: ['alpha']}), /缺少完整/);
+  assert.match(api.boxImportError({version: 2, builds: {alpha: hsrFullBuild()}}), /缺少完整/);
+  assert.match(api.boxImportError({version: 2, owned: [], builds: {}}), /清空整个 Box/);
+  assert.deepEqual(plain(api.boxHistoryProbe(25)), {length: 20, first: 'unit-5', last: 'unit-24'});
+});
+
+test('ZZZ Box import preview canonicalizes aliases and applies the same empty-document and undo safeguards', () => {
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const rosterRows = [zzzCharacter('norma', 'support', 1), zzzCharacter('beta', 'support', 2), zzzCharacter('gamma', 'support', 3)];
+  api.reset(
+    {rosterRows, bannerRows: [], teamTemplates: [], tierRows: [], usageRows: []},
+    {},
+    ['norma', 'beta'],
+    {
+      norma: zzzFullBuild(),
+      beta: {level: 20, engine: 20, mindscape: 0, signature: 'no', skills: 'low', discs: 'none'},
+    },
+  );
+  const preview = plain(api.boxPreview({
+    version: 3,
+    owned: ['beta', 'nom'],
+    builds: {
+      beta: zzzFullBuild(),
+      nom: {level: 60, engine: 60, mindscape: 0, signature: 'no', skills: 'high', discs: 'good'},
+    },
+  }));
+  assert.deepEqual(preview.next.owned, ['beta', 'norma']);
+  assert.deepEqual(
+    {
+      ownedAdded: preview.ownedAdded,
+      ownedRemoved: preview.ownedRemoved,
+      buildAdded: preview.buildAdded,
+      buildChanged: preview.buildChanged,
+      buildCleared: preview.buildCleared,
+    },
+    {ownedAdded: 0, ownedRemoved: 0, buildAdded: 0, buildChanged: 2, buildCleared: 0},
+  );
+  assert.match(api.boxImportError({}), /没有 Box/);
+  assert.match(api.boxImportError({version: 3, owned: ['beta']}), /缺少完整/);
+  assert.match(api.boxImportError({version: 3, builds: {beta: zzzFullBuild()}}), /缺少完整/);
+  assert.match(api.boxImportError({version: 3, owned: [], builds: {}}), /清空整个 Box/);
+  assert.deepEqual(plain(api.boxHistoryProbe(24)), {length: 20, first: 'unit-4', last: 'unit-23'});
+});
+
+test('both visualizers read freshness from snake/camel data-quality fallbacks without blocking legacy data', () => {
+  const hsr = loadContract(HSR_APP, HSR_HARNESS);
+  hsr.reset({
+    ...hsrData([], []),
+    data_quality: {modes: {as: {freshness: {status: 'future', sample_date: '2026-08-01', source: 'fixture'}}}},
+  });
+  assert.deepEqual(plain(hsr.freshness('as')), {status: 'future', sampleDate: '2026-08-01', startDate: '', endDate: '', source: 'fixture'});
+  assert.equal(plain(hsr.freshness('moc', {phase_status: 'expired'})).status, 'stale');
+
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  zzz.reset({
+    rosterRows: [], bannerRows: [], teamTemplates: [], tierRows: [], usageRows: [],
+    dataQuality: {modes: {da: {freshness: {status: 'unknown', sample_date: '2026-08-02', source: 'fixture-camel'}}}},
+  });
+  assert.deepEqual(plain(zzz.freshness('da')), {status: 'unknown', sampleDate: '2026-08-02', startDate: '', endDate: '', source: 'fixture-camel'});
+  assert.equal(plain(zzz.freshness('sd', {phase_status: 'current'})).status, 'active');
+});
+
+for (const [game, appPath] of [['HSR', HSR_APP], ['ZZZ', ZZZ_APP]]) {
+  test(`${game} flushBoxSave cancels debounce and waits for the real PUT`, async () => {
+    const contract = loadBoxFlushContract(appPath);
+    assert.equal(await contract.api.saveOne('unit-a'), '本机自动保存');
+    assert.equal(contract.putCount(), 1);
+    await new Promise(resolve => setTimeout(resolve, 220));
+    assert.equal(contract.putCount(), 1, 'the cancelled debounce must not send a second PUT');
+  });
+
+  test(`${game} flushBoxSave rejects after a failed PUT`, async () => {
+    const contract = loadBoxFlushContract(appPath, {putOk: false});
+    await assert.rejects(contract.api.saveOne('unit-a'), /Box 保存失败，请重试/);
+    assert.equal(contract.putCount(), 1);
+  });
+}

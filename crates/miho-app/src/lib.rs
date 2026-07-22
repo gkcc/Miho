@@ -553,6 +553,45 @@ pub fn resolve_task_intent_v1(intent: &TaskIntentV1, paths: &NativeTaskPathsV1) 
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct TaskModeFreshnessV1 {
+    pub status: String,
+    pub sample_date: String,
+    pub start_date: String,
+    pub end_date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TaskFreshnessSummaryV1 {
+    pub status: String,
+    pub modes: BTreeMap<String, TaskModeFreshnessV1>,
+}
+
+impl From<&miho_core::data_quality::DataQualityReportV1> for TaskFreshnessSummaryV1 {
+    fn from(report: &miho_core::data_quality::DataQualityReportV1) -> Self {
+        Self {
+            status: report.status.clone(),
+            modes: report
+                .modes
+                .iter()
+                .map(|(mode, quality)| {
+                    (
+                        mode.clone(),
+                        TaskModeFreshnessV1 {
+                            status: quality.freshness.status.clone(),
+                            sample_date: quality.freshness.sample_date.clone(),
+                            start_date: quality.freshness.start_date.clone(),
+                            end_date: quality.freshness.end_date.clone(),
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct TaskReceiptV1 {
     pub schema_version: String,
     pub operation: TaskOperationV1,
@@ -562,6 +601,8 @@ pub struct TaskReceiptV1 {
     pub outputs: Vec<PathBuf>,
     #[serde(default)]
     pub notices: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freshness: Option<TaskFreshnessSummaryV1>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -576,12 +617,39 @@ pub struct TaskFailureV1 {
 
 impl TaskFailureV1 {
     pub fn from_error(operation: Option<TaskOperationV1>, error: &anyhow::Error) -> Self {
+        let diagnostic = format!("{error:#}");
+        let normalized = diagnostic.to_ascii_lowercase();
+        let (code, retryable) = if normalized.contains("workspace.write_busy") {
+            ("workspace.write_busy", true)
+        } else if normalized.contains("workspace.write_unsafe") {
+            ("workspace.write_unsafe", false)
+        } else if normalized.contains("workspace.write_unavailable") {
+            ("workspace.write_unavailable", true)
+        } else if normalized.contains("network request failed")
+            || normalized.contains("cache fallback")
+            || normalized.contains("offline cache miss")
+        {
+            ("source.unavailable", true)
+        } else if normalized.contains("permission denied")
+            || normalized.contains("access is denied")
+        {
+            ("workspace.permission_denied", true)
+        } else if normalized.contains("invalid json")
+            || normalized.contains("invalid yaml")
+            || normalized.contains("data quality")
+        {
+            ("data.invalid", false)
+        } else if normalized.contains("unsupported") {
+            ("request.unsupported", false)
+        } else {
+            ("task.failed", false)
+        };
         Self {
             schema_version: TASK_FAILURE_SCHEMA_V1.to_owned(),
             operation,
-            code: "task.failed".to_owned(),
-            message: format!("{error:#}"),
-            retryable: false,
+            code: code.to_owned(),
+            message: diagnostic,
+            retryable,
         }
     }
 
@@ -797,6 +865,7 @@ pub fn execute_task_observed_v1(
             .to_string(),
         outputs,
         notices,
+        freshness: None,
     })
 }
 

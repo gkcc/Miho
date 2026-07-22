@@ -194,7 +194,17 @@ fn handle_box(root: &Path, game: &str, request: Request<Vec<u8>>) -> Response<Ve
         if request.body().len() as u64 > MAX_BOX_BYTES {
             return error_response(StatusCode::PAYLOAD_TOO_LARGE);
         }
-        let state = match serde_json::from_slice::<BoxState>(request.body()) {
+        let document = match serde_json::from_slice::<serde_json::Value>(request.body()) {
+            Ok(document) => document,
+            Err(_) => return error_response(StatusCode::BAD_REQUEST),
+        };
+        let Some(fields) = document.as_object() else {
+            return error_response(StatusCode::BAD_REQUEST);
+        };
+        if !fields.contains_key("owned") || !fields.contains_key("builds") {
+            return error_response(StatusCode::BAD_REQUEST);
+        }
+        let state = match serde_json::from_value::<BoxState>(document) {
             Ok(state) => state.normalize(),
             Err(_) => return error_response(StatusCode::BAD_REQUEST),
         };
@@ -380,7 +390,8 @@ fn parse_route(raw_path: &str) -> Result<Route, StatusCode> {
     }
     let game =
         parse_game(segments.first().copied().unwrap_or_default()).ok_or(StatusCode::NOT_FOUND)?;
-    if let [_, name @ ("index.html" | "app.js" | "solver.js" | "styles.css" | "data.json")] = segments.as_slice()
+    if let [_, name @ ("index.html" | "app.js" | "solver.js" | "styles.css" | "data.json")] =
+        segments.as_slice()
     {
         let (mime, cache) = static_headers(name);
         return Ok(Route::Static {
@@ -1223,6 +1234,65 @@ mod tests {
     }
 
     #[test]
+    fn box_api_rejects_documents_without_box_semantics_and_preserves_state() {
+        let root = root();
+        let initial = handle_request(
+            &root,
+            "main",
+            request(
+                Method::PUT,
+                "/api/hsr/box",
+                br#"{"version":2,"updatedAt":"now","owned":["acheron"],"buildSlug":"","builds":{}}"#.to_vec(),
+            ),
+        );
+        assert_eq!(initial.status(), StatusCode::OK);
+
+        for body in [
+            br#"{}"#.as_slice(),
+            br#"{"version":2}"#.as_slice(),
+            br#"{"version":2,"buildSlug":"acheron"}"#.as_slice(),
+            br#"{"version":2,"owned":[]}"#.as_slice(),
+            br#"{"version":2,"builds":{}}"#.as_slice(),
+        ] {
+            let rejected = handle_request(
+                &root,
+                "main",
+                request(Method::PUT, "/api/hsr/box", body.to_vec()),
+            );
+            assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+        }
+
+        let preserved = handle_request(
+            &root,
+            "main",
+            request(Method::GET, "/api/hsr/box", Vec::new()),
+        );
+        assert_eq!(preserved.status(), StatusCode::OK);
+        assert_eq!(
+            serde_json::from_slice::<BoxState>(preserved.body())
+                .unwrap()
+                .owned,
+            ["acheron"]
+        );
+
+        let explicit_clear = handle_request(
+            &root,
+            "main",
+            request(
+                Method::PUT,
+                "/api/hsr/box",
+                br#"{"version":2,"updatedAt":"","owned":[],"buildSlug":"","builds":{}}"#.to_vec(),
+            ),
+        );
+        assert_eq!(explicit_clear.status(), StatusCode::OK);
+        assert!(serde_json::from_slice::<BoxState>(explicit_clear.body())
+            .unwrap()
+            .owned
+            .is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn box_api_enforces_existing_pretty_size_and_depth_limits() {
         let root = root();
         let box_path = root.join(".miho/zzz_box_state.json");
@@ -1354,7 +1424,13 @@ mod tests {
         let base = root();
         let root = base.join("CANARY_SECRET_WORKSPACE");
         fs::create_dir_all(root.join("out/visualizer/assets/avatars")).unwrap();
-        for name in ["index.html", "app.js", "solver.js", "styles.css", "data.json"] {
+        for name in [
+            "index.html",
+            "app.js",
+            "solver.js",
+            "styles.css",
+            "data.json",
+        ] {
             let bytes = if name == "data.json" {
                 b"{}".as_slice()
             } else {

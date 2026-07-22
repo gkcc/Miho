@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./styles.css";
 
 type Game = "hsr" | "zzz";
@@ -52,8 +53,22 @@ type PublicArtifact = {
 
 type PublicTaskFailure = {
   code: string;
+  stage: string;
   retryable: boolean;
   message: string;
+  action: string;
+};
+
+type TaskModeFreshness = {
+  status: string;
+  sample_date: string;
+  start_date: string;
+  end_date: string;
+};
+
+type TaskFreshnessSummary = {
+  status: string;
+  modes: Record<string, TaskModeFreshness>;
 };
 
 type PublicTaskSnapshot = {
@@ -65,6 +80,7 @@ type PublicTaskSnapshot = {
   cancellation_requested: boolean;
   artifacts: PublicArtifact[];
   failure: PublicTaskFailure | null;
+  freshness?: TaskFreshnessSummary;
 };
 
 type TaskUpdate = {
@@ -154,11 +170,84 @@ let workspaceBusy = false;
 let taskBusy = false;
 let visualizerRequest = 0;
 let unlistenTaskUpdates: UnlistenFn | null = null;
+let unlistenWindowClose: UnlistenFn | null = null;
+let boxTransitionBusy = false;
+let allowWindowClose = false;
+let closeGuardRunning = false;
+
+type PendingBoxFlush = {
+  frame: HTMLIFrameElement;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timeout: number;
+};
+
+const pendingBoxFlushes = new Map<string, PendingBoxFlush>();
+let boxFlushSequence = 0;
 
 const tasks = new Map<string, PublicTaskSnapshot>();
 const authoritativeTaskSequences = new Map<string, number>();
 const eventTaskSequences = new Map<string, number>();
 const taskQueries = new Map<string, number>();
+const restoredTaskIds = new Set<string>();
+let historyWorkspaceId = "";
+
+function taskHistoryKey(workspaceId: string): string {
+  return `miho-desktop:task-history-v1:${workspaceId}`;
+}
+
+function persistTaskHistory(): void {
+  if (!historyWorkspaceId) return;
+  const recent = [...tasks.values()].slice(-20);
+  try {
+    localStorage.setItem(taskHistoryKey(historyWorkspaceId), JSON.stringify(recent));
+  } catch {
+    // History persistence is best effort and never blocks task execution.
+  }
+}
+
+function restoreTaskHistory(workspaceId: string): void {
+  tasks.clear();
+  restoredTaskIds.clear();
+  authoritativeTaskSequences.clear();
+  eventTaskSequences.clear();
+  taskQueries.clear();
+  historyWorkspaceId = workspaceId;
+  let interrupted = 0;
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(taskHistoryKey(workspaceId)) || "[]");
+    if (!Array.isArray(parsed)) return;
+    for (const value of parsed.slice(-20)) {
+      if (!isPublicTaskSnapshot(value)) continue;
+      let snapshot = value;
+      if (!TERMINAL_STATUSES.has(snapshot.status)) {
+        interrupted += 1;
+        snapshot = {
+          ...snapshot,
+          status: "failed",
+          status_history: [...snapshot.status_history, "failed"],
+          cancellation_requested: false,
+          failure: {
+            code: "task.interrupted",
+            stage: "runtime",
+            retryable: true,
+            message: "上次关闭程序时任务仍在运行，已记录为中断。",
+            action: "确认工作区状态后可手动重新开始；程序不会自动重跑。",
+          },
+        };
+      }
+      tasks.set(snapshot.task_id, snapshot);
+      restoredTaskIds.add(snapshot.task_id);
+    }
+  } catch {
+    localStorage.removeItem(taskHistoryKey(workspaceId));
+  }
+  persistTaskHistory();
+  renderTasks();
+  if (interrupted) {
+    setNotice(taskMessage, `检测到 ${interrupted} 条上次中断的任务记录；未自动重跑。`, "error");
+  }
+}
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -196,6 +285,17 @@ function operationLabel(operation: TaskOperation): string {
   return OPERATIONS.find((candidate) => candidate.value === operation)?.label ?? operation;
 }
 
+function modeLabel(mode: string): string {
+  return ({ moc: "混沌回忆", pf: "虚构叙事", as: "末日幻影", aa: "异相仲裁", sd: "式舆防卫", da: "危局强袭" } as Record<string, string>)[mode] ?? mode;
+}
+
+function freshnessLabel(status: string): string {
+  return status === "active" ? "当前"
+    : status === "stale" ? "历史样本"
+      : status === "future" ? "未来周期"
+        : "周期未知";
+}
+
 function safeError(error: unknown): CommandFailure {
   if (typeof error === "object" && error !== null) {
     const record = error as Record<string, unknown>;
@@ -216,10 +316,18 @@ gameNav.setAttribute("aria-label", "游戏选择");
 const gameButtons = new Map<Game, HTMLButtonElement>();
 for (const [value, label] of [["hsr", "崩坏：星穹铁道"], ["zzz", "绝区零"]] as const) {
   const button = makeButton(label, "game-button", async () => {
-    if (game === value || workspaceBusy) return;
-    game = value;
-    updateGameUI();
-    await loadVisualizer();
+    if (game === value || workspaceBusy || boxTransitionBusy) return;
+    boxTransitionBusy = true;
+    updateWorkspaceControls();
+    try {
+      if (!await ensureVisualizerBoxesSaved([game], "切换游戏")) return;
+      game = value;
+      updateGameUI();
+      await loadVisualizer(false, value);
+    } finally {
+      boxTransitionBusy = false;
+      updateWorkspaceControls();
+    }
   });
   gameButtons.set(value, button);
   gameNav.append(button);
@@ -235,7 +343,8 @@ workspaceTitleBlock.append(element("p", "eyebrow", "TRUSTED NATIVE WORKSPACE"), 
 const workspaceActions = element("div", "button-row");
 const selectWorkspaceButton = makeButton("切换工作区", "button secondary", selectWorkspace);
 const refreshWorkspaceButton = makeButton("刷新", "button", refreshAll);
-workspaceActions.append(selectWorkspaceButton, refreshWorkspaceButton);
+const openLogButton = makeButton("打开日志", "button secondary", openLogLocation);
+workspaceActions.append(selectWorkspaceButton, openLogButton, refreshWorkspaceButton);
 workspaceHeading.append(workspaceTitleBlock, workspaceActions);
 const workspaceSummary = element("div", "workspace-summary");
 const workspaceMessage = element("p", "notice", "正在读取本机能力…");
@@ -366,25 +475,65 @@ const visualizerHeading = element("div", "section-heading");
 const visualizerTitleBlock = element("div");
 const visualizerTitle = element("h2", undefined, "绝区零 · 我的 Box 与终局分析");
 visualizerTitleBlock.append(element("p", "eyebrow", "MY BOX"), visualizerTitle);
-const reloadVisualizerButton = makeButton("重新载入", "button secondary", loadVisualizer);
+const reloadVisualizerButton = makeButton("重新载入", "button secondary", async () => {
+  if (boxTransitionBusy) return;
+  boxTransitionBusy = true;
+  updateWorkspaceControls();
+  try {
+    if (await ensureVisualizerBoxesSaved([game], "重新载入")) await loadVisualizer(true);
+  } finally {
+    boxTransitionBusy = false;
+    updateWorkspaceControls();
+  }
+});
 visualizerHeading.append(visualizerTitleBlock);
 const visualizerMessage = element("p", "notice", "正在向本机后端请求 Visualizer 地址…");
-const visualizerFrame = element("iframe", "visualizer-frame");
-visualizerFrame.title = "终局数据 Visualizer";
-visualizerFrame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
-visualizerFrame.referrerPolicy = "no-referrer";
-visualizerFrame.hidden = true;
-visualizerFrame.addEventListener("error", () => {
-  visualizerFrame.hidden = true;
-  visualizerMessage.hidden = false;
-  utilities.open = true;
-  visualizerMessage.textContent = "Visualizer 页面加载失败。请刷新或检查本机生成状态。";
-  visualizerMessage.className = "notice error";
+const visualizerFrames = new Map<Game, HTMLIFrameElement>();
+const visualizerDirty = new Set<Game>(["hsr", "zzz"]);
+for (const targetGame of ["hsr", "zzz"] as const) {
+  const frame = element("iframe", "visualizer-frame");
+  frame.title = `${targetGame === "hsr" ? "崩坏：星穹铁道" : "绝区零"}终局数据 Visualizer`;
+  frame.dataset.game = targetGame;
+  frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
+  frame.referrerPolicy = "no-referrer";
+  frame.hidden = true;
+  frame.addEventListener("error", () => {
+    frame.hidden = true;
+    visualizerDirty.add(targetGame);
+    visualizerMessage.hidden = false;
+    utilities.open = true;
+    visualizerMessage.textContent = "Visualizer 页面加载失败。请刷新或检查本机生成状态。";
+    visualizerMessage.className = "notice error";
+  });
+  frame.addEventListener("load", () => {
+    frame.dataset.loaded = frame.getAttribute("src") ? "true" : "false";
+    if (frame.src && game === targetGame) visualizerMessage.hidden = true;
+  });
+  visualizerFrames.set(targetGame, frame);
+}
+window.addEventListener("message", (event) => {
+  if (!isRecord(event.data)) return;
+  if (event.data.schema_version === "miho-visualizer-box-flush-result-v1"
+    && typeof event.data.request_id === "string"
+    && typeof event.data.ok === "boolean") {
+    const pending = pendingBoxFlushes.get(event.data.request_id);
+    if (!pending || event.source !== pending.frame.contentWindow) return;
+    window.clearTimeout(pending.timeout);
+    pendingBoxFlushes.delete(event.data.request_id);
+    if (event.data.ok) pending.resolve();
+    else pending.reject(new Error("Box 保存未成功。"));
+    return;
+  }
+  const activeFrame = visualizerFrames.get(game);
+  if (!activeFrame || event.source !== activeFrame.contentWindow) return;
+  if (event.data.schema_version === "miho-visualizer-external-link-v1" && typeof event.data.url === "string") {
+    void invoke("open_external_https", { url: event.data.url }).catch((error) => {
+      const failure = safeError(error);
+      setNotice(visualizerMessage, `来源链接无法打开（${failure.code}）：${failure.message}`, "error");
+    });
+  }
 });
-visualizerFrame.addEventListener("load", () => {
-  if (visualizerFrame.src) visualizerMessage.hidden = true;
-});
-visualizerSection.append(visualizerHeading, visualizerMessage, visualizerFrame);
+visualizerSection.append(visualizerHeading, visualizerMessage, ...visualizerFrames.values());
 
 const utilities = element("details", "utilities");
 const utilitiesSummary = element("summary", undefined, "更新数据、生成报告与设置");
@@ -410,17 +559,82 @@ function updateGameUI(): void {
   visualizerTitle.textContent = `${gameName} · 我的 Box 与终局分析`;
 }
 
+function rejectFrameFlushes(frame: HTMLIFrameElement): void {
+  for (const [requestId, pending] of pendingBoxFlushes) {
+    if (pending.frame !== frame) continue;
+    window.clearTimeout(pending.timeout);
+    pendingBoxFlushes.delete(requestId);
+    pending.reject(new Error("Box 页面已离开。"));
+  }
+}
+
+function discardVisualizerBoxChanges(targetGames: ReadonlyArray<Game>): void {
+  for (const targetGame of new Set(targetGames)) {
+    const frame = visualizerFrames.get(targetGame);
+    if (!frame?.getAttribute("src")) continue;
+    rejectFrameFlushes(frame);
+    frame.dataset.loaded = "false";
+    frame.removeAttribute("src");
+    frame.hidden = true;
+    visualizerDirty.add(targetGame);
+  }
+}
+
+function flushVisualizerBox(targetGame: Game): Promise<void> {
+  const frame = visualizerFrames.get(targetGame);
+  if (!frame?.getAttribute("src") || frame.dataset.loaded !== "true") return Promise.resolve();
+  const target = frame.contentWindow;
+  if (!target) return Promise.reject(new Error("Box 页面尚未就绪。"));
+  const requestId = `box-flush-${Date.now()}-${++boxFlushSequence}`;
+  return new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      pendingBoxFlushes.delete(requestId);
+      reject(new Error("等待 Box 保存确认超时。"));
+    }, 8_000);
+    pendingBoxFlushes.set(requestId, { frame, resolve, reject, timeout });
+    target.postMessage({
+      schema_version: "miho-visualizer-box-flush-request-v1",
+      request_id: requestId,
+    }, "*");
+  });
+}
+
+async function ensureVisualizerBoxesSaved(targetGames: ReadonlyArray<Game>, action: string): Promise<boolean> {
+  const loadedGames = [...new Set(targetGames)].filter((targetGame) => {
+    const frame = visualizerFrames.get(targetGame);
+    return Boolean(frame?.getAttribute("src") && frame.dataset.loaded === "true");
+  });
+  if (!loadedGames.length) return true;
+  while (true) {
+    try {
+      await Promise.all(loadedGames.map(flushVisualizerBox));
+      return true;
+    } catch {
+      setNotice(visualizerMessage, `${action}前未能确认 Box 已保存。`, "error");
+      if (window.confirm(`${action}前保存 Box 失败。\n\n选择“确定”重试，选择“取消”查看放弃选项。`)) continue;
+      if (window.confirm("是否放弃这些尚未保存的 Box 修改并继续？此操作无法撤销。")) {
+        discardVisualizerBoxChanges(loadedGames);
+        return true;
+      }
+      return false;
+    }
+  }
+}
+
 function setNotice(target: HTMLElement, message: string, kind: "normal" | "error" | "success" = "normal"): void {
   target.textContent = message;
   target.className = kind === "normal" ? "notice" : `notice ${kind}`;
 }
 
 function updateWorkspaceControls(): void {
-  for (const button of gameButtons.values()) button.disabled = workspaceBusy;
+  for (const button of gameButtons.values()) button.disabled = workspaceBusy || boxTransitionBusy;
   selectWorkspaceButton.disabled = workspaceBusy
+    || boxTransitionBusy
     || capabilities?.workspace_selection_enabled === false
     || hasActiveTask();
-  refreshWorkspaceButton.disabled = workspaceBusy;
+  openLogButton.disabled = workspaceBusy || boxTransitionBusy;
+  refreshWorkspaceButton.disabled = workspaceBusy || boxTransitionBusy;
+  reloadVisualizerButton.disabled = workspaceBusy || boxTransitionBusy;
 }
 
 function capabilityFor(operation: TaskOperation): OperationCapability | undefined {
@@ -502,7 +716,9 @@ async function refreshCapabilities(): Promise<void> {
   try {
     const next = await invoke<DesktopCapabilities>("get_capabilities");
     if (request !== capabilitiesRequestGeneration) return;
+    const workspaceChanged = historyWorkspaceId !== next.workspace.workspace_id;
     capabilities = next;
+    if (workspaceChanged) restoreTaskHistory(next.workspace.workspace_id);
     renderCapabilities();
     setNotice(workspaceMessage, "能力与缺失输入已刷新。", "success");
   } catch (error) {
@@ -518,22 +734,37 @@ async function selectWorkspace(): Promise<void> {
   if (workspaceBusy || hasActiveTask()) return;
   workspaceBusy = true;
   renderCapabilities();
-  setNotice(workspaceMessage, "请选择可信的本机工作区…");
   try {
+    if (!await ensureVisualizerBoxesSaved(["hsr", "zzz"], "切换工作区")) {
+      setNotice(workspaceMessage, "工作区未切换；请先处理 Box 保存问题。", "error");
+      return;
+    }
+    setNotice(workspaceMessage, "请选择可信的本机工作区…");
     const result = await invoke<{ selected: boolean; workspace: WorkspaceSummary }>("select_workspace");
     if (!result.selected) {
       setNotice(workspaceMessage, "未更改工作区；现有 Box 保持不变。");
       return;
     }
     setNotice(workspaceMessage, "工作区已切换，正在刷新…", "success");
+    resetVisualizerFrames();
     await refreshCapabilities();
-    await Promise.all([refreshTasks(), loadVisualizer()]);
+    await Promise.all([refreshTasks(), loadVisualizer(false)]);
   } catch (error) {
     const failure = safeError(error);
     setNotice(workspaceMessage, `切换失败（${failure.code}）：${failure.message}`, "error");
   } finally {
     workspaceBusy = false;
     renderCapabilities();
+  }
+}
+
+async function openLogLocation(): Promise<void> {
+  try {
+    await invoke("open_log_location");
+    setNotice(workspaceMessage, "已打开脱敏诊断日志目录。", "success");
+  } catch (error) {
+    const failure = safeError(error);
+    setNotice(workspaceMessage, `日志目录无法打开（${failure.code}）：${failure.message}`, "error");
   }
 }
 
@@ -684,6 +915,8 @@ function mergeQueriedTask(snapshot: PublicTaskSnapshot): void {
   if (querySequence < knownSequence) return;
   authoritativeTaskSequences.set(snapshot.task_id, querySequence);
   tasks.set(snapshot.task_id, snapshot);
+  restoredTaskIds.delete(snapshot.task_id);
+  persistTaskHistory();
   renderTasks();
 }
 
@@ -696,9 +929,13 @@ async function queryTask(taskId: string): Promise<void> {
     mergeQueriedTask(snapshot);
     if (TERMINAL_STATUSES.has(snapshot.status)) {
       await refreshCapabilities();
-      const currentExport = game === "hsr" ? "hsr-export" : "zzz-export";
-      if (snapshot.status === "succeeded" && snapshot.operation === currentExport) {
-        await loadVisualizer();
+      const exportedGame = snapshot.operation === "hsr-export" ? "hsr" : snapshot.operation === "zzz-export" ? "zzz" : null;
+      if (snapshot.status === "succeeded" && exportedGame) {
+        visualizerDirty.add(exportedGame);
+        if (exportedGame === game
+          && await ensureVisualizerBoxesSaved([exportedGame], "载入最新数据")) {
+          await loadVisualizer(true, exportedGame);
+        }
       }
     }
   } catch (error) {
@@ -742,6 +979,20 @@ async function cancelTask(taskId: string): Promise<void> {
   }
 }
 
+async function useArtifact(command: "open_artifact" | "reveal_artifact", artifact: PublicArtifact): Promise<void> {
+  try {
+    await invoke(command, { artifactId: artifact.artifact_id });
+    setNotice(
+      taskMessage,
+      command === "open_artifact" ? `已打开 ${artifact.name}。` : `已在资源管理器中定位 ${artifact.name}。`,
+      "success",
+    );
+  } catch (error) {
+    const failure = safeError(error);
+    setNotice(taskMessage, `结果文件操作失败（${failure.code}）：${failure.message}`, "error");
+  }
+}
+
 function hasActiveTask(): boolean {
   return [...tasks.values()].some((task) => !TERMINAL_STATUSES.has(task.status));
 }
@@ -769,6 +1020,12 @@ function renderTasks(): void {
             ? "处理完成，正在安全保存结果。"
             : "正在后台处理，可以继续查看 Box。";
     card.append(titleRow, element("p", "task-summary muted", outcome));
+    if (task.freshness) {
+      const modes = Object.entries(task.freshness.modes)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([mode, freshness]) => `${modeLabel(mode)}：${freshnessLabel(freshness.status)}${freshness.sample_date ? `（采样 ${freshness.sample_date}）` : ""}`);
+      if (modes.length) card.append(element("p", "task-summary", `数据时效 · ${modes.join("；")}`));
+    }
 
     const technical = element("details", "technical-details");
     technical.append(element("summary", undefined, "技术详情"), element("p", "task-id", `运行编号：${task.task_id}`));
@@ -781,7 +1038,8 @@ function renderTasks(): void {
       failure.append(
         element("strong", undefined, "没有完成"),
         element("p", undefined, task.failure.message),
-        element("span", "muted", task.failure.retryable ? "可以稍后重试" : "请根据错误说明检查输入"),
+        element("p", "muted", task.failure.action),
+        element("span", "muted", task.failure.retryable ? "可以稍后重试" : `失败阶段：${task.failure.stage}`),
       );
       card.append(failure);
       technical.append(element("p", "task-id", `错误代码：${task.failure.code}`));
@@ -794,7 +1052,18 @@ function renderTasks(): void {
       const list = element("ul");
       for (const artifact of task.artifacts) {
         const item = element("li");
-        item.append(element("span", undefined, artifact.name), element("small", undefined, artifact.kind));
+        const identity = element("div", "artifact-identity");
+        identity.append(element("span", undefined, artifact.name), element("small", undefined, artifact.kind));
+        const actions = element("div", "artifact-actions");
+        if (restoredTaskIds.has(task.task_id)) {
+          actions.append(element("span", "muted", "历史回执"));
+        } else {
+          actions.append(
+            makeButton("打开", "button compact", () => useArtifact("open_artifact", artifact)),
+            makeButton("定位", "button compact secondary", () => useArtifact("reveal_artifact", artifact)),
+          );
+        }
+        item.append(identity, actions);
         list.append(item);
       }
       artifacts.append(list);
@@ -844,15 +1113,36 @@ function isPublicArtifact(value: unknown): value is PublicArtifact {
 
 function isPublicFailure(value: unknown): value is PublicTaskFailure | null {
   if (value === null) return true;
-  if (!isRecord(value) || !hasExactKeys(value, ["code", "retryable", "message"])) return false;
-  return typeof value.code === "string" && typeof value.retryable === "boolean" && typeof value.message === "string";
+  if (!isRecord(value) || !hasExactKeys(value, ["code", "stage", "retryable", "message", "action"])) return false;
+  return typeof value.code === "string"
+    && typeof value.stage === "string"
+    && typeof value.retryable === "boolean"
+    && typeof value.message === "string"
+    && typeof value.action === "string";
+}
+
+function isTaskFreshness(value: unknown): value is TaskFreshnessSummary {
+  if (!isRecord(value) || !hasExactKeys(value, ["status", "modes"]) || !isRecord(value.modes)) return false;
+  if (value.status !== "ok" && value.status !== "warning") return false;
+  const modes = Object.entries(value.modes);
+  if (modes.length > 8) return false;
+  return modes.every(([mode, freshness]) => /^[a-z]{1,8}$/.test(mode)
+    && isRecord(freshness)
+    && hasExactKeys(freshness, ["status", "sample_date", "start_date", "end_date"])
+    && ["active", "stale", "future", "unknown"].includes(String(freshness.status))
+    && typeof freshness.sample_date === "string"
+    && typeof freshness.start_date === "string"
+    && typeof freshness.end_date === "string");
 }
 
 function isPublicTaskSnapshot(value: unknown): value is PublicTaskSnapshot {
-  if (!isRecord(value) || !hasExactKeys(value, [
+  if (!isRecord(value)) return false;
+  const expectedKeys = [
     "schema_version", "task_id", "operation", "status", "status_history",
     "cancellation_requested", "artifacts", "failure",
-  ])) return false;
+  ];
+  if (Object.hasOwn(value, "freshness")) expectedKeys.push("freshness");
+  if (!hasExactKeys(value, expectedKeys)) return false;
   return value.schema_version === "miho-public-task-snapshot-v1"
     && typeof value.task_id === "string"
     && value.task_id.length > 0
@@ -865,7 +1155,8 @@ function isPublicTaskSnapshot(value: unknown): value is PublicTaskSnapshot {
     && typeof value.cancellation_requested === "boolean"
     && Array.isArray(value.artifacts)
     && value.artifacts.every(isPublicArtifact)
-    && isPublicFailure(value.failure);
+    && isPublicFailure(value.failure)
+    && (!Object.hasOwn(value, "freshness") || isTaskFreshness(value.freshness));
 }
 
 function isTaskUpdate(value: unknown): value is TaskUpdate {
@@ -908,16 +1199,37 @@ function backendVisualizerUrl(value: unknown): string | null {
   }
 }
 
-async function loadVisualizer(): Promise<void> {
+function resetVisualizerFrames(): void {
+  visualizerDirty.clear();
+  for (const [targetGame, frame] of visualizerFrames) {
+    rejectFrameFlushes(frame);
+    frame.hidden = true;
+    frame.dataset.loaded = "false";
+    frame.removeAttribute("src");
+    visualizerDirty.add(targetGame);
+  }
+}
+
+async function loadVisualizer(force = false, targetGame: Game = game): Promise<void> {
   const request = ++visualizerRequest;
+  const frame = visualizerFrames.get(targetGame);
+  if (!frame) return;
+  for (const [candidateGame, candidate] of visualizerFrames) {
+    candidate.hidden = candidateGame !== targetGame;
+  }
+  if (!force && frame.src && !visualizerDirty.has(targetGame)) {
+    frame.hidden = false;
+    visualizerMessage.hidden = true;
+    reloadVisualizerButton.disabled = false;
+    return;
+  }
   reloadVisualizerButton.disabled = true;
-  visualizerFrame.hidden = true;
-  visualizerFrame.removeAttribute("src");
+  frame.hidden = true;
   visualizerMessage.hidden = false;
   setNotice(visualizerMessage, "正在向本机后端请求 Visualizer 地址…");
   try {
-    const result = await invoke<unknown>("get_visualizer_url", { game });
-    if (request !== visualizerRequest) return;
+    const result = await invoke<unknown>("get_visualizer_url", { game: targetGame });
+    if (request !== visualizerRequest || targetGame !== game) return;
     const url = backendVisualizerUrl(result);
     if (!url) {
       setNotice(visualizerMessage, "Visualizer 暂不可用；后端未返回受支持的地址。", "error");
@@ -925,8 +1237,11 @@ async function loadVisualizer(): Promise<void> {
     }
     const pageUrl = new URL(url);
     pageUrl.hash = "box";
-    visualizerFrame.src = pageUrl.toString();
-    visualizerFrame.hidden = false;
+    rejectFrameFlushes(frame);
+    frame.dataset.loaded = "false";
+    frame.src = pageUrl.toString();
+    frame.hidden = false;
+    visualizerDirty.delete(targetGame);
     setNotice(visualizerMessage, "Visualizer 由本机后端提供，并在受限 iframe 中运行。", "success");
   } catch (error) {
     if (request !== visualizerRequest) return;
@@ -934,7 +1249,7 @@ async function loadVisualizer(): Promise<void> {
     utilities.open = true;
     setNotice(visualizerMessage, `Visualizer 不可用（${failure.code}）：${failure.message}`, "error");
   } finally {
-    if (request === visualizerRequest) reloadVisualizerButton.disabled = false;
+    if (request === visualizerRequest) reloadVisualizerButton.disabled = workspaceBusy || boxTransitionBusy;
   }
 }
 
@@ -943,17 +1258,63 @@ async function refreshAll(): Promise<void> {
   workspaceBusy = true;
   renderCapabilities();
   try {
+    if (!await ensureVisualizerBoxesSaved([game], "刷新页面")) return;
     await refreshCapabilities();
-    await Promise.all([refreshTasks(), loadVisualizer()]);
+    await Promise.all([refreshTasks(), loadVisualizer(true)]);
   } finally {
     workspaceBusy = false;
     renderCapabilities();
   }
 }
 
-window.addEventListener("beforeunload", () => {
+async function installWindowCloseHandler(): Promise<void> {
+  const appWindow = getCurrentWindow();
+  unlistenWindowClose = await appWindow.onCloseRequested(async (event) => {
+    if (allowWindowClose) return;
+    event.preventDefault();
+    if (closeGuardRunning) return;
+    closeGuardRunning = true;
+    persistTaskHistory();
+    try {
+      if (hasActiveTask()
+        && !window.confirm("仍有任务正在运行。现在关闭会将它记录为中断，且下次启动不会自动重跑。仍要关闭吗？")) {
+        return;
+      }
+      boxTransitionBusy = true;
+      updateWorkspaceControls();
+      if (!await ensureVisualizerBoxesSaved(["hsr", "zzz"], "关闭程序")) return;
+      persistTaskHistory();
+      unlistenTaskUpdates?.();
+      unlistenTaskUpdates = null;
+      allowWindowClose = true;
+      try {
+        await appWindow.close();
+      } catch (error) {
+        allowWindowClose = false;
+        const failure = safeError(error);
+        setNotice(workspaceMessage, `程序未能关闭（${failure.code}）：${failure.message}`, "error");
+      }
+    } finally {
+      closeGuardRunning = false;
+      if (!allowWindowClose) {
+        boxTransitionBusy = false;
+        updateWorkspaceControls();
+      }
+    }
+  });
+}
+
+window.addEventListener("beforeunload", (event) => {
+  persistTaskHistory();
+  if (!allowWindowClose && hasActiveTask()) {
+    event.preventDefault();
+    event.returnValue = "";
+    return;
+  }
   unlistenTaskUpdates?.();
   unlistenTaskUpdates = null;
+  unlistenWindowClose?.();
+  unlistenWindowClose = null;
 });
 
 updateGameUI();
@@ -964,6 +1325,12 @@ void (async () => {
   } catch (error) {
     const failure = safeError(error);
     setNotice(taskMessage, `任务事件监听不可用（${failure.code}）：${failure.message}`, "error");
+  }
+  try {
+    await installWindowCloseHandler();
+  } catch (error) {
+    const failure = safeError(error);
+    setNotice(workspaceMessage, `关闭前保存保护不可用（${failure.code}）：${failure.message}`, "error");
   }
   await refreshAll();
 })();

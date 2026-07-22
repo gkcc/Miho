@@ -324,6 +324,9 @@ h1, h2, h3, h4, p { margin: 0; }
 .artifacts li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 7px; background: #edf2f3; }
 .artifacts li span { overflow-wrap: anywhere; }
 .artifacts small { color: var(--muted); }
+.artifact-identity { display: grid; gap: 2px; min-width: 0; }
+.artifact-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.button.compact { min-height: 30px; padding: 5px 9px; font-size: 12px; }
 .task-card > .button { justify-self: start; }
 .task-summary { line-height: 1.5; }
 .technical-details { padding-top: 10px; border-top: 1px solid var(--line); }

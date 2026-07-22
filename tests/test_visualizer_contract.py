@@ -73,9 +73,57 @@ def test_desktop_box_bootstrap_uses_server_before_enabling_ui(game: str) -> None
     assert "const desktopMode=globalThis.__MIHO_DESKTOP__===true" in app
     assert "if(desktopMode)await syncBoxFromServer();else loadBox();init();render();" in app
     assert f"function syncBoxFromServer(){{return fetch('/api/{game}/box'" in app
-    assert "if(!desktopMode){localStorage.setItem" in app
+    assert "if(!desktopMode){" in app
+    assert "localStorage.setItem(BOX_KEY,JSON.stringify(payload))" in app
+    assert "boxPendingSave=null" in app
     assert "loadBox();loadRec" not in app
     assert "render();syncBoxFromServer();" not in app
+
+
+@pytest.mark.parametrize("game", ["hsr", "zzz"])
+def test_visualizer_box_edits_are_previewed_undoable_and_flushable(game: str) -> None:
+    visualizer = ROOT / "crates" / "miho-core" / "assets" / "visualizer" / game
+    app = (visualizer / "app.js").read_text(encoding="utf-8")
+    index = (visualizer / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="boxUndoBtn"' in index
+    assert 'id="boxClearAllBtn"' in index
+    assert "const BOX_UNDO_LIMIT=20" in app or "BOX_UNDO_LIMIT=20" in app
+    assert "function boxImportPreview(raw)" in app
+    assert "拥有：新增 ${preview.ownedAdded}，移除 ${preview.ownedRemoved}" in app
+    assert (
+        "练度：新增 ${preview.buildAdded}，变化 ${preview.buildChanged}，清除 ${preview.buildCleared}"
+        in app
+    )
+    assert "如需清空请使用“清空整个 Box”" in app
+    assert "function clearEntireBox()" in app
+    assert "function undoBoxChange()" in app
+    assert "function commitBoxChange(" in app
+
+    assert "async function flushBoxSave()" in app
+    assert "globalThis.flushBoxSave=flushBoxSave" in app
+    assert "event.source!==parentWindow" in app
+    assert "miho-visualizer-box-flush-request-v1" in app
+    assert "miho-visualizer-box-flush-result-v1" in app
+    assert "error:'Box 保存失败，请重试。'" in app
+    assert "throw new Error('Box 保存失败，请重试。')" in app
+
+
+@pytest.mark.parametrize("game", ["hsr", "zzz"])
+def test_visualizer_freshness_is_visible_in_navigation_and_recommendations(
+    game: str,
+) -> None:
+    app = (
+        ROOT / "crates" / "miho-core" / "assets" / "visualizer" / game / "app.js"
+    ).read_text(encoding="utf-8")
+
+    assert "DATA?.data_quality?.modes?.[mode]?.freshness" in app
+    assert "DATA?.dataQuality?.modes?.[mode]?.freshness" in app
+    assert "function syncFreshnessNavigation(" in app
+    assert "freshness-stale" in app
+    assert "未来周期样本（尚未开始）" in app
+    assert "周期状态未知的样本" in app
+    assert "function freshnessBadgeHtml(" in app
 
 
 @pytest.mark.parametrize("game", ["hsr", "zzz"])

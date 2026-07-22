@@ -21,6 +21,7 @@ use miho_core::{
         DatasetRef, DateRange, Diagnostic, ExportContext, FeatureFlags, FetchPolicy, GameMode,
         HistoryPolicy, WorkbookPolicy, EXPORT_REQUEST_SCHEMA_VERSION,
     },
+    data_quality::attach_data_quality_v1,
     hf::HuggingFaceRepo,
     hsr_supplemental::{HsrFixtureSupplementalSource, HsrHttpSupplementalSource},
     hsr_visualizer::attach_hsr_visualizer,
@@ -36,7 +37,8 @@ use miho_core::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    bundled_avatars, AppInvocation, ExecutionControlError, ResolvedUpdateConfigV1, TaskOperationV1,
+    bundled_avatars, AppInvocation, ExecutionControlError, ResolvedUpdateConfigV1,
+    TaskFreshnessSummaryV1, TaskOperationV1,
 };
 
 /// One wall-clock observation shared by source metadata, default ranges, and
@@ -212,6 +214,7 @@ pub struct ExportReceiptV1 {
     pub output_root: PathBuf,
     pub fixture_root: Option<PathBuf>,
     pub diagnostics: Vec<Diagnostic>,
+    pub freshness: TaskFreshnessSummaryV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -394,6 +397,15 @@ pub async fn execute_export_observed_with_hub_v1(
         }
     };
 
+    let previous_data_quality = read_previous_data_quality(&output_root)?;
+    let data_quality = attach_data_quality_v1(
+        &mut run.bundle,
+        task.game,
+        &task.modes,
+        invocation.local_date(),
+        previous_data_quality.as_deref(),
+    )?;
+    let freshness = TaskFreshnessSummaryV1::from(&data_quality);
     match task.game {
         Game::Hsr => attach_hsr_visualizer_from_output(&mut run.bundle, &output_root, invocation)?,
         Game::Zzz => attach_zzz_visualizer_from_output(&mut run.bundle, &output_root, invocation)?,
@@ -411,7 +423,28 @@ pub async fn execute_export_observed_with_hub_v1(
         output_root,
         fixture_root,
         diagnostics: run.diagnostics,
+        freshness,
     })
+}
+
+fn read_previous_data_quality(output_root: &Path) -> anyhow::Result<Option<Vec<u8>>> {
+    const MAX_DATA_QUALITY_BYTES: u64 = 2 * 1024 * 1024;
+    let path = output_root.join("data_quality.json");
+    match fs::symlink_metadata(&path) {
+        Ok(metadata)
+            if metadata.is_file()
+                && !metadata.file_type().is_symlink()
+                && metadata.len() <= MAX_DATA_QUALITY_BYTES =>
+        {
+            Ok(Some(fs::read(path)?))
+        }
+        Ok(metadata) if metadata.len() > MAX_DATA_QUALITY_BYTES => {
+            bail!("existing data quality report is oversized")
+        }
+        Ok(_) => bail!("existing data quality report is not a trusted file"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub fn execute_visualizer_v1(
@@ -891,6 +924,7 @@ fn is_legacy_managed_artifact(game: Game, path: &Path) -> bool {
                     | "overview.csv"
                     | "latest_usage_cn.csv"
                     | "top_teams_latest.csv"
+                    | "data_quality.json"
                     | "export_report.md"
                     | "hsr_endgame_dataset.xlsx"
             )
@@ -910,6 +944,7 @@ fn is_legacy_managed_artifact(game: Game, path: &Path) -> bool {
                     | "prydwen_tier_changelog.csv"
                     | "prydwen_tier_changelog_history.csv"
                     | "prydwen_tier_usage_trend.csv"
+                    | "data_quality.json"
                     | "export_report.md"
                     | "zzz_endgame_dataset.xlsx"
             )
@@ -1413,6 +1448,12 @@ mod tests {
         )
         .unwrap();
         let output_root = root.join("hsr-out");
+        fs::create_dir_all(&output_root).unwrap();
+        fs::write(
+            output_root.join("data_quality.json"),
+            br#"{"schema_version":"miho-data-quality-v1","game":}broken"#,
+        )
+        .unwrap();
         let receipt = execute_export_v1(
             &ExportTaskV1 {
                 game: Game::Hsr,
@@ -1445,8 +1486,34 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(receipt.output_root, output_root);
+        assert_eq!(receipt.freshness.status, "warning");
+        assert_eq!(receipt.freshness.modes.len(), 4);
+        let freshness_value = serde_json::to_value(&receipt.freshness).unwrap();
+        assert!(freshness_value["modes"]["moc"].get("source").is_none());
         let report = fs::read_to_string(output_root.join("export_report.md")).unwrap();
         assert!(report.contains("2026-07-13T01:30:01Z"), "{report}");
+        let data_quality_bytes = fs::read(output_root.join("data_quality.json")).unwrap();
+        let data_quality: serde_json::Value = serde_json::from_slice(&data_quality_bytes).unwrap();
+        assert_eq!(data_quality["schema_version"], "miho-data-quality-v1");
+        assert_eq!(data_quality["game"], "hsr");
+        assert_eq!(data_quality["status"], "warning");
+        assert!(data_quality["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .is_some_and(|warning| warning.contains("generation comparison is unavailable"))));
+        for mode in ["moc", "pf", "as", "aa"] {
+            assert!(data_quality["modes"][mode].is_object(), "missing {mode}");
+        }
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(output_root.join("artifact_manifest.json")).unwrap())
+                .unwrap();
+        assert!(manifest.as_array().unwrap().iter().any(|entry| {
+            entry["path"] == "data_quality.json"
+                && entry["bytes"].as_u64() == Some(data_quality_bytes.len() as u64)
+        }));
         assert!(output_root.join("visualizer/data.json").is_file());
         assert!(output_root.join("artifact_manifest.json").is_file());
         fs::remove_dir_all(root).unwrap();
