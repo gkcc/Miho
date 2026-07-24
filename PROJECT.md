@@ -573,6 +573,13 @@
 - **真实按钮证据**：隐藏窗口/CDP 依次实际点击 ZZZ、HSR 两个“更新数据”按钮，两项任务均成功且 iframe 节点保持不变、各发生一次完整导航。ZZZ 卡池显示 `fresh / 2026-07-24 23:23`，终局为式舆防卫 `3.0.2`（`2026-07-10` 至 `2026-07-24`）及危局强袭战 `3.0.3`（`2026-07-17` 至 `2026-07-29`），采样均为 `2026-07-19`；HSR 卡池显示 `fresh / 2026-07-24 23:24`，MoC/PF/AS/AA 均展示非占位主题、期次、完整周期和 `2026-06-25` 采样。两游戏交叉复验后仍保持相同刷新时间和六模式期次；进程正常退出，stdout/stderr 为空。
 - **验证与直接交付**：推荐器逻辑 63/63、官方卡池刷新 14 项通过（1 项 live 忽略）、Rust Visualizer 36/36、Python Visualizer 61 项通过（2 项 deselected）、PowerShell GUI contract、TypeScript production build、桌面 revision 定点契约和 `pnpm run tauri:build` 均通过。Release 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，与构建产物 SHA-256 同为 `6E01C852FCD67C265419093E9DAEC4F8352ED07AE6E5CDC8097F3459024DAFD1`。真实双更新前后 HSR/ZZZ Box 物理 SHA-256 分别保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`；未生成安装器或 portable。
 
+### 终局样本与榜单日期消歧（2026-07-24，已交付）
+
+- **日期语义修复**：顶部不再把 Prydwen 榜单时间单独放在最显眼位置。双游戏现同时显示“终局统计最新采样 / Prydwen 榜单更新 / 本地生成”，`DD/EnglishMonth/YYYY` 显式归一为 ISO，避免把 ZZZ 的终局样本 `2026-07-19` 与榜单更新 `2026-07-08` 误读为同一数据冲突。HSR 同步显示终局样本 `2026-06-25（部分模式已过期）` 与榜单更新 `2026-07-24`；榜单日期不会再冒充终局统计日期。
+- **HSR 停更诊断**：这次不是模式映射、183 天范围、旧缓存或更新按钮漏刷。7 月 24 日晚间重新联网抓取成功，HF cache、raw 目录和 Prydwen AA 页面均被更新；远端 `LvlUrArti/MocDataProcessed` 自身最后修改于 `2026-06-26`（commit `d556176f776b807c85bf35dbccf8d2d28064a760`），`config.json` 最新只到 `4.3.2 / collect_date 2026-06-25`。Prydwen AA 页也只提供 `The Humming Laughter / 2026-05-31 至 2026-07-12 / updateDate 2026-06-25`。因此保留真实历史样本和过期标记，不用独立 T 榜的 `2026-07-24` 伪造新鲜度。
+- **真实入口证据**：安装版隐藏窗口/CDP 再次实际点击 ZZZ、HSR 两个更新按钮，任务均 `succeeded`，后端 terminal revision、iframe URL revision 与 loadedRevision 一致。ZZZ 顶部精确显示 `2026-07-19 / 2026-07-08`，两模式主题、周期与采样日完整；HSR 顶部精确显示 `2026-06-25（部分模式已过期） / 2026-07-24`，MoC/PF/AS/AA 分别展示值日行动、借虚成真、遗忘冽风、嗡鸣如笑及各自周期/状态。官方卡池 fresh 时间分别更新到 `23:54`，两份 Box 仍为 59/20 人且前后不变；程序正常退出 0，stdout/stderr 为空、调试端口关闭。
+- **验证与直接交付**：日期/推荐器 JS 契约 57/57、Python 静态资产 2/2、Rust 静态资源 2/2、产品探针语法与静态哈希门禁通过；`pnpm run tauri:build` 成功。Release 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，与构建产物 SHA-256 同为 `3E3FA294B6EEF4045809A1353B75E419068FE2F58DEC8DEC0396857FDE9FAF3A`（23,966,720 bytes）；未生成安装器或 portable。
+
 ## 恢复入口
 
 - 项目状态：本文件。

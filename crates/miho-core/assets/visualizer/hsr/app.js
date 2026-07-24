@@ -112,10 +112,36 @@ function initializeVisualizerData(raw){
   return DATA;
 }
 
+const SOURCE_DATE_MONTHS={january:'01',february:'02',march:'03',april:'04',may:'05',june:'06',july:'07',august:'08',september:'09',october:'10',november:'11',december:'12'};
+function normalizeSourceDate(value){
+  const text=String(value||'').trim();
+  if(!text)return'未知';
+  const iso=text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s]|$)/);
+  if(iso)return`${iso[1]}-${iso[2]}-${iso[3]}`;
+  const named=text.match(/^(\d{1,2})\/([A-Za-z]+)\/(\d{4})$/),month=named&&SOURCE_DATE_MONTHS[named[2].toLowerCase()],day=named&&Number(named[1]);
+  return named&&month&&day>=1&&day<=31?`${named[3]}-${month}-${String(day).padStart(2,'0')}`:text;
+}
+function latestEndgameSampleDate(){
+  const dates=(DATA?.usageRows||[]).map(row=>normalizeSourceDate(row?.collect_date)).filter(value=>/^\d{4}-\d{2}-\d{2}$/.test(value)).sort();
+  return dates.at(-1)||'未知';
+}
+function generatedAtLabel(value){
+  const text=String(value||'').trim(),match=text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)/);
+  return match?`${match[1]} ${match[2]}`:text||'未知';
+}
+function staleModeSummary(){
+  const stale=MODES.filter(([mode])=>modeFreshness(mode).status==='stale').length;
+  return stale===MODES.length?'全部模式已过期':stale?'部分模式已过期':'';
+}
+function sourceMetaLine(){
+  const stale=staleModeSummary(),sample=latestEndgameSampleDate(),tier=normalizeSourceDate(DATA?.meta?.tierUpdatedDate||DATA?.meta?.tierUpdatedAt);
+  return`终局统计最新采样：${sample}${stale?`（${stale}）`:''} · Prydwen 榜单更新：${tier} · 本地生成：${generatedAtLabel(DATA?.meta?.generatedAt)} · Box 自动保存`;
+}
+
 function init(){
   installExternalLinkBridge();
   installAccessibleDetailDismissal();
-  $('metaLine').textContent=`Prydwen T榜更新：${DATA.meta.tierUpdatedAt||DATA.meta.tierUpdatedDate||'未知'} · 本地数据生成：${DATA.meta.generatedAt||'未知'} · Box 自动保存`;
+  $('metaLine').textContent=sourceMetaLine();
   makeButtons('appTabs',[['box','我的 Box'],['analysis','终局分析'],['banner','卡池'],['recommender','组队推荐']],state.page,v=>{state.page=v;history.replaceState(null,'',`#${v}`);render();});
   makeButtons('modeControl',MODES,state.mode,v=>{state.mode=v;state.focus=null;state.hover=null;render();});
   makeButtons('viewControl',VIEWS,state.view,v=>{state.view=v;state.focus=null;state.hover=null;render();});

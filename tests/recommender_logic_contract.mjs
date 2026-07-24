@@ -207,6 +207,12 @@ const HSR_HARNESS = String.raw`
   bannerRefresh() {
     return bannerRefreshText();
   },
+  sourceMeta() {
+    return sourceMetaLine();
+  },
+  sourceDate(value) {
+    return normalizeSourceDate(value);
+  },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
   },
@@ -406,6 +412,12 @@ const ZZZ_HARNESS = String.raw`
   },
   bannerRefresh() {
     return bannerRefreshText();
+  },
+  sourceMeta() {
+    return sourceMetaLine();
+  },
+  sourceDate(value) {
+    return normalizeSourceDate(value);
   },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
@@ -2500,6 +2512,57 @@ test('banner refresh labels expose the managed official snapshot timestamp', () 
   zzz.reset({rosterRows: [], bannerRows: [], teamTemplates: [], tierRows: [], usageRows: []});
   assert.equal(hsr.bannerRefresh(), '');
   assert.equal(zzz.bannerRefresh(), '');
+});
+
+test('top metadata distinguishes endgame samples from Prydwen list updates and exposes stale HSR modes', () => {
+  const hsr = loadContract(HSR_APP, HSR_HARNESS);
+  hsr.reset({
+    ...hsrData([], []),
+    meta: {
+      tierUpdatedAt: '24/July/2026',
+      generatedAt: '2026-07-24T23:24:52',
+    },
+    usageRows: [
+      {collect_date: '2026-06-25'},
+      {collect_date: ''},
+      {collect_date: '2026-06-11'},
+    ],
+    freshness: {
+      moc: {status: 'stale'},
+      pf: {status: 'active'},
+      as: {status: 'stale'},
+      aa: {status: 'stale'},
+    },
+  });
+  assert.equal(
+    hsr.sourceMeta(),
+    '终局统计最新采样：2026-06-25（部分模式已过期） · Prydwen 榜单更新：2026-07-24 · 本地生成：2026-07-24 23:24:52 · Box 自动保存',
+  );
+  assert.equal(hsr.sourceDate('24/July/2026'), '2026-07-24');
+
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  zzz.reset({
+    ...zzzData([], []),
+    meta: {
+      tierUpdatedAt: '08/July/2026',
+      generatedAt: '2026-07-24T23:23:58',
+    },
+    usageRows: [
+      {collect_date: '2026-07-19'},
+      {collect_date: '2026-07-06'},
+    ],
+    freshness: {
+      sd: {status: 'active'},
+      da: {status: 'active'},
+    },
+  });
+  assert.equal(
+    zzz.sourceMeta(),
+    '终局统计最新采样：2026-07-19 · Prydwen 榜单更新：2026-07-08 · 本地生成：2026-07-24 23:23:58',
+  );
+  assert.equal(zzz.sourceDate('08/July/2026'), '2026-07-08');
+  assert.equal(zzz.sourceDate('2026-07-19T12:00:00Z'), '2026-07-19');
+  assert.equal(zzz.sourceDate(''), '未知');
 });
 
 function assertVisualizerAccessibilityMarkup(indexPath, stylePath) {

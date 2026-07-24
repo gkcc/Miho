@@ -45,6 +45,22 @@ const runUpdates = runUpdatesValue === "true";
 const updateTimeoutMs = Number(args.get("update-timeout-ms") ?? "600000");
 const boxExportDir = args.get("box-export-dir") ?? null;
 const sourceHsrBox = args.get("source-hsr-box") ?? null;
+const sourceDateMonths = {
+  january: "01", february: "02", march: "03", april: "04",
+  may: "05", june: "06", july: "07", august: "08",
+  september: "09", october: "10", november: "11", december: "12",
+};
+
+function normalizeSourceDate(value) {
+  const text = String(value ?? "").trim();
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s]|$)/u);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const named = text.match(/^(\d{1,2})\/([A-Za-z]+)\/(\d{4})$/u);
+  const month = named ? sourceDateMonths[named[2].toLowerCase()] : "";
+  return named && month
+    ? `${named[3]}-${month}-${named[1].padStart(2, "0")}`
+    : "";
+}
 
 if (!webSocketUrl) throw new Error("--ws is required");
 if ((boxExportDir === null) !== (sourceHsrBox === null)) {
@@ -274,6 +290,17 @@ const productExpression = `(async () => {
   };
   const rosterRows = typeof DATA === 'object' && Array.isArray(DATA?.rosterRows) ? DATA.rosterRows : [];
   const usageRows = typeof DATA === 'object' && Array.isArray(DATA?.usageRows) ? DATA.usageRows : [];
+  const latestEndgameSampleDate = usageRows
+    .map((row) => String(row?.collect_date ?? '').trim())
+    .filter((value) => /^\\d{4}-\\d{2}-\\d{2}$/.test(value))
+    .sort()
+    .at(-1) ?? '';
+  const tierUpdatedAt = String(DATA?.meta?.tierUpdatedDate ?? DATA?.meta?.tierUpdatedAt ?? '').trim();
+  const freshnessByMode = DATA?.freshness ?? DATA?.data_quality?.modes ?? DATA?.dataQuality?.modes ?? {};
+  const staleModeCodes = Object.entries(freshnessByMode)
+    .filter(([, value]) => (value?.freshness?.status ?? value?.status) === 'stale')
+    .map(([mode]) => mode)
+    .sort();
   const statePage = typeof state === 'object' ? state?.page ?? '' : '';
   const analysisMode = typeof state === 'object' ? state?.mode ?? '' : '';
   const analysisModeUsageRows = usageRows.filter((row) => (row?.tier_mode ?? row?.mode) === analysisMode);
@@ -426,6 +453,10 @@ const productExpression = `(async () => {
     href: location.href,
     readyState: document.readyState,
     statePage,
+    sourceMetaLine: document.querySelector('#metaLine')?.textContent?.trim() ?? '',
+    latestEndgameSampleDate,
+    tierUpdatedAt,
+    staleModeCodes,
     boxVisible: !document.querySelector('#boxView')?.classList.contains('hidden'),
     subtitle: document.querySelector('#boxSubtitle')?.textContent?.trim() ?? '',
     tabs,
@@ -1678,6 +1709,19 @@ function verifyAnalysis(
   mode,
   { requirePhaseMatch = true, requirePhasePresentation = true } = {},
 ) {
+  const tierUpdatedDate = normalizeSourceDate(snapshot.tierUpdatedAt);
+  assert(snapshot.sourceMetaLine.includes("终局统计最新采样：")
+    && snapshot.latestEndgameSampleDate
+    && snapshot.sourceMetaLine.includes(`终局统计最新采样：${snapshot.latestEndgameSampleDate}`),
+  `${game} top metadata does not identify the authoritative endgame sample date`, snapshot);
+  assert(tierUpdatedDate
+    && snapshot.sourceMetaLine.includes("Prydwen 榜单更新：")
+    && snapshot.sourceMetaLine.includes(`Prydwen 榜单更新：${tierUpdatedDate}`),
+  `${game} top metadata does not separately identify the Prydwen list date`, snapshot);
+  if (snapshot.staleModeCodes.length > 0) {
+    assert(/部分模式已过期|全部模式已过期/u.test(snapshot.sourceMetaLine),
+      `${game} top metadata hides stale endgame modes`, snapshot);
+  }
   assert(snapshot.statePage === "analysis" && snapshot.analysisVisible, `${game} endgame analysis is not visible`, snapshot);
   assert(snapshot.analysisMode === mode, `${game} endgame analysis did not switch to ${mode}`, snapshot);
   assert(snapshot.usageRowCount > 0, `${game} endgame usage data is absent`, snapshot);
