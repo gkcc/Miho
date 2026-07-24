@@ -93,6 +93,7 @@ fn export_request(root: &std::path::Path, game: Game) -> TrustedExportTaskV1 {
             },
             prydwen_top_n: 100,
             name_map_seed: None,
+            refresh_official_banners: false,
             source: ExportSourceV1::Fixture {
                 root: root.join("CANARY_NATIVE_FIXTURE"),
                 supplemental_root: None,

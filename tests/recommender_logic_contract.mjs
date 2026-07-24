@@ -195,6 +195,18 @@ const HSR_HARNESS = String.raw`
   freshness(mode, fallback = {}) {
     return modeFreshness(mode, fallback);
   },
+  sampleMeta(rows, mode) {
+    return latestSampleMeta(rows, mode);
+  },
+  sampleText(sample) {
+    return analysisPhaseText(sample);
+  },
+  localizedPhaseName(row) {
+    return phaseName(row);
+  },
+  bannerRefresh() {
+    return bannerRefreshText();
+  },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
   },
@@ -379,6 +391,21 @@ const ZZZ_HARNESS = String.raw`
   },
   freshness(mode, fallback = {}) {
     return modeFreshness(mode, fallback);
+  },
+  sampleMeta(rows, mode) {
+    return latestSampleMeta(rows, mode);
+  },
+  sampleText(sample) {
+    return analysisPhaseText(sample);
+  },
+  phaseTheme(row) {
+    return phaseTheme(row);
+  },
+  recommenderPhase() {
+    return phaseInfo();
+  },
+  bannerRefresh() {
+    return bannerRefreshText();
   },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
@@ -2163,6 +2190,316 @@ test('both visualizers read freshness from snake/camel data-quality fallbacks wi
   });
   assert.deepEqual(plain(zzz.freshness('da')), {status: 'unknown', sampleDate: '2026-08-02', startDate: '', endDate: '', source: 'fixture-camel'});
   assert.equal(plain(zzz.freshness('sd', {phase_status: 'current'})).status, 'active');
+});
+
+test('analysis subtitles identify the exact sampled phase without borrowing metadata across snapshots', () => {
+  const hsr = loadContract(HSR_APP, HSR_HARNESS);
+  hsr.reset({
+    ...hsrData([], []),
+    phaseInfoRows: [
+      {
+        id: 'old',
+        mode: 'moc',
+        collect_date: '2026-07-01',
+        phase_ver: 'repeat',
+        phase_name_cn: '旧主题',
+        start_date: '2026-06-01',
+        end_date: '2026-06-30',
+        phase_status: 'expired',
+      },
+      {
+        id: 'exact',
+        mode: 'moc',
+        collect_date: '2026-07-08',
+        phase_ver: 'repeat',
+        phase_name: 'English Theme',
+        start_date: '2026-07-02',
+        end_date: '2026-07-16',
+        phase_status: 'current',
+      },
+    ],
+  });
+  const hsrExact = plain(hsr.sampleMeta(
+    [{collect_date: '2026-07-08', phase_ver: 'repeat', phase_name: 'Usage Theme'}],
+    'moc',
+  ));
+  assert.deepEqual(hsrExact, {
+    date: '2026-07-08',
+    phase: 'repeat',
+    theme: 'English Theme',
+    period: '2026-07-02 至 2026-07-16',
+    label: '当前周期',
+  });
+  assert.equal(hsr.localizedPhaseName({phase_name: 'English fallback'}), 'English fallback');
+  assert.equal(
+    hsr.sampleText(hsrExact),
+    '本期：English Theme（repeat） · 2026-07-02 至 2026-07-16 · 最新采样 2026-07-08 · 当前周期',
+  );
+
+  hsr.reset({
+    ...hsrData([], []),
+    phaseInfoRows: [
+      {
+        mode: 'moc',
+        collect_date: '2026-07-08',
+        phase_ver: 'repeat',
+        phase_name: 'Wrong raw phase',
+        phase_name_cn: '错误主题',
+        start_date: '2026-06-01',
+        end_date: '2026-06-30',
+        phase_status: 'expired',
+      },
+      {
+        mode: 'moc',
+        collect_date: '2026-07-08',
+        phase_ver: 'repeat',
+        phase_name: 'Right raw phase',
+        phase_name_cn: '正确主题',
+        start_date: '2026-07-02',
+        end_date: '2026-07-16',
+        phase_status: 'current',
+      },
+    ],
+  });
+  assert.deepEqual(
+    plain(hsr.sampleMeta(
+      [{collect_date: '2026-07-08', phase_ver: 'repeat', phase_name: 'Right raw phase'}],
+      'moc',
+    )),
+    {
+      date: '2026-07-08',
+      phase: 'repeat',
+      theme: '正确主题',
+      period: '2026-07-02 至 2026-07-16',
+      label: '当前周期',
+    },
+  );
+
+  hsr.reset({
+    ...hsrData([], []),
+    phaseInfoRows: [{
+      id: 'old-only',
+      mode: 'moc',
+      collect_date: '2026-07-01',
+      phase_ver: 'repeat',
+      phase_name_cn: '不可借用',
+      start_date: '2026-06-01',
+      end_date: '2026-06-30',
+      phase_status: 'expired',
+    }],
+  });
+  assert.deepEqual(
+    plain(hsr.sampleMeta(
+      [{collect_date: '2026-07-08', phase_ver: 'repeat', phase_name: 'Usage English', phase_status: 'current'}],
+      'moc',
+    )),
+    {
+      date: '2026-07-08',
+      phase: 'repeat',
+      theme: 'Usage English',
+      period: '未知 至 未知',
+      label: '当前周期',
+    },
+  );
+
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  zzz.reset({
+    rosterRows: [],
+    bannerRows: [],
+    teamTemplates: [],
+    tierRows: [],
+    usageRows: [],
+    phaseInfoRows: [
+      {
+        id: 'old',
+        mode: 'sd',
+        collect_date: '2026-07-01',
+        phase_ver: 'repeat',
+        phase_name: '不可借用',
+        mechanic_name: '旧机制',
+        start_date: '2026-06-01',
+        end_date: '2026-06-30',
+        phase_status: 'expired',
+      },
+      {
+        id: 'exact',
+        mode: 'sd',
+        collect_date: '2026-07-08',
+        phase_ver: 'repeat',
+        phase_name: '式舆防卫 repeat',
+        mechanic_name: '当期数据',
+        start_date: '2026-07-02',
+        end_date: '2026-07-16',
+        phase_status: 'current',
+      },
+    ],
+  });
+  const zzzExact = plain(zzz.sampleMeta(
+    [{collect_date: '2026-07-08', phase_ver: 'repeat', phase_name: 'usage'}],
+    'sd',
+  ));
+  assert.deepEqual(zzzExact, {
+    date: '2026-07-08',
+    phase: 'repeat',
+    theme: '式舆防卫 repeat',
+    period: '2026-07-02 至 2026-07-16',
+    label: '当前周期',
+  });
+  assert.equal(zzz.phaseTheme({mechanic_name: '真实环境效果', phase_name: '期名'}), '真实环境效果');
+  assert.equal(zzz.phaseTheme({mechanic_name: '当期数据', phase_name: '期名'}), '期名');
+  assert.equal(
+    zzz.sampleText(zzzExact),
+    '本期：式舆防卫 repeat（repeat） · 2026-07-02 至 2026-07-16 · 最新采样 2026-07-08 · 当前周期',
+  );
+
+  zzz.reset({
+    rosterRows: [],
+    bannerRows: [],
+    teamTemplates: [],
+    tierRows: [],
+    usageRows: [],
+    phaseInfoRows: [
+      {
+        snapshot_id: 'snapshot-old',
+        mode: 'sd',
+        collect_date: '2026-07-08',
+        phase_ver: 'repeat',
+        phase_name: '错误主题',
+        start_date: '2026-06-01',
+        end_date: '2026-06-30',
+        phase_status: 'expired',
+      },
+      {
+        snapshot_id: 'snapshot-new',
+        mode: 'sd',
+        collect_date: '2026-07-08',
+        phase_ver: 'repeat',
+        phase_name: '正确主题',
+        start_date: '2026-07-02',
+        end_date: '2026-07-16',
+        phase_status: 'current',
+      },
+    ],
+  });
+  assert.deepEqual(
+    plain(zzz.sampleMeta(
+      [{
+        snapshot_id: 'snapshot-new',
+        collect_date: '2026-07-08',
+        phase_ver: 'repeat',
+        phase_name: 'usage',
+      }],
+      'sd',
+    )),
+    {
+      date: '2026-07-08',
+      phase: 'repeat',
+      theme: '正确主题',
+      period: '2026-07-02 至 2026-07-16',
+      label: '当前周期',
+    },
+  );
+  zzz.reset({
+    rosterRows: [],
+    bannerRows: [],
+    tierRows: [],
+    usageRows: [],
+    teamTemplates: [{
+      mode: 'sd',
+      scope_key: 's1',
+      collect_date: '2026-07-08',
+      phase_ver: 'repeat',
+      phase_name: '正确主题',
+      source_file: 'snapshot-new/sd/comps/top.json',
+      recency_key: '0001|2026-07-08',
+      chars: ['one', 'two', 'three'],
+    }],
+    phaseInfoRows: [
+      {
+        snapshot_id: 'snapshot-old',
+        mode: 'sd',
+        collect_date: '2026-07-08',
+        phase_ver: 'repeat',
+        phase_name: '错误主题',
+      },
+      {
+        snapshot_id: 'snapshot-new',
+        mode: 'sd',
+        collect_date: '2026-07-08',
+        phase_ver: 'repeat',
+        phase_name: '正确主题',
+      },
+    ],
+  });
+  assert.equal(plain(zzz.recommenderPhase()).snapshot_id, 'snapshot-new');
+
+  zzz.reset({
+    rosterRows: [],
+    bannerRows: [],
+    teamTemplates: [],
+    tierRows: [],
+    usageRows: [],
+    phaseInfoRows: [{
+      id: 'old-only',
+      mode: 'sd',
+      collect_date: '2026-07-01',
+      phase_ver: 'repeat',
+      phase_name: '不可借用',
+      mechanic_name: '旧机制',
+      start_date: '2026-06-01',
+      end_date: '2026-06-30',
+      phase_status: 'expired',
+    }],
+  });
+  assert.deepEqual(
+    plain(zzz.sampleMeta(
+      [{collect_date: '2026-07-08', phase_ver: 'repeat', phase_name: '式舆防卫 usage', phase_status: 'current'}],
+      'sd',
+    )),
+    {
+      date: '2026-07-08',
+      phase: 'repeat',
+      theme: '式舆防卫 usage',
+      period: '未知 至 未知',
+      label: '当前周期',
+    },
+  );
+});
+
+test('banner refresh labels expose the managed official snapshot timestamp', () => {
+  const hsr = loadContract(HSR_APP, HSR_HARNESS);
+  hsr.reset({
+    ...hsrData([], []),
+    bannerRefresh: {
+      status: 'fresh',
+      fetched_at: '2026-07-24T14:30:00Z',
+      source_label: '米游社官方公告',
+    },
+  });
+  assert.equal(hsr.bannerRefresh(), '官方卡池资料已刷新 2026-07-24 22:30');
+
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  zzz.reset({
+    rosterRows: [],
+    bannerRows: [],
+    teamTemplates: [],
+    tierRows: [],
+    usageRows: [],
+    bannerRefresh: {
+      status: 'fresh',
+      fetched_at: '2026-07-24T14:30:00Z',
+      source_label: '绝区零官方内容',
+    },
+  });
+  assert.equal(zzz.bannerRefresh(), '官方卡池资料已刷新 2026-07-24 22:30');
+
+  hsr.reset({
+    ...hsrData([], []),
+    bannerRefresh: {status: 'stale', fetched_at: '2026-07-24T14:30:00Z'},
+  });
+  zzz.reset({rosterRows: [], bannerRows: [], teamTemplates: [], tierRows: [], usageRows: []});
+  assert.equal(hsr.bannerRefresh(), '');
+  assert.equal(zzz.bannerRefresh(), '');
 });
 
 function assertVisualizerAccessibilityMarkup(indexPath, stylePath) {

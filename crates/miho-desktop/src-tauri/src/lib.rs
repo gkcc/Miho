@@ -872,6 +872,12 @@ mod tests {
         assert!(frontend.contains("history.replaceState(null, \"\", \"#miho-app-ready-v1\")"));
         assert!(frontend.contains("visualizerActions.append(reloadVisualizerButton, utilities)"));
         assert!(frontend.contains("main.append(visualizerSection)"));
+        assert!(
+            frontend.contains("pageUrl.searchParams.set(\"revision\", descriptor.data_revision)")
+        );
+        assert!(
+            frontend.contains("if (force) pageUrl.searchParams.set(\"reload\", String(request))")
+        );
         assert!(frontend.contains("pageUrl.hash = \"box\""));
         assert!(frontend.contains(
             "frame.setAttribute(\"sandbox\", \"allow-scripts allow-same-origin allow-downloads\")"

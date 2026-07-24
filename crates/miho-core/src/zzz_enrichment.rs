@@ -586,9 +586,39 @@ fn apply_phase_overrides(dataset: &mut ZzzExportDataset, context: &ExportContext
     let Some(overrides) = load_phase_overrides(path) else {
         return;
     };
+    apply_phase_override_rows(dataset, &overrides);
+}
+
+#[derive(Default)]
+struct PhaseOverrides {
+    exact: BTreeMap<(String, String, String), serde_json::Map<String, Value>>,
+    legacy: BTreeMap<(String, String), serde_json::Map<String, Value>>,
+}
+
+impl PhaseOverrides {
+    fn get(
+        &self,
+        mode: &str,
+        phase_ver: &str,
+        snapshot_id: &str,
+    ) -> Option<&serde_json::Map<String, Value>> {
+        self.exact
+            .get(&(
+                mode.to_owned(),
+                phase_ver.to_owned(),
+                snapshot_id.to_owned(),
+            ))
+            .or_else(|| self.legacy.get(&(mode.to_owned(), phase_ver.to_owned())))
+    }
+}
+
+fn apply_phase_override_rows(dataset: &mut ZzzExportDataset, overrides: &PhaseOverrides) {
     for slice in &mut dataset.slices {
-        let Some(row) = overrides.get(&(slice.phase.mode.clone(), slice.phase.phase_ver.clone()))
-        else {
+        let Some(row) = overrides.get(
+            &slice.phase.mode,
+            &slice.phase.phase_ver,
+            &slice.phase.snapshot_id,
+        ) else {
             continue;
         };
         preserve_usage_phase(slice);
@@ -633,9 +663,7 @@ pub fn first_valid_phase_override_path(
         .find(|path| load_phase_overrides(path).is_some())
 }
 
-fn load_phase_overrides(
-    path: &Path,
-) -> Option<BTreeMap<(String, String), serde_json::Map<String, Value>>> {
+fn load_phase_overrides(path: &Path) -> Option<PhaseOverrides> {
     let text = fs::read_to_string(path).ok()?;
     let value = serde_json::from_str::<Value>(&text).ok()?;
     let rows = match &value {
@@ -643,16 +671,42 @@ fn load_phase_overrides(
         Value::Array(rows) => rows,
         _ => return None,
     };
-    Some(
-        rows.iter()
-            .filter_map(|row| {
-                let row = row.as_object()?;
-                let mode = row.get("mode")?.as_str()?.to_owned();
-                let phase_ver = row.get("phase_ver")?.as_str()?.to_owned();
-                Some(((mode, phase_ver), row.clone()))
-            })
-            .collect(),
-    )
+    let mut overrides = PhaseOverrides::default();
+    for row in rows.iter().filter_map(Value::as_object) {
+        let Some(mode) = row
+            .get("mode")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let Some(phase_ver) = row
+            .get("phase_ver")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let snapshot_id = row
+            .get("snapshot_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty());
+        if let Some(snapshot_id) = snapshot_id {
+            overrides.exact.insert(
+                (
+                    mode.to_owned(),
+                    phase_ver.to_owned(),
+                    snapshot_id.to_owned(),
+                ),
+                row.clone(),
+            );
+        } else {
+            overrides
+                .legacy
+                .insert((mode.to_owned(), phase_ver.to_owned()), row.clone());
+        }
+    }
+    Some(overrides)
 }
 
 fn latest_slice_index(dataset: &ZzzExportDataset, mode: GameMode) -> Option<usize> {
@@ -817,5 +871,95 @@ mod tests {
             source_path: String::new(),
         });
         assert!(phase_recency(&newer_snapshot) > phase_recency(&older_snapshot));
+    }
+
+    #[test]
+    fn phase_overrides_require_exact_snapshot_and_support_legacy_rows() {
+        let phase = |snapshot_id: &str, phase_ver: &str, collect_date: &str| {
+            crate::zzz::make_phase_row(crate::zzz::PhaseInput {
+                snapshot_id: snapshot_id.into(),
+                mode: "sd".into(),
+                collect_date: collect_date.into(),
+                ver: phase_ver.into(),
+                name: format!("phase {snapshot_id}"),
+                start: String::new(),
+                end: String::new(),
+                source_path: String::new(),
+            })
+        };
+        let mut dataset = ZzzExportDataset {
+            slices: vec![
+                crate::zzz_export::ZzzExportSlice {
+                    phase: phase("snapshot-old", "3.1", "2026-07-01"),
+                    usage_phase: None,
+                    team_phase: None,
+                    usage: vec![],
+                    teams: vec![],
+                    names: vec![],
+                },
+                crate::zzz_export::ZzzExportSlice {
+                    phase: phase("snapshot-new", "3.1", "2026-07-08"),
+                    usage_phase: None,
+                    team_phase: None,
+                    usage: vec![],
+                    teams: vec![],
+                    names: vec![],
+                },
+                crate::zzz_export::ZzzExportSlice {
+                    phase: phase("snapshot-legacy", "4.0", "2026-08-01"),
+                    usage_phase: None,
+                    team_phase: None,
+                    usage: vec![],
+                    teams: vec![],
+                    names: vec![],
+                },
+            ],
+            ..Default::default()
+        };
+        let override_row = serde_json::json!({
+            "mode": "sd",
+            "snapshot_id": "snapshot-new",
+            "phase_ver": "3.1",
+            "collect_date": "2026-07-09",
+            "start_date": "2026-07-02",
+            "end_date": "2026-07-16"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let legacy_row = serde_json::json!({
+            "mode": "sd",
+            "phase_ver": "4.0",
+            "collect_date": "2026-08-02",
+            "start_date": "2026-08-01"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let overrides = PhaseOverrides {
+            exact: BTreeMap::from([(
+                ("sd".to_owned(), "3.1".to_owned(), "snapshot-new".to_owned()),
+                override_row,
+            )]),
+            legacy: BTreeMap::from([(("sd".to_owned(), "4.0".to_owned()), legacy_row)]),
+        };
+
+        apply_phase_override_rows(&mut dataset, &overrides);
+
+        assert_eq!(dataset.slices[0].phase.collect_date, "2026-07-01");
+        assert!(dataset.slices[0].phase.start_date.is_empty());
+        assert!(dataset.slices[0].usage_phase.is_none());
+        assert_eq!(dataset.slices[1].phase.collect_date, "2026-07-09");
+        assert_eq!(dataset.slices[1].phase.start_date, "2026-07-02");
+        assert_eq!(dataset.slices[1].phase.end_date, "2026-07-16");
+        assert_eq!(
+            dataset.slices[1]
+                .usage_phase
+                .as_ref()
+                .map(|phase| phase.collect_date.as_str()),
+            Some("2026-07-08")
+        );
+        assert_eq!(dataset.slices[2].phase.collect_date, "2026-08-02");
+        assert_eq!(dataset.slices[2].phase.start_date, "2026-08-01");
     }
 }

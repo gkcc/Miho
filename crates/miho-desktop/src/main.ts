@@ -1360,6 +1360,8 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
       return;
     }
     const pageUrl = new URL(descriptor.url);
+    pageUrl.searchParams.set("revision", descriptor.data_revision);
+    if (force) pageUrl.searchParams.set("reload", String(request));
     pageUrl.hash = "box";
     const navigationUrl = pageUrl.toString();
     if (!force

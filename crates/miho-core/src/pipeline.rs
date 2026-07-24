@@ -1780,7 +1780,7 @@ mod tests {
         ));
         fs::write(
             &override_path,
-            r#"{"phases":[{"mode":"sd","phase_ver":"3.1","collect_date":"2026-07-09","start_date":"2026-07-01","note":"manual fixture override"}]}"#,
+            r#"{"phases":[{"mode":"sd","snapshot_id":"2.0.0","phase_ver":"3.1","collect_date":"2026-07-09","start_date":"2026-07-01","note":"manual fixture override"}]}"#,
         )
         .unwrap();
         let context = ExportContext {

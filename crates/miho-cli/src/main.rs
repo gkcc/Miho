@@ -871,6 +871,7 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
     };
     let revision = "main".to_owned();
     let source = export_source(game, &args.repo_id, &revision);
+    let refresh_official_banners = !matches!(&source, ExportSourceV1::Fixture { .. });
     let _lease = acquire_writer_lease(&invocation.resolve(&args.out))?;
     execute_export_observed_v1(
         &ExportTaskV1 {
@@ -895,6 +896,7 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
             },
             prydwen_top_n: args.prydwen_top_n,
             name_map_seed,
+            refresh_official_banners,
             source,
         },
         &invocation,

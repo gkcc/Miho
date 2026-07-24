@@ -34,7 +34,7 @@ pub fn attach_hsr_visualizer(
 
     let mut roster = build_roster(bundle, &tiers, &characters, &names, context)?;
     let phase_info = build_phase_info(&phases, context);
-    let banner = build_banner(context, &roster, local_datetime)?;
+    let (banner, banner_refresh) = build_banner(context, &roster, local_datetime)?;
     merge_banner_into_roster(&mut roster, &banner);
     let usage = build_usage(&characters, &tiers, &roster, context);
     let team_templates = build_teams(&teams, &phase_info, &roster, context)?;
@@ -46,7 +46,7 @@ pub fn attach_hsr_visualizer(
         usage
     };
     let (data_quality, freshness) = read_data_quality(bundle)?;
-    let data = json!({
+    let mut data = json!({
         "meta": {
             "generatedAt": latest(&tiers, "fetched_at"),
             "tierUpdatedAt": latest(&tiers, "tier_updated_at"),
@@ -72,6 +72,11 @@ pub fn attach_hsr_visualizer(
         "data_quality": data_quality,
         "freshness": freshness,
     });
+    if let Some(refresh) = banner_refresh {
+        data.as_object_mut()
+            .expect("visualizer data must be an object")
+            .insert("bannerRefresh".into(), refresh);
+    }
     attach_hsr_static_assets(bundle)?;
     attach_avatar_assets(bundle, context)?;
     attach_visualizer_data(bundle, &data)?;
@@ -940,9 +945,9 @@ fn build_banner(
     context: &VisualizerContext,
     roster: &[Value],
     local_datetime: chrono::NaiveDateTime,
-) -> Result<Vec<Value>> {
+) -> Result<(Vec<Value>, Option<Value>)> {
     let Some(bytes) = context.sidecar("hsr_banner_plan.json") else {
-        return Ok(vec![]);
+        return Ok((vec![], None));
     };
     let text = strict_utf8(bytes, "hsr_banner_plan.json")?;
     validate_json_surrogate_escapes(text, "hsr_banner_plan.json")?;
@@ -950,6 +955,7 @@ fn build_banner(
         path: "hsr_banner_plan.json".into(),
         source,
     })?;
+    let refresh = banner_refresh(&root);
     let lookup = roster_lookup(roster);
     let mut output = vec![];
     for phase in root
@@ -1000,7 +1006,24 @@ fn build_banner(
             output.push(json!({"phase_id":pv("id"),"phase_status":status,"phase_title":pv("title"),"phase_subtitle":pv("subtitle"),"date_range":pv("date_range"),"source_label":source_label,"source_url":source_url,"slot":index+1,"character_slug":slug,"character_name_cn":first(&[Some(cv("name_cn")),r.and_then(|v|v.get("character_name_cn")).and_then(Value::as_str)]),"character_name_en":first(&[Some(cv("name_en")),r.and_then(|v|v.get("character_name_en")).and_then(Value::as_str)]),"banner_role":cv("banner_role"),"rarity":first(&[Some(cv("rarity")),r.and_then(|v|v.get("rarity")).and_then(Value::as_str)]),"element_cn":first(&[Some(cv("element_cn")),r.and_then(|v|v.get("element_cn")).and_then(Value::as_str)]),"path_cn":first(&[Some(cv("path_cn")),r.and_then(|v|v.get("path_cn")).and_then(Value::as_str)]),"role_group_cns":first(&[Some(cv("role_group_cns")),r.and_then(|v|v.get("role_group_cns")).and_then(Value::as_str)]),"icon_url":icon_url,"analysis_tags":ch.get("analysis_tags").cloned().unwrap_or_else(||json!([])),"focus":cv("focus")}));
         }
     }
-    Ok(output)
+    Ok((output, refresh))
+}
+
+fn banner_refresh(root: &Value) -> Option<Value> {
+    let refresh = root.get("refresh")?.as_object()?;
+    let status = refresh.get("status")?.as_str()?.trim();
+    let fetched_at = refresh.get("fetched_at")?.as_str()?.trim();
+    if status.is_empty() || fetched_at.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "status": status,
+        "fetched_at": fetched_at,
+        "source_label": refresh
+            .get("source_label")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    }))
 }
 
 fn merge_banner_into_roster(roster: &mut Vec<Value>, banner: &[Value]) {
@@ -1980,7 +2003,7 @@ mod tests {
         context
             .add_sidecar_bytes(
                 "hsr_banner_plan.json",
-                r#"{"phases":[{
+                r#"{"refresh":{"status":"fresh","fetched_at":"2026-07-24T14:30:00Z","source_label":"米游社官方公告"},"phases":[{
                     "id":"old","status":"current","date_range":"中文 1900/1/1 - 1900/1/2",
                     "title":"旧跃迁","characters":[{
                         "slug":"new-agent","name_cn":"新角色","name_en":"New Agent",
@@ -1994,8 +2017,16 @@ mod tests {
                     .as_bytes(),
             )
             .unwrap();
-        let banner =
+        let (banner, refresh) =
             build_banner(&context, &[], context.require_local_datetime().unwrap()).unwrap();
+        assert_eq!(
+            refresh,
+            Some(json!({
+                "status": "fresh",
+                "fetched_at": "2026-07-24T14:30:00Z",
+                "source_label": "米游社官方公告",
+            }))
+        );
         assert_eq!(banner[0]["phase_status"], "previous");
         assert_eq!(banner[0]["source_url"], "1e-07");
         assert_eq!(banner[0]["icon_url"], "100000000000000000000000000000");

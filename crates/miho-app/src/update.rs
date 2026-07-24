@@ -461,6 +461,7 @@ impl NativeUpdateExecutorV1 {
             .map_err(|_| safe_step_failure(game_export_step(game), false))?;
         let to_date = invocation.local_date();
         let from_date = to_date - Duration::days(i64::from(self.config.days));
+        let refresh_official_banners = !self.fixture_sources.contains_key(&game);
         let task = ExportTaskV1 {
             game,
             modes: settings.modes.clone(),
@@ -477,6 +478,7 @@ impl NativeUpdateExecutorV1 {
             },
             prydwen_top_n: settings.prydwen_top_n,
             name_map_seed: None,
+            refresh_official_banners,
             source: self
                 .fixture_sources
                 .get(&game)
@@ -549,10 +551,17 @@ impl NativeUpdateExecutorV1 {
             data_dir: self.config.zzz.export.output.clone(),
             box_path: self.config.zzz.box_path.clone(),
         };
+        let refreshed_plan = self.config.zzz.export.output.join("zzz_banner_plan.json");
+        let plan_path = match fs::symlink_metadata(&refreshed_plan) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                refreshed_plan
+            }
+            _ => self.config.zzz.banner_plan.clone(),
+        };
         let task = match step {
             UpdateStepKindV1::ZzzCoverage => TaskSpecV1::Coverage(CoverageTaskV1 {
                 planned_slugs: Vec::new(),
-                plan_path: Some(self.config.zzz.banner_plan.clone()),
+                plan_path: Some(plan_path.clone()),
                 plan_statuses: vec!["current".to_owned(), "next".to_owned()],
                 limit: 0,
                 min_a_app_rate: "10.0".to_owned(),
@@ -562,7 +571,7 @@ impl NativeUpdateExecutorV1 {
             }),
             UpdateStepKindV1::ZzzPullValue | UpdateStepKindV1::ZzzReviewPacket => {
                 let task = PullTaskV1 {
-                    plan_path: self.config.zzz.banner_plan.clone(),
+                    plan_path,
                     plan_statuses: vec!["current".to_owned(), "next".to_owned()],
                     planned_slugs: Vec::new(),
                     mechanism_notes_dir: Some(self.config.zzz.mechanism_notes.clone()),

@@ -7,6 +7,7 @@ edition.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 miho-core = { path = "../miho-core" }
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

@@ -566,6 +566,13 @@
 - **真实入口与直接交付**：Release 与候选 EXE SHA-256 均为 `3C89EF963E6F9CA98E417DA51CE2686B714BEA47B1D70554F43234E3C81033B4`。后台 CDP/DOM 实际完成 ZZZ → HSR → ZZZ，覆盖自由一/二/三关、非连续两关、最多三套方案、三种排序、搜索隔离、锁队/解锁重算、双 iframe 页面状态保持、Box 预览取消、320×568 tooltip 和双 Box 保存桥；进程正常退出 0、stdout/stderr 为空。HSR/ZZZ Box SHA-256 前后分别保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`；未进入 NSIS、portable 或旧安装器链。
 - **非阻断维护余项**：HSR/ZZZ 两个大型 `app.js` 尚未按 Box、卡池、图表和推荐器等职责拆分模块；本轮已消除 Python/Rust Visualizer 静态资产双写，模块化拆分留作后续维护任务。
 
+### 双游戏卡池刷新与终局期次可见性（2026-07-24，已交付）
+
+- **用户问题与数据修复**：“更新数据”此前只更新统计来源，卡池仍读长期人工计划；终局页也只显示采样日期，无法辨认对应期次。正式导出现同步抓取 HSR 米游社官方活动跃迁公告和 ZZZ 官网限时频段公告，把官方事实合入当次输出快照而不覆盖 `configs/*_banner_plan.json`；有可靠日期的旧阶段会重新计算 `current / next / previous`，无日期的人工前瞻仍保留。ZZZ override 改为 `(mode, phase_ver, snapshot_id)` 精确匹配，同日多快照按 snapshot/phase identity 消歧。
+- **产品呈现与即时重载**：双游戏卡池页显示本次官方刷新时间；六个终局模式统一显示“本期：主题（期次） · 起止日期 · 最新采样 · 当前/历史状态”。后端已证明在任务成功前一次性提交 Banner 与 Visualizer；现场剩余竞态来自不同 `data_revision` 共用同一 iframe URL，旧文档可能被 `load` 事件误标成新版本。桌面现把 SHA-256 revision 写入导航 URL，强制重载再加 nonce；真实更新探针同时要求后端终态 revision、iframe URL revision 与 loadedRevision 三者一致。
+- **真实按钮证据**：隐藏窗口/CDP 依次实际点击 ZZZ、HSR 两个“更新数据”按钮，两项任务均成功且 iframe 节点保持不变、各发生一次完整导航。ZZZ 卡池显示 `fresh / 2026-07-24 23:23`，终局为式舆防卫 `3.0.2`（`2026-07-10` 至 `2026-07-24`）及危局强袭战 `3.0.3`（`2026-07-17` 至 `2026-07-29`），采样均为 `2026-07-19`；HSR 卡池显示 `fresh / 2026-07-24 23:24`，MoC/PF/AS/AA 均展示非占位主题、期次、完整周期和 `2026-06-25` 采样。两游戏交叉复验后仍保持相同刷新时间和六模式期次；进程正常退出，stdout/stderr 为空。
+- **验证与直接交付**：推荐器逻辑 63/63、官方卡池刷新 14 项通过（1 项 live 忽略）、Rust Visualizer 36/36、Python Visualizer 61 项通过（2 项 deselected）、PowerShell GUI contract、TypeScript production build、桌面 revision 定点契约和 `pnpm run tauri:build` 均通过。Release 已直接更新到 `D:\Miho Endgame\miho-desktop.exe`，与构建产物 SHA-256 同为 `6E01C852FCD67C265419093E9DAEC4F8352ED07AE6E5CDC8097F3459024DAFD1`。真实双更新前后 HSR/ZZZ Box 物理 SHA-256 分别保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`；未生成安装器或 portable。
+
 ## 恢复入口
 
 - 项目状态：本文件。

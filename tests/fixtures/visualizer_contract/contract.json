@@ -34,13 +34,13 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "04a43a2402116ce881fbe41959861502d40f978a1e4d5b9d93ea8657e7f68004",
+      "app.js": "a54d69e0c05c67ce3af9a67ffa7dc1843380ed108b8cf85b78511a39115462c1",
       "index.html": "599d38eb25ca363607b5f7e2b50804a91db14e10414b71012a2c669c214411cc",
       "solver.js": "98a2f0f9a760488f8f0f141f5f221b3cabf9c277ecfcf8abba0365d95451816a",
       "styles.css": "d8664e94a3e8077ac794e878997076100527fbb626e4fe217a43d1a04835b86c"
     },
     "zzz": {
-      "app.js": "e2bf7f1be2455286d5ffbf4373859921cb7509a0e7072aff09b350b137b06ea5",
+      "app.js": "23d93e3d2a16e20c0fdcfd47285e7bf5cdfcb65cc276570804aa0c64940a04f8",
       "index.html": "583c936f43d13ab44ba00c018bee997cac8c6567434486014aff96b9c204e3aa",
       "solver.js": "98a2f0f9a760488f8f0f141f5f221b3cabf9c277ecfcf8abba0365d95451816a",
       "styles.css": "f53ebce1a2e5b588dbdad6e5b58f35154e21dd3dc60928c4d839e81643fefa84"

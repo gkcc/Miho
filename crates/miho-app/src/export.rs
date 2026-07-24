@@ -6,7 +6,7 @@
 //! to this module.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fs,
     path::{Component, Path, PathBuf},
@@ -23,12 +23,15 @@ use miho_core::{
     },
     data_quality::attach_data_quality_v1,
     hf::HuggingFaceRepo,
+    hsr_sources::official_names as hsr_official_names,
     hsr_supplemental::{HsrFixtureSupplementalSource, HsrHttpSupplementalSource},
     hsr_visualizer::attach_hsr_visualizer,
     network::{FetchMode, HttpClient},
     pipeline::{run_hsr_export_v1, run_zzz_export_v1, ExportRequest, Game, OfflineFixture},
     source::{HfCacheFallbackPolicy, HfSnapshotSource},
-    visualizer::{attach_visualizer_hub, validate_json_surrogate_escapes, VisualizerContext},
+    visualizer::{
+        attach_visualizer_hub, read_csv_rows, validate_json_surrogate_escapes, VisualizerContext,
+    },
     zzz_enrichment::first_valid_phase_override_path,
     zzz_supplemental::{ZzzFixtureSupplementalSource, ZzzHttpSupplementalSource},
     zzz_visualizer::attach_zzz_visualizer,
@@ -37,6 +40,10 @@ use miho_core::{
 use sha2::{Digest, Sha256};
 
 use crate::{
+    banner_refresh::{
+        fetch_hsr_official_banner_phases, fetch_zzz_official_banner_phases,
+        merge_banner_plan_snapshot, BannerNameMapV1, BannerRefreshMetadataV1,
+    },
     bundled_avatars, AppInvocation, ExecutionControlError, ResolvedUpdateConfigV1,
     TaskFreshnessSummaryV1, TaskOperationV1,
 };
@@ -136,6 +143,7 @@ pub struct ExportTaskV1 {
     pub features: FeatureFlags,
     pub prydwen_top_n: usize,
     pub name_map_seed: Option<PathBuf>,
+    pub refresh_official_banners: bool,
     pub source: ExportSourceV1,
 }
 
@@ -187,6 +195,7 @@ impl TrustedExportTaskV1 {
                 },
                 prydwen_top_n: settings.prydwen_top_n,
                 name_map_seed: None,
+                refresh_official_banners: true,
                 source: ExportSourceV1::Online {
                     cache_root: export_cache_root(
                         &config.workspace.join(".miho").join("cache").join("rust"),
@@ -406,6 +415,13 @@ pub async fn execute_export_observed_with_hub_v1(
         previous_data_quality.as_deref(),
     )?;
     let freshness = TaskFreshnessSummaryV1::from(&data_quality);
+    if task.refresh_official_banners {
+        if fixture_root.is_some() {
+            bail!("official banner refresh is not available in fixture exports");
+        }
+        attach_official_banner_snapshot(&mut run.bundle, task.game, &output_root, invocation)
+            .await?;
+    }
     match task.game {
         Game::Hsr => attach_hsr_visualizer_from_output(&mut run.bundle, &output_root, invocation)?,
         Game::Zzz => attach_zzz_visualizer_from_output(&mut run.bundle, &output_root, invocation)?,
@@ -425,6 +441,150 @@ pub async fn execute_export_observed_with_hub_v1(
         diagnostics: run.diagnostics,
         freshness,
     })
+}
+
+async fn attach_official_banner_snapshot(
+    bundle: &mut miho_core::output::ArtifactBundle,
+    game: Game,
+    output_root: &Path,
+    invocation: &ExportInvocation,
+) -> anyhow::Result<()> {
+    let artifact = match game {
+        Game::Hsr => "hsr_banner_plan.json",
+        Game::Zzz => "zzz_banner_plan.json",
+    };
+    let baseline = if let Some(bytes) = bundle_banner_plan_candidate(bundle, artifact)? {
+        bytes
+    } else {
+        let candidates = match game {
+            Game::Hsr => hsr_banner_candidates(output_root, invocation),
+            Game::Zzz => zzz_banner_candidates(output_root, invocation),
+        };
+        first_valid_json_candidate(&candidates, is_valid_banner_plan)?
+            .unwrap_or_else(|| b"{\"phases\":[]}".to_vec())
+    };
+    let name_map = banner_name_map(bundle, game)?;
+    let http = HttpClient::new(StdDuration::from_secs(60), 2)?;
+    let (phases, source_label) = match game {
+        Game::Hsr => (
+            fetch_hsr_official_banner_phases(&http).await?,
+            "米游社官方活动跃迁公告",
+        ),
+        Game::Zzz => (
+            fetch_zzz_official_banner_phases(&http).await?,
+            "《绝区零》官方网站限时频段公告",
+        ),
+    };
+    let snapshot = merge_banner_plan_snapshot(
+        &baseline,
+        &phases,
+        &name_map,
+        &BannerRefreshMetadataV1 {
+            fetched_at: invocation.observed_at().to_rfc3339(),
+            source_label: source_label.to_owned(),
+        },
+    )?;
+    bundle.add_bytes(artifact, snapshot)?;
+    Ok(())
+}
+
+fn banner_name_map(
+    bundle: &miho_core::output::ArtifactBundle,
+    game: Game,
+) -> anyhow::Result<BannerNameMapV1> {
+    let mut names = BannerNameMapV1::new();
+    let mut ambiguous = BTreeSet::new();
+    for row in read_csv_rows(bundle, "name_map.csv")? {
+        let slug = banner_plan_slug(
+            game,
+            row.get("character_slug").map(String::as_str).unwrap_or(""),
+        );
+        add_banner_name(
+            &mut names,
+            &mut ambiguous,
+            row.get("character_name_cn")
+                .map(String::as_str)
+                .unwrap_or(""),
+            &slug,
+        );
+    }
+    if game == Game::Hsr {
+        let zh = read_optional_bundle_json_array(bundle, "raw/hoyowiki/hsr_characters_zh-cn.json")?;
+        let en = read_optional_bundle_json_array(bundle, "raw/hoyowiki/hsr_characters_en-us.json")?;
+        if let (Some(zh), Some(en)) = (zh, en) {
+            for row in hsr_official_names(&zh, &en).into_values() {
+                if names.contains_key(row.character_name_cn.trim()) {
+                    continue;
+                }
+                let slug = banner_plan_slug(game, &row.character_slug);
+                add_banner_name(&mut names, &mut ambiguous, &row.character_name_cn, &slug);
+            }
+        }
+    }
+    if names.is_empty() {
+        bail!("current export name_map has no canonical Chinese character names");
+    }
+    Ok(names)
+}
+
+fn banner_plan_slug(game: Game, slug: &str) -> String {
+    if game != Game::Hsr {
+        return slug.trim().to_owned();
+    }
+    match slug.trim() {
+        "blade-mortenax" => "mortenax-blade",
+        "imbibitor-lunae" => "dan-heng-imbibitor-lunae",
+        "march-7th-evernight" => "evernight",
+        "march-7th-swordmaster" => "march-7th-the-hunt",
+        "silver-wolf-lv-999" => "silver-wolf-lv999",
+        "tingyun-fugue" => "fugue",
+        "topaz" => "topaz-and-numby",
+        "trailblazer-destruction" => "trailblazer-the-destruction",
+        "trailblazer-harmony" => "trailblazer-the-harmony",
+        "trailblazer-preservation" => "trailblazer-the-preservation",
+        _ => slug.trim(),
+    }
+    .to_owned()
+}
+
+fn add_banner_name(
+    names: &mut BTreeMap<String, String>,
+    ambiguous: &mut BTreeSet<String>,
+    name: &str,
+    slug: &str,
+) {
+    let name = name.trim();
+    let slug = slug.trim();
+    if name.is_empty() || slug.is_empty() || ambiguous.contains(name) {
+        return;
+    }
+    if names
+        .get(name)
+        .is_some_and(|existing| existing.as_str() != slug)
+    {
+        names.remove(name);
+        ambiguous.insert(name.to_owned());
+        return;
+    }
+    names.insert(name.to_owned(), slug.to_owned());
+}
+
+fn read_optional_bundle_json_array(
+    bundle: &miho_core::output::ArtifactBundle,
+    path: &str,
+) -> anyhow::Result<Option<Vec<serde_json::Value>>> {
+    let Some(bytes) = bundle.get(path) else {
+        return Ok(None);
+    };
+    let text = strict_utf8_candidate(bytes, Path::new(path))?;
+    validate_json_surrogate_escapes(text, path)?;
+    let value: serde_json::Value =
+        serde_json::from_str(text).with_context(|| format!("parse {path}"))?;
+    let rows = value
+        .as_array()
+        .cloned()
+        .with_context(|| format!("{path} must be a JSON array"))?;
+    Ok(Some(rows))
 }
 
 fn read_previous_data_quality(output_root: &Path) -> anyhow::Result<Option<Vec<u8>>> {
@@ -494,10 +654,17 @@ fn attach_hsr_visualizer_from_output(
     validate_optional_directory(out)?;
     validate_optional_directory(&out.join("visualizer"))?;
     let avatars = read_existing_visualizer_avatars(out)?;
+    let mut banners = Vec::new();
+    if let Some(bytes) = bundle_banner_plan_candidate(bundle, "hsr_banner_plan.json")? {
+        banners.push(bytes);
+    }
     for path in hsr_banner_candidates(out, invocation) {
-        let Some(bytes) = read_json_object_candidate(&path)? else {
+        let Some(bytes) = read_banner_plan_candidate(&path)? else {
             continue;
         };
+        banners.push(bytes);
+    }
+    for bytes in banners {
         let mut context = visualizer_context(Game::Hsr, &avatars, invocation)?;
         context.add_sidecar_bytes("hsr_banner_plan.json", bytes)?;
         match attach_hsr_visualizer(bundle, &context) {
@@ -525,9 +692,12 @@ fn attach_zzz_visualizer_from_output(
     {
         context.add_sidecar_bytes("zzz_endgame_phase_overrides.json", bytes)?;
     }
-    if let Some(bytes) = first_valid_json_candidate(
+    let bundled_banner = bundle_banner_plan_candidate(bundle, "zzz_banner_plan.json")?;
+    if let Some(bytes) = bundled_banner {
+        context.add_sidecar_bytes("zzz_banner_plan.json", bytes)?;
+    } else if let Some(bytes) = first_valid_json_candidate(
         &zzz_banner_candidates(out, invocation),
-        serde_json::Value::is_object,
+        is_valid_banner_plan,
     )? {
         context.add_sidecar_bytes("zzz_banner_plan.json", bytes)?;
     }
@@ -1176,7 +1346,14 @@ fn is_valid_phase_override(value: &serde_json::Value) -> bool {
             .is_some_and(serde_json::Value::is_array)
 }
 
-fn read_json_object_candidate(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
+fn is_valid_banner_plan(value: &serde_json::Value) -> bool {
+    value
+        .as_object()
+        .and_then(|object| object.get("phases"))
+        .is_some_and(serde_json::Value::is_array)
+}
+
+fn read_banner_plan_candidate(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -1184,7 +1361,26 @@ fn read_json_object_candidate(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
     };
     let text = strict_utf8_candidate(&bytes, path)?.trim();
     validate_json_surrogate_escapes(text, &path.display().to_string())?;
-    Ok((text.starts_with('{') && text.ends_with('}')).then_some(bytes))
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Ok(None);
+    };
+    Ok(is_valid_banner_plan(&value).then_some(bytes))
+}
+
+fn bundle_banner_plan_candidate(
+    bundle: &miho_core::output::ArtifactBundle,
+    path: &str,
+) -> anyhow::Result<Option<Vec<u8>>> {
+    let Some(bytes) = bundle.get(path) else {
+        return Ok(None);
+    };
+    let label = Path::new(path);
+    let text = strict_utf8_candidate(bytes, label)?.trim();
+    validate_json_surrogate_escapes(text, path)?;
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Ok(None);
+    };
+    Ok(is_valid_banner_plan(&value).then(|| bytes.to_vec()))
 }
 
 fn strict_utf8_candidate<'a>(bytes: &'a [u8], path: &Path) -> anyhow::Result<&'a str> {
@@ -1290,6 +1486,39 @@ mod tests {
             invocation.app_invocation().unwrap().local_datetime(),
             invocation.local_datetime()
         );
+    }
+
+    #[test]
+    fn banner_name_map_includes_current_hsr_official_roster_beyond_name_map_csv() {
+        let mut bundle = miho_core::output::ArtifactBundle::default();
+        bundle
+            .add_csv(
+                "name_map.csv",
+                &["character_slug", "character_name_cn"],
+                [["himeko", "姬子"], ["march-7th-evernight", "长夜月"]],
+            )
+            .unwrap();
+        bundle
+            .add_text(
+                "raw/hoyowiki/hsr_characters_zh-cn.json",
+                r#"[{"entry_page_id":"1","name":"姬子•启行"},{"entry_page_id":"2","name":"长夜月"}]"#,
+            )
+            .unwrap();
+        bundle
+            .add_text(
+                "raw/hoyowiki/hsr_characters_en-us.json",
+                r#"[{"entry_page_id":"1","name":"Himeko • Nova"},{"entry_page_id":"2","name":"Evernight"}]"#,
+            )
+            .unwrap();
+
+        let names = banner_name_map(&bundle, Game::Hsr).unwrap();
+
+        assert_eq!(names.get("姬子").map(String::as_str), Some("himeko"));
+        assert_eq!(
+            names.get("姬子•启行").map(String::as_str),
+            Some("himeko-nova")
+        );
+        assert_eq!(names.get("长夜月").map(String::as_str), Some("evernight"));
     }
 
     #[test]
@@ -1476,6 +1705,7 @@ mod tests {
                 },
                 prydwen_top_n: 100,
                 name_map_seed: None,
+                refresh_official_banners: false,
                 source: ExportSourceV1::Fixture {
                     root: workspace.join("tests/fixtures/offline_hsr"),
                     supplemental_root: Some(workspace.join("tests/fixtures/hsr_supplemental")),
@@ -1554,6 +1784,7 @@ mod tests {
                 },
                 prydwen_top_n: 100,
                 name_map_seed: None,
+                refresh_official_banners: false,
                 source: ExportSourceV1::Fixture {
                     root: workspace.join("tests/fixtures/offline_hsr"),
                     supplemental_root: Some(workspace.join("tests/fixtures/hsr_supplemental")),

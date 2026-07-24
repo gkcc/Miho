@@ -17,7 +17,12 @@ param(
 
     [int]$ExpectedHsrTotal = -1,
 
-    [int]$ExpectedZzzTotal = -1
+    [int]$ExpectedZzzTotal = -1,
+
+    [switch]$RunProductUpdates,
+
+    [ValidateRange(30, 900)]
+    [int]$ProductUpdateTimeoutSeconds = 600
 )
 
 $ErrorActionPreference = "Stop"
@@ -620,6 +625,7 @@ $startInfo.FileName = $fullExecutable
 $startInfo.WorkingDirectory = $workingDirectory
 $startInfo.UseShellExecute = $false
 $startInfo.CreateNoWindow = $true
+$startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
 $startInfo.RedirectStandardOutput = $true
 $startInfo.RedirectStandardError = $true
 Set-MihoGuiRenderChildEnvironmentV1 -StartInfo $startInfo -DebugPort $port
@@ -745,7 +751,9 @@ try {
                 "--expected-zzz-owned" ([string]$ExpectedZzzOwned) `
                 "--expected-hsr-total" ([string]$ExpectedHsrTotal) `
                 "--expected-zzz-total" ([string]$ExpectedZzzTotal) `
-                "--timeout-ms" "120000" 2>&1)
+                "--timeout-ms" "120000" `
+                "--run-updates" ([string]$RunProductUpdates.IsPresent).ToLowerInvariant() `
+                "--update-timeout-ms" ([string]($ProductUpdateTimeoutSeconds * 1000)) 2>&1)
             $productProbeExitCode = $LASTEXITCODE
         }
         finally {

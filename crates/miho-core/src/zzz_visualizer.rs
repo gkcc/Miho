@@ -31,7 +31,7 @@ pub fn attach_zzz_visualizer(
 
     let mut roster = build_roster(bundle, &usage, &tiers, &names, context)?;
     let phase_info = build_phase_info(bundle, &phases, context)?;
-    let mut banner = build_banner(bundle, context, &roster, local_datetime)?;
+    let (mut banner, banner_refresh) = build_banner(bundle, context, &roster, local_datetime)?;
     localize_icons(&mut banner, context);
     merge_banner_into_roster(&mut roster, &banner);
     let team_templates = build_team_templates(&teams, &roster, &names, &phase_info)?;
@@ -62,6 +62,11 @@ pub fn attach_zzz_visualizer(
         "data_quality": data_quality,
         "freshness": freshness,
     });
+    if let Some(refresh) = banner_refresh {
+        data.as_object_mut()
+            .expect("visualizer data must be an object")
+            .insert("bannerRefresh".into(), refresh);
+    }
     sanitize_urls(&mut data, "");
     attach_zzz_static_assets(bundle)?;
     attach_avatar_assets(bundle, context)?;
@@ -409,8 +414,9 @@ fn build_phase_info(
         .map(|row| {
             let mode = get(row, "mode");
             let version = get(row, "phase_ver");
+            let snapshot_id = get(row, "snapshot_id");
             let update = updates.get(&(mode.into(), version.into()));
-            let override_row = overrides.get(&(mode.into(), version.into()));
+            let override_row = overrides.get(mode, version, snapshot_id);
             let override_str = |key| override_row.and_then(|value| value.get(key)).and_then(Value::as_str).unwrap_or("");
             let collect_date = first(&[
                 nonempty(row, "collect_date"),
@@ -454,26 +460,48 @@ fn build_phase_info(
         .collect())
 }
 
-fn phase_overrides(
-    bundle: &ArtifactBundle,
-    context: &VisualizerContext,
-) -> Result<HashMap<(String, String), Value>> {
+#[derive(Default)]
+struct PhaseOverrides {
+    exact: HashMap<(String, String, String), Value>,
+    legacy: HashMap<(String, String), Value>,
+}
+
+impl PhaseOverrides {
+    fn get(&self, mode: &str, phase_ver: &str, snapshot_id: &str) -> Option<&Value> {
+        self.exact
+            .get(&(
+                mode.to_owned(),
+                phase_ver.to_owned(),
+                snapshot_id.to_owned(),
+            ))
+            .or_else(|| self.legacy.get(&(mode.to_owned(), phase_ver.to_owned())))
+    }
+}
+
+fn phase_overrides(bundle: &ArtifactBundle, context: &VisualizerContext) -> Result<PhaseOverrides> {
     let Some(value) = read_json_value(bundle, context, "zzz_endgame_phase_overrides.json")? else {
-        return Ok(HashMap::new());
+        return Ok(PhaseOverrides::default());
     };
     let rows = if let Some(rows) = value.get("phases").and_then(Value::as_array) {
         rows.clone()
     } else {
         value.as_array().cloned().unwrap_or_default()
     };
-    Ok(rows
-        .into_iter()
-        .filter_map(|row| {
-            let mode = value_str(&row, "mode").to_owned();
-            let version = value_str(&row, "phase_ver").to_owned();
-            (!mode.is_empty() && !version.is_empty()).then_some(((mode, version), row))
-        })
-        .collect())
+    let mut overrides = PhaseOverrides::default();
+    for row in rows {
+        let mode = value_str(&row, "mode").to_owned();
+        let phase_ver = value_str(&row, "phase_ver").to_owned();
+        if mode.is_empty() || phase_ver.is_empty() {
+            continue;
+        }
+        let snapshot_id = value_str(&row, "snapshot_id").to_owned();
+        if snapshot_id.is_empty() {
+            overrides.legacy.insert((mode, phase_ver), row);
+        } else {
+            overrides.exact.insert((mode, phase_ver, snapshot_id), row);
+        }
+    }
+    Ok(overrides)
 }
 
 fn unknown(value: &str) -> &str {
@@ -989,10 +1017,11 @@ fn build_banner(
     context: &VisualizerContext,
     roster: &[Value],
     local_datetime: chrono::NaiveDateTime,
-) -> Result<Vec<Value>> {
+) -> Result<(Vec<Value>, Option<Value>)> {
     let Some(root) = read_object_sidecar(bundle, context, "zzz_banner_plan.json")? else {
-        return Ok(vec![]);
+        return Ok((vec![], None));
     };
+    let refresh = banner_refresh(&root);
     let roster_map = roster
         .iter()
         .map(|row| (value_str(row, "character_slug"), row))
@@ -1038,7 +1067,24 @@ fn build_banner(
             }));
         }
     }
-    Ok(output)
+    Ok((output, refresh))
+}
+
+fn banner_refresh(root: &Value) -> Option<Value> {
+    let refresh = root.get("refresh")?.as_object()?;
+    let status = refresh.get("status")?.as_str()?.trim();
+    let fetched_at = refresh.get("fetched_at")?.as_str()?.trim();
+    if status.is_empty() || fetched_at.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "status": status,
+        "fetched_at": fetched_at,
+        "source_label": refresh
+            .get("source_label")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    }))
 }
 
 fn merge_banner_into_roster(roster: &mut Vec<Value>, banner: &[Value]) {
@@ -1347,7 +1393,11 @@ mod tests {
         prydwen
             .add_bytes("raw/prydwen/sd.html", vec![b'<', 0xff, b'>'])
             .unwrap();
-        let phase = row(&[("mode", "sd"), ("phase_ver", "3.1")]);
+        let phase = row(&[
+            ("snapshot_id", "snapshot-new"),
+            ("mode", "sd"),
+            ("phase_ver", "3.1"),
+        ]);
         let error = build_phase_info(&prydwen, &[phase], &context).unwrap_err();
         assert!(error
             .to_string()
@@ -1364,7 +1414,11 @@ mod tests {
                 "<option>3.1 - 07/July/2026 (1,234 users)</option>",
             )
             .unwrap();
-        let phase = row(&[("mode", "sd"), ("phase_ver", "3.1")]);
+        let phase = row(&[
+            ("snapshot_id", "snapshot-new"),
+            ("mode", "sd"),
+            ("phase_ver", "3.1"),
+        ]);
         let rows = build_phase_info(&bundle, std::slice::from_ref(&phase), &context).unwrap();
         assert_eq!(rows[0]["collect_date"], "2026-07-07");
         assert_eq!(rows[0]["source_limited"], true);
@@ -1373,16 +1427,37 @@ mod tests {
         context
             .add_sidecar_json(
                 "zzz_endgame_phase_overrides.json",
-                &json!({"phases":[{"mode":"sd","phase_ver":"3.1","collect_date":"2026-07-08","start_date":"2026-07-01","end_date":"2026-07-31","source_label":"manual","source_url":123,"note":"override"}]}),
+                &json!({"phases":[
+                    {"mode":"sd","snapshot_id":"snapshot-new","phase_ver":"3.1","collect_date":"2026-07-08","start_date":"2026-07-01","end_date":"2026-07-31","source_label":"manual","source_url":123,"note":"override"},
+                    {"mode":"sd","phase_ver":"4.0","collect_date":"2026-08-02","start_date":"2026-08-01","end_date":"2026-08-15","source_label":"legacy"}
+                ]}),
             )
             .unwrap();
-        let rows = build_phase_info(&bundle, &[phase], &context).unwrap();
-        assert_eq!(rows[0]["collect_date"], "2026-07-08");
-        assert_eq!(rows[0]["mechanic_source"], "manual");
-        assert_eq!(rows[0]["phase_status"], "current");
+        let old_phase = row(&[
+            ("snapshot_id", "snapshot-old"),
+            ("collect_date", "2026-06-30"),
+            ("mode", "sd"),
+            ("phase_ver", "3.1"),
+        ]);
+        let legacy_phase = row(&[
+            ("snapshot_id", "snapshot-legacy"),
+            ("mode", "sd"),
+            ("phase_ver", "4.0"),
+        ]);
+        let rows = build_phase_info(&bundle, &[old_phase, phase, legacy_phase], &context).unwrap();
+        assert_eq!(rows[0]["collect_date"], "2026-06-30");
+        assert_eq!(rows[0]["start_date"], "");
+        assert_ne!(rows[0]["mechanic_source"], "manual");
+        assert_eq!(rows[1]["collect_date"], "2026-07-08");
+        assert_eq!(rows[1]["mechanic_source"], "manual");
+        assert_eq!(rows[1]["mechanic_name"], "当期数据");
+        assert_eq!(rows[1]["phase_status"], "current");
+        assert_eq!(rows[2]["collect_date"], "2026-08-02");
+        assert_eq!(rows[2]["start_date"], "2026-08-01");
+        assert_eq!(rows[2]["mechanic_source"], "legacy");
         let mut data = json!({"phaseInfoRows": rows});
         sanitize_urls(&mut data, "");
-        assert_eq!(data["phaseInfoRows"][0]["mechanic_url"], "123");
+        assert_eq!(data["phaseInfoRows"][1]["mechanic_url"], "123");
     }
 
     #[test]
@@ -1745,16 +1820,24 @@ mod tests {
         context
             .add_sidecar_json(
                 "zzz_banner_plan.json",
-                &json!({"phases":[{"id":"old","status":"current","date_range":"1900-01-01 - 1900-01-02","source_url":123,"characters":[{"slug":"new-agent","name_cn":"新代理","style_cn":"强攻","icon_url":456,"analysis_tags":["new"]}]}]}),
+                &json!({"refresh":{"status":"fresh","fetched_at":"2026-07-24T14:30:00Z","source_label":"绝区零官方内容"},"phases":[{"id":"old","status":"current","date_range":"1900-01-01 - 1900-01-02","source_url":123,"characters":[{"slug":"new-agent","name_cn":"新代理","style_cn":"强攻","icon_url":456,"analysis_tags":["new"]}]}]}),
             )
             .unwrap();
-        let mut banner = build_banner(
+        let (mut banner, refresh) = build_banner(
             &bundle,
             &context,
             &[],
             context.require_local_datetime().unwrap(),
         )
         .unwrap();
+        assert_eq!(
+            refresh,
+            Some(json!({
+                "status": "fresh",
+                "fetched_at": "2026-07-24T14:30:00Z",
+                "source_label": "绝区零官方内容",
+            }))
+        );
         localize_icons(&mut banner, &context);
         assert_eq!(banner[0]["phase_status"], "previous");
         assert_eq!(banner[0]["declared_phase_status"], "current");

@@ -40,6 +40,9 @@ const expectedAnalysisModes = {
   zzz: ["sd", "da"],
 };
 const timeoutMs = Number(args.get("timeout-ms") ?? "30000");
+const runUpdatesValue = args.get("run-updates") ?? "false";
+const runUpdates = runUpdatesValue === "true";
+const updateTimeoutMs = Number(args.get("update-timeout-ms") ?? "600000");
 const boxExportDir = args.get("box-export-dir") ?? null;
 const sourceHsrBox = args.get("source-hsr-box") ?? null;
 
@@ -68,6 +71,12 @@ for (const game of ["hsr", "zzz"]) {
 }
 if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 5000 || timeoutMs > 120000) {
   throw new Error("--timeout-ms must be an integer between 5000 and 120000");
+}
+if (runUpdatesValue !== "true" && runUpdatesValue !== "false") {
+  throw new Error("--run-updates must be true or false");
+}
+if (!Number.isSafeInteger(updateTimeoutMs) || updateTimeoutMs < 30000 || updateTimeoutMs > 900000) {
+  throw new Error("--update-timeout-ms must be an integer between 30000 and 900000");
 }
 
 class CdpSession {
@@ -151,8 +160,8 @@ class CdpSession {
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function waitFor(description, probe) {
-  const deadline = Date.now() + timeoutMs;
+async function waitFor(description, probe, waitTimeoutMs = timeoutMs) {
+  const deadline = Date.now() + waitTimeoutMs;
   let lastError;
   while (Date.now() < deadline) {
     try {
@@ -267,6 +276,62 @@ const productExpression = `(async () => {
   const usageRows = typeof DATA === 'object' && Array.isArray(DATA?.usageRows) ? DATA.usageRows : [];
   const statePage = typeof state === 'object' ? state?.page ?? '' : '';
   const analysisMode = typeof state === 'object' ? state?.mode ?? '' : '';
+  const analysisModeUsageRows = usageRows.filter((row) => (row?.tier_mode ?? row?.mode) === analysisMode);
+  const datedAnalysisRows = analysisModeUsageRows
+    .filter((row) => row?.collect_date)
+    .slice()
+    .sort((left, right) => (
+      String(left?.collect_date ?? '') + '|' + String(left?.phase_ver ?? '') + '|'
+        + String(left?.snapshot_id ?? '') + '|' + String(left?.phase_name ?? '')
+    ).localeCompare(
+      String(right?.collect_date ?? '') + '|' + String(right?.phase_ver ?? '') + '|'
+        + String(right?.snapshot_id ?? '') + '|' + String(right?.phase_name ?? ''),
+    ));
+  const latestAnalysisRow = datedAnalysisRows[datedAnalysisRows.length - 1] ?? {};
+  const analysisSampleDate = String(latestAnalysisRow?.collect_date ?? '').trim();
+  const analysisSamplePhase = String(latestAnalysisRow?.phase_ver ?? '').trim();
+  const analysisSampleSnapshot = String(latestAnalysisRow?.snapshot_id ?? '').trim();
+  const analysisSamplePhaseName = String(latestAnalysisRow?.phase_name ?? '').trim();
+  const phaseRows = typeof DATA === 'object' && Array.isArray(DATA?.phaseInfoRows)
+    ? DATA.phaseInfoRows.filter((row) => row?.mode === analysisMode)
+    : [];
+  const phaseCandidates = analysisSampleDate && analysisSamplePhase
+    ? phaseRows.filter((row) => row?.collect_date === analysisSampleDate
+      && row?.phase_ver === analysisSamplePhase
+      && (!analysisSampleSnapshot || row?.snapshot_id === analysisSampleSnapshot))
+    : [];
+  const exactPhase = phaseCandidates.length === 1
+    ? phaseCandidates[0]
+    : analysisSamplePhaseName
+      ? phaseCandidates.find((row) => row?.phase_name === analysisSamplePhaseName)
+      : null;
+  const sameDatePhase = analysisSampleDate && !analysisSamplePhase
+    ? phaseRows.find((row) => row?.collect_date === analysisSampleDate)
+    : null;
+  const latestPhase = !analysisSampleDate
+    ? phaseRows.slice().sort((left, right) => (
+      String(left?.collect_date ?? '') + '|' + String(left?.phase_ver ?? '') + '|' + String(left?.snapshot_id ?? '')
+    ).localeCompare(
+      String(right?.collect_date ?? '') + '|' + String(right?.phase_ver ?? '') + '|' + String(right?.snapshot_id ?? ''),
+    ))[phaseRows.length - 1]
+    : null;
+  const matchedPhase = exactPhase || sameDatePhase || latestPhase || null;
+  const analysisPhaseInfo = matchedPhase || latestAnalysisRow;
+  const phaseNameCn = String(analysisPhaseInfo?.phase_name_cn ?? '').trim();
+  const phaseNameRaw = String(analysisPhaseInfo?.phase_name ?? '').trim();
+  const expectedPhaseName = phaseNameCn && phaseNameCn !== '中文期名待维护'
+    ? phaseNameCn
+    : phaseNameRaw || phaseNameCn;
+  const analysisExpectedPhase = {
+    matched: Boolean(matchedPhase),
+    sampleDate: analysisSampleDate || String(analysisPhaseInfo?.collect_date ?? '').trim(),
+    phaseVer: String(analysisPhaseInfo?.phase_ver ?? analysisSamplePhase).trim(),
+    snapshotId: String(analysisPhaseInfo?.snapshot_id ?? analysisSampleSnapshot).trim(),
+    phaseName: expectedPhaseName,
+    startDate: String(analysisPhaseInfo?.start_date ?? latestAnalysisRow?.start_date ?? '').trim(),
+    endDate: String(analysisPhaseInfo?.end_date ?? latestAnalysisRow?.end_date ?? '').trim(),
+    status: String(analysisPhaseInfo?.phase_status ?? latestAnalysisRow?.phase_status ?? '').trim(),
+  };
   const ownedStateCount = typeof box === 'object' && box?.owned instanceof Set ? box.owned.size : -1;
   const slugByDisplayName = new Map(rosterRows.map((row) => [
     String(row?.character_name_cn || row?.character_name_en || row?.character_slug || '').trim(),
@@ -303,6 +368,32 @@ const productExpression = `(async () => {
   const currentBannerRows = typeof DATA === 'object' && Array.isArray(DATA?.bannerRows)
     ? DATA.bannerRows.filter((row) => row?.phase_status === 'current')
     : [];
+  const bannerRefresh = typeof DATA === 'object' && DATA?.bannerRefresh && typeof DATA.bannerRefresh === 'object'
+    ? DATA.bannerRefresh
+    : {};
+  const bannerRefreshFetchedAt = String(bannerRefresh?.fetched_at ?? '').trim();
+  const bannerRefreshDate = new Date(bannerRefreshFetchedAt);
+  const padDatePart = (value) => String(value).padStart(2, '0');
+  const bannerRefreshExpectedMinutes = [];
+  const rawRefreshMinute = bannerRefreshFetchedAt.match(/^(\\d{4}-\\d{2}-\\d{2})T(\\d{2}:\\d{2})/);
+  if (rawRefreshMinute) bannerRefreshExpectedMinutes.push(rawRefreshMinute[1] + ' ' + rawRefreshMinute[2]);
+  if (Number.isFinite(bannerRefreshDate.getTime())) {
+    bannerRefreshExpectedMinutes.push(
+      String(bannerRefreshDate.getFullYear()) + '-'
+        + padDatePart(bannerRefreshDate.getMonth() + 1) + '-'
+        + padDatePart(bannerRefreshDate.getDate()) + ' '
+        + padDatePart(bannerRefreshDate.getHours()) + ':'
+        + padDatePart(bannerRefreshDate.getMinutes()),
+    );
+    const chinaRefreshDate = new Date(bannerRefreshDate.getTime() + 8 * 60 * 60 * 1000);
+    bannerRefreshExpectedMinutes.push(
+      String(chinaRefreshDate.getUTCFullYear()) + '-'
+        + padDatePart(chinaRefreshDate.getUTCMonth() + 1) + '-'
+        + padDatePart(chinaRefreshDate.getUTCDate()) + ' '
+        + padDatePart(chinaRefreshDate.getUTCHours()) + ':'
+        + padDatePart(chinaRefreshDate.getUTCMinutes()),
+    );
+  }
   const bannerImages = bannerCards.map((card) => card.querySelector('img')).filter(Boolean);
   await settleImages(bannerImages);
   const bannerBrokenImages = bannerImages.flatMap((image) => image.complete && image.naturalWidth > 0
@@ -351,7 +442,8 @@ const productExpression = `(async () => {
     dataRequests,
     usageRowCount: usageRows.length,
     analysisMode,
-    analysisModeUsageRowCount: usageRows.filter((row) => (row?.tier_mode ?? row?.mode) === analysisMode).length,
+    analysisModeUsageRowCount: analysisModeUsageRows.length,
+    analysisExpectedPhase,
     analysisVisualState: visualState(analysisElement),
     analysisVisible: visible(analysisElement),
     analysisTitle: document.querySelector('#chartTitle')?.textContent?.trim() ?? '',
@@ -367,12 +459,20 @@ const productExpression = `(async () => {
     characterBrokenImages,
     bannerVisible: visible(document.querySelector('#bannerView')),
     bannerTitle: document.querySelector('#bannerTitle')?.textContent?.trim() ?? '',
+    bannerSubtitle: document.querySelector('#bannerSubtitle')?.textContent?.trim() ?? '',
     bannerBadges: document.querySelector('#bannerBadges')?.textContent?.trim() ?? '',
+    bannerRefreshStatus: String(bannerRefresh?.status ?? '').trim(),
+    bannerRefreshFetchedAt,
+    bannerRefreshSourceLabel: String(bannerRefresh?.source_label ?? '').trim(),
+    bannerRefreshExpectedMinutes: [...new Set(bannerRefreshExpectedMinutes)],
     bannerPhase: typeof banner === 'object' ? banner?.phase ?? '' : '',
     bannerAllRowCount: typeof DATA === 'object' && Array.isArray(DATA?.bannerRows) ? DATA.bannerRows.length : 0,
     bannerCurrentRowCount: currentBannerRows.length,
     bannerCardCount: bannerCards.length,
     bannerCardNames: bannerCards.map((card) => card.querySelector('h3')?.textContent?.trim() ?? ''),
+    bannerDataCurrentNames: currentBannerRows.map((row) => (
+      String(row?.character_name_cn || row?.character_name_en || row?.character_slug || '').trim()
+    )),
     bannerImageCount: bannerImages.length,
     bannerBrokenImages,
     bannerMappingErrors,
@@ -1572,18 +1672,72 @@ async function verifyZzzCompactTooltipLayout(topId, context) {
   }
 }
 
-function verifyAnalysis(snapshot, game, mode) {
+function verifyAnalysis(
+  snapshot,
+  game,
+  mode,
+  { requirePhaseMatch = true, requirePhasePresentation = true } = {},
+) {
   assert(snapshot.statePage === "analysis" && snapshot.analysisVisible, `${game} endgame analysis is not visible`, snapshot);
   assert(snapshot.analysisMode === mode, `${game} endgame analysis did not switch to ${mode}`, snapshot);
   assert(snapshot.usageRowCount > 0, `${game} endgame usage data is absent`, snapshot);
   assert(snapshot.analysisModeUsageRowCount > 0, `${game} ${mode} endgame data is absent`, snapshot);
+  const phase = snapshot.analysisExpectedPhase;
+  if (requirePhaseMatch) {
+    assert(phase?.matched === true, `${game} ${mode} latest sample did not resolve to phaseInfoRows`, phase);
+  }
+  if (requirePhasePresentation) {
+    assert(phase.phaseVer && phase.phaseName, `${game} ${mode} latest phase identity is incomplete`, phase);
+    assert(phase.phaseName !== "中文期名待维护"
+      && phase.phaseName !== "当期数据"
+      && phase.phaseName !== "机制效果待维护", `${game} ${mode} latest phase still exposes a placeholder theme`, phase);
+    assert(/^\d{4}-\d{2}-\d{2}$/u.test(phase.startDate)
+      && /^\d{4}-\d{2}-\d{2}$/u.test(phase.endDate), `${game} ${mode} latest phase date range is incomplete`, phase);
+  }
   assert(snapshot.analysisVisualState.display !== "none"
     && snapshot.analysisVisualState.visibility === "visible"
     && snapshot.analysisVisualState.opacity > 0, `${game} ${mode} endgame container is visually suppressed`, snapshot);
   assert(snapshot.analysisTitle.length > 0, `${game} ${mode} endgame title is absent`, snapshot);
+  if (requirePhasePresentation) {
+    assert(snapshot.analysisSubtitle.includes("本期：")
+      && snapshot.analysisSubtitle.includes(phase.phaseVer), `${game} ${mode} endgame phase version is not displayed`, {
+      expected: phase.phaseVer,
+      subtitle: snapshot.analysisSubtitle,
+    });
+    assert(snapshot.analysisSubtitle.includes(phase.phaseName), `${game} ${mode} endgame phase theme is not displayed`, {
+      expected: phase.phaseName,
+      subtitle: snapshot.analysisSubtitle,
+    });
+    assert(snapshot.analysisSubtitle.includes(`${phase.startDate} 至 ${phase.endDate}`),
+    `${game} ${mode} endgame phase date range is not displayed`, {
+      expected: `${phase.startDate} 至 ${phase.endDate}`,
+      subtitle: snapshot.analysisSubtitle,
+    });
+  }
   assert(snapshot.analysisSubtitle.includes("最新采样 "), `${game} endgame sample date is not displayed`, snapshot);
   assert(!snapshot.analysisSubtitle.includes("最新采样 未知"), `${game} endgame sample date is unknown`, snapshot);
-  assert(/当前周期|历史样本|周期未知/.test(snapshot.analysisSubtitle), `${game} endgame freshness label is absent`, snapshot);
+  assert(phase.sampleDate && snapshot.analysisSubtitle.includes(`最新采样 ${phase.sampleDate}`),
+    `${game} ${mode} endgame sample date does not match the latest phase`, {
+      expected: phase.sampleDate,
+      subtitle: snapshot.analysisSubtitle,
+    });
+  const expectedStatus = {
+    current: "当前周期",
+    expired: "历史样本",
+    future: "未开始",
+    unknown: "周期未知",
+  }[phase.status];
+  if (requirePhaseMatch && requirePhasePresentation) {
+    assert(expectedStatus && snapshot.analysisSubtitle.includes(expectedStatus),
+      `${game} ${mode} endgame freshness label does not match phase status`, {
+        expectedStatus,
+        phase,
+        subtitle: snapshot.analysisSubtitle,
+      });
+  } else {
+    assert(/当前周期|历史样本|未开始|周期未知/.test(snapshot.analysisSubtitle),
+      `${game} endgame freshness label is absent`, snapshot);
+  }
   assert(!/该模式数据未生成|缺数据/.test(snapshot.analysisSubtitle), `${game} endgame analysis falsely reports missing data`, snapshot);
   assert(snapshot.chartVisualState.visible
     && snapshot.chartVisualState.visibility === "visible"
@@ -1601,7 +1755,7 @@ function verifyAnalysis(snapshot, game, mode) {
   assert(snapshot.visibleMissingMessages.length === 0, `${game} endgame page exposes a missing-data warning`, snapshot);
 }
 
-async function verifyAnalysisModes(context, game, initialSnapshot) {
+async function verifyAnalysisModes(context, game, initialSnapshot, options = {}) {
   const snapshots = [];
   for (const mode of expectedAnalysisModes[game]) {
     let snapshot = initialSnapshot?.analysisMode === mode ? initialSnapshot : null;
@@ -1624,23 +1778,42 @@ async function verifyAnalysisModes(context, game, initialSnapshot) {
           : null;
       });
     }
-    verifyAnalysis(snapshot, game, mode);
+    verifyAnalysis(snapshot, game, mode, options);
     snapshots.push(snapshot);
   }
   return snapshots;
 }
 
-function verifyBanner(snapshot, game) {
+function verifyBanner(snapshot, game, { requireFresh = true } = {}) {
   assert(snapshot.statePage === "banner" && snapshot.bannerVisible, `${game} banner page is not visible`, snapshot);
   assert(snapshot.bannerTitle === "卡池情报", `${game} banner title is absent`, snapshot);
   assert(snapshot.bannerAllRowCount > 0 && snapshot.bannerCurrentRowCount > 0, `${game} current banner data is absent`, snapshot);
   assert(snapshot.bannerPhase === "current", `${game} banner page did not select the current populated phase`, snapshot);
   assert(snapshot.bannerCardCount > 0 && snapshot.bannerCardNames.every(Boolean), `${game} current banner cards are absent`, snapshot);
+  assert(snapshot.bannerCardCount === snapshot.bannerCurrentRowCount, `${game} banner DOM does not render every current snapshot row`, snapshot);
+  assert(JSON.stringify([...snapshot.bannerCardNames].sort()) === JSON.stringify([...snapshot.bannerDataCurrentNames].sort()),
+    `${game} banner DOM does not match the refreshed snapshot`, {
+      rendered: snapshot.bannerCardNames,
+      snapshot: snapshot.bannerDataCurrentNames,
+    });
   assert(snapshot.bannerImageCount === snapshot.bannerCardCount
     && snapshot.bannerBrokenImages.length === 0
     && snapshot.bannerMappingErrors.length === 0, `${game} current banner images are broken or mismatched`, snapshot);
   assert(snapshot.bannerBadges.includes(`Box ${expectedOwned[game]}`), `${game} banner page lost the current Box`, snapshot);
   assert(snapshot.visibleMissingMessages.length === 0, `${game} banner page exposes a missing-data warning`, snapshot);
+  if (requireFresh) {
+    assert(snapshot.bannerRefreshStatus === "fresh", `${game} banner snapshot is not marked fresh`, snapshot);
+    assert(Number.isFinite(Date.parse(snapshot.bannerRefreshFetchedAt)), `${game} banner refresh timestamp is invalid`, snapshot);
+    assert(snapshot.bannerSubtitle.includes("官方卡池资料已刷新"), `${game} banner refresh timestamp is not visibly labelled`, snapshot);
+    assert(Array.isArray(snapshot.bannerRefreshExpectedMinutes)
+      && snapshot.bannerRefreshExpectedMinutes.length > 0
+      && snapshot.bannerRefreshExpectedMinutes.some((minute) => snapshot.bannerSubtitle.includes(minute)),
+    `${game} visible banner refresh minute does not match DATA.bannerRefresh`, {
+      fetchedAt: snapshot.bannerRefreshFetchedAt,
+      expectedMinutes: snapshot.bannerRefreshExpectedMinutes,
+      subtitle: snapshot.bannerSubtitle,
+    });
+  }
   if (expectedBannerCount[game] !== null) {
     assert(snapshot.bannerCurrentRowCount === expectedBannerCount[game], `${game} current banner data count changed`, snapshot);
     assert(snapshot.bannerCardCount === expectedBannerCount[game], `${game} rendered current banner count changed`, snapshot);
@@ -1662,6 +1835,250 @@ async function switchGame(topId, game) {
     return true;
   })()`);
   assert(clicked === true, `could not switch the desktop to ${game}`);
+}
+
+async function boxProtectionSnapshot(context, game) {
+  const snapshot = await evaluate(context.id, `(async () => {
+    const normalize = (value) => {
+      if (Array.isArray(value)) return value.map(normalize);
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.keys(value).sort().map((key) => [key, normalize(value[key])]));
+      }
+      return value;
+    };
+    const comparable = (value) => normalize({
+      owned: Array.isArray(value?.owned) ? [...value.owned].sort() : [],
+      buildSlug: value?.buildSlug ?? '',
+      builds: value?.builds ?? {},
+    });
+    if (typeof box !== 'object' || !(box?.owned instanceof Set)) {
+      return {error: 'Visualizer Box state is unavailable'};
+    }
+    const response = await fetch(${JSON.stringify(`/api/${game}/box`)}, {cache: 'no-store'});
+    if (!response.ok) return {error: 'Box API returned ' + response.status};
+    const diskRaw = await response.json();
+    const disk = normalize({
+      ...diskRaw,
+      owned: Array.isArray(diskRaw?.owned) ? [...diskRaw.owned].sort() : [],
+    });
+    const live = comparable({
+      owned: [...box.owned],
+      buildSlug: box.buildSlug ?? '',
+      builds: box.builds ?? {},
+    });
+    return {
+      live: JSON.stringify(live),
+      disk: JSON.stringify(disk),
+      liveOwned: live.owned.length,
+      diskOwned: Array.isArray(disk.owned) ? disk.owned.length : -1,
+    };
+  })()`, context.sessionId);
+  assert(!snapshot?.error && snapshot?.live && snapshot?.disk, `${game} Box protection snapshot failed`, snapshot);
+  assert(snapshot.liveOwned === expectedOwned[game] && snapshot.diskOwned === expectedOwned[game],
+    `${game} Box protection snapshot has an unexpected owned count`, snapshot);
+  return {
+    ...snapshot,
+    liveSha256: sha256(snapshot.live),
+    diskSha256: sha256(snapshot.disk),
+  };
+}
+
+function boxProtectionReceipt(snapshot) {
+  return {
+    liveSha256: snapshot.liveSha256,
+    diskSha256: snapshot.diskSha256,
+    owned: snapshot.liveOwned,
+  };
+}
+
+function verifyBoxProtection(before, after, game) {
+  assert(after.live === before.live && after.disk === before.disk,
+    `${game} Box changed while refreshing public data`, {
+      before: boxProtectionReceipt(before),
+      after: boxProtectionReceipt(after),
+    });
+  return {
+    ...boxProtectionReceipt(after),
+    liveUnchanged: true,
+    diskUnchanged: true,
+  };
+}
+
+async function ensureActiveGame(topId, game) {
+  const label = game === "hsr" ? "崩坏：星穹铁道" : "绝区零";
+  const current = await evaluate(topId, outerExpression);
+  if (current?.activeGame !== label) await switchGame(topId, game);
+  return waitFor(`${game} active desktop frame before update`, async () => {
+    const snapshot = await evaluate(topId, outerExpression);
+    return snapshot?.frameGame === game && snapshot?.frameLoaded ? snapshot : null;
+  });
+}
+
+async function clickPublicDataUpdate(topId, game) {
+  const operationTitle = game === "hsr" ? "更新星穹铁道数据" : "更新绝区零数据";
+  const started = await evaluate(topId, `(() => {
+    const taskId = (card) => {
+      const text = card.querySelector('.task-id')?.textContent?.trim() ?? '';
+      return text.replace(/^运行编号：\\s*/u, '');
+    };
+    const existingTaskIds = [...document.querySelectorAll('.task-card')]
+      .map(taskId)
+      .filter(Boolean);
+    const activeTasks = [...document.querySelectorAll('.task-card')]
+      .filter((card) => !['status-succeeded', 'status-failed', 'status-cancelled']
+        .some((className) => card.classList.contains(className)));
+    if (activeTasks.length) return {clicked: false, reason: 'another task is active', existingTaskIds};
+    const utilities = document.querySelector('details.utilities');
+    if (utilities) utilities.open = true;
+    const card = [...document.querySelectorAll('.export-card')]
+      .find((candidate) => candidate.querySelector('h3')?.textContent?.trim() === ${JSON.stringify(operationTitle)});
+    const button = card?.querySelector('button');
+    if (!button) return {clicked: false, reason: 'update button is absent', existingTaskIds};
+    if (button.disabled) return {clicked: false, reason: 'update button is disabled', existingTaskIds};
+    const startedAt = Date.now();
+    button.click();
+    return {clicked: true, existingTaskIds, startedAt};
+  })()`, undefined, { userGesture: true });
+  assert(started?.clicked === true, `${game} public-data update button could not be clicked`, started);
+
+  const terminal = await waitFor(`${game} public-data update task terminal state`, async () => {
+    const cards = await evaluate(topId, `(() => [...document.querySelectorAll('.task-card')].map((card) => {
+      const idText = card.querySelector('.task-id')?.textContent?.trim() ?? '';
+      const statusClass = [...card.classList].find((value) => value.startsWith('status-')) ?? '';
+      return {
+        taskId: idText.replace(/^运行编号：\\s*/u, ''),
+        title: card.querySelector('.task-title-row h3')?.textContent?.trim() ?? '',
+        status: statusClass.slice('status-'.length),
+        text: card.textContent?.trim() ?? '',
+      };
+    }))()`);
+    const existingTaskIds = new Set(started.existingTaskIds);
+    const candidate = cards.find((card) => card.title === operationTitle
+      && card.taskId
+      && !existingTaskIds.has(card.taskId));
+    return candidate && ['succeeded', 'failed', 'cancelled'].includes(candidate.status) ? candidate : null;
+  }, updateTimeoutMs);
+  assert(terminal.status === "succeeded", `${game} public-data update did not succeed`, terminal);
+  return {
+    taskId: terminal.taskId,
+    status: terminal.status,
+    startedAt: started.startedAt,
+  };
+}
+
+async function authoritativeVisualizerDescriptor(topId, game) {
+  const descriptor = await evaluate(topId, `(async () => {
+    const internals = globalThis.__TAURI_INTERNALS__;
+    if (!internals || typeof internals.invoke !== 'function') return null;
+    return internals.invoke('get_visualizer_url', {game: ${JSON.stringify(game)}});
+  })()`);
+  assert(descriptor?.schema_version === "miho-visualizer-descriptor-v1"
+    && typeof descriptor?.url === "string"
+    && /^[a-f0-9]{64}$/u.test(descriptor?.data_revision ?? ""),
+  `${game} authoritative Visualizer descriptor is invalid`, descriptor);
+  return descriptor;
+}
+
+async function verifyPublicDataUpdate(topId, game) {
+  const beforeOuter = await ensureActiveGame(topId, game);
+  assert(/^[a-f0-9]{64}$/u.test(beforeOuter.frameDataRevision), `${game} pre-update revision is invalid`, beforeOuter);
+  const task = await clickPublicDataUpdate(topId, game);
+  const terminalDescriptor = await authoritativeVisualizerDescriptor(topId, game);
+  assert(terminalDescriptor.data_revision !== beforeOuter.frameDataRevision,
+    `${game} public-data update did not publish a new terminal revision`, {
+      before: beforeOuter.frameDataRevision,
+      terminal: terminalDescriptor.data_revision,
+    });
+  const afterOuter = await waitFor(`${game} authoritative Visualizer revision after public-data update`, async () => {
+    const snapshot = await evaluate(topId, outerExpression);
+    return snapshot?.frameGame === game
+      && snapshot?.frameLoaded
+      && snapshot?.frameSrc.includes(`/${game}/index.html`)
+      && snapshot?.frameSrc.endsWith("#box")
+      && /^[a-f0-9]{64}$/u.test(snapshot?.frameDataRevision ?? "")
+      && snapshot.frameDataRevision === terminalDescriptor.data_revision
+      ? snapshot
+      : null;
+  }, updateTimeoutMs);
+  assert(afterOuter.frameProbeId === beforeOuter.frameProbeId,
+    `${game} Visualizer iframe node was replaced by the data update`, { beforeOuter, afterOuter });
+  assert(afterOuter.frameProbeLoadCount > beforeOuter.frameProbeLoadCount,
+    `${game} Visualizer did not navigate after its revision changed`, { beforeOuter, afterOuter });
+  assert(new URL(afterOuter.frameSrc).searchParams.get("revision") === terminalDescriptor.data_revision,
+    `${game} iframe URL is not bound to the terminal data revision`, {
+      frameSrc: afterOuter.frameSrc,
+      terminalRevision: terminalDescriptor.data_revision,
+    });
+  const stableDescriptor = await authoritativeVisualizerDescriptor(topId, game);
+  assert(stableDescriptor.data_revision === terminalDescriptor.data_revision,
+    `${game} Visualizer revision changed after the update reached terminal state`, {
+      terminal: terminalDescriptor,
+      afterLoad: stableDescriptor,
+    });
+
+  const boxSnapshot = await productSnapshot(game);
+  verifyProduct(boxSnapshot, game);
+  const context = await activeFrameContext(game);
+  const bannerSnapshot = await switchProductPage(context, game, "banner");
+  verifyBanner(bannerSnapshot, game);
+  const fetchedAtMs = Date.parse(bannerSnapshot.bannerRefreshFetchedAt);
+  assert(fetchedAtMs >= task.startedAt - 300000 && fetchedAtMs <= Date.now() + 300000,
+    `${game} refreshed banner timestamp does not belong to this update run`, {
+      taskStartedAt: new Date(task.startedAt).toISOString(),
+      bannerRefreshFetchedAt: bannerSnapshot.bannerRefreshFetchedAt,
+    });
+  const analysisSnapshot = await switchProductPage(context, game, "analysis");
+  const analyses = await verifyAnalysisModes(context, game, analysisSnapshot);
+  return {
+    taskId: task.taskId,
+    status: task.status,
+    revisionBefore: beforeOuter.frameDataRevision,
+    revisionAfter: afterOuter.frameDataRevision,
+    terminalRevision: terminalDescriptor.data_revision,
+    frameLoadCountBefore: beforeOuter.frameProbeLoadCount,
+    frameLoadCountAfter: afterOuter.frameProbeLoadCount,
+    bannerRefresh: {
+      status: bannerSnapshot.bannerRefreshStatus,
+      fetchedAt: bannerSnapshot.bannerRefreshFetchedAt,
+      sourceLabel: bannerSnapshot.bannerRefreshSourceLabel,
+    },
+    bannerCurrentNames: bannerSnapshot.bannerCardNames,
+    analyses: analyses.map((snapshot) => snapshot.analysisExpectedPhase),
+  };
+}
+
+async function verifyPublicDataUpdates(topId) {
+  const boxesBefore = {};
+  for (const game of ["hsr", "zzz"]) {
+    boxesBefore[game] = await boxProtectionSnapshot(await activeFrameContext(game), game);
+  }
+  const updates = [];
+  for (const game of ["zzz", "hsr"]) updates.push(await verifyPublicDataUpdate(topId, game));
+  const finalVerification = {};
+  for (const game of ["hsr", "zzz"]) {
+    await ensureActiveGame(topId, game);
+    const context = await activeFrameContext(game);
+    const banner = await switchProductPage(context, game, "banner");
+    verifyBanner(banner, game);
+    const analysis = await switchProductPage(context, game, "analysis");
+    const analyses = await verifyAnalysisModes(context, game, analysis);
+    finalVerification[game] = {
+      bannerRefresh: {
+        status: banner.bannerRefreshStatus,
+        fetchedAt: banner.bannerRefreshFetchedAt,
+        sourceLabel: banner.bannerRefreshSourceLabel,
+      },
+      bannerCurrentNames: banner.bannerCardNames,
+      analyses: analyses.map((snapshot) => snapshot.analysisExpectedPhase),
+    };
+  }
+  const boxesAfter = {};
+  const boxProtection = {};
+  for (const game of ["hsr", "zzz"]) {
+    boxesAfter[game] = await boxProtectionSnapshot(await activeFrameContext(game), game);
+    boxProtection[game] = verifyBoxProtection(boxesBefore[game], boxesAfter[game], game);
+  }
+  return { updates, finalVerification, boxProtection };
 }
 
 async function verifyBoxFlushBridges(topId) {
@@ -1731,10 +2148,18 @@ try {
   const zzzRecommender = await verifyZzzRecommender(zzzContext);
   const zzzSearchAndLock = await verifyRecommenderSearchAndLock(zzzContext, "zzz");
   const zzzAnalysis = await switchProductPage(zzzContext, "zzz", "analysis");
-  const zzzAnalyses = await verifyAnalysisModes(zzzContext, "zzz", zzzAnalysis);
+  const zzzAnalyses = await verifyAnalysisModes(
+    zzzContext,
+    "zzz",
+    zzzAnalysis,
+    {
+      requirePhaseMatch: !runUpdates,
+      requirePhasePresentation: !runUpdates,
+    },
+  );
   const zzzCompactTooltip = await verifyZzzCompactTooltipLayout(top.id, zzzContext);
   const zzzBanner = await switchProductPage(zzzContext, "zzz", "banner");
-  verifyBanner(zzzBanner, "zzz");
+  verifyBanner(zzzBanner, "zzz", { requireFresh: !runUpdates });
   receipt.sequence.push({
     game: "zzz",
     outer: initialOuter,
@@ -1764,9 +2189,17 @@ try {
   const hsrSearchAndLock = await verifyRecommenderSearchAndLock(hsrContext, "hsr");
   const hsrRecommenderLayout = await verifyHsrRecommenderLayout(top.id, hsrContext);
   const hsrAnalysis = await switchProductPage(hsrContext, "hsr", "analysis");
-  const hsrAnalyses = await verifyAnalysisModes(hsrContext, "hsr", hsrAnalysis);
+  const hsrAnalyses = await verifyAnalysisModes(
+    hsrContext,
+    "hsr",
+    hsrAnalysis,
+    {
+      requirePhaseMatch: !runUpdates,
+      requirePhasePresentation: !runUpdates,
+    },
+  );
   const hsrBanner = await switchProductPage(hsrContext, "hsr", "banner");
-  verifyBanner(hsrBanner, "hsr");
+  verifyBanner(hsrBanner, "hsr", { requireFresh: !runUpdates });
   receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxBatchPreview: hsrBoxBatchPreview, boxExport: hsrBoxExport, recommender: hsrRecommender, searchAndLock: hsrSearchAndLock, recommenderLayout: hsrRecommenderLayout, analyses: hsrAnalyses, banner: hsrBanner });
 
   await switchGame(top.id, "zzz");
@@ -1790,7 +2223,7 @@ try {
       ? value
       : null;
   });
-  verifyBanner(zzzPreserved, "zzz");
+  verifyBanner(zzzPreserved, "zzz", { requireFresh: !runUpdates });
   assert(new URL(zzzPreserved.href).hash === "#banner"
     && JSON.stringify(zzzPreserved.bannerCardNames) === JSON.stringify(zzzBanner.bannerCardNames),
   "ZZZ iframe did not preserve its product page across game switches", {before: zzzBanner, after: zzzPreserved});
@@ -1808,6 +2241,9 @@ try {
     persistence: zzzPersistence,
   });
 
+  receipt.publicDataUpdates = runUpdates
+    ? await verifyPublicDataUpdates(top.id)
+    : { skipped: true, reason: "--run-updates was not enabled" };
   receipt.boxFlush = await verifyBoxFlushBridges(top.id);
 
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
