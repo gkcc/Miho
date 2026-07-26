@@ -4,6 +4,7 @@
 )]
 
 use std::{
+    collections::BTreeMap,
     fs::{self, File, OpenOptions, TryLockError},
     path::{Component, Path, PathBuf},
 };
@@ -12,18 +13,20 @@ use anyhow::bail;
 use chrono::{Duration, NaiveDate};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use miho_app::{
-    begin_workspace_bootstrap_transaction_v1, bootstrap_workspace_v1, check_update_health_v1,
+    begin_workspace_bootstrap_transaction_v1, bootstrap_workspace_v1,
+    check_update_health_with_workspace_config_path_and_freshness_v1,
     commit_workspace_bootstrap_transaction_v1, discard_workspace_bootstrap_transaction_v1,
     execute_export_observed_v1, execute_task_v1, execute_visualizer_v1, export_cache_root,
     finalize_workspace_bootstrap_transaction_v1, is_valid_update_attempt_id_v1,
     load_update_config_with_digest_v1, rollback_workspace_bootstrap_transaction_v1, run_update_v1,
     verify_workspace_bootstrap_transaction_v1, AppInvocation, CoverageTaskV1, DecisionTaskV1,
     EvidenceTaskV1, ExportInvocation, ExportObserver, ExportSourceV1, ExportTaskV1,
-    FileUpdateReceiptStore, NativeUpdateExecutorV1, PullTaskV1, TaskRequestV1, TaskSpecV1,
-    UpdateArtifactV1, UpdateInvocationV1, UpdateRequestV1, UpdateStepContextV1, UpdateStepExecutor,
-    UpdateStepFailureV1, UpdateStepFuture, UpdateStepKindV1, VisualizerTaskV1,
-    WorkspaceBootstrapCompletedOperationV1, WorkspaceBootstrapRequestV1,
-    WorkspaceBootstrapTransactionRequestV1, WorkspaceLayout, WorkspaceWriteLease,
+    FileUpdateReceiptStore, NativeUpdateExecutorV1, PullTaskV1, TaskFreshnessSummaryV1,
+    TaskRequestV1, TaskSpecV1, UpdateArtifactV1, UpdateInvocationV1, UpdateRequestV1,
+    UpdateStepContextV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
+    UpdateStepKindV1, VisualizerTaskV1, WorkspaceBootstrapCompletedOperationV1,
+    WorkspaceBootstrapRequestV1, WorkspaceBootstrapTransactionRequestV1, WorkspaceLayout,
+    WorkspaceWriteLease,
 };
 use miho_core::{
     contract::{DiagnosticSeverity, FeatureFlags, GameMode},
@@ -912,16 +915,13 @@ async fn execute(cli: Cli) -> anyhow::Result<()> {
 }
 
 fn check_native_update_health(args: &UpdateHealthArgs) -> anyhow::Result<()> {
-    let config_path = workspace_config_path(&args.workspace, &args.config)
+    workspace_config_path(&args.workspace, &args.config)
         .map_err(|_| anyhow::anyhow!("update.config_invalid"))?;
-    let loaded = load_update_config_with_digest_v1(&config_path)
-        .and_then(|loaded| loaded.config.resolve(&args.workspace).map(|_| loaded))
-        .map_err(|_| anyhow::anyhow!("update.config_invalid"))?;
-    let health = check_update_health_v1(
+    let (health, _, _) = check_update_health_with_workspace_config_path_and_freshness_v1(
         &args.workspace,
+        &args.config,
         !args.skip_hsr,
         !args.skip_zzz,
-        &loaded.sha256,
     );
     println!("{}", serde_json::to_string(&health)?);
     if health.healthy {
@@ -981,6 +981,9 @@ async fn run_native_update(args: &UpdateRunArgs) -> anyhow::Result<()> {
         }
     };
     if outcome.exit_code == 0 {
+        if let Some(failure) = committed_freshness_failure_code(outcome.freshness.as_ref()) {
+            bail!("{failure}");
+        }
         eprintln!("update succeeded: {}", outcome.receipt.attempt_id);
         return Ok(());
     }
@@ -991,6 +994,16 @@ async fn run_native_update(args: &UpdateRunArgs) -> anyhow::Result<()> {
         .map(|failure| failure.code.as_str())
         .unwrap_or("update.failed");
     bail!("{failure}")
+}
+
+fn committed_freshness_failure_code(
+    freshness: Option<&Result<BTreeMap<Game, TaskFreshnessSummaryV1>, UpdateStepFailureV1>>,
+) -> Option<&str> {
+    match freshness {
+        Some(Ok(freshness)) if !freshness.is_empty() => None,
+        Some(Err(failure)) => Some(failure.code.as_str()),
+        Some(Ok(_)) | None => Some("update.health_freshness_invalid"),
+    }
 }
 
 struct RejectedUpdateExecutor;
@@ -1290,6 +1303,38 @@ mod tests {
             args.out
                 .unwrap_or_else(|| PathBuf::from("./zzz_endgame_export")),
             PathBuf::from("./zzz_endgame_export")
+        );
+    }
+
+    #[test]
+    fn successful_update_requires_verified_nonempty_freshness() {
+        let verified = Ok(BTreeMap::from([(
+            Game::Hsr,
+            TaskFreshnessSummaryV1 {
+                status: "warning".to_owned(),
+                modes: BTreeMap::new(),
+            },
+        )]));
+        assert_eq!(committed_freshness_failure_code(Some(&verified)), None);
+
+        let empty = Ok(BTreeMap::new());
+        assert_eq!(
+            committed_freshness_failure_code(Some(&empty)),
+            Some("update.health_freshness_invalid")
+        );
+        assert_eq!(
+            committed_freshness_failure_code(None),
+            Some("update.health_freshness_invalid")
+        );
+
+        let invalid = Err(UpdateStepFailureV1::safe(
+            "update.health_freshness_invalid",
+            "invalid fixture freshness",
+            false,
+        ));
+        assert_eq!(
+            committed_freshness_failure_code(Some(&invalid)),
+            Some("update.health_freshness_invalid")
         );
     }
 

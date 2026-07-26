@@ -1420,17 +1420,43 @@ pub fn check_update_health_with_workspace_config_and_freshness_v1(
     Result<UpdateStateV1, UpdateStepFailureV1>,
     BTreeMap<Game, TaskFreshnessSummaryV1>,
 ) {
+    check_update_health_with_workspace_config_path_and_freshness_v1(
+        workspace,
+        Path::new(DEFAULT_UPDATE_CONFIG_RELATIVE_PATH_V1),
+        require_hsr,
+        require_zzz,
+    )
+}
+
+/// Load one caller-selected, workspace-relative update config and verify the
+/// committed state, receipts, artifacts, and freshness evidence under the
+/// same shared snapshot lease. Keeping the config read inside the lease means
+/// automation cannot approve freshness using config bytes from a different
+/// generation.
+pub fn check_update_health_with_workspace_config_path_and_freshness_v1(
+    workspace: &Path,
+    config_relative: &Path,
+    require_hsr: bool,
+    require_zzz: bool,
+) -> (
+    UpdateHealthV1,
+    Result<UpdateStateV1, UpdateStepFailureV1>,
+    BTreeMap<Game, TaskFreshnessSummaryV1>,
+) {
     check_update_health_with_config_loader_v1(
         workspace,
         require_hsr,
         require_zzz,
         |snapshot_root| {
+            if !safe_relative_path(config_relative) {
+                return Err(update_health_config_failure_v1());
+            }
             // Use the caller's already validated spelling for the file open.
             // On Windows, `canonicalize` may add a verbatim-path prefix that
             // strict component-by-component config validation intentionally
             // does not accept. Resolution still uses the canonical root held
             // by the snapshot lease.
-            let config_path = workspace.join(DEFAULT_UPDATE_CONFIG_RELATIVE_PATH_V1);
+            let config_path = workspace.join(config_relative);
             let loaded = crate::load_update_config_with_digest_v1(&config_path)
                 .map_err(|_| update_health_config_failure_v1())?;
             let config = loaded
@@ -1726,17 +1752,40 @@ fn load_committed_attempt_freshness_locked_v1(
     load_update_freshness_locked_v1(workspace, &checked_games, config, state)
 }
 
-fn valid_update_freshness_dates_v1(status: &str, _sample: &str, start: &str, end: &str) -> bool {
+fn valid_update_freshness_dates_v1(status: &str, sample: &str, start: &str, end: &str) -> bool {
     let parse = |value: &str| {
         let value = value.trim();
-        NaiveDate::parse_from_str(value.get(..10).unwrap_or(value), "%Y-%m-%d").ok()
+        NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .ok()
+            .or_else(|| {
+                DateTime::parse_from_rfc3339(value)
+                    .ok()
+                    .map(|value| value.date_naive())
+            })
     };
+    let is_empty = |value: &str| value.trim().is_empty();
+    let sample_date = parse(sample);
     let start_date = parse(start);
     let end_date = parse(end);
+    let optional_dates_are_valid =
+        (is_empty(start) || start_date.is_some()) && (is_empty(end) || end_date.is_some());
+    let ordered = match (start_date, end_date) {
+        (Some(start), Some(end)) => start <= end,
+        _ => true,
+    };
     match status {
-        "future" => start_date.is_some(),
-        "stale" => end_date.is_some(),
-        "active" => start_date.is_some() || end_date.is_some(),
+        "future" => {
+            sample_date.is_some() && optional_dates_are_valid && ordered && start_date.is_some()
+        }
+        "stale" => {
+            sample_date.is_some() && optional_dates_are_valid && ordered && end_date.is_some()
+        }
+        "active" => {
+            sample_date.is_some()
+                && optional_dates_are_valid
+                && ordered
+                && (start_date.is_some() || end_date.is_some())
+        }
         "unknown" => start_date.is_none() && end_date.is_none(),
         _ => false,
     }
@@ -2683,6 +2732,37 @@ mod tests {
         );
         writer.join().unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn freshness_dates_require_samples_valid_optional_dates_and_ordered_bounds() {
+        for (status, sample, start, end) in [
+            ("active", "2026-07-19", "2026-07-10", ""),
+            ("active", "2026-07-19T12:34:56Z", "2026-07-10", "2026-07-28"),
+            ("stale", "2026-06-25", "2026-06-01", "2026-06-15"),
+            ("future", "2026-07-19", "2026-08-01", "2026-08-15"),
+            ("unknown", "not-a-date", "not-a-date", "not-a-date"),
+        ] {
+            assert!(
+                valid_update_freshness_dates_v1(status, sample, start, end),
+                "expected valid freshness: {status} {sample} {start} {end}"
+            );
+        }
+
+        for (status, sample, start, end) in [
+            ("active", "", "2026-07-10", "2026-07-28"),
+            ("active", "not-a-date", "2026-07-10", "2026-07-28"),
+            ("active", "2026-07-19garbage", "2026-07-10", "2026-07-28"),
+            ("active", "2026-07-19", "not-a-date", "2026-07-28"),
+            ("stale", "2026-07-19", "2026-07-10", "not-a-date"),
+            ("future", "2026-07-19", "not-a-date", ""),
+            ("active", "2026-07-19", "2026-07-28", "2026-07-10"),
+        ] {
+            assert!(
+                !valid_update_freshness_dates_v1(status, sample, start, end),
+                "expected invalid freshness: {status} {sample} {start} {end}"
+            );
+        }
     }
 
     #[test]

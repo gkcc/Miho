@@ -8,6 +8,7 @@ use std::{
 
 use miho_app::WorkspaceWriteLease;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 #[test]
 fn fixture_runner_succeeds_without_python_and_commits_verified_state() {
@@ -402,6 +403,65 @@ fn health_binds_every_required_generation_to_the_selected_config_bytes() {
         original.status.success(),
         "{}",
         String::from_utf8_lossy(&original.stderr)
+    );
+    cleanup(&root);
+}
+
+#[test]
+fn cli_health_rejects_freshness_mode_mismatch_after_identity_metadata_match() {
+    let root = workspace("freshness-mode-mismatch");
+    seed_workspace(&root, true);
+    let output = run_fixture_args(&root, &["--skip-zzz"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let config_path = root.join("configs/update_v1.json");
+    let config = fs::read_to_string(&config_path).unwrap().replacen(
+        "\"modes\":[\"moc\"]",
+        "\"modes\":[\"pf\"]",
+        1,
+    );
+    assert!(config.contains("\"modes\":[\"pf\"]"));
+    fs::write(&config_path, config.as_bytes()).unwrap();
+    let config_sha256 = format!("{:x}", Sha256::digest(config.as_bytes()));
+
+    let state_path = root.join(".miho/update-state-v1.json");
+    let mut state = json(&state_path);
+    state["games"]["hsr"]["config_sha256"] = Value::String(config_sha256.clone());
+    fs::write(&state_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+
+    let canonical_path = root.join(".miho/last-update-receipt-v1.json");
+    let mut receipt = json(&canonical_path);
+    receipt["config_sha256"] = Value::String(config_sha256);
+    let receipt_bytes = serde_json::to_vec_pretty(&receipt).unwrap();
+    fs::write(&canonical_path, &receipt_bytes).unwrap();
+    let attempt_id = receipt["attempt_id"].as_str().unwrap();
+    fs::write(
+        root.join(".miho/update-attempts")
+            .join(format!("{attempt_id}.json")),
+        receipt_bytes,
+    )
+    .unwrap();
+
+    let health = Command::new(env!("CARGO_BIN_EXE_miho"))
+        .args([
+            "update",
+            "health",
+            "--workspace",
+            root.to_str().unwrap(),
+            "--skip-zzz",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(health.status.code(), Some(1));
+    let payload = serde_json::from_slice::<Value>(&health.stdout).unwrap();
+    assert_eq!(payload["healthy"], false);
+    assert_eq!(
+        payload["failure"]["code"],
+        "update.health_freshness_invalid"
     );
     cleanup(&root);
 }

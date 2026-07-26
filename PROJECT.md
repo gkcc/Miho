@@ -646,6 +646,12 @@
 - **验证与直接交付**：Node 前端/推荐/关闭/探针契约 132/132、独立日期行为 5/5、TypeScript/Vite、PowerShell GUI/no-window contract、`git diff --check` 与完整 `pnpm run tauri:build` 均通过；三份最终 EXE 的 7 项 Visualizer 字节继续 exact-once，PE 子系统保持 Desktop `WINDOWS_GUI`、人工 CLI `WINDOWS_CUI`、任务 CLI `WINDOWS_GUI`。候选及正式安装路径均以隐藏 CDP 真实走完 `ZZZ → HSR → ZZZ`，860 px 两卡完整可见，HSR 精确显示 32 天、ZZZ 不误报，Box 回执前后不变；进程正常退出 0、stdout/stderr 为空、调试端口与子进程清理完成。
 - **正式状态**：`D:\Miho Endgame\miho-desktop.exe` 已更新为 `1141548ADF40B36A16EE32DFE8F974A8615205254BAABA7BC40D04AA52A6EF30`；人工 CLI 保持 `37AC1A7C730E180CB739AB05C1CC7AC9B0DF2DC5A847E4B46308A001B515E1E3`，每日任务继续使用无窗 generation `miho-0.1.0-b0100087394fb612c6b55231d15ea75a14f01c459e46581de6b47b550a526ba9`。任务 `Ready / Enabled / LastTaskResult=0`，临时候选与回滚副本已清理；未进入 NSIS、portable 或旧安装器链。
 
+### CLI freshness 成功门禁与无窗 generation 收口（2026-07-27，已交付）
+
+- **假绿根因与修复**：计划任务使用的 CLI `update run` 原先只看 update commit 的退出码，`update health` 又只验证 config/state/receipt/artifact 哈希；因此 `data_quality.json` 哈希正确但期次模式或日期语义错误时仍可能被 candidate 门禁接受。CLI health 现把 caller-selected workspace-relative config、digest、state、receipt、artifact 与 freshness 放在同一个 snapshot lease 内验证；run 对缺失、空或明确失败的 committed freshness fail-closed，并保留精确 `update.health_freshness_invalid`。合法的 HSR 历史样本仍是 healthy warning，不会把上游停更误判成本机更新失败。
+- **日期不变量与回归**：known `active / stale / future` 必须有严格 `YYYY-MM-DD` 或 RFC3339 sample，非空起止日期必须可解析且双边界满足 `start <= end`；`unknown` 继续允许生产者不可解析日期并在公开层安全清空。`miho-app + miho-cli` 完整测试全绿，新增 CLI 黑盒反例证明即使同步伪造 config/state/两份 receipt 的 digest，mode mismatch 仍退出 1；计划任务 freshness failure 的旧任务/manifest 保留和新 generation 清理定点回归通过。PowerShell 全矩阵只在与本改动无关的 fresh Claim wrapper 场景因本机真实 canonical task 已存在而按设计拒绝，该用例单独复现相同环境边界，未计为产品失败。
+- **构建、真实入口与正式状态**：完整 `pnpm run tauri:build` 通过，三份 EXE 的 7 项 Visualizer 字节均 exact-once，PE 子系统保持 Desktop/任务 CLI `WINDOWS_GUI`、人工 CLI `WINDOWS_CUI`。owner-aware attempt `installer-0a2581cf524a49aca16793d4e352e817` 的 HSR/ZZZ exact health 为 true，将 09:30 任务切到唯一无窗 generation `miho-0.1.0-9dbe622d4cb7521117a20c16a6fe83c254966d7427909c45784d2fd3ba98f12c`；任务 `Ready / Enabled / LastTaskResult=0`，无 candidate/journal。正式 Desktop/人工 CLI SHA-256 分别为 `39CF8A2A9BA9B949DE983CBEA971E36B996A7E8D26A3EB7340BB139AB6E4037D` / `01BFFF63A827A3C2B6FCD2275F4191814047A50C554E10BD584B3FF9D39F6491`。隐藏 GUI/CDP 深测实际通过 `ZZZ → HSR → ZZZ`、六模式期次/主题/周期、卡池和样本年龄，程序退出 0、stdout/stderr 空、无终端或进程残留；HSR/ZZZ Box 哈希保持不变，回滚 EXE 与测试残留已精确清理，未进入 NSIS、portable 或旧安装器链。
+
 ## 恢复入口
 
 - 项目状态：本文件。

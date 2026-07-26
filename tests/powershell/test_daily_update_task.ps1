@@ -80,6 +80,7 @@ function New-TestCase {
         HealthAttempt = "pre-existing-attempt"
         HealthJson = ""
         HealthJsonAfterRun = ""
+        HealthStdErr = ""
         DoNotAdvanceHealth = $false
         CandidateHasRun = $false
         WrongRunIdentity = $false
@@ -204,17 +205,17 @@ function New-TestCase {
         }
         if ($argumentCopy.Count -ge 2 -and $argumentCopy[0] -eq "update" -and $argumentCopy[1] -eq "health") {
             if ($state.CandidateHasRun -and -not [string]::IsNullOrWhiteSpace($state.HealthJsonAfterRun)) {
-                return [pscustomobject]@{ ExitCode = $state.HealthExit; StdOut = $state.HealthJsonAfterRun; StdErr = "" }
+                return [pscustomobject]@{ ExitCode = $state.HealthExit; StdOut = $state.HealthJsonAfterRun; StdErr = $state.HealthStdErr }
             }
             if (-not [string]::IsNullOrWhiteSpace($state.HealthJson)) {
-                return [pscustomobject]@{ ExitCode = $state.HealthExit; StdOut = $state.HealthJson; StdErr = "" }
+                return [pscustomobject]@{ ExitCode = $state.HealthExit; StdOut = $state.HealthJson; StdErr = $state.HealthStdErr }
             }
             $healthyText = "false"
             if ($state.HealthHealthy) { $healthyText = "true" }
             return [pscustomobject]@{
                 ExitCode = $state.HealthExit
                 StdOut = '{"schema_version":"miho-update-health-v1","healthy":' + $healthyText + ',"attempt_id":"' + $state.HealthAttempt + '","checked_games":["hsr","zzz"]}'
-                StdErr = ""
+                StdErr = $state.HealthStdErr
             }
         }
         throw "unexpected fake process invocation: $($argumentCopy -join ' ')"
@@ -432,8 +433,10 @@ function Test-HealthFailurePreservesOld {
         $oldManifest = [System.IO.File]::ReadAllBytes($case.Paths.Manifest)
         Set-TestSourceV2 $case
         $failedGeneration = Get-TestCurrentGenerationPath $case
-        $case.State.HealthHealthy = $false
-        Assert-Throws { Invoke-TestInstall $case } "healthy=true"
+        $case.State.HealthExit = 1
+        $case.State.HealthStdErr = "update.health_freshness_invalid"
+        $case.State.HealthJsonAfterRun = '{"schema_version":"miho-update-health-v1","healthy":false,"attempt_id":"invalid-freshness","checked_games":["hsr","zzz"],"failure":{"code":"update.health_freshness_invalid"}}'
+        Assert-Throws { Invoke-TestInstall $case } "update.health_freshness_invalid"
         Assert-True (Test-MihoSnapshotExactlyV1 $case.State.Tasks[$case.Identity.TaskName] $oldTask) "Health failure changed canonical task."
         Assert-BytesEqual ([System.IO.File]::ReadAllBytes($case.Paths.Manifest)) $oldManifest "Health failure changed manifest."
         Assert-True (-not (Test-Path -LiteralPath $failedGeneration)) "Health failure left its newly created generation."
