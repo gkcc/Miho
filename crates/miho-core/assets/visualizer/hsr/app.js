@@ -70,6 +70,13 @@ function installExternalLinkBridge(){
   document.addEventListener('click',event=>{const link=event.target?.closest?.('a[href]');if(!link)return;const raw=String(link.getAttribute('href')||'').trim();if(!/^https:\/\//i.test(raw))return;const safe=safeLinkUrl(raw);if(!safe)return;let url;try{url=new URL(safe);}catch{return;}if(url.protocol!=='https:'||!url.host||url.username||url.password)return;event.preventDefault();globalThis.parent.postMessage({schema_version:'miho-visualizer-external-link-v1',url:url.href},'*');},true);
 }
 
+function postVisualizerPage(page=state.page){
+  const parentWindow=globalThis.parent;
+  if(!desktopMode||!PAGES.has(page)||!parentWindow||parentWindow===globalThis||typeof parentWindow.postMessage!=='function')return false;
+  parentWindow.postMessage({schema_version:'miho-visualizer-page-v1',page},'*');
+  return true;
+}
+
 function installBoxFlushBridge(){
   const parentWindow=globalThis.parent;
   if(typeof globalThis.addEventListener!=='function'||!parentWindow||parentWindow===globalThis)return;
@@ -142,7 +149,7 @@ function init(){
   installExternalLinkBridge();
   installAccessibleDetailDismissal();
   $('metaLine').textContent=sourceMetaLine();
-  makeButtons('appTabs',[['box','我的 Box'],['analysis','终局分析'],['banner','卡池'],['recommender','组队推荐']],state.page,v=>{state.page=v;history.replaceState(null,'',`#${v}`);render();});
+  makeButtons('appTabs',[['box','我的 Box'],['analysis','终局分析'],['banner','卡池'],['recommender','组队推荐']],state.page,v=>{state.page=v;history.replaceState(null,'',`#${v}`);render();postVisualizerPage(v);});
   makeButtons('modeControl',MODES,state.mode,v=>{state.mode=v;state.focus=null;state.hover=null;render();});
   makeButtons('viewControl',VIEWS,state.view,v=>{state.view=v;state.focus=null;state.hover=null;render();});
   makeButtons('roleControl',ROLES,state.role,v=>{state.role=v;state.focus=null;state.hover=null;render();});
@@ -156,7 +163,8 @@ function init(){
   initBannerControls();
   initBoxControls();
   initRecommenderControls();
-  syncFreshnessNavigation();
+  syncFreshnessNavigation(rec.mode,recommendationPhaseInfo());
+  postVisualizerPage();
 }
 
 function initBannerControls(){
@@ -353,14 +361,15 @@ function latestSampleMeta(rows,mode){
   const sameDate=date&&!latest.phase_ver&&!latest.snapshot_id&&!latest.phase_name?phases.find(r=>r.collect_date===date):null;
   const latestPhase=!date?phases.slice().sort((a,b)=>`${String(a.collect_date||'')}|${String(a.phase_ver||'')}|${String(a.snapshot_id||'')}`.localeCompare(`${String(b.collect_date||'')}|${String(b.phase_ver||'')}|${String(b.snapshot_id||'')}`)).at(-1):null;
   const info=exact||sameDate||latestPhase||latest;
-  const status=info.phase_status||latest.phase_status||'unknown';
+  const freshness=modeFreshness(mode,info);
+  const status=freshness.status;
   const theme=phaseName(info)||phaseName(latest)||info.mechanic_name||'未知';
   return{
     date:date||info.collect_date||'未知',
     phase:info.phase_ver||latest.phase_ver||'未知',
     theme,
-    period:`${info.start_date||latest.start_date||'未知'} 至 ${info.end_date||latest.end_date||'未知'}`,
-    label:status==='current'?'当前周期':status==='expired'?'历史样本':status==='future'?'未开始':'周期未知',
+    period:`${freshness.startDate||info.start_date||latest.start_date||'未知'} 至 ${freshness.endDate||info.end_date||latest.end_date||'未知'}`,
+    label:freshnessStatusLabel(status),
   };
 }
 function analysisPhaseText(sample){return`本期：${sample.theme}（${sample.phase}） · ${sample.period} · 最新采样 ${sample.date} · ${sample.label}`}
@@ -457,7 +466,7 @@ function bannerPhaseMatches(status,phase){return phase==='all'||(phase==='recent
 function ensureBannerPhase(){const rows=DATA.bannerRows||[];if(!rows.length)return;if(!rows.some(r=>bannerPhaseMatches(r.phase_status,banner.phase)))banner.phase=BANNER_PHASES.map(([value])=>value).find(value=>value!=='all'&&rows.some(r=>bannerPhaseMatches(r.phase_status,value)))||'all';}
 function bannerRows(){const q=banner.search;return (DATA.bannerRows||[]).filter(r=>bannerPhaseMatches(r.phase_status,banner.phase)&&(!q||[r.character_slug,r.character_name_cn,r.character_name_en,r.banner_role,r.element_cn,r.path_cn,r.role_group_cns,...(r.analysis_tags||[])].some(x=>String(x||'').toLowerCase().includes(q))));}
 function formatBannerRefreshTime(value){const date=new Date(value);if(!Number.isFinite(date.getTime()))return String(value||'').replace('T',' ').replace(/Z$/,'').slice(0,16);const china=new Date(date.getTime()+8*60*60*1000),pad=n=>String(n).padStart(2,'0');return`${china.getUTCFullYear()}-${pad(china.getUTCMonth()+1)}-${pad(china.getUTCDate())} ${pad(china.getUTCHours())}:${pad(china.getUTCMinutes())}`}
-function bannerRefreshText(){const refresh=DATA.bannerRefresh||{};return refresh.status==='fresh'&&refresh.fetched_at?`官方卡池资料已刷新 ${formatBannerRefreshTime(refresh.fetched_at)}`:''}
+function bannerRefreshText(){const refresh=DATA.bannerRefresh;if(!refresh||typeof refresh!=='object'||Array.isArray(refresh))return'官方刷新状态未知（旧格式数据）';return refresh.status==='fresh'&&refresh.fetched_at?`官方卡池资料已刷新 ${formatBannerRefreshTime(refresh.fetched_at)}`:''}
 function renderBanner(){const allRows=DATA.bannerRows||[],rows=bannerRows(),refreshText=bannerRefreshText();$('bannerTitle').textContent='卡池情报';$('bannerSubtitle').textContent=`这里只做数据提炼：复刻看历史趋势和组队占用，新角色/联动角色只做公开信息与 Box 关系识别。${refreshText?` · ${refreshText}`:''}`;$('bannerBadges').innerHTML=[`角色 ${rows.length}`,`Box ${box.owned.size}`,'趋势仅供参考'].map(x=>`<span>${esc(x)}</span>`).join('');const grid=$('bannerGrid');grid.innerHTML='';if(!allRows.length){grid.innerHTML='<div class="rec-empty">卡池数据未生成或为空；终局统计与 Box 数据不受影响</div>';return;}if(!rows.length){const phaseLabel=BANNER_PHASES.find(([value])=>value===banner.phase)?.[1]||'当前阶段';grid.innerHTML=`<div class="rec-empty">${banner.search?'当前搜索与阶段没有匹配角色':`${esc(phaseLabel)}暂无记录`}；卡池数据已载入 ${allRows.length} 条</div>`;return;}const phases=[...new Map(rows.map(r=>[r.phase_id,{id:r.phase_id,title:r.phase_title,subtitle:r.phase_subtitle,date:r.date_range,source:r.source_label,url:r.source_url,status:r.phase_status}])).values()];phases.forEach(phase=>{const section=document.createElement('section'),phaseUrl=safeLinkUrl(phase.url);section.className='banner-section';section.innerHTML=`<div class="banner-section-head"><div><h3>${esc(phase.title||'卡池')}</h3><p>${esc(phase.subtitle||'')} · ${esc(phase.date||'时间待确认')}</p></div>${phaseUrl?`<a href="${esc(phaseUrl)}" target="_blank" rel="noopener noreferrer">${esc(phase.source||'来源')}</a>`:''}</div><div class="banner-card-grid"></div>`;const inner=section.querySelector('.banner-card-grid');rows.filter(r=>r.phase_id===phase.id).forEach(row=>inner.appendChild(bannerCard(row)));grid.appendChild(section);});}
 function bannerCard(row){const slug=row.character_slug,info={...charInfo(slug),...row},ins=bannerInsight(row);const card=document.createElement('article');card.className=`banner-card ${box.owned.has(slug)?'owned':''} ${row.phase_status}`;const tags=(row.analysis_tags||[]).slice(0,5).map(t=>`<span>${esc(t)}</span>`).join('');const name=info.character_name_cn||info.character_name_en||slug;const roleText=info.role_group_cns||roleCn(info)||'未分类';card.innerHTML=`<div class="banner-art">${info.icon_url?`<img src="${esc(info.icon_url)}" alt="" loading="lazy" decoding="async">`:`<div class="avatar-fallback">${esc(name.slice(0,2))}</div>`}<button class="mini-owned" type="button">${box.owned.has(slug)?'已拥有':'加入Box'}</button></div><div class="banner-body"><div class="banner-kicker">${esc(row.banner_role||row.phase_subtitle||'卡池角色')}</div><h3>${esc(name)}</h3><p class="banner-meta">${esc(info.rarity?`${info.rarity}星`:'-')} · ${esc(info.element_cn||'属性未知')} · ${esc(info.path_cn||'命途未知')} · ${esc(roleText)} · ${esc(ins.tierText)}</p><svg class="spark" viewBox="0 0 220 54">${sparkline(ins.points)}</svg><div class="rec-tags">${tags}</div><div class="banner-facts">${ins.lines.slice(0,4).map(x=>`<p>${esc(x)}</p>`).join('')}</div><div class="banner-relations">${ins.relations.slice(0,6).map(x=>`<span class="${x.owned?'owned':''}">${esc(x.name)}${x.count?` ×${x.count}`:''}</span>`).join('')||'<span>暂无历史组合</span>'}</div></div>`;card.querySelector('.mini-owned').onclick=e=>{e.stopPropagation();commitBoxChange(()=>{box.owned.has(slug)?box.owned.delete(slug):box.owned.add(slug);box.buildSlug=slug;},renderBanner);};card.addEventListener('mouseenter',e=>showBannerTooltip(e,row,ins));card.addEventListener('mousemove',moveBannerTooltip);card.addEventListener('mouseleave',()=>scheduleTooltipClose($('bannerTooltip')));bindAccessibleDetail(card,'bannerTooltip',event=>showBannerTooltip(event,row,ins),`查看 ${name} 卡池详情`);return card;}
 function bannerInsight(row){const slug=row.character_slug,info={...charInfo(slug),...row};const grouped=new Map();(DATA.usageRows||DATA.trendRows||[]).filter(r=>r.character_slug===slug&&(r.sub_mode==='all'||r.sub_mode==='all_bosses'||!r.sub_mode)).forEach(r=>{const key=`${r.tier_mode||r.mode}|${r.collect_date||r.tier_updated_date||''}`;const current=grouped.get(key);if(!current||Number(r.app_rate||0)>Number(current.app_rate||0))grouped.set(key,r);});const usage=[...grouped.values()].sort((a,b)=>String(a.collect_date||a.tier_updated_date).localeCompare(String(b.collect_date||b.tier_updated_date)));const points=usage.map(r=>({date:r.collect_date||r.tier_updated_date,value:number(r.app_rate)||0,mode:r.tier_mode_cn||r.mode_cn||r.tier_mode||r.mode}));const tierText=tierSummaryFor(slug),tierDetails=tierDetailsFor(slug);const teams=(DATA.teamTemplates||[]).filter(t=>(t.chars||[]).includes(slug));const relations=relationRows(slug,teams);const ownedRelation=relations.filter(r=>r.owned).slice(0,4).map(r=>r.name).join('、');const lines=[`T档：Prydwen 按模式分档，${tierText}。`];if(points.length){const latest=points[points.length-1],recent=points.slice(-3),avg=recent.reduce((s,p)=>s+p.value,0)/recent.length,delta=points.length>1?latest.value-points[0].value:0;lines.push(`历史：${points.length} 个样本点，最新 ${latest.value.toFixed(2)}%，近三期均值 ${avg.toFixed(2)}%，首尾变化 ${delta.toFixed(2)}%。`);}else lines.push('历史：本地高难暂无完整样本，不能用趋势替代实测。');if(teams.length){const bestRank=Math.min(...teams.map(t=>number(t.rank)||9999));lines.push(`组队：历史模板 ${teams.length} 条，最好 Rank ${bestRank}，常见队友见下方关系。`);}else lines.push('组队：暂无可回溯历史队伍，等待实测或人工分析。');if(ownedRelation)lines.push(`Box关系：你已有角色中，历史上相关度较高的是 ${ownedRelation}。`);else lines.push('Box关系：暂未发现与你已有 Box 的直接历史组合；需要看属性、命途与队友缺口。');if(row.phase_status==='next'||!points.length)lines.push('未知项：技能组、倍率、光锥价值、实战轴和环境适配仍需外部分析确认。');if(row.focus)lines.push(`关注点：${row.focus}`);return{points,relations,lines,tierText,tierDetails};}
@@ -572,16 +581,51 @@ function roleList(row){return String(row.role_groups||'unknown').split(';').filt
 function roleCn(row){return row.role_group_cns||roleList(row).join('/')}
 function phaseStatusLabel(status){return status==='expired'?'已过期':status==='future'?'未开始':status==='current'?'当前周期':'日期未知'}
 function freshnessStatusLabel(status){return status==='active'?'当前周期':status==='future'?'未来周期':status==='stale'?'历史样本':'周期未知'}
+function freshnessIdentityKey(row){return`${String(row?.collect_date||'')}|${String(row?.phase_ver||'')}|${String(row?.snapshot_id||'')}|${String(row?.phase_name||'')}`}
+function latestModeFreshnessSample(mode){return indexedUsageRows(mode).filter(row=>row.collect_date).slice().sort((left,right)=>freshnessIdentityKey(left).localeCompare(freshnessIdentityKey(right))).at(-1)||{}}
+function exactFreshnessPhase(mode,sample){
+  const date=String(sample?.collect_date||'');
+  if(!date)return null;
+  const phases=DATA_INDEX?.phasesByMode.get(mode)||(DATA.phaseInfoRows||[]).filter(row=>row.mode===mode);
+  const candidates=phases.filter(row=>row.collect_date===date
+    &&(!sample.phase_ver||row.phase_ver===sample.phase_ver)
+    &&(!sample.snapshot_id||row.snapshot_id===sample.snapshot_id));
+  if(candidates.length===1)return candidates[0];
+  if(!sample.phase_name)return null;
+  const named=candidates.filter(row=>row.phase_name===sample.phase_name);
+  return named.length===1?named[0]:null;
+}
+function legacyModeFreshnessFallback(mode){
+  const sample=latestModeFreshnessSample(mode);
+  if(!sample.collect_date)return{};
+  const phase=exactFreshnessPhase(mode,sample);
+  return phase?{...sample,...phase,source:phase.source||sample.source||'',source_path:phase.source_path||sample.source_path||''}:sample;
+}
+function fallbackFreshnessStatus(row){
+  if(row.phase_status==='expired')return'stale';
+  if(row.phase_status==='future')return'future';
+  if(row.phase_status==='current')return'active';
+  const now=new Date(),today=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`,start=normalizeSourceDate(row.start_date),end=normalizeSourceDate(row.end_date),valid=value=>/^\d{4}-\d{2}-\d{2}$/.test(value);
+  if(valid(start)&&start>today)return'future';
+  if(valid(end)&&end<today)return'stale';
+  return valid(start)||valid(end)?'active':'unknown';
+}
+function freshnessIdentity(row){return{collect_date:String(row?.collect_date||row?.sample_date||row?.sampleDate||''),phase_ver:String(row?.phase_ver||row?.phaseVer||''),snapshot_id:String(row?.snapshot_id||row?.snapshotId||''),phase_name:String(row?.phase_name||row?.phaseName||'')}}
+function freshnessFallbackIsDistinct(mode,fallback,raw){
+  const fallbackIdentity=freshnessIdentity(fallback),modeIdentity=freshnessIdentity(latestModeFreshnessSample(mode));
+  const rawIdentity=freshnessIdentity(raw);Object.keys(modeIdentity).forEach(key=>{if(!modeIdentity[key])modeIdentity[key]=rawIdentity[key];});
+  return Object.keys(fallbackIdentity).some(key=>fallbackIdentity[key]&&modeIdentity[key]&&fallbackIdentity[key]!==modeIdentity[key]);
+}
 function modeFreshness(mode=rec.mode,fallback={}){
   const raw=DATA?.freshness?.[mode]||DATA?.data_quality?.modes?.[mode]?.freshness||DATA?.dataQuality?.modes?.[mode]?.freshness;
-  const fallbackStatus=fallback.phase_status==='expired'?'stale':fallback.phase_status==='future'?'future':fallback.phase_status==='current'?'active':'unknown';
-  const status=['active','future','stale','unknown'].includes(raw?.status)?raw.status:fallbackStatus;
-  return{status,sampleDate:raw?.sample_date||fallback.collect_date||'',startDate:raw?.start_date||fallback.start_date||'',endDate:raw?.end_date||fallback.end_date||'',source:raw?.source||fallback.source||fallback.source_path||''};
+  const validRaw=['active','future','stale','unknown'].includes(raw?.status),useFallback=freshnessFallbackIsDistinct(mode,fallback,raw),legacy=validRaw||useFallback?{}:legacyModeFreshnessFallback(mode),resolved=useFallback?fallback:validRaw?raw:Object.keys(legacy).length?legacy:fallback;
+  const status=useFallback?fallbackFreshnessStatus(resolved):validRaw?raw.status:fallbackFreshnessStatus(resolved);
+  return{status,sampleDate:resolved.sample_date||resolved.collect_date||'',startDate:resolved.start_date||'',endDate:resolved.end_date||'',source:resolved.source||resolved.source_path||''};
 }
 function freshnessPeriodText(freshness){return`${freshness.startDate||'未知'} 至 ${freshness.endDate||'未知'}`}
 function freshnessBadgeHtml(freshness){return freshness.status==='active'?'':`<span class="data-${esc(freshness.status)}">${esc(freshnessStatusLabel(freshness.status))}</span>`}
 function freshnessTemplateLabel(status,currentLabel){return status==='stale'?'历史模板（源滞后）':status==='future'?'未来周期样本（尚未开始）':status==='unknown'?'周期状态未知的样本':currentLabel}
-function syncFreshnessNavigation(mode=rec.mode){const root=$('appTabs');if(!root)return;const button=[...root.children].find(item=>item.dataset.value==='recommender');if(!button)return;const freshness=modeFreshness(mode),suffix=freshness.status==='active'?'':` · ${freshnessStatusLabel(freshness.status)}`;button.textContent=`组队推荐${suffix}`;button.classList.remove('freshness-stale','freshness-future','freshness-unknown');if(freshness.status!=='active')button.classList.add(`freshness-${freshness.status}`);button.title=`${MODES.find(([value])=>value===mode)?.[1]||mode}：${freshnessStatusLabel(freshness.status)}，不阻止浏览`;}
+function syncFreshnessNavigation(mode=rec.mode,fallback={}){const root=$('appTabs');if(!root)return;const button=[...root.children].find(item=>item.dataset.value==='recommender');if(!button)return;const freshness=modeFreshness(mode,fallback),suffix=freshness.status==='active'?'':` · ${freshnessStatusLabel(freshness.status)}`;button.textContent=`组队推荐${suffix}`;button.classList.remove('freshness-stale','freshness-future','freshness-unknown');if(freshness.status!=='active')button.classList.add(`freshness-${freshness.status}`);button.title=`${MODES.find(([value])=>value===mode)?.[1]||mode}：${freshnessStatusLabel(freshness.status)}，不阻止浏览`;}
 function templateRecencyKey(t){return `${String(t.collect_date||'')}|${String(t.phase_ver||'')}|${String(t.snapshot_id||'')}`}
 function currentModeTemplates(mode){if(!DATA._currentModeTemplates)DATA._currentModeTemplates=new Map();if(DATA._currentModeTemplates.has(mode))return DATA._currentModeTemplates.get(mode);const rows=DATA_INDEX?.teamsByMode.get(mode)||(DATA.teamTemplates||[]).filter(t=>t.mode===mode),usable=rows.filter(t=>!['expired','future'].includes(t.phase_status)),pool=usable.length?usable:rows,latest=pool.reduce((m,t)=>templateRecencyKey(t)>m?templateRecencyKey(t):m,''),current=pool.filter(t=>templateRecencyKey(t)===latest);DATA._currentModeTemplates.set(mode,current);return current;}
 function templatePoolKey(template){return (template.chars||[]).map(canonicalSlug).sort().join('|')}
@@ -824,7 +868,7 @@ function substituteCandidates(missingSlug,reserved){
 
 function renderRecommender(options={}){
   const listRequestId=++recListRequestId;
-  ensureRecScope();syncRecControls();syncFreshnessNavigation();$('recTooltip').hidden=true;
+  ensureRecScope();syncRecControls();$('recTooltip').hidden=true;
   const modeLabel=MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode;
   const scope=recScopeOptions(rec.mode).find(o=>o.key===rec.scope);
   const custom=rec.strategy==='custom';
@@ -834,9 +878,11 @@ function renderRecommender(options={}){
   const constraints=recConstraintSets();
   const plannedScopes=recPlanScopes();
   const constraintMatchedCount=templates.filter(template=>templateMatchesConstraints(template,constraints)).length;
+  const phaseInfo=recommendationPhaseInfo(latest);
+  syncFreshnessNavigation(rec.mode,phaseInfo);
   renderPhaseMechanics(latest);
   $('recTitle').textContent=`${modeLabel} · ${scope?.label||rec.scope}`;
-  const phaseInfo=phaseInfoFor(latest),status=latest.phase_status||phaseInfo.phase_status||'unknown',freshness=modeFreshness(rec.mode,phaseInfo);
+  const status=latest.phase_status||phaseInfo.phase_status||'unknown',freshness=modeFreshness(rec.mode,phaseInfo);
   const templateLabel=freshnessTemplateLabel(freshness.status,custom?'当前模式完整实战阵容池':'当前同节点实战模板');
   const sortMeta=recSortMeta();
   const strategyNote=custom?'跨全部具体战斗侧去重；核心输出命中任一弱点优先':`${plannedScopes.length}队联合优化；同节点实战排序优先；弱点默认仅标注，不参与加减分；选择“过滤风险”时才硬筛选`;
@@ -852,18 +898,21 @@ function renderRecommender(options={}){
 
 function phaseInfoFor(template){
   const rows=DATA_INDEX?.phasesByMode.get(rec.mode)||(DATA.phaseInfoRows||[]).filter(row=>row.mode===rec.mode);
-  const exact=rows.find(r=>r.mode===rec.mode&&r.phase_ver===template.phase_ver&&r.phase_name===template.phase_name);
+  const identityKeys=['collect_date','phase_ver','snapshot_id','phase_name'],present=identityKeys.filter(key=>template?.[key]),matches=present.length?rows.filter(row=>present.every(key=>row[key]===template[key])):[];
+  const exact=matches.length===1?matches[0]:null;
   if(exact)return exact;
+  if(present.length)return template;
   const modeRows=rows.slice().sort((a,b)=>String(b.collect_date).localeCompare(String(a.collect_date)));
   return modeRows[0]||template||{};
 }
+function recommendationPhaseInfo(template){const actual=template||scopeTemplates(rec.mode,rec.scope)[0]||currentModeTemplates(rec.mode)[0]||{},info=phaseInfoFor(actual);return{...actual,...info}}
 
 function renderPhaseMechanics(template){
-  const info=phaseInfoFor(template||{});
+  const info=recommendationPhaseInfo(template||{});
   const modeLabel=MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode;
   const phaseTitle=phaseLabel(info)||phaseLabel(template);
   $('phaseMechanicsTitle').textContent=`${modeLabel} · ${phaseTitle||'未识别期名'}`;
-  const status=info.phase_status||template.phase_status||'unknown',freshness=modeFreshness(rec.mode,{...template,...info});
+  const status=info.phase_status||template.phase_status||'unknown',freshness=modeFreshness(rec.mode,info);
   $('phaseMechanicsSubtitle').textContent=`${freshnessStatusLabel(freshness.status)} · 采样 ${freshness.sampleDate||'未知'} · 周期 ${freshnessPeriodText(freshness)} · 来源 ${freshness.source||'未知'}`;
   const expiredText=freshness.status==='stale'||status==='expired'?`本地最新 ${modeLabel} 数据周期已于 ${freshness.endDate||info.end_date||'上一周期'} 结束；当前数据包尚未包含新周期统计，以下队伍仅作历史参考。`:'';
   const mechanicName=expiredText?'源滞后 / 历史模板':(info.mechanic_name||'机制效果待维护');
@@ -1060,7 +1109,7 @@ function recSlatePlanStats(plan){const items=plan.picks.filter(Boolean),members=
 function signedSlateDelta(value,digits=0){const rounded=digits?Number(value).toFixed(digits):String(Math.round(value));return`${value>0?'+':''}${rounded}`}
 function recSlateRoleDiff(plan,best){const current=recSlatePlanStats(plan).members,baseline=recSlatePlanStats(best).members,added=[...current].filter(slug=>!baseline.has(slug)).sort((a,b)=>charName(a).localeCompare(charName(b))),removed=[...baseline].filter(slug=>!current.has(slug)).sort((a,b)=>charName(a).localeCompare(charName(b)));if(!added.length&&!removed.length)return'变化角色：无';return`变化角色：${[added.length&&`新增 ${added.map(charName).join('、')}`,removed.length&&`移出 ${removed.map(charName).join('、')}`].filter(Boolean).join('；')}`;}
 function renderRecSlateResult(result){
-  const scopes=result.scopes||recPlanScopes(),plans=result.plans||[],scoreMeta=recSortMeta(),meta=result.solver_meta||{},strategyLabel=rec.strategy==='custom'?'跨节点阵容池联合选队':'已选实战节点联合选队（未选关卡不预留角色）',freshness=modeFreshness(rec.mode),historical=freshness.status==='stale';
+  const scopes=result.scopes||recPlanScopes(),plans=result.plans||[],scoreMeta=recSortMeta(),meta=result.solver_meta||{},strategyLabel=rec.strategy==='custom'?'跨节点阵容池联合选队':'已选实战节点联合选队（未选关卡不预留角色）',slateTemplate=plans[0]?.picks?.find(Boolean)?.template,freshness=modeFreshness(rec.mode,recommendationPhaseInfo(slateTemplate)),historical=freshness.status==='stale';
   $('recSlateSubtitle').textContent=`${historical?'历史样本 · ':''}${plans[0]?.filled||0}/${scopes.length} 队 · 目标：${scoreMeta.label} · ${strategyLabel} · 最多 3 套 · 搜索只筛左侧，不触发重算`;
   const status=$('recSlateStatus');if(status)status.textContent=[recSlateNotice,recSlateSearchMeta(meta)].filter(Boolean).join(' ');
   const boxEl=$('recSlateList');boxEl.innerHTML='';if(!plans.length){boxEl.innerHTML='<div class="rec-empty">暂无满足当前条件的完整方案</div>';return;}

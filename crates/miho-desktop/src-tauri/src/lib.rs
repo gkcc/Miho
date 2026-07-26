@@ -878,7 +878,9 @@ mod tests {
         assert!(
             frontend.contains("if (force) pageUrl.searchParams.set(\"reload\", String(request))")
         );
-        assert!(frontend.contains("pageUrl.hash = \"box\""));
+        assert!(frontend.contains("pageUrl.hash = visualizerState.page"));
+        assert!(frontend.contains("miho-visualizer-page-v1"));
+        assert!(frontend.contains("sourceState.page = event.data.page as VisualizerPage"));
         assert!(frontend.contains(
             "frame.setAttribute(\"sandbox\", \"allow-scripts allow-same-origin allow-downloads\")"
         ));

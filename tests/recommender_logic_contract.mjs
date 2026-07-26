@@ -213,6 +213,9 @@ const HSR_HARNESS = String.raw`
   sourceDate(value) {
     return normalizeSourceDate(value);
   },
+  postPage(page) {
+    return postVisualizerPage(page);
+  },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
   },
@@ -419,6 +422,9 @@ const ZZZ_HARNESS = String.raw`
   sourceDate(value) {
     return normalizeSourceDate(value);
   },
+  postPage(page) {
+    return postVisualizerPage(page);
+  },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
   },
@@ -450,8 +456,9 @@ const ZZZ_HARNESS = String.raw`
 };
 `;
 
-function loadContract(appPath, harness) {
+function loadContract(appPath, harness, {desktopMode = false} = {}) {
   const storage = new Map();
+  const parentMessages = [];
   const document = {
     body: {innerHTML: ''},
     getElementById: () => null,
@@ -460,6 +467,7 @@ function loadContract(appPath, harness) {
   };
   const context = vm.createContext({
     console,
+    __MIHO_DESKTOP__: desktopMode,
     document,
     fetch: () => new Promise(() => {}),
     location: {hash: '', href: 'http://localhost/', origin: 'http://localhost'},
@@ -474,9 +482,14 @@ function loadContract(appPath, harness) {
   });
   context.global = context;
   context.window = context;
+  context.parent = desktopMode
+    ? {postMessage: message => parentMessages.push(JSON.parse(JSON.stringify(message)))}
+    : context;
   const source = `${readFileSync(SLATE_SOLVER, 'utf8')}\n${readFileSync(appPath, 'utf8')}\n${harness}`;
   new vm.Script(source, {filename: appPath}).runInContext(context, {timeout: 2_000});
-  return context.__recommenderContract;
+  const api = context.__recommenderContract;
+  api.parentMessages = () => parentMessages.map(message => ({...message}));
+  return api;
 }
 
 function loadBoxFlushContract(appPath, {putOk = true} = {}) {
@@ -2204,6 +2217,107 @@ test('both visualizers read freshness from snake/camel data-quality fallbacks wi
   assert.equal(plain(zzz.freshness('sd', {phase_status: 'current'})).status, 'active');
 });
 
+test('legacy freshness follows the latest usage phase identity and stays consistent across fallback callers', () => {
+  const hsr = loadContract(HSR_APP, HSR_HARNESS);
+  hsr.reset({
+    ...hsrData([], []),
+    meta: {tierUpdatedAt: '24/July/2026', generatedAt: '2026-07-24T23:24:52'},
+    usageRows: [
+      {tier_mode: 'moc', sub_mode: 'all', collect_date: '2026-07-08', phase_ver: 'repeat', snapshot_id: 'snapshot-new', phase_name: 'Right phase'},
+      {tier_mode: 'pf', sub_mode: 'all', collect_date: '2026-07-07', phase_ver: 'pf-v1', snapshot_id: 'pf-latest'},
+      {tier_mode: 'as', sub_mode: 'all', collect_date: '2026-07-06', phase_ver: 'as-v1', snapshot_id: 'missing-snapshot'},
+    ],
+    phaseInfoRows: [
+      {mode: 'moc', collect_date: '2026-07-08', phase_ver: 'repeat', snapshot_id: 'snapshot-old', phase_name: 'Wrong phase', phase_status: 'expired', start_date: '2026-06-01', end_date: '2026-06-30'},
+      {mode: 'moc', collect_date: '2026-07-08', phase_ver: 'repeat', snapshot_id: 'snapshot-new', phase_name: 'Right phase', phase_status: 'current', start_date: '2026-07-02', end_date: '2026-07-16', source: 'exact-hsr'},
+      {mode: 'pf', collect_date: '2026-07-07', phase_ver: 'pf-v1', snapshot_id: 'pf-latest', phase_status: 'expired', start_date: '2026-06-02', end_date: '2026-07-01', source: 'stale-hsr'},
+      {mode: 'as', collect_date: '2026-07-06', phase_ver: 'as-v1', snapshot_id: 'other-snapshot', phase_status: 'expired', start_date: '2026-05-01', end_date: '2026-06-01'},
+    ],
+  });
+  assert.deepEqual(plain(hsr.freshness('moc')), {
+    status: 'active', sampleDate: '2026-07-08', startDate: '2026-07-02', endDate: '2026-07-16', source: 'exact-hsr',
+  });
+  assert.equal(hsr.freshness('moc', {phase_status: 'expired'}).status, 'active', 'phase-panel fallback must not override the mode sample');
+  assert.equal(hsr.freshness('pf').status, 'stale');
+  assert.deepEqual(plain(hsr.freshness('as')), {
+    status: 'unknown', sampleDate: '2026-07-06', startDate: '', endDate: '', source: '',
+  }, 'a different snapshot on the same phase version must not be borrowed');
+  assert.match(hsr.sourceMeta(), /终局统计最新采样：2026-07-08（部分模式已过期）/);
+
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  zzz.reset({
+    ...zzzData([], []),
+    meta: {tierUpdatedAt: '08/July/2026', generatedAt: '2026-07-24T23:23:58'},
+    usageRows: [
+      {mode: 'sd', sub_mode: 'all', collect_date: '2026-07-19', phase_ver: 'repeat', snapshot_id: 'snapshot-new', phase_name: 'Right phase'},
+      {mode: 'da', sub_mode: 'all', collect_date: '2026-07-18', phase_ver: 'da-v1', snapshot_id: 'da-latest'},
+    ],
+    phaseInfoRows: [
+      {mode: 'sd', collect_date: '2026-07-19', phase_ver: 'repeat', snapshot_id: 'snapshot-old', phase_name: 'Wrong phase', phase_status: 'current', start_date: '2026-07-01', end_date: '2026-07-31'},
+      {mode: 'sd', collect_date: '2026-07-19', phase_ver: 'repeat', snapshot_id: 'snapshot-new', phase_name: 'Right phase', phase_status: 'expired', start_date: '2026-07-02', end_date: '2026-07-16', source: 'exact-zzz'},
+      {mode: 'da', collect_date: '2026-07-18', phase_ver: 'da-v1', snapshot_id: 'da-latest', phase_status: 'current', start_date: '2026-07-17', end_date: '2026-07-29'},
+    ],
+  });
+  assert.deepEqual(plain(zzz.freshness('sd')), {
+    status: 'stale', sampleDate: '2026-07-19', startDate: '2026-07-02', endDate: '2026-07-16', source: 'exact-zzz',
+  });
+  assert.equal(zzz.freshness('sd', {phase_status: 'current'}).status, 'stale', 'recommendation callers must share the same mode status');
+  assert.equal(zzz.freshness('da').status, 'active');
+  assert.match(zzz.sourceMeta(), /终局统计最新采样：2026-07-19（部分模式已过期）/);
+
+  zzz.reset({
+    ...zzzData([], []),
+    usageRows: [{
+      mode: 'sd', sub_mode: 'all', collect_date: '2026-07-20', phase_ver: 'missing-v1', snapshot_id: 'missing-snapshot',
+      start_date: '1900-01-01', end_date: '1900-01-31', source: 'usage-period',
+    }],
+    phaseInfoRows: [{
+      mode: 'sd', collect_date: '2026-07-20', phase_ver: 'missing-v1', snapshot_id: 'other-snapshot',
+      phase_status: 'current', start_date: '2999-01-01', end_date: '2999-01-31', source: 'wrong-phase',
+    }],
+  });
+  assert.deepEqual(plain(zzz.freshness('sd')), {
+    status: 'stale', sampleDate: '2026-07-20', startDate: '1900-01-01', endDate: '1900-01-31', source: 'usage-period',
+  }, 'an unmatched phase must fall back to the usage row period, not another snapshot');
+});
+
+test('phase-specific freshness keeps expired recommendation evidence separate from a newer active mode sample', () => {
+  const oldHsrPhase = {
+    collect_date: '2026-07-08', phase_ver: 'moc-old', snapshot_id: 'moc-old-snapshot', phase_name: 'Old MoC',
+    phase_status: 'expired', start_date: '2026-06-25', end_date: '2026-07-08', source: 'old-hsr-team',
+  };
+  const hsr = loadContract(HSR_APP, HSR_HARNESS);
+  hsr.reset({
+    ...hsrData([], []),
+    usageRows: [{tier_mode: 'moc', sub_mode: 'all', collect_date: '2026-07-19', phase_ver: 'moc-new', snapshot_id: 'moc-new-snapshot', phase_name: 'New MoC'}],
+    freshness: {moc: {status: 'active', sample_date: '2026-07-19', start_date: '2026-07-10', end_date: '2026-07-23', source: 'new-hsr-usage'}},
+  });
+  assert.equal(hsr.freshness('moc').status, 'active', 'mode-level analysis should still describe the newest sample');
+  assert.deepEqual(plain(hsr.freshness('moc', oldHsrPhase)), {
+    status: 'stale', sampleDate: '2026-07-08', startDate: '2026-06-25', endDate: '2026-07-08', source: 'old-hsr-team',
+  });
+
+  const oldZzzPhase = {
+    collect_date: '2026-07-08', phase_ver: 'sd-old', snapshot_id: 'sd-old-snapshot', phase_name: 'Old SD',
+    phase_status: 'expired', start_date: '2026-06-24', end_date: '2026-07-08', source: 'old-zzz-team',
+  };
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  zzz.reset({
+    ...zzzData([], []),
+    usageRows: [{mode: 'sd', sub_mode: 'all', collect_date: '2026-07-19', phase_ver: 'sd-new', snapshot_id: 'sd-new-snapshot', phase_name: 'New SD'}],
+    phaseInfoRows: [{mode: 'sd', collect_date: '2026-07-19', phase_ver: 'sd-new', snapshot_id: 'sd-new-snapshot', phase_name: 'New SD', phase_status: 'current', start_date: '2026-07-10', end_date: '2026-07-24', source: 'new-zzz-usage'}],
+  });
+  assert.equal(zzz.freshness('sd').status, 'active', 'legacy mode-level analysis should still describe the newest sample');
+  assert.deepEqual(plain(zzz.freshness('sd', oldZzzPhase)), {
+    status: 'stale', sampleDate: '2026-07-08', startDate: '2026-06-24', endDate: '2026-07-08', source: 'old-zzz-team',
+  });
+
+  for (const [name, source] of [['HSR', readFileSync(HSR_APP, 'utf8')], ['ZZZ', readFileSync(ZZZ_APP, 'utf8')]]) {
+    assert.match(source, /syncFreshnessNavigation\(rec\.mode,[^)]+\)/, `${name} recommendation tab is not phase-specific`);
+    assert.match(source, /slateTemplate[^;]+modeFreshness\(rec\.mode,[^)]+slateTemplate/, `${name} slate is not tied to its actual template phase`);
+  }
+});
+
 test('analysis subtitles identify the exact sampled phase without borrowing metadata across snapshots', () => {
   const hsr = loadContract(HSR_APP, HSR_HARNESS);
   hsr.reset({
@@ -2509,9 +2623,30 @@ test('banner refresh labels expose the managed official snapshot timestamp', () 
     ...hsrData([], []),
     bannerRefresh: {status: 'stale', fetched_at: '2026-07-24T14:30:00Z'},
   });
-  zzz.reset({rosterRows: [], bannerRows: [], teamTemplates: [], tierRows: [], usageRows: []});
   assert.equal(hsr.bannerRefresh(), '');
-  assert.equal(zzz.bannerRefresh(), '');
+  hsr.reset(hsrData([], []));
+  zzz.reset({rosterRows: [], bannerRows: [], teamTemplates: [], tierRows: [], usageRows: []});
+  assert.equal(hsr.bannerRefresh(), '官方刷新状态未知（旧格式数据）');
+  assert.equal(zzz.bannerRefresh(), '官方刷新状态未知（旧格式数据）');
+});
+
+test('desktop visualizers publish only allowlisted page state on initialization and tab changes', () => {
+  for (const [name, appPath, harness] of [['HSR', HSR_APP, HSR_HARNESS], ['ZZZ', ZZZ_APP, ZZZ_HARNESS]]) {
+    const api = loadContract(appPath, harness, {desktopMode: true});
+    for (const page of ['box', 'analysis', 'banner', 'recommender']) assert.equal(api.postPage(page), true);
+    assert.equal(api.postPage('settings'), false);
+    assert.deepEqual(plain(api.parentMessages()), ['box', 'analysis', 'banner', 'recommender'].map(page => ({
+      schema_version: 'miho-visualizer-page-v1',
+      page,
+    })));
+    const source = readFileSync(appPath, 'utf8');
+    assert.match(source, /history\.replaceState\([^;]+;render\(\);postVisualizerPage\(v\)/, `${name} tab changes do not publish page state`);
+    assert.match(source, /syncFreshnessNavigation\([^;]*\);\s*postVisualizerPage\(\)/, `${name} initialization does not publish page state`);
+  }
+
+  const browser = loadContract(HSR_APP, HSR_HARNESS);
+  assert.equal(browser.postPage('box'), false);
+  assert.deepEqual(plain(browser.parentMessages()), []);
 });
 
 test('top metadata distinguishes endgame samples from Prydwen list updates and exposes stale HSR modes', () => {

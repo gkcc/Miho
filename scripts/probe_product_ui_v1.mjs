@@ -223,6 +223,7 @@ const outerExpression = `(() => {
     frameCount: frames.length,
     activeFrameCount: activeFrames.length,
     frameGame: frame?.dataset.game ?? '',
+    framePage: frame?.dataset.page ?? '',
     frameProbeId: frame?.dataset.probeId ?? '',
     frameProbeLoadCount: Number.parseInt(frame?.dataset.probeLoadCount ?? '-1', 10),
     frameLoaded: frame?.dataset.loaded === 'true',
@@ -609,16 +610,16 @@ async function topContext() {
   });
 }
 
-async function productSnapshot(game) {
+async function productSnapshot(game, expectedPage = "box") {
   return waitFor(`${game} product DOM`, async () => {
     const context = await activeFrameContext(game);
     try {
       const snapshot = await evaluate(context.id, productExpression, context.sessionId);
       return snapshot?.readyState === "complete"
-        && snapshot?.statePage === "box"
+        && snapshot?.statePage === expectedPage
         && snapshot?.tabs?.length > 0
-        && snapshot?.rosterCount > 0
-        && snapshot?.cardCount === snapshot?.rosterCount
+        && (expectedPage !== "box"
+          || (snapshot?.rosterCount > 0 && snapshot?.cardCount === snapshot?.rosterCount))
         ? snapshot
         : null;
     } catch (error) {
@@ -631,7 +632,7 @@ async function productSnapshot(game) {
   });
 }
 
-function verifyOuter(snapshot, game) {
+function verifyOuter(snapshot, game, expectedPage = "box") {
   const gameLabel = game === "hsr" ? "崩坏：星穹铁道" : "绝区零";
   assert(snapshot.href === "https://tauri.localhost/#miho-app-ready-v1", "desktop URL is not the production ready URL", snapshot);
   assert(snapshot.readyState === "complete" && snapshot.ready === "v1", "desktop ready sentinel is absent", snapshot);
@@ -640,6 +641,7 @@ function verifyOuter(snapshot, game) {
   assert(snapshot.visualizerTitle.includes(gameLabel) && snapshot.visualizerTitle.includes("我的 Box"), "Visualizer title does not describe the selected Box", snapshot);
   assert(snapshot.frameCount === 2 && snapshot.activeFrameCount === 1, "desktop does not retain exactly two Visualizer frames with one active", snapshot);
   assert(snapshot.frameGame === game, "active Visualizer frame does not match the selected game", snapshot);
+  assert(snapshot.framePage === expectedPage, `Visualizer page bridge did not report ${expectedPage}`, snapshot);
   assert(snapshot.frameLoaded && /^[a-f0-9]{64}$/.test(snapshot.frameDataRevision), "active Visualizer frame does not expose a validated data revision", snapshot);
   assert(snapshot.frameVisible && snapshot.frameHeight >= 500, "Visualizer frame is not visibly usable", snapshot);
   assert(snapshot.frameSrc.includes(`/${game}/index.html`) && snapshot.frameSrc.endsWith("#box"), "Visualizer frame did not open the Box page", snapshot);
@@ -2024,7 +2026,14 @@ async function authoritativeVisualizerDescriptor(topId, game) {
 }
 
 async function verifyPublicDataUpdate(topId, game) {
-  const beforeOuter = await ensureActiveGame(topId, game);
+  await ensureActiveGame(topId, game);
+  const beforeContext = await activeFrameContext(game);
+  const beforeBanner = await switchProductPage(beforeContext, game, "banner");
+  assert(beforeBanner.statePage === "banner", `${game} could not open the banner page before updating`, beforeBanner);
+  const beforeOuter = await waitFor(`${game} banner page bridge before public-data update`, async () => {
+    const snapshot = await evaluate(topId, outerExpression);
+    return snapshot?.frameGame === game && snapshot?.framePage === "banner" ? snapshot : null;
+  });
   assert(/^[a-f0-9]{64}$/u.test(beforeOuter.frameDataRevision), `${game} pre-update revision is invalid`, beforeOuter);
   const task = await clickPublicDataUpdate(topId, game);
   const terminalDescriptor = await authoritativeVisualizerDescriptor(topId, game);
@@ -2038,7 +2047,8 @@ async function verifyPublicDataUpdate(topId, game) {
     return snapshot?.frameGame === game
       && snapshot?.frameLoaded
       && snapshot?.frameSrc.includes(`/${game}/index.html`)
-      && snapshot?.frameSrc.endsWith("#box")
+      && snapshot?.frameSrc.endsWith("#banner")
+      && snapshot?.framePage === "banner"
       && /^[a-f0-9]{64}$/u.test(snapshot?.frameDataRevision ?? "")
       && snapshot.frameDataRevision === terminalDescriptor.data_revision
       ? snapshot
@@ -2060,10 +2070,8 @@ async function verifyPublicDataUpdate(topId, game) {
       afterLoad: stableDescriptor,
     });
 
-  const boxSnapshot = await productSnapshot(game);
-  verifyProduct(boxSnapshot, game);
   const context = await activeFrameContext(game);
-  const bannerSnapshot = await switchProductPage(context, game, "banner");
+  const bannerSnapshot = await productSnapshot(game, "banner");
   verifyBanner(bannerSnapshot, game);
   const fetchedAtMs = Date.parse(bannerSnapshot.bannerRefreshFetchedAt);
   assert(fetchedAtMs >= task.startedAt - 300000 && fetchedAtMs <= Date.now() + 300000,
@@ -2081,6 +2089,8 @@ async function verifyPublicDataUpdate(topId, game) {
     terminalRevision: terminalDescriptor.data_revision,
     frameLoadCountBefore: beforeOuter.frameProbeLoadCount,
     frameLoadCountAfter: afterOuter.frameProbeLoadCount,
+    pageBefore: beforeOuter.framePage,
+    pageAfter: afterOuter.framePage,
     bannerRefresh: {
       status: bannerSnapshot.bannerRefreshStatus,
       fetchedAt: bannerSnapshot.bannerRefreshFetchedAt,
@@ -2251,7 +2261,7 @@ try {
     const value = await evaluate(top.id, outerExpression);
     return value.frameLoaded && value.frameSrc.includes("/zzz/index.html") && value.frameSrc.endsWith("#box") ? value : null;
   });
-  verifyOuter(zzzReturnOuter, "zzz");
+  verifyOuter(zzzReturnOuter, "zzz", "banner");
   assert(zzzReturnOuter.frameProbeId === initialOuter.frameProbeId,
     "ZZZ Visualizer iframe node was replaced across game switches", { initialOuter, zzzReturnOuter });
   assert(zzzReturnOuter.frameSrc === initialOuter.frameSrc,

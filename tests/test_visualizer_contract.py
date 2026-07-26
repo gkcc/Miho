@@ -149,7 +149,11 @@ def test_visualizer_distinguishes_stale_samples_from_missing_data(game: str) -> 
     assert "卡池数据未生成或为空" in app
     assert "卡池数据已载入 ${allRows.length} 条" in app
     assert "最新采样 ${sample.date} · ${sample.label}" in app
-    assert "status==='current'?'当前周期':status==='expired'?'历史样本':status==='future'?'未开始':'周期未知'" in app
+    assert (
+        "function freshnessStatusLabel(status){return "
+        "status==='active'?'当前周期':status==='future'?'未来周期':"
+        "status==='stale'?'历史样本':'周期未知'}"
+    ) in app
     assert "当前筛选无匹配" in app
     assert "该模式数据未生成" in app
     assert "当前数据包尚未包含新周期统计，以下队伍仅作历史参考" in app

@@ -34,13 +34,13 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "3e92e8e9d26fc644ed593a83ccd4d852a091c84bb31cce2be72e862a1ede1acf",
+      "app.js": "40efd4d61e81bbfa1f5259265f8264808523003ffdfe250ef1ddb00da092562c",
       "index.html": "599d38eb25ca363607b5f7e2b50804a91db14e10414b71012a2c669c214411cc",
       "solver.js": "98a2f0f9a760488f8f0f141f5f221b3cabf9c277ecfcf8abba0365d95451816a",
       "styles.css": "d8664e94a3e8077ac794e878997076100527fbb626e4fe217a43d1a04835b86c"
     },
     "zzz": {
-      "app.js": "c7aa574bd7cf5be7629fb24ad04bfcc7451cdc4990b2cb57232ffff1ff50bcca",
+      "app.js": "650a0b79f868de9c19f87255e46610893ef6f3847200049a05dc36a89bdcab95",
       "index.html": "583c936f43d13ab44ba00c018bee997cac8c6567434486014aff96b9c204e3aa",
       "solver.js": "98a2f0f9a760488f8f0f141f5f221b3cabf9c277ecfcf8abba0365d95451816a",
       "styles.css": "f53ebce1a2e5b588dbdad6e5b58f35154e21dd3dc60928c4d839e81643fefa84"

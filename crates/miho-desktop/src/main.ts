@@ -103,12 +103,15 @@ type VisualizerDescriptor = {
   data_revision: string;
 };
 
+type VisualizerPage = "box" | "analysis" | "banner" | "recommender";
+
 type VisualizerFrameState = {
   frame: HTMLIFrameElement;
   requestGeneration: number;
   loadedRevision: string | null;
   pendingRevision: string | null;
   pendingUrl: string | null;
+  page: VisualizerPage;
 };
 
 type TaskFormState = {
@@ -521,9 +524,11 @@ for (const targetGame of ["hsr", "zzz"] as const) {
     loadedRevision: null,
     pendingRevision: null,
     pendingUrl: null,
+    page: "box",
   };
   frame.title = `${targetGame === "hsr" ? "崩坏：星穹铁道" : "绝区零"}终局数据 Visualizer`;
   frame.dataset.game = targetGame;
+  frame.dataset.page = visualizerState.page;
   frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
   frame.referrerPolicy = "no-referrer";
   frame.hidden = true;
@@ -574,8 +579,18 @@ window.addEventListener("message", (event) => {
     else pending.reject(new Error("Box 保存未成功。"));
     return;
   }
+  const sourceState = [...visualizerFrames.values()]
+    .find((visualizerState) => event.source === visualizerState.frame.contentWindow);
+  if (!sourceState) return;
+  if (event.data.schema_version === "miho-visualizer-page-v1"
+    && typeof event.data.page === "string"
+    && ["box", "analysis", "banner", "recommender"].includes(event.data.page)) {
+    sourceState.page = event.data.page as VisualizerPage;
+    sourceState.frame.dataset.page = sourceState.page;
+    return;
+  }
   const activeFrame = visualizerFrames.get(game)?.frame;
-  if (!activeFrame || event.source !== activeFrame.contentWindow) return;
+  if (!activeFrame || sourceState.frame !== activeFrame) return;
   if (event.data.schema_version === "miho-visualizer-external-link-v1" && typeof event.data.url === "string") {
     void invoke("open_external_https", { url: event.data.url }).catch((error) => {
       const failure = safeError(error);
@@ -642,8 +657,10 @@ function discardVisualizerBoxChanges(targetGames: ReadonlyArray<Game>): void {
     visualizerState.loadedRevision = null;
     visualizerState.pendingRevision = null;
     visualizerState.pendingUrl = null;
+    visualizerState.page = "box";
     frame.dataset.loaded = "false";
     delete frame.dataset.loadedRevision;
+    frame.dataset.page = visualizerState.page;
     frame.removeAttribute("src");
     frame.hidden = true;
     frame.setAttribute("aria-hidden", "true");
@@ -1309,11 +1326,13 @@ function resetVisualizerFrames(): void {
     visualizerState.loadedRevision = null;
     visualizerState.pendingRevision = null;
     visualizerState.pendingUrl = null;
+    visualizerState.page = "box";
     frame.hidden = true;
     frame.setAttribute("aria-hidden", "true");
     frame.tabIndex = -1;
     frame.dataset.loaded = "false";
     delete frame.dataset.loadedRevision;
+    frame.dataset.page = visualizerState.page;
     frame.removeAttribute("src");
     visualizerDirty.add(targetGame);
   }
@@ -1362,7 +1381,7 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
     const pageUrl = new URL(descriptor.url);
     pageUrl.searchParams.set("revision", descriptor.data_revision);
     if (force) pageUrl.searchParams.set("reload", String(request));
-    pageUrl.hash = "box";
+    pageUrl.hash = visualizerState.page;
     const navigationUrl = pageUrl.toString();
     if (!force
       && visualizerState.pendingRevision === descriptor.data_revision
