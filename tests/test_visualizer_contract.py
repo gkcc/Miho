@@ -148,7 +148,13 @@ def test_visualizer_distinguishes_stale_samples_from_missing_data(game: str) -> 
     assert "function ensureBannerPhase()" in app
     assert "卡池数据未生成或为空" in app
     assert "卡池数据已载入 ${allRows.length} 条" in app
-    assert "最新采样 ${sample.date} · ${sample.label}" in app
+    assert "最新采样：${sample.date}" in app
+    assert "function sampleAgeSummary(" in app
+    assert "function installDateBoundaryRefresh()" in app
+    assert "setInterval(refreshForDateBoundary,60_000)" in app
+    assert "$('metaLine').textContent=sourceMetaLine(renderedLocalDate)" in app
+    assert "syncFreshnessNavigation(rec.mode," in app
+    assert "期次：${sample.phase} · 主题：${sample.theme} · 周期：${sample.period}" in app
     assert (
         "function freshnessStatusLabel(status){return "
         "status==='active'?'当前周期':status==='future'?'未来周期':"
@@ -162,6 +168,8 @@ def test_visualizer_distinguishes_stale_samples_from_missing_data(game: str) -> 
 
     if game == "hsr":
         assert "status==='recent'||status==='previous'" in app
+        assert "${freshnessStatusLabel(freshness.status)} · ${templateLabel}" in app
+        assert "ins.lines.map(x=>`<p>${esc(x)}</p>`)" in app
 
 
 def test_hsr_final_target_controls_remain_responsive() -> None:

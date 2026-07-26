@@ -1,6 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  advanceVisualizerRefresh,
+  bindPendingVisualizerRefresh,
+  captureVisualizerRefresh,
+  clearPendingVisualizerRefresh,
+  finishPendingVisualizerRefresh,
+  hasPendingVisualizerRefresh,
+} from "./visualizer-refresh-state.js";
 import "./styles.css";
 
 type Game = "hsr" | "zzz";
@@ -108,9 +116,11 @@ type VisualizerPage = "box" | "analysis" | "banner" | "recommender";
 type VisualizerFrameState = {
   frame: HTMLIFrameElement;
   requestGeneration: number;
+  refreshGeneration: number;
   loadedRevision: string | null;
   pendingRevision: string | null;
   pendingUrl: string | null;
+  pendingRefreshGeneration: number | null;
   page: VisualizerPage;
 };
 
@@ -166,6 +176,8 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
 };
 
 const TERMINAL_STATUSES = new Set<TaskStatus>(["succeeded", "failed", "cancelled"]);
+const GAMES = ["hsr", "zzz"] as const;
+const VISUALIZER_REVISION_CHECK_INTERVAL_MS = 60_000;
 const app = document.querySelector<HTMLDivElement>("#app");
 
 if (!app) {
@@ -200,7 +212,13 @@ type PendingBoxFlush = {
 
 const pendingBoxFlushes = new Map<string, PendingBoxFlush>();
 const visualizerLoading = new Set<Game>();
+const pendingVisualizerRefreshes = new Set<Game>();
 let boxFlushSequence = 0;
+let visualizerRefreshDrainScheduled = false;
+let visualizerRefreshDrainRunning = false;
+let visualizerRevisionCheckRunning = false;
+let visualizerRevisionCheckQueued = false;
+let visualizerRevisionCheckInterval: number | null = null;
 
 const tasks = new Map<string, PublicTaskSnapshot>();
 const authoritativeTaskSequences = new Map<string, number>();
@@ -513,17 +531,20 @@ function setBoxTransitionBusy(busy: boolean): void {
     frame.inert = busy;
     frame.setAttribute("aria-busy", String(busy));
   }
+  if (!busy && !visualizerRefreshDrainRunning) schedulePendingVisualizerRefresh();
 }
 
 const visualizerDirty = new Set<Game>(["hsr", "zzz"]);
-for (const targetGame of ["hsr", "zzz"] as const) {
+for (const targetGame of GAMES) {
   const frame = element("iframe", "visualizer-frame");
   const visualizerState: VisualizerFrameState = {
     frame,
     requestGeneration: 0,
+    refreshGeneration: 0,
     loadedRevision: null,
     pendingRevision: null,
     pendingUrl: null,
+    pendingRefreshGeneration: null,
     page: "box",
   };
   frame.title = `${targetGame === "hsr" ? "崩坏：星穹铁道" : "绝区零"}终局数据 Visualizer`;
@@ -538,6 +559,7 @@ for (const targetGame of ["hsr", "zzz"] as const) {
     visualizerState.loadedRevision = null;
     visualizerState.pendingRevision = null;
     visualizerState.pendingUrl = null;
+    clearPendingVisualizerRefresh(visualizerState);
     delete frame.dataset.loadedRevision;
     frame.dataset.loaded = "false";
     frame.hidden = true;
@@ -554,15 +576,22 @@ for (const targetGame of ["hsr", "zzz"] as const) {
   frame.addEventListener("load", () => {
     const loadedUrl = frame.getAttribute("src");
     if (loadedUrl && loadedUrl === visualizerState.pendingUrl && visualizerState.pendingRevision) {
+      const completedCurrentRefresh = finishPendingVisualizerRefresh(visualizerState);
       visualizerState.loadedRevision = visualizerState.pendingRevision;
       frame.dataset.loadedRevision = visualizerState.pendingRevision;
       visualizerState.pendingRevision = null;
       visualizerState.pendingUrl = null;
-      visualizerDirty.delete(targetGame);
+      if (completedCurrentRefresh) {
+        visualizerDirty.delete(targetGame);
+        pendingVisualizerRefreshes.delete(targetGame);
+      }
     }
     frame.dataset.loaded = loadedUrl ? "true" : "false";
     updateVisualizerFrameVisibility();
     if (loadedUrl && game === targetGame) visualizerMessage.hidden = true;
+    if (game === targetGame && pendingVisualizerRefreshes.has(targetGame)) {
+      schedulePendingVisualizerRefresh();
+    }
   });
   visualizerFrames.set(targetGame, visualizerState);
 }
@@ -654,9 +683,11 @@ function discardVisualizerBoxChanges(targetGames: ReadonlyArray<Game>): void {
     if (!visualizerState || !frame?.getAttribute("src")) continue;
     rejectFrameFlushes(frame);
     visualizerState.requestGeneration += 1;
+    advanceVisualizerRefresh(visualizerState);
     visualizerState.loadedRevision = null;
     visualizerState.pendingRevision = null;
     visualizerState.pendingUrl = null;
+    clearPendingVisualizerRefresh(visualizerState);
     visualizerState.page = "box";
     frame.dataset.loaded = "false";
     delete frame.dataset.loadedRevision;
@@ -666,6 +697,7 @@ function discardVisualizerBoxChanges(targetGames: ReadonlyArray<Game>): void {
     frame.setAttribute("aria-hidden", "true");
     frame.tabIndex = -1;
     visualizerDirty.add(targetGame);
+    pendingVisualizerRefreshes.delete(targetGame);
   }
 }
 
@@ -707,6 +739,130 @@ async function ensureVisualizerBoxesSaved(targetGames: ReadonlyArray<Game>, acti
       }
       return false;
     }
+  }
+}
+
+function markVisualizerDirty(targetGame: Game, refreshWhenActive: boolean): void {
+  const visualizerState = visualizerFrames.get(targetGame);
+  if (!visualizerState) return;
+  advanceVisualizerRefresh(visualizerState);
+  visualizerDirty.add(targetGame);
+  if (refreshWhenActive) {
+    pendingVisualizerRefreshes.add(targetGame);
+    schedulePendingVisualizerRefresh();
+  }
+}
+
+function schedulePendingVisualizerRefresh(): void {
+  if (visualizerRefreshDrainScheduled
+    || visualizerRefreshDrainRunning
+    || allowWindowClose
+    || closeGuardRunning) return;
+  visualizerRefreshDrainScheduled = true;
+  queueMicrotask(() => {
+    visualizerRefreshDrainScheduled = false;
+    void drainPendingVisualizerRefresh();
+  });
+}
+
+async function drainPendingVisualizerRefresh(): Promise<void> {
+  if (visualizerRefreshDrainRunning
+    || workspaceBusy
+    || boxTransitionBusy
+    || allowWindowClose
+    || closeGuardRunning) return;
+  const targetGame = game;
+  if (!pendingVisualizerRefreshes.has(targetGame)) return;
+  const visualizerState = visualizerFrames.get(targetGame);
+  if (!visualizerState) return;
+  if (visualizerState.pendingRevision
+    || visualizerState.pendingUrl
+    || hasPendingVisualizerRefresh(visualizerState)) return;
+
+  const refreshGeneration = visualizerState.refreshGeneration;
+  visualizerRefreshDrainRunning = true;
+  setBoxTransitionBusy(true);
+  updateWorkspaceControls();
+  try {
+    if (!await ensureVisualizerBoxesSaved([targetGame], "载入最新数据")) return;
+    if (targetGame !== game) return;
+    await loadVisualizer(false, targetGame);
+  } finally {
+    setBoxTransitionBusy(false);
+    visualizerRefreshDrainRunning = false;
+    updateWorkspaceControls();
+    const nextState = visualizerFrames.get(game);
+    if (nextState
+      && pendingVisualizerRefreshes.has(game)
+      && nextState.refreshGeneration !== refreshGeneration) {
+      schedulePendingVisualizerRefresh();
+    }
+  }
+}
+
+function requestVisualizerRevisionCheck(): void {
+  if (allowWindowClose || closeGuardRunning) return;
+  if (visualizerRevisionCheckRunning) {
+    visualizerRevisionCheckQueued = true;
+    return;
+  }
+  void checkVisualizerRevisions();
+}
+
+async function checkVisualizerRevisions(): Promise<void> {
+  if (visualizerRevisionCheckRunning || allowWindowClose || closeGuardRunning) return;
+  visualizerRevisionCheckRunning = true;
+  const workspaceId = capabilities?.workspace.workspace_id ?? "";
+  try {
+    const descriptors = await Promise.all(GAMES.map(async (targetGame) => {
+      try {
+        const result = await invoke<unknown>("get_visualizer_url", { game: targetGame });
+        return [targetGame, backendVisualizerDescriptor(result, targetGame)] as const;
+      } catch {
+        return [targetGame, null] as const;
+      }
+    }));
+    if (workspaceId !== (capabilities?.workspace.workspace_id ?? "")) return;
+    for (const [targetGame, descriptor] of descriptors) {
+      if (!descriptor) continue;
+      const visualizerState = visualizerFrames.get(targetGame);
+      if (!visualizerState) continue;
+      const displayedRevision = visualizerState.pendingRevision ?? visualizerState.loadedRevision;
+      if (displayedRevision === descriptor.data_revision) continue;
+      markVisualizerDirty(targetGame, targetGame === game);
+    }
+  } finally {
+    visualizerRevisionCheckRunning = false;
+    if (visualizerRevisionCheckQueued) {
+      visualizerRevisionCheckQueued = false;
+      requestVisualizerRevisionCheck();
+    }
+  }
+}
+
+function handleWindowFocus(): void {
+  requestVisualizerRevisionCheck();
+}
+
+function handleVisibilityChange(): void {
+  if (!document.hidden) requestVisualizerRevisionCheck();
+}
+
+function installVisualizerRevisionWatchers(): void {
+  if (visualizerRevisionCheckInterval !== null) return;
+  window.addEventListener("focus", handleWindowFocus);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  visualizerRevisionCheckInterval = window.setInterval(() => {
+    if (!document.hidden) requestVisualizerRevisionCheck();
+  }, VISUALIZER_REVISION_CHECK_INTERVAL_MS);
+}
+
+function uninstallVisualizerRevisionWatchers(): void {
+  window.removeEventListener("focus", handleWindowFocus);
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+  if (visualizerRevisionCheckInterval !== null) {
+    window.clearInterval(visualizerRevisionCheckInterval);
+    visualizerRevisionCheckInterval = null;
   }
 }
 
@@ -1022,20 +1178,7 @@ async function queryTask(taskId: string): Promise<void> {
       await refreshCapabilities();
       const exportedGame = snapshot.operation === "hsr-export" ? "hsr" : snapshot.operation === "zzz-export" ? "zzz" : null;
       if (snapshot.status === "succeeded" && exportedGame) {
-        visualizerDirty.add(exportedGame);
-        if (exportedGame === game && !workspaceBusy && !boxTransitionBusy) {
-          setBoxTransitionBusy(true);
-          updateWorkspaceControls();
-          try {
-            if (await ensureVisualizerBoxesSaved([exportedGame], "载入最新数据")
-              && exportedGame === game) {
-              await loadVisualizer(false, exportedGame);
-            }
-          } finally {
-            setBoxTransitionBusy(false);
-            updateWorkspaceControls();
-          }
-        }
+        markVisualizerDirty(exportedGame, exportedGame === game);
       }
     }
   } catch (error) {
@@ -1319,13 +1462,16 @@ function backendVisualizerDescriptor(value: unknown, targetGame: Game): Visualiz
 function resetVisualizerFrames(): void {
   visualizerDirty.clear();
   visualizerLoading.clear();
+  pendingVisualizerRefreshes.clear();
   for (const [targetGame, visualizerState] of visualizerFrames) {
     const { frame } = visualizerState;
     rejectFrameFlushes(frame);
     visualizerState.requestGeneration += 1;
+    advanceVisualizerRefresh(visualizerState);
     visualizerState.loadedRevision = null;
     visualizerState.pendingRevision = null;
     visualizerState.pendingUrl = null;
+    clearPendingVisualizerRefresh(visualizerState);
     visualizerState.page = "box";
     frame.hidden = true;
     frame.setAttribute("aria-hidden", "true");
@@ -1352,6 +1498,7 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
     return;
   }
   const request = ++visualizerState.requestGeneration;
+  const refreshGeneration = captureVisualizerRefresh(visualizerState);
   const workspaceId = capabilities?.workspace.workspace_id ?? "";
   visualizerLoading.add(targetGame);
   updateWorkspaceControls();
@@ -1373,7 +1520,10 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
     if (!force
       && frame.dataset.loaded === "true"
       && visualizerState.loadedRevision === descriptor.data_revision) {
-      visualizerDirty.delete(targetGame);
+      if (refreshGeneration === visualizerState.refreshGeneration) {
+        visualizerDirty.delete(targetGame);
+        pendingVisualizerRefreshes.delete(targetGame);
+      }
       updateVisualizerFrameVisibility();
       if (targetGame === game) visualizerMessage.hidden = true;
       return;
@@ -1390,6 +1540,7 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
     rejectFrameFlushes(frame);
     visualizerState.pendingRevision = descriptor.data_revision;
     visualizerState.pendingUrl = navigationUrl;
+    bindPendingVisualizerRefresh(visualizerState, refreshGeneration);
     frame.dataset.loaded = "false";
     delete frame.dataset.loadedRevision;
     frame.src = navigationUrl;
@@ -1416,10 +1567,13 @@ async function refreshAll(): Promise<void> {
   setBoxTransitionBusy(true);
   renderCapabilities();
   try {
-    if (!await ensureVisualizerBoxesSaved([game], "刷新页面")) return;
+    if (!await ensureVisualizerBoxesSaved(GAMES, "刷新页面")) return;
     await refreshCapabilities();
-    visualizerDirty.add(game);
-    await Promise.all([refreshTasks(), loadVisualizer(false)]);
+    for (const targetGame of GAMES) markVisualizerDirty(targetGame, false);
+    await Promise.all([
+      refreshTasks(),
+      ...GAMES.map((targetGame) => loadVisualizer(false, targetGame)),
+    ]);
   } finally {
     workspaceBusy = false;
     setBoxTransitionBusy(false);
@@ -1468,6 +1622,7 @@ window.addEventListener("beforeunload", (event) => {
     event.returnValue = "";
     return;
   }
+  uninstallVisualizerRevisionWatchers();
   unlistenTaskUpdates?.();
   unlistenTaskUpdates = null;
   unlistenWindowClose?.();
@@ -1490,4 +1645,5 @@ void (async () => {
     setNotice(workspaceMessage, `关闭前保存保护不可用（${failure.code}）：${failure.message}`, "error");
   }
   await refreshAll();
+  installVisualizerRevisionWatchers();
 })();

@@ -192,14 +192,14 @@ const HSR_HARNESS = String.raw`
     }
     return {length: boxUndoStack.length, first: boxUndoStack[0]?.owned[0], last: boxUndoStack.at(-1)?.owned[0]};
   },
-  freshness(mode, fallback = {}) {
-    return modeFreshness(mode, fallback);
+  freshness(mode, fallback = {}, today = '2026-07-10') {
+    return modeFreshness(mode, fallback, today);
   },
-  sampleMeta(rows, mode) {
-    return latestSampleMeta(rows, mode);
+  sampleMeta(rows, mode, today = '2026-07-10') {
+    return latestSampleMeta(rows, mode, today);
   },
-  sampleText(sample) {
-    return analysisPhaseText(sample);
+  sampleText(sample, today = '2026-07-10') {
+    return analysisPhaseText(sample, today);
   },
   localizedPhaseName(row) {
     return phaseName(row);
@@ -207,8 +207,15 @@ const HSR_HARNESS = String.raw`
   bannerRefresh() {
     return bannerRefreshText();
   },
-  sourceMeta() {
-    return sourceMetaLine();
+  bannerInsight(row) {
+    const insight = bannerInsight(row);
+    return {points: insight.points.map(point => ({...point})), histories: insight.histories.map(history => ({mode: history.mode, label: history.label, points: history.points.map(point => ({...point}))})), lines: [...insight.lines]};
+  },
+  sampleAge(sampleDate, today = '2026-07-10') {
+    return sampleAgeSummary(sampleDate, today);
+  },
+  sourceMeta(today = '2026-07-10') {
+    return sourceMetaLine(today);
   },
   sourceDate(value) {
     return normalizeSourceDate(value);
@@ -398,14 +405,14 @@ const ZZZ_HARNESS = String.raw`
     }
     return {length: boxUndoStack.length, first: boxUndoStack[0]?.owned[0], last: boxUndoStack.at(-1)?.owned[0]};
   },
-  freshness(mode, fallback = {}) {
-    return modeFreshness(mode, fallback);
+  freshness(mode, fallback = {}, today = '2026-07-10') {
+    return modeFreshness(mode, fallback, today);
   },
-  sampleMeta(rows, mode) {
-    return latestSampleMeta(rows, mode);
+  sampleMeta(rows, mode, today = '2026-07-10') {
+    return latestSampleMeta(rows, mode, today);
   },
-  sampleText(sample) {
-    return analysisPhaseText(sample);
+  sampleText(sample, today = '2026-07-10') {
+    return analysisPhaseText(sample, today);
   },
   phaseTheme(row) {
     return phaseTheme(row);
@@ -416,8 +423,15 @@ const ZZZ_HARNESS = String.raw`
   bannerRefresh() {
     return bannerRefreshText();
   },
-  sourceMeta() {
-    return sourceMetaLine();
+  bannerInsight(row) {
+    const insight = bannerInsight(row);
+    return {points: insight.points.map(point => ({...point})), histories: insight.histories.map(history => ({mode: history.mode, label: history.label, points: history.points.map(point => ({...point}))})), lines: [...insight.lines]};
+  },
+  sampleAge(sampleDate, today = '2026-07-10') {
+    return sampleAgeSummary(sampleDate, today);
+  },
+  sourceMeta(today = '2026-07-10') {
+    return sourceMetaLine(today);
   },
   sourceDate(value) {
     return normalizeSourceDate(value);
@@ -2242,7 +2256,7 @@ test('legacy freshness follows the latest usage phase identity and stays consist
   assert.deepEqual(plain(hsr.freshness('as')), {
     status: 'unknown', sampleDate: '2026-07-06', startDate: '', endDate: '', source: '',
   }, 'a different snapshot on the same phase version must not be borrowed');
-  assert.match(hsr.sourceMeta(), /终局统计最新采样：2026-07-08（部分模式已过期）/);
+  assert.match(hsr.sourceMeta(), /终局统计最新采样：2026-07-08（2 天前；部分模式已过期）/);
 
   const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
   zzz.reset({
@@ -2258,12 +2272,12 @@ test('legacy freshness follows the latest usage phase identity and stays consist
       {mode: 'da', collect_date: '2026-07-18', phase_ver: 'da-v1', snapshot_id: 'da-latest', phase_status: 'current', start_date: '2026-07-17', end_date: '2026-07-29'},
     ],
   });
-  assert.deepEqual(plain(zzz.freshness('sd')), {
+  assert.deepEqual(plain(zzz.freshness('sd', {}, '2026-07-20')), {
     status: 'stale', sampleDate: '2026-07-19', startDate: '2026-07-02', endDate: '2026-07-16', source: 'exact-zzz',
   });
-  assert.equal(zzz.freshness('sd', {phase_status: 'current'}).status, 'stale', 'recommendation callers must share the same mode status');
-  assert.equal(zzz.freshness('da').status, 'active');
-  assert.match(zzz.sourceMeta(), /终局统计最新采样：2026-07-19（部分模式已过期）/);
+  assert.equal(zzz.freshness('sd', {phase_status: 'current'}, '2026-07-20').status, 'stale', 'recommendation callers must share the same mode status');
+  assert.equal(zzz.freshness('da', {}, '2026-07-20').status, 'active');
+  assert.match(zzz.sourceMeta('2026-07-20'), /终局统计最新采样：2026-07-19（1 天前；部分模式已过期）/);
 
   zzz.reset({
     ...zzzData([], []),
@@ -2359,7 +2373,7 @@ test('analysis subtitles identify the exact sampled phase without borrowing meta
   assert.equal(hsr.localizedPhaseName({phase_name: 'English fallback'}), 'English fallback');
   assert.equal(
     hsr.sampleText(hsrExact),
-    '本期：English Theme（repeat） · 2026-07-02 至 2026-07-16 · 最新采样 2026-07-08 · 当前周期',
+    '期次：repeat · 主题：English Theme · 周期：2026-07-02 至 2026-07-16 · 最新采样：2026-07-08（2 天前） · 当前周期',
   );
 
   hsr.reset({
@@ -2467,15 +2481,16 @@ test('analysis subtitles identify the exact sampled phase without borrowing meta
   assert.deepEqual(zzzExact, {
     date: '2026-07-08',
     phase: 'repeat',
-    theme: '式舆防卫 repeat',
+    theme: '主题未提供',
     period: '2026-07-02 至 2026-07-16',
     label: '当前周期',
   });
   assert.equal(zzz.phaseTheme({mechanic_name: '真实环境效果', phase_name: '期名'}), '真实环境效果');
   assert.equal(zzz.phaseTheme({mechanic_name: '当期数据', phase_name: '期名'}), '期名');
+  assert.equal(zzz.phaseTheme({mode: 'sd', phase_ver: '3.0.2', mechanic_name: '当期数据', phase_name: '式舆防卫 3.0.2'}), '');
   assert.equal(
     zzz.sampleText(zzzExact),
-    '本期：式舆防卫 repeat（repeat） · 2026-07-02 至 2026-07-16 · 最新采样 2026-07-08 · 当前周期',
+    '期次：repeat · 主题：主题未提供 · 周期：2026-07-02 至 2026-07-16 · 最新采样：2026-07-08（2 天前） · 当前周期',
   );
 
   zzz.reset({
@@ -2602,7 +2617,7 @@ test('banner refresh labels expose the managed official snapshot timestamp', () 
       source_label: '米游社官方公告',
     },
   });
-  assert.equal(hsr.bannerRefresh(), '官方卡池资料已刷新 2026-07-24 22:30');
+  assert.equal(hsr.bannerRefresh(), '官方卡池资料上次刷新：2026-07-24 22:30');
 
   const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
   zzz.reset({
@@ -2617,7 +2632,7 @@ test('banner refresh labels expose the managed official snapshot timestamp', () 
       source_label: '绝区零官方内容',
     },
   });
-  assert.equal(zzz.bannerRefresh(), '官方卡池资料已刷新 2026-07-24 22:30');
+  assert.equal(zzz.bannerRefresh(), '官方卡池资料上次刷新：2026-07-24 22:30');
 
   hsr.reset({
     ...hsrData([], []),
@@ -2628,6 +2643,72 @@ test('banner refresh labels expose the managed official snapshot timestamp', () 
   zzz.reset({rosterRows: [], bannerRows: [], teamTemplates: [], tierRows: [], usageRows: []});
   assert.equal(hsr.bannerRefresh(), '官方刷新状态未知（旧格式数据）');
   assert.equal(zzz.bannerRefresh(), '官方刷新状态未知（旧格式数据）');
+});
+
+test('banner insights calculate each mode independently instead of mixing same-day samples', () => {
+  const hsr = loadContract(HSR_APP, HSR_HARNESS);
+  hsr.reset({
+    ...hsrData([hsrCharacter('alpha', '量子', 'main_dps', '智识', 1)], []),
+    usageRows: [
+      {character_slug: 'alpha', tier_mode: 'moc', sub_mode: 'all', collect_date: '2026-07-01', app_rate: 10},
+      {character_slug: 'alpha', tier_mode: 'moc', sub_mode: 'all', collect_date: '2026-07-08', app_rate: 20},
+      {character_slug: 'alpha', tier_mode: 'pf', sub_mode: 'all', collect_date: '2026-07-08', app_rate: 80},
+      {character_slug: 'alpha', tier_mode: 'as', sub_mode: 'all', collect_date: '2026-07-08', app_rate: 50},
+    ],
+  });
+  const hsrInsight = plain(hsr.bannerInsight({character_slug: 'alpha', phase_status: 'current'}));
+  assert.deepEqual(hsrInsight.histories.map(history => [history.mode, history.points.map(point => point.value)]), [
+    ['moc', [10, 20]],
+    ['pf', [80]],
+    ['as', [50]],
+  ]);
+  assert.deepEqual(hsrInsight.points.map(point => point.mode), ['混沌回忆', '混沌回忆']);
+  assert.ok(hsrInsight.lines.includes('趋势图 · 混沌回忆：最新采样 2026-07-08 为 20.00%；同模式近 2 期均值 15.00%。'));
+  assert.ok(hsrInsight.lines.includes('虚构叙事：最新采样 2026-07-08 为 80.00%；仅 1 期，暂无同模式趋势。'));
+
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  zzz.reset({
+    ...zzzData([zzzCharacter('agent-alpha', 'attack', 1)], []),
+    usageRows: [
+      {character_slug: 'agent-alpha', mode: 'sd', sub_mode: 'all', collect_date: '2026-07-19', app_rate: 11.70},
+      {character_slug: 'agent-alpha', mode: 'da', sub_mode: 'all', collect_date: '2026-07-19', app_rate: 14.94},
+    ],
+  });
+  const zzzInsight = plain(zzz.bannerInsight({character_slug: 'agent-alpha', phase_status: 'current'}));
+  assert.deepEqual(zzzInsight.histories.map(history => [history.mode, history.points.map(point => point.value)]), [
+    ['sd', [11.70]],
+    ['da', [14.94]],
+  ]);
+  assert.deepEqual(zzzInsight.points.map(point => point.mode), ['式舆防卫']);
+  assert.ok(zzzInsight.lines.includes('趋势图 · 式舆防卫：最新采样 2026-07-19 为 11.70%；仅 1 期，暂无同模式趋势。'));
+  assert.ok(zzzInsight.lines.includes('危局强袭：最新采样 2026-07-19 为 14.94%；仅 1 期，暂无同模式趋势。'));
+  assert.ok(zzzInsight.lines.every(line => !line.includes('近三期均值 13.32%')));
+});
+
+test('runtime dates downgrade expired periods while preserving active periods and exposing sample age', () => {
+  const hsr = loadContract(HSR_APP, HSR_HARNESS);
+  hsr.reset({
+    ...hsrData([], []),
+    freshness: {
+      pf: {status: 'active', sample_date: '2026-06-25', start_date: '2026-06-23', end_date: '2026-08-03'},
+      aa: {status: 'active', sample_date: '2026-06-25', start_date: '2026-05-31', end_date: '2026-07-12'},
+      moc: {status: 'future', sample_date: '2026-07-20', start_date: '2026-07-20', end_date: '2026-08-03'},
+    },
+  });
+  assert.equal(hsr.freshness('pf', {}, '2026-07-26').status, 'active');
+  assert.equal(hsr.freshness('aa', {}, '2026-07-26').status, 'stale');
+  assert.equal(hsr.freshness('moc', {}, '2026-07-19').status, 'future');
+  assert.equal(hsr.freshness('moc', {}, '2026-07-26').status, 'active');
+  assert.equal(hsr.freshness('moc', {}, '2026-08-04').status, 'stale');
+  assert.deepEqual(plain(hsr.sampleAge('2026-06-25', '2026-07-26')), {
+    days: 31,
+    status: 'stale',
+    label: '已 31 天未更新',
+  });
+  assert.equal(
+    hsr.sampleText({phase: '4.3.2', theme: '喧哗如笑', period: '2026-06-23 至 2026-08-03', date: '2026-06-25', label: '当前周期'}, '2026-07-26'),
+    '期次：4.3.2 · 主题：喧哗如笑 · 周期：2026-06-23 至 2026-08-03 · 最新采样：2026-06-25（已 31 天未更新） · 当前周期',
+  );
 });
 
 test('desktop visualizers publish only allowlisted page state on initialization and tab changes', () => {
@@ -2670,8 +2751,8 @@ test('top metadata distinguishes endgame samples from Prydwen list updates and e
     },
   });
   assert.equal(
-    hsr.sourceMeta(),
-    '终局统计最新采样：2026-06-25（部分模式已过期） · Prydwen 榜单更新：2026-07-24 · 本地生成：2026-07-24 23:24:52 · Box 自动保存',
+    hsr.sourceMeta('2026-07-26'),
+    '终局统计最新采样：2026-06-25（已 31 天未更新；部分模式已过期） · Prydwen 榜单更新：2026-07-24 · 本地生成：2026-07-24 23:24:52 · Box 自动保存',
   );
   assert.equal(hsr.sourceDate('24/July/2026'), '2026-07-24');
 
@@ -2692,8 +2773,8 @@ test('top metadata distinguishes endgame samples from Prydwen list updates and e
     },
   });
   assert.equal(
-    zzz.sourceMeta(),
-    '终局统计最新采样：2026-07-19 · Prydwen 榜单更新：2026-07-08 · 本地生成：2026-07-24 23:23:58',
+    zzz.sourceMeta('2026-07-26'),
+    '终局统计最新采样：2026-07-19（7 天前） · Prydwen 榜单更新：2026-07-08 · 本地生成：2026-07-24 23:23:58',
   );
   assert.equal(zzz.sourceDate('08/July/2026'), '2026-07-08');
   assert.equal(zzz.sourceDate('2026-07-19T12:00:00Z'), '2026-07-19');

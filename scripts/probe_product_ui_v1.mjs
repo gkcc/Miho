@@ -1608,9 +1608,11 @@ async function verifyHsrRecommenderLayout(topId, context) {
           const clientY = innerHeight - 24;
           card.dispatchEvent(new MouseEvent('mouseenter', {clientX, clientY}));
           card.dispatchEvent(new MouseEvent('mousemove', {clientX, clientY}));
-          const rect = tooltip.getBoundingClientRect();
           tooltip.scrollTop = tooltip.scrollHeight;
           await new Promise((resolve) => requestAnimationFrame(resolve));
+          card.dispatchEvent(new MouseEvent('mousemove', {clientX, clientY}));
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+          const rect = tooltip.getBoundingClientRect();
           const lastValue = tooltip.querySelector('.tooltip-grid > div:last-child');
           const lastRect = lastValue?.getBoundingClientRect() ?? null;
           const result = {
@@ -1733,10 +1735,7 @@ function verifyAnalysis(
     assert(phase?.matched === true, `${game} ${mode} latest sample did not resolve to phaseInfoRows`, phase);
   }
   if (requirePhasePresentation) {
-    assert(phase.phaseVer && phase.phaseName, `${game} ${mode} latest phase identity is incomplete`, phase);
-    assert(phase.phaseName !== "中文期名待维护"
-      && phase.phaseName !== "当期数据"
-      && phase.phaseName !== "机制效果待维护", `${game} ${mode} latest phase still exposes a placeholder theme`, phase);
+    assert(phase.phaseVer, `${game} ${mode} latest phase identity is incomplete`, phase);
     assert(/^\d{4}-\d{2}-\d{2}$/u.test(phase.startDate)
       && /^\d{4}-\d{2}-\d{2}$/u.test(phase.endDate), `${game} ${mode} latest phase date range is incomplete`, phase);
   }
@@ -1745,34 +1744,76 @@ function verifyAnalysis(
     && snapshot.analysisVisualState.opacity > 0, `${game} ${mode} endgame container is visually suppressed`, snapshot);
   assert(snapshot.analysisTitle.length > 0, `${game} ${mode} endgame title is absent`, snapshot);
   if (requirePhasePresentation) {
-    assert(snapshot.analysisSubtitle.includes("本期：")
-      && snapshot.analysisSubtitle.includes(phase.phaseVer), `${game} ${mode} endgame phase version is not displayed`, {
+    assert(snapshot.analysisSubtitle.includes(`期次：${phase.phaseVer}`), `${game} ${mode} endgame phase version is not displayed`, {
       expected: phase.phaseVer,
       subtitle: snapshot.analysisSubtitle,
     });
-    assert(snapshot.analysisSubtitle.includes(phase.phaseName), `${game} ${mode} endgame phase theme is not displayed`, {
-      expected: phase.phaseName,
-      subtitle: snapshot.analysisSubtitle,
-    });
+    const compact = (value) => String(value || "").replace(/[\s·:_-]+/gu, "").toLowerCase();
+    const genericZzzTheme = game === "zzz" && new Set([
+      phase.phaseVer,
+      `${mode} ${phase.phaseVer}`,
+      `${mode === "sd" ? "式舆防卫" : "危局强袭"} ${phase.phaseVer}`,
+      `${mode === "sd" ? "式舆防卫" : "危局强袭战"} ${phase.phaseVer}`,
+    ].map(compact)).has(compact(phase.phaseName));
+    if (genericZzzTheme) {
+      assert(snapshot.analysisSubtitle.includes("主题：主题未提供"), `${game} ${mode} generic version label was presented as a theme`, snapshot);
+    } else {
+      assert(phase.phaseName
+        && !["中文期名待维护", "当期数据", "机制效果待维护"].includes(phase.phaseName)
+        && snapshot.analysisSubtitle.includes(`主题：${phase.phaseName}`), `${game} ${mode} endgame phase theme is not displayed`, {
+        expected: phase.phaseName,
+        subtitle: snapshot.analysisSubtitle,
+      });
+    }
     assert(snapshot.analysisSubtitle.includes(`${phase.startDate} 至 ${phase.endDate}`),
     `${game} ${mode} endgame phase date range is not displayed`, {
       expected: `${phase.startDate} 至 ${phase.endDate}`,
       subtitle: snapshot.analysisSubtitle,
     });
   }
-  assert(snapshot.analysisSubtitle.includes("最新采样 "), `${game} endgame sample date is not displayed`, snapshot);
-  assert(!snapshot.analysisSubtitle.includes("最新采样 未知"), `${game} endgame sample date is unknown`, snapshot);
-  assert(phase.sampleDate && snapshot.analysisSubtitle.includes(`最新采样 ${phase.sampleDate}`),
+  assert(snapshot.analysisSubtitle.includes("最新采样："), `${game} endgame sample date is not displayed`, snapshot);
+  assert(!snapshot.analysisSubtitle.includes("最新采样：未知"), `${game} endgame sample date is unknown`, snapshot);
+  assert(phase.sampleDate && snapshot.analysisSubtitle.includes(`最新采样：${phase.sampleDate}`),
     `${game} ${mode} endgame sample date does not match the latest phase`, {
       expected: phase.sampleDate,
       subtitle: snapshot.analysisSubtitle,
     });
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const sampleDay = /^\d{4}-\d{2}-\d{2}$/u.test(phase.sampleDate)
+    ? Date.parse(`${phase.sampleDate}T00:00:00Z`) / 86_400_000
+    : null;
+  const todayDay = Date.parse(`${today}T00:00:00Z`) / 86_400_000;
+  const sampleAgeDays = sampleDay === null ? null : todayDay - sampleDay;
+  if (sampleAgeDays !== null && sampleAgeDays >= 15) {
+    const ageLabel = `已 ${sampleAgeDays} 天未更新`;
+    assert(snapshot.analysisSubtitle.includes(ageLabel), `${game} ${mode} stale sample age is not visibly disclosed`, {
+      expected: ageLabel,
+      subtitle: snapshot.analysisSubtitle,
+    });
+  }
+  const latestSampleDay = /^\d{4}-\d{2}-\d{2}$/u.test(snapshot.latestEndgameSampleDate)
+    ? Date.parse(`${snapshot.latestEndgameSampleDate}T00:00:00Z`) / 86_400_000
+    : null;
+  const latestSampleAgeDays = latestSampleDay === null ? null : todayDay - latestSampleDay;
+  if (latestSampleAgeDays !== null && latestSampleAgeDays >= 15) {
+    const topAgeLabel = `已 ${latestSampleAgeDays} 天未更新`;
+    assert(snapshot.sourceMetaLine.includes(topAgeLabel), `${game} top metadata hides the latest sample age`, {
+      expected: topAgeLabel,
+      sourceMetaLine: snapshot.sourceMetaLine,
+    });
+  }
+  const effectivePhaseStatus = /^\d{4}-\d{2}-\d{2}$/u.test(phase.startDate) && phase.startDate > today
+    ? "future"
+    : /^\d{4}-\d{2}-\d{2}$/u.test(phase.endDate) && phase.endDate < today
+      ? "expired"
+      : phase.status;
   const expectedStatus = {
     current: "当前周期",
     expired: "历史样本",
-    future: "未开始",
+    future: "未来周期",
     unknown: "周期未知",
-  }[phase.status];
+  }[effectivePhaseStatus];
   if (requirePhaseMatch && requirePhasePresentation) {
     assert(expectedStatus && snapshot.analysisSubtitle.includes(expectedStatus),
       `${game} ${mode} endgame freshness label does not match phase status`, {
@@ -1781,7 +1822,7 @@ function verifyAnalysis(
         subtitle: snapshot.analysisSubtitle,
       });
   } else {
-    assert(/当前周期|历史样本|未开始|周期未知/.test(snapshot.analysisSubtitle),
+    assert(/当前周期|历史样本|未来周期|周期未知/.test(snapshot.analysisSubtitle),
       `${game} endgame freshness label is absent`, snapshot);
   }
   assert(!/该模式数据未生成|缺数据/.test(snapshot.analysisSubtitle), `${game} endgame analysis falsely reports missing data`, snapshot);
@@ -1850,7 +1891,7 @@ function verifyBanner(snapshot, game, { requireFresh = true } = {}) {
   if (requireFresh) {
     assert(snapshot.bannerRefreshStatus === "fresh", `${game} banner snapshot is not marked fresh`, snapshot);
     assert(Number.isFinite(Date.parse(snapshot.bannerRefreshFetchedAt)), `${game} banner refresh timestamp is invalid`, snapshot);
-    assert(snapshot.bannerSubtitle.includes("官方卡池资料已刷新"), `${game} banner refresh timestamp is not visibly labelled`, snapshot);
+    assert(snapshot.bannerSubtitle.includes("官方卡池资料上次刷新："), `${game} banner refresh timestamp is not visibly labelled`, snapshot);
     assert(Array.isArray(snapshot.bannerRefreshExpectedMinutes)
       && snapshot.bannerRefreshExpectedMinutes.length > 0
       && snapshot.bannerRefreshExpectedMinutes.some((minute) => snapshot.bannerSubtitle.includes(minute)),

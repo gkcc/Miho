@@ -589,6 +589,13 @@
 - **真实入口与数据安全证据**：隐藏窗口/CDP 实际点击 ZZZ、HSR 两个更新按钮后仍停留卡池 TAB，iframe 节点保持且后端 revision、iframe URL revision、loadedRevision 三方一致；最终正式任务落盘后又以只读深测覆盖 ZZZ → HSR → ZZZ、六模式主题/期次/周期、卡池与 Box，进程正常退出 0、stdout/stderr 为空、调试端口关闭。ZZZ roster 将旧别名 `nom` 合并为唯一 `norma` 后为 58 人，20 个已拥有角色全部保留；HSR/ZZZ Box 物理 SHA-256 分别保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
 - **定点验证**：推荐器/兼容契约 60/60；Python Visualizer/交付契约 60 passed、2 live deselected；Rust desktop、trusted/static assets、TypeScript/Vite build、PowerShell GUI render contract、`cargo fmt --all -- --check` 与 `git diff --check` 均通过。未进入 NSIS、portable 或旧发布链。
 
+### 卡池刷新串行化与终局样本年龄显式提示（2026-07-26，已交付）
+
+- **日期结论与界面语义**：ZZZ 的 `2026-07-19` 是终局统计最新采样，`2026-07-08` 是 Prydwen 榜单更新，两者来自不同数据源，本来就不要求一致。HSR 四模式最新采样仍为 `2026-06-25`，截至 7 月 26 日已 31 天未更新；本轮把“周期是否仍在进行”和“统计样本是否新鲜”彻底拆开。终局分析现逐模式显示期次、主题、周期、最新采样及周期状态，样本超过 14 天明确显示“已 N 天未更新”；PF“借虚成真”可同时显示当前周期与样本陈旧，其余过期模式显示历史样本。ZZZ 只有版本占位而没有真实主题时显示“主题未提供”。
+- **卡池与桌面刷新根因**：卡池并非独立缓存，官方公告、终局、Box 与推荐器共用同一 revision 化 Visualizer 数据包；磁盘生成链一直会随更新重建卡池。间歇性旧页面来自 A revision iframe 尚在 load 时 B revision 到达，旧 load 可能误消费 B 的 pending 状态。桌面现以任意 pending navigation 为串行闸门，严格执行 `A load → drain B → B load`，旧 generation 不能清除新 dirty；更新前保存 Box，保留当前游戏与 TAB，并在 focus、恢复可见及每 60 秒检查双游戏 revision。稳定 revision 不导航；内页跨午夜也会重新计算样本年龄与周期状态。
+- **验证与真实入口**：推荐/刷新 JS 73/73、Python Visualizer 59 passed（2 live deselected）、Rust Visualizer 36/36、Rust desktop 96/96、TypeScript/Vite、Rust fmt、静态资源哈希和 diff check 均通过。隐藏窗口/CDP 的 installed 深测实际覆盖 ZZZ → HSR → ZZZ、六模式期次/主题/周期、卡池、稳定 revision 不导航、原 TAB、Box 和 320px 边界；ZZZ 顶部为终局 `2026-07-19（7 天前）` / 榜单 `2026-07-08`，HSR 为 `2026-06-25（已 31 天未更新）`，卡池官方刷新时间均为 `18:24`。最终 320×568 推荐 tooltip 为 292×540、左右各留 14px，稳定 revision 的 iframe load count 不变；程序正常退出 0、stdout/stderr 空、调试端口关闭。含双按钮在线更新的首轮产品断言已完成、两份 Visualizer 分别于 18:07 / 18:09 落盘，但随后“更新后立即关闭”未在探针 10 秒门禁内退出；清理后无 Miho 残留，稳定数据复跑未复现，因此不声称该立即关闭时序已通过。
+- **直接交付与自动化**：release desktop/CLI 已直接更新到 `D:\Miho Endgame`，SHA-256 分别为 `0170AA3E1E2F30C404BDDBCEE5308CA818D44B5404A1C24F24960C40A220EACD` / `7D42EEF140B3A4DEA6060A5AE26517ECD0F622ACDC0201C8C9796ACA55943EB6`。每日任务已事务切到 generation `miho-0.1.0-7d42eef140b3a4dea6060a5ae26517ecd0f622acdc0201c8c9796aca55943eb6`，candidate exact health `installer-cacc3fdc704c43098be5216f71a5fa44` 对 HSR/ZZZ 为 `healthy=true`；任务保持 Ready、`LastTaskResult=0`。HSR/ZZZ Box SHA-256 仍为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`；未生成安装器、NSIS 或 portable。
+
 ## 恢复入口
 
 - 项目状态：本文件。
