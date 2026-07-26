@@ -22,6 +22,9 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use crate::secure_log::SafeLogV1;
 use crate::workspace::{
     trusted_workspace_file, validate_existing_file_chain, validate_selected_root,
@@ -49,6 +52,8 @@ const AUTOMATION_COORDINATOR_SUFFIX_V1: &str = ".coordinator-v1.lock";
 const MAX_AUTOMATION_MANIFEST_BYTES_V1: u64 = 64 * 1024;
 const DESKTOP_AUTOMATION_PROBE_SCHEMA_V1: &str = "miho-desktop-automation-binding-v1";
 const DESKTOP_AUTOMATION_PROBE_TIMEOUT_V1: Duration = Duration::from_secs(30);
+#[cfg(windows)]
+const CREATE_NO_WINDOW_V1: u32 = 0x0800_0000;
 const SCHEDULER_SCRIPT_BYTES_V1: &[u8] =
     include_bytes!("../../../../scripts/task_scheduler_v1.ps1");
 const POWERSHELL_PROBE_COMMAND_V1: &str = r#"$ErrorActionPreference='Stop'; Set-StrictMode -Version Latest; $utf8=New-Object System.Text.UTF8Encoding($false); [Console]::OutputEncoding=$utf8; $OutputEncoding=$utf8; . $env:MIHO_DESKTOP_SCHEDULER_SCRIPT_V1; $ownerKind=$env:MIHO_DESKTOP_EXPECTED_OWNER_KIND_V1; $ownerId=$env:MIHO_DESKTOP_EXPECTED_OWNER_INSTANCE_ID_V1; $workspace=$env:MIHO_DESKTOP_EXPECTED_WORKSPACE_V1; $holds=[bool]::Parse($env:MIHO_DESKTOP_HOLDS_SWITCH_LEASE_V1); $result=Test-MihoDesktopAutomationBindingV1 -AutomationRoot $env:MIHO_DESKTOP_AUTOMATION_ROOT_V1 -ExpectedOwnerKind $ownerKind -ExpectedOwnerInstanceId $ownerId -ExpectedWorkspace $workspace -CallerHoldsSwitchLease $holds; $result | ConvertTo-Json -Compress -Depth 4"#;
@@ -225,7 +230,10 @@ impl AutomationProbeRunnerV1 for PowerShellAutomationProbeRunnerV1 {
             .expected_owner
             .map(|owner| (owner.kind.as_str(), owner.instance_id.as_str()))
             .unwrap_or(("", ""));
-        let mut child = Command::new(&powershell)
+        let mut powershell_command = Command::new(&powershell);
+        #[cfg(windows)]
+        powershell_command.creation_flags(CREATE_NO_WINDOW_V1);
+        let mut child = powershell_command
             .args([
                 "-NoLogo",
                 "-NoProfile",
