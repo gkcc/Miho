@@ -289,6 +289,9 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 
 .update-health-game strong { color: var(--muted); font-size: 10px; }
+.update-health-completed { color: var(--ink-soft); }
+.update-health-sample { color: var(--muted); font-size: 10px; }
+.update-health-game.has-history .update-health-sample { color: var(--warning); font-weight: 650; }
 .update-health.healthy { border-left-color: var(--success); background: #f6fbf9; }
 .update-health.healthy .update-health-badge { color: var(--success); background: #e2f2ec; }
 .update-health.warning, .update-health.busy { border-left-color: var(--warning); background: #fffaf1; }

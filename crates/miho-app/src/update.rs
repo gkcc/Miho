@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     future::Future,
     io::Read,
@@ -9,10 +9,13 @@ use std::{
     time::Instant,
 };
 
-use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDateTime, SecondsFormat, Timelike, Utc};
+use chrono::{
+    DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, SecondsFormat, Timelike, Utc,
+};
 use miho_core::{
     atomic,
     contract::{diagnostic_code, FeatureFlags, Game},
+    data_quality::{DataQualityReportV1, DATA_QUALITY_SCHEMA_V1},
     network::FetchSource,
     output::ArtifactManifestEntry,
     MihoError,
@@ -24,8 +27,8 @@ use crate::{
     execute_export_observed_v1, execute_export_observed_with_hub_v1, execute_task_observed_v1,
     export_cache_root, AppInvocation, CoverageTaskV1, ExecutionControlError, ExecutionObserver,
     ExportInvocation, ExportObserver, ExportSourceV1, ExportTaskV1, PullTaskV1,
-    ResolvedUpdateConfigV1, TaskOperationV1, TaskRequestV1, TaskSpecV1, WorkspaceLayout,
-    WorkspaceSnapshotLease, WorkspaceWriteLease, WorkspaceWriteLeaseError,
+    ResolvedUpdateConfigV1, TaskFreshnessSummaryV1, TaskOperationV1, TaskRequestV1, TaskSpecV1,
+    WorkspaceLayout, WorkspaceSnapshotLease, WorkspaceWriteLease, WorkspaceWriteLeaseError,
 };
 
 pub const UPDATE_RECEIPT_SCHEMA_V1: &str = "miho-update-receipt-v1";
@@ -35,6 +38,7 @@ pub const UPDATE_ATTEMPT_DIRECTORY: &str = "update-attempts";
 pub const UPDATE_STATE_FILE: &str = "update-state-v1.json";
 pub const UPDATE_CANONICAL_RECEIPT_FILE: &str = "last-update-receipt-v1.json";
 pub const MAX_UPDATE_ATTEMPT_ID_BYTES_V1: usize = 96;
+const MAX_UPDATE_FRESHNESS_BYTES_V1: u64 = 2 * 1024 * 1024;
 
 static NEXT_ATTEMPT_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -1354,6 +1358,50 @@ pub fn check_update_health_with_state_v1(
     require_zzz: bool,
     expected_config_sha256: &str,
 ) -> (UpdateHealthV1, Result<UpdateStateV1, UpdateStepFailureV1>) {
+    let (health, state, _) = check_update_health_snapshot_v1(
+        workspace,
+        require_hsr,
+        require_zzz,
+        expected_config_sha256,
+        None,
+    );
+    (health, state)
+}
+
+/// Read verified health, update provenance, and sanitized per-mode freshness
+/// while one shared snapshot lease pins all three views to the same committed
+/// generation. The resolved config supplies only native, workspace-confined
+/// output paths and is never exposed to the WebView.
+pub fn check_update_health_with_state_and_freshness_v1(
+    config: &ResolvedUpdateConfigV1,
+    require_hsr: bool,
+    require_zzz: bool,
+    expected_config_sha256: &str,
+) -> (
+    UpdateHealthV1,
+    Result<UpdateStateV1, UpdateStepFailureV1>,
+    BTreeMap<Game, TaskFreshnessSummaryV1>,
+) {
+    check_update_health_snapshot_v1(
+        &config.workspace,
+        require_hsr,
+        require_zzz,
+        expected_config_sha256,
+        Some(config),
+    )
+}
+
+fn check_update_health_snapshot_v1(
+    workspace: &Path,
+    require_hsr: bool,
+    require_zzz: bool,
+    expected_config_sha256: &str,
+    freshness_config: Option<&ResolvedUpdateConfigV1>,
+) -> (
+    UpdateHealthV1,
+    Result<UpdateStateV1, UpdateStepFailureV1>,
+    BTreeMap<Game, TaskFreshnessSummaryV1>,
+) {
     let checked_games = [
         require_hsr.then_some(Game::Hsr),
         require_zzz.then_some(Game::Zzz),
@@ -1368,14 +1416,147 @@ pub fn check_update_health_with_state_v1(
             return (
                 unhealthy(checked_games, None, failure.clone()),
                 Err(failure),
+                BTreeMap::new(),
             );
         }
     };
     let workspace = lease.workspace_root();
     let state = FileUpdateReceiptStore.load_state(workspace);
-    let health =
+    let mut health =
         check_update_health_locked_v1(workspace, checked_games, expected_config_sha256, &state);
-    (health, state)
+    let freshness = if health.healthy {
+        match (freshness_config, state.as_ref()) {
+            (Some(config), Ok(state)) => match load_update_freshness_locked_v1(
+                workspace,
+                &health.checked_games,
+                config,
+                state,
+            ) {
+                Ok(freshness) => freshness,
+                Err(failure) => {
+                    health.healthy = false;
+                    health.failure = Some(failure);
+                    BTreeMap::new()
+                }
+            },
+            (None, _) => BTreeMap::new(),
+            (Some(_), Err(failure)) => {
+                health.healthy = false;
+                health.failure = Some(failure.clone());
+                BTreeMap::new()
+            }
+        }
+    } else {
+        BTreeMap::new()
+    };
+    (health, state, freshness)
+}
+
+fn load_update_freshness_locked_v1(
+    workspace: &Path,
+    checked_games: &[Game],
+    config: &ResolvedUpdateConfigV1,
+    state: &UpdateStateV1,
+) -> Result<BTreeMap<Game, TaskFreshnessSummaryV1>, UpdateStepFailureV1> {
+    if config.workspace != workspace {
+        return Err(update_freshness_failure_v1());
+    }
+    let mut freshness = BTreeMap::new();
+    for game in checked_games {
+        let (output_root, expected_modes) = match game {
+            Game::Hsr => (&config.hsr.output, &config.hsr.modes),
+            Game::Zzz => (&config.zzz.export.output, &config.zzz.export.modes),
+        };
+        let path = output_root.join("data_quality.json");
+        let relative = path
+            .strip_prefix(workspace)
+            .map_err(|_| update_freshness_failure_v1())?;
+        if !safe_relative_path(relative)
+            || verify_metadata_path(workspace, &path, false) != Ok(true)
+        {
+            return Err(update_freshness_failure_v1());
+        }
+        let artifact = state
+            .games
+            .get(game)
+            .and_then(|game_state| {
+                game_state
+                    .artifacts
+                    .iter()
+                    .find(|artifact| artifact.path == relative)
+            })
+            .ok_or_else(update_freshness_failure_v1)?;
+        if artifact.bytes > MAX_UPDATE_FRESHNESS_BYTES_V1 || !valid_sha256(&artifact.sha256) {
+            return Err(update_freshness_failure_v1());
+        }
+        let mut file =
+            open_artifact_for_trusted_read(&path).map_err(|_| update_freshness_failure_v1())?;
+        let metadata_before = file.metadata().map_err(|_| update_freshness_failure_v1())?;
+        if !metadata_before.is_file() || metadata_before.len() != artifact.bytes {
+            return Err(update_freshness_failure_v1());
+        }
+        let mut bytes = Vec::with_capacity(artifact.bytes as usize);
+        file.read_to_end(&mut bytes)
+            .map_err(|_| update_freshness_failure_v1())?;
+        let metadata_after = file.metadata().map_err(|_| update_freshness_failure_v1())?;
+        if metadata_after.len() != metadata_before.len()
+            || bytes.len() as u64 != artifact.bytes
+            || format!("{:x}", Sha256::digest(&bytes)) != artifact.sha256
+        {
+            return Err(update_freshness_failure_v1());
+        }
+        let report = serde_json::from_slice::<DataQualityReportV1>(&bytes)
+            .map_err(|_| update_freshness_failure_v1())?;
+        let expected_mode_codes = expected_modes
+            .iter()
+            .map(|mode| mode.code())
+            .collect::<BTreeSet<_>>();
+        let actual_mode_codes = report
+            .modes
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        if report.schema_version != DATA_QUALITY_SCHEMA_V1
+            || report.game != game.code()
+            || !matches!(report.status.as_str(), "ok" | "warning")
+            || actual_mode_codes != expected_mode_codes
+            || report.modes.values().any(|quality| {
+                !matches!(
+                    quality.freshness.status.as_str(),
+                    "active" | "stale" | "future" | "unknown"
+                ) || !valid_update_freshness_dates_v1(
+                    &quality.freshness.status,
+                    &quality.freshness.sample_date,
+                    &quality.freshness.start_date,
+                    &quality.freshness.end_date,
+                )
+            })
+        {
+            return Err(update_freshness_failure_v1());
+        }
+        freshness.insert(*game, TaskFreshnessSummaryV1::from(&report));
+    }
+    Ok(freshness)
+}
+
+fn valid_update_freshness_dates_v1(status: &str, _sample: &str, start: &str, end: &str) -> bool {
+    let parse = |value: &str| {
+        let value = value.trim();
+        NaiveDate::parse_from_str(value.get(..10).unwrap_or(value), "%Y-%m-%d").ok()
+    };
+    let start_date = parse(start);
+    let end_date = parse(end);
+    match status {
+        "future" => start_date.is_some(),
+        "stale" => end_date.is_some(),
+        "active" => start_date.is_some() || end_date.is_some(),
+        "unknown" => start_date.is_none() && end_date.is_none(),
+        _ => false,
+    }
+}
+
+fn update_freshness_failure_v1() -> UpdateStepFailureV1 {
+    health_artifact_failure("update.health_freshness_invalid")
 }
 
 fn check_update_health_locked_v1(

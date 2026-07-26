@@ -624,6 +624,14 @@
 - **定点验证**：推荐/刷新/启动/关闭契约 124/124、desktop Rust 104/104、PowerShell GUI/no-window contract、TypeScript/Vite、`git diff --check` 与完整 `pnpm run tauri:build` 均通过；三份最终 EXE 的 7 项 Visualizer 原始字节各 exact-once。
 - **每日任务与数据安全**：owner-aware 事务 attempt `installer-24aa053b40ac454fb96352fcfffd9229` 对 HSR/ZZZ 均 `succeeded` 且 state/receipt committed，将任务切到无窗 generation `miho-0.1.0-9c960e3c329c5b8224f2f33c0d512122407edc7548043b1f20a95b353be719b3`；任务 Ready/Enabled、`LastTaskResult=0`、仅一个 generation，无 candidate/journal。HSR/ZZZ Box SHA-256 继续保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`，候选文件已清理；未进入 NSIS、portable 或旧安装器链。
 
+### 终局 freshness 直显、更新回执消歧与无窗正式交付（2026-07-27，已交付）
+
+- **健康语义与一致性**：桌面健康协议升级为 v2，在同一 `WorkspaceSnapshotLease` 内绑定 state、generation receipt、config digest 与每个游戏的 `data_quality.json`，并重验路径、大小及 SHA-256 后才公开 freshness。健康卡现直接显示 HSR `2026-06-25 · 当前 1 / 历史 3`、ZZZ `2026-07-19 · 当前 1 / 历史 1`；ZZZ 的 `2026-07-08` 继续只表示 Prydwen 榜单更新时间，不再混入“终局最新采样”。单边日期、不可解析上游日期及跨周期持续打开均按安全状态处理，非 stale 的质量告警也不再显示为“正常”。
+- **用户回执与终局页**：更新任务统一写成“本机更新与校验成功”，按钮改为“查看本次更新结果”；存在历史样本时明确说明 Box 与卡池已刷新、终局分析保留上游最新可用历史数据，不再暗示上游必然产生新一期。终局页仍逐模式展示采样日、期次、主题、起止日期与当前/历史状态；HSR MoC/PF/AS/AA 分别核到 `2026-06-25`，PF 当前、其余历史，ZZZ SD/DA 均为 `2026-07-19`，DA 当前、SD 历史。
+- **真实产品证据**：隐藏 CDP 产品探针实际点击 ZZZ、HSR 两个更新按钮，任务均 `succeeded`，各自 terminal revision、iframe URL revision 与 loaded revision 一致，卡池刷新状态均为 fresh；860 px 最小支持宽度下两张 freshness 卡完整可见且页面无横向溢出。产品 Node 断言完成后已产出含日期、逐模式状态、Box protection 与 flush 的完整原始回执；外层 PowerShell 对这份超大中文回执的二次对象转换仍会拒绝，故另以正式 GUI render/close 探针独立确认 Visualizer `ready`、正常退出 0、stdout/stderr 为空、子进程与调试端口清理完成。100 ms 全程未观察到新增 WindowsTerminal/OpenConsole。
+- **构建与自动化交付**：完整 `pnpm run tauri:build` 通过，三份 EXE 的 7 项 Visualizer 字节均 exact-once，PE 子系统分别为 Desktop `WINDOWS_GUI`、人工 CLI `WINDOWS_CUI`、任务 CLI `WINDOWS_GUI`。正式 Desktop/CLI SHA-256 为 `EE83DE1F7896D34CE41EAAE84FCD4143AB3F67C40CB7911590AF3699C3DC417A` / `9B290FE38A32AD6058AD9325AE89CFDD79A0E595EC11E6BCE22EC384798F1C80`；owner-aware attempt `installer-38c4e8a0744d45d287fa92c16c4dc664` 将 09:30 任务切到无窗 generation `miho-0.1.0-0b998a61826ee2f24ea9ab518224de61afb117af84c8e4276c514291b11d7b88`。任务 Ready/Enabled、`LastTaskResult=0`、仅一个 generation，无 candidate/journal；两份临时旧 EXE 回滚副本在验证后删除，未删除用户数据。
+- **验证与数据安全**：miho-app + desktop Rust 共 258 项通过、1 项 live ignored，CLI native orchestrator 19/19，Node 124/124，freshness 三项定点、Rust fmt、diff check、TypeScript/Vite 与最终构建均通过；本机 Rust 1.97 未安装 `cargo-clippy`，因此 clippy 未运行。HSR/ZZZ Box SHA-256 继续保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`；未进入 NSIS、portable 或旧安装器链。
+
 ## 恢复入口
 
 - 项目状态：本文件。

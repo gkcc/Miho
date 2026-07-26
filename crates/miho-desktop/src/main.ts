@@ -130,10 +130,11 @@ type DesktopUpdateHealthGame = {
   game: Game;
   attempt_id: string;
   completed_at_utc: string;
+  freshness: TaskFreshnessSummary;
 };
 
 type DesktopUpdateHealth = {
-  schema_version: "miho-desktop-update-health-v1";
+  schema_version: "miho-desktop-update-health-v2";
   workspace_id: string;
   healthy: boolean;
   attempt_id?: string;
@@ -393,6 +394,47 @@ function freshnessLabel(status: string): string {
         : "周期未知";
 }
 
+function localDateKey(now = new Date()): string {
+  return [
+    now.getFullYear().toString().padStart(4, "0"),
+    (now.getMonth() + 1).toString().padStart(2, "0"),
+    now.getDate().toString().padStart(2, "0"),
+  ].join("-");
+}
+
+function effectiveFreshnessStatus(freshness: TaskModeFreshness, today = localDateKey()): string {
+  const hasStart = /^\d{4}-\d{2}-\d{2}$/.test(freshness.start_date);
+  const hasEnd = /^\d{4}-\d{2}-\d{2}$/.test(freshness.end_date);
+  if (hasStart && today < freshness.start_date) return "future";
+  if (hasEnd && today > freshness.end_date) return "stale";
+  if (hasStart || hasEnd) return "active";
+  return freshness.status;
+}
+
+function summarizeFreshness(freshness: TaskFreshnessSummary): {
+  latestSampleDate: string | null;
+  active: number;
+  stale: number;
+  future: number;
+  unknown: number;
+} {
+  const modes = Object.values(freshness.modes).map((mode) => ({
+    ...mode,
+    effectiveStatus: effectiveFreshnessStatus(mode),
+  }));
+  const sampleDates = modes
+    .map((mode) => mode.sample_date)
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+    .sort();
+  return {
+    latestSampleDate: sampleDates.at(-1) ?? null,
+    active: modes.filter((mode) => mode.effectiveStatus === "active").length,
+    stale: modes.filter((mode) => mode.effectiveStatus === "stale").length,
+    future: modes.filter((mode) => mode.effectiveStatus === "future").length,
+    unknown: modes.filter((mode) => mode.effectiveStatus === "unknown").length,
+  };
+}
+
 function safeError(error: unknown): CommandFailure {
   if (typeof error === "object" && error !== null) {
     const record = error as Record<string, unknown>;
@@ -595,7 +637,7 @@ const updateHealthBadge = element("span", "update-health-badge", "读取中");
 updateHealthHeading.append(updateHealthTitle, updateHealthBadge);
 const updateHealthCopy = element("div", "update-health-copy");
 const updateHealthSummary = element("p", "update-health-summary", "正在读取最近自动更新记录…");
-const updateHealthDetail = element("p", "update-health-detail", "完成后会显示 HSR 与 ZZZ 的最近成功时间。");
+const updateHealthDetail = element("p", "update-health-detail", "完成后会显示 HSR 与 ZZZ 的本机成功时间和终局最新采样。");
 updateHealthCopy.append(updateHealthSummary, updateHealthDetail);
 const updateHealthGames = element("div", "update-health-games");
 updateHealthGames.hidden = true;
@@ -1189,7 +1231,7 @@ function setUpdateHealthView(
   updateHealthGames.hidden = true;
 }
 
-function renderUpdateHealthLoading(detail = "完成后会显示 HSR 与 ZZZ 的最近成功时间。"): void {
+function renderUpdateHealthLoading(detail = "完成后会显示 HSR 与 ZZZ 的本机成功时间和终局最新采样。"): void {
   setUpdateHealthView("loading", "读取中", "正在读取最近自动更新记录…", detail);
 }
 
@@ -1222,9 +1264,21 @@ function scheduleBusyUpdateHealthRetry(): void {
 function scheduleUpdateHealthStaleDeadline(health: DesktopUpdateHealth): void {
   if (isWindowClosing()) return;
   const now = Date.now();
-  const futureDeadlines = health.games
+  const localUpdateDeadlines = health.games
     .map((entry) => Date.parse(entry.completed_at_utc) + UPDATE_HEALTH_STALE_AFTER_MS)
     .filter((deadline) => deadline > now);
+  const freshnessDeadlines = health.games.flatMap((entry) => Object.values(entry.freshness.modes)
+    .flatMap((mode) => {
+      const deadlines: number[] = [];
+      for (const [date, dayOffset] of [[mode.start_date, 0], [mode.end_date, 1]] as const) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+        const [year, month, day] = date.split("-").map(Number);
+        const deadline = new Date(year, month - 1, day + dayOffset).getTime();
+        if (Number.isFinite(deadline) && deadline > now) deadlines.push(deadline);
+      }
+      return deadlines;
+    }));
+  const futureDeadlines = [...localUpdateDeadlines, ...freshnessDeadlines];
   if (!futureDeadlines.length) return;
   const workspaceId = health.workspace_id;
   const delay = Math.min(Math.max(1, Math.min(...futureDeadlines) - now), MAX_BROWSER_TIMER_DELAY_MS);
@@ -1270,29 +1324,63 @@ function formatUpdateHealthTime(completedAtUtc: string): string {
 
 function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
   const games = new Map(health.games.map((entry) => [entry.game, entry]));
-  const staleGames = GAMES.filter((targetGame) => {
+  const staleLocalGames = GAMES.filter((targetGame) => {
     const entry = games.get(targetGame);
     return entry && Date.now() - Date.parse(entry.completed_at_utc) >= UPDATE_HEALTH_STALE_AFTER_MS;
   });
-  const stale = staleGames.length > 0;
+  const historicalSampleGames = GAMES.filter((targetGame) => {
+    const entry = games.get(targetGame);
+    return entry && summarizeFreshness(entry.freshness).stale > 0;
+  });
+  const qualityWarningGames = GAMES.filter((targetGame) => {
+    const entry = games.get(targetGame);
+    if (!entry) return false;
+    const summary = summarizeFreshness(entry.freshness);
+    return entry.freshness.status === "warning" || summary.latestSampleDate === null || summary.unknown > 0;
+  });
+  const localStale = staleLocalGames.length > 0;
+  const hasHistoricalSamples = historicalSampleGames.length > 0;
+  const hasQualityWarnings = qualityWarningGames.length > 0;
   setUpdateHealthView(
-    stale ? "warning" : "healthy",
-    stale ? "需留意" : "正常",
-    stale
-      ? `本机产物校验通过，但 ${staleGames.map(gameShortLabel).join("、")} 的成功记录已超过 36 小时。`
-      : "本机产物校验通过。",
-    stale
-      ? "计划任务可能未运行；请手动更新对应游戏并检查每日计划任务。若手动更新成功后页面期次仍旧，表示上游尚未发布新样本，不等于本机更新失败。"
-      : "若页面期次或样本仍旧，表示上游尚未发布新样本，不等于本机更新失败。",
+    localStale || hasHistoricalSamples || hasQualityWarnings ? "warning" : "healthy",
+    localStale ? "计划待查" : hasHistoricalSamples ? "本机正常" : hasQualityWarnings ? "数据待查" : "正常",
+    localStale
+      ? `本机产物校验通过，但 ${staleLocalGames.map(gameShortLabel).join("、")} 的成功记录已超过 36 小时。`
+      : hasHistoricalSamples
+        ? `本机产物校验通过；${historicalSampleGames.map(gameShortLabel).join("、")} 上游仍有历史终局样本。`
+        : hasQualityWarnings
+          ? `本机产物校验通过；${qualityWarningGames.map(gameShortLabel).join("、")} 上游数据质量有告警。`
+          : "本机产物校验通过。",
+    localStale
+      ? "计划任务可能未运行；请手动更新对应游戏并检查每日计划任务。终局采样取决于上游发布，历史样本不等于本机刷新失败。"
+      : hasQualityWarnings && !hasHistoricalSamples
+        ? "最近更新记录正常，但上游数据质量需留意；终局分析继续使用已校验产物。"
+        : "最近更新记录正常。终局采样取决于上游发布；历史样本不等于本机刷新失败。",
   );
   for (const targetGame of GAMES) {
     const entry = games.get(targetGame);
     if (!entry) continue;
+    const summary = summarizeFreshness(entry.freshness);
+    const modeStates = [
+      summary.active ? `当前 ${summary.active}` : "",
+      summary.stale ? `历史 ${summary.stale}` : "",
+      summary.future ? `未来 ${summary.future}` : "",
+      summary.unknown ? `未知 ${summary.unknown}` : "",
+    ].filter(Boolean);
     const item = element("span", "update-health-game");
-    item.title = entry.completed_at_utc;
+    if (summary.stale) item.classList.add("has-history");
+    const modeDetails = Object.entries(entry.freshness.modes)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([mode, modeFreshness]) => `${modeLabel(mode)}：${freshnessLabel(effectiveFreshnessStatus(modeFreshness))}${modeFreshness.sample_date ? `（采样 ${modeFreshness.sample_date}）` : ""}`);
+    item.title = [entry.completed_at_utc, ...modeDetails].join("\n");
     item.append(
       element("strong", undefined, `${gameShortLabel(targetGame)} 最近成功`),
-      document.createTextNode(formatUpdateHealthTime(entry.completed_at_utc)),
+      element("span", "update-health-completed", formatUpdateHealthTime(entry.completed_at_utc)),
+      element(
+        "span",
+        "update-health-sample",
+        `终局最新采样 ${summary.latestSampleDate ?? "未知"}${modeStates.length ? ` · ${modeStates.join(" / ")}` : ""}`,
+      ),
     );
     updateHealthGames.append(item);
   }
@@ -1881,9 +1969,20 @@ function renderTasks(): void {
     title.append(element("h3", undefined, operationLabel(task.operation)));
     const badge = element("span", `status-badge ${task.status}`, STATUS_LABELS[task.status]);
     titleRow.append(title, badge);
+    const historicalSample = task.freshness ? summarizeFreshness(task.freshness).stale > 0 : false;
+    const taskFreshnessSummary = task.freshness ? summarizeFreshness(task.freshness) : null;
+    const freshnessWarning = task.freshness?.status === "warning"
+      || taskFreshnessSummary?.latestSampleDate === null
+      || (taskFreshnessSummary?.unknown ?? 0) > 0;
     const outcome = task.status === "succeeded"
       ? exportedGame
-        ? "数据更新已完成；打开对应游戏即可查看最新 Box、卡池和终局分析。"
+        ? historicalSample
+          ? "本机更新与校验成功；Box 与卡池已刷新，终局分析保留上游最新可用的历史样本。"
+          : freshnessWarning
+            ? "本机更新与校验成功；Box 与卡池已刷新，终局数据质量有告警。"
+            : task.freshness
+              ? "本机更新与校验成功；Box、卡池和终局分析已刷新。"
+            : "本机更新已完成；打开对应游戏查看本次结果。"
         : "操作已经完成，报告已生成。"
       : task.status === "failed"
         ? "操作没有完成，请查看下方原因。"
@@ -1896,7 +1995,7 @@ function renderTasks(): void {
     if (task.freshness) {
       const modes = Object.entries(task.freshness.modes)
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([mode, freshness]) => `${modeLabel(mode)}：${freshnessLabel(freshness.status)}${freshness.sample_date ? `（采样 ${freshness.sample_date}）` : ""}`);
+        .map(([mode, freshness]) => `${modeLabel(mode)}：${freshnessLabel(effectiveFreshnessStatus(freshness))}${freshness.sample_date ? `（采样 ${freshness.sample_date}）` : ""}`);
       if (modes.length) card.append(element("p", "task-summary", `数据时效 · ${modes.join("；")}`));
     }
 
@@ -1945,7 +2044,7 @@ function renderTasks(): void {
     }
 
     if (task.status === "succeeded" && exportedGame) {
-      const viewUpdate = makeButton("查看最新 Box 和分析", "button secondary", () => showUpdatedGame(exportedGame));
+      const viewUpdate = makeButton("查看本次更新结果", "button secondary", () => showUpdatedGame(exportedGame));
       viewUpdate.disabled = workspaceBusy || boxTransitionBusy || isWindowClosing();
       card.append(viewUpdate);
     }
@@ -1985,10 +2084,11 @@ function isUpdateHealthTimestamp(value: unknown): value is string {
 
 function isDesktopUpdateHealthGame(value: unknown): value is DesktopUpdateHealthGame {
   return isRecord(value)
-    && hasExactKeys(value, ["game", "attempt_id", "completed_at_utc"])
+    && hasExactKeys(value, ["game", "attempt_id", "completed_at_utc", "freshness"])
     && GAMES.includes(value.game as Game)
     && isUpdateAttemptId(value.attempt_id)
-    && isUpdateHealthTimestamp(value.completed_at_utc);
+    && isUpdateHealthTimestamp(value.completed_at_utc)
+    && isTaskFreshness(value.freshness);
 }
 
 function backendUpdateHealth(value: unknown): DesktopUpdateHealth | null {
@@ -1997,7 +2097,7 @@ function backendUpdateHealth(value: unknown): DesktopUpdateHealth | null {
   if (Object.hasOwn(value, "attempt_id")) expectedKeys.push("attempt_id");
   if (Object.hasOwn(value, "failure_code")) expectedKeys.push("failure_code");
   if (!hasExactKeys(value, expectedKeys)
-    || value.schema_version !== "miho-desktop-update-health-v1"
+    || value.schema_version !== "miho-desktop-update-health-v2"
     || typeof value.workspace_id !== "string"
     || !/^[A-Za-z0-9-]{1,128}$/.test(value.workspace_id)
     || typeof value.healthy !== "boolean"
@@ -2017,7 +2117,7 @@ function backendUpdateHealth(value: unknown): DesktopUpdateHealth | null {
       && (typeof value.failure_code !== "string" || !/^[a-z0-9._-]{1,96}$/.test(value.failure_code)))) return null;
   if (value.healthy && !GAMES.every((targetGame) => games.some((entry) => entry.game === targetGame))) return null;
   const health: DesktopUpdateHealth = {
-    schema_version: "miho-desktop-update-health-v1",
+    schema_version: "miho-desktop-update-health-v2",
     workspace_id: value.workspace_id,
     healthy: value.healthy,
     checked_games: checkedGames as Game[],
@@ -2054,18 +2154,41 @@ function isPublicFailure(value: unknown): value is PublicTaskFailure | null {
     && typeof value.action === "string";
 }
 
+function isTaskFreshnessDate(value: unknown): value is string {
+  if (value === "") return true;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  if (year < 1) return false;
+  const parsed = new Date(0);
+  parsed.setUTCHours(0, 0, 0, 0);
+  parsed.setUTCFullYear(year, month - 1, day);
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
 function isTaskFreshness(value: unknown): value is TaskFreshnessSummary {
   if (!isRecord(value) || !hasExactKeys(value, ["status", "modes"]) || !isRecord(value.modes)) return false;
   if (value.status !== "ok" && value.status !== "warning") return false;
   const modes = Object.entries(value.modes);
   if (modes.length > 8) return false;
-  return modes.every(([mode, freshness]) => /^[a-z]{1,8}$/.test(mode)
-    && isRecord(freshness)
-    && hasExactKeys(freshness, ["status", "sample_date", "start_date", "end_date"])
-    && ["active", "stale", "future", "unknown"].includes(String(freshness.status))
-    && typeof freshness.sample_date === "string"
-    && typeof freshness.start_date === "string"
-    && typeof freshness.end_date === "string");
+  return modes.every(([mode, freshness]) => {
+    if (!/^[a-z]{1,8}$/.test(mode)
+      || !isRecord(freshness)
+      || !hasExactKeys(freshness, ["status", "sample_date", "start_date", "end_date"])
+      || !["active", "stale", "future", "unknown"].includes(String(freshness.status))) return false;
+    const boundaryShapeMatches = freshness.status === "future"
+      ? freshness.start_date !== ""
+      : freshness.status === "stale"
+        ? freshness.end_date !== ""
+        : freshness.status === "active"
+          ? freshness.start_date !== "" || freshness.end_date !== ""
+          : freshness.start_date === "" && freshness.end_date === "";
+    return boundaryShapeMatches
+      && isTaskFreshnessDate(freshness.sample_date)
+      && isTaskFreshnessDate(freshness.start_date)
+      && isTaskFreshnessDate(freshness.end_date);
+  });
 }
 
 function isPublicTaskSnapshot(value: unknown): value is PublicTaskSnapshot {

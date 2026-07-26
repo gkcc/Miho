@@ -678,13 +678,14 @@ function verifyOuter(snapshot, game, expectedPage = "box") {
   assert(automaticUpdateHealthReady(snapshot), "automatic update health did not reach a verified state", snapshot);
   assert(snapshot.updateHealthVisible, "automatic update health is not visible above the Visualizer", snapshot);
   assert(snapshot.updateHealthSummary.includes("本机产物校验通过"), "automatic update health lost artifact-integrity evidence", snapshot);
-  assert(snapshot.updateHealthDetail.includes("上游尚未发布新样本")
-    && snapshot.updateHealthDetail.includes("不等于本机更新失败"),
+  assert(snapshot.updateHealthDetail.includes("终局采样取决于上游发布")
+    && snapshot.updateHealthDetail.includes("历史样本不等于本机刷新失败"),
   "automatic update health does not distinguish upstream staleness from a local failure", snapshot);
   assert(snapshot.updateHealthGames.length === 2
     && snapshot.updateHealthGames.some((value) => value.includes("HSR 最近成功"))
-    && snapshot.updateHealthGames.some((value) => value.includes("ZZZ 最近成功")),
-  "automatic update health does not show both per-game success times", snapshot);
+    && snapshot.updateHealthGames.some((value) => value.includes("ZZZ 最近成功"))
+    && snapshot.updateHealthGames.every((value) => /终局最新采样\s+\d{4}-\d{2}-\d{2}/u.test(value)),
+  "automatic update health does not show both per-game success times and sample dates", snapshot);
   assert(snapshot.firstPanel.includes("visualizer-panel"), "Visualizer is not the first product panel", snapshot);
   assert(snapshot.visualizerTitle.includes(gameLabel) && snapshot.visualizerTitle.includes("我的 Box"), "Visualizer title does not describe the selected Box", snapshot);
   assert(snapshot.frameCount === 2 && snapshot.activeFrameCount === 1, "desktop does not retain exactly two Visualizer frames with one active", snapshot);
@@ -698,6 +699,50 @@ function verifyOuter(snapshot, game, expectedPage = "box") {
   assert(snapshot.utilitiesSummary === "更新数据、生成报告与设置", "advanced utilities do not use the customer-facing label", snapshot);
   assert(snapshot.visibleTaskIds === 0, "technical task identifiers are visible on the main page", snapshot);
   assert(snapshot.activeGame === gameLabel, "game switch did not update the active game", snapshot);
+}
+
+async function verifyOuterCompactLayout(topId) {
+  await session.send("Emulation.setDeviceMetricsOverride", {
+    width: 860,
+    height: 720,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  try {
+    const snapshot = await waitFor("desktop 860px update-health layout", async () => evaluate(topId, `(() => {
+      const panel = document.querySelector('.update-health');
+      const items = [...(panel?.querySelectorAll('.update-health-game') ?? [])];
+      const rect = panel?.getBoundingClientRect();
+      return {
+        innerWidth,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        panel: rect ? {left: rect.left, right: rect.right, width: rect.width} : null,
+        items: items.map((item) => {
+          const itemRect = item.getBoundingClientRect();
+          return {
+            left: itemRect.left,
+            right: itemRect.right,
+            width: itemRect.width,
+            sample: item.querySelector('.update-health-sample')?.textContent?.trim() ?? '',
+          };
+        }),
+      };
+    })()`));
+    assert(Math.abs(snapshot.innerWidth - 860) <= 1
+      && snapshot.documentScrollWidth <= snapshot.innerWidth
+      && snapshot.panel
+      && snapshot.panel.left >= 0
+      && snapshot.panel.right <= snapshot.innerWidth + 1
+      && snapshot.items.length === 2
+      && snapshot.items.every((item) => item.left >= snapshot.panel.left - 1
+        && item.right <= snapshot.panel.right + 1
+        && item.width > 0
+        && /终局最新采样\s+\d{4}-\d{2}-\d{2}/u.test(item.sample)),
+    "desktop update-health cards overflow or hide sample dates at the supported minimum width", snapshot);
+    return snapshot;
+  } finally {
+    await session.send("Emulation.clearDeviceMetricsOverride");
+  }
 }
 
 function automaticUpdateHealthReady(snapshot) {
@@ -2102,6 +2147,7 @@ async function clickPublicDataUpdate(topId, game) {
     taskId: terminal.taskId,
     status: terminal.status,
     startedAt: started.startedAt,
+    text: terminal.text,
   };
 }
 
@@ -2124,17 +2170,29 @@ async function authoritativeUpdateHealth(topId) {
     if (!internals || typeof internals.invoke !== 'function') return null;
     return internals.invoke('get_update_health');
   })()`);
-  assert(health?.schema_version === "miho-desktop-update-health-v1"
+  assert(health?.schema_version === "miho-desktop-update-health-v2"
     && typeof health?.workspace_id === "string"
     && typeof health?.healthy === "boolean"
     && Array.isArray(health?.checked_games)
-    && Array.isArray(health?.games),
+    && Array.isArray(health?.games)
+    && health.games.every((entry) => entry?.freshness
+      && typeof entry.freshness.status === "string"
+      && entry.freshness.modes
+      && typeof entry.freshness.modes === "object"),
   "authoritative update health is invalid", health);
   return health;
 }
 
 function updateHealthGame(health, game) {
   return health?.games?.find((entry) => entry?.game === game) ?? null;
+}
+
+function updateHealthLatestSampleDate(health, game) {
+  const dates = Object.values(updateHealthGame(health, game)?.freshness?.modes ?? {})
+    .map((mode) => mode?.sample_date ?? "")
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/u.test(value))
+    .sort();
+  return dates.at(-1) ?? "";
 }
 
 function visibleUpdateHealthCompletedAt(snapshot, game) {
@@ -2223,14 +2281,55 @@ async function verifyPublicDataUpdate(topId, game) {
     const outer = await outerSnapshot(topId);
     const visibleTargetCompletedAt = visibleUpdateHealthCompletedAt(outer, game);
     const visibleOtherCompletedAt = visibleUpdateHealthCompletedAt(outer, otherGame);
+    const targetSampleDate = updateHealthLatestSampleDate(health, game);
+    const otherSampleDate = updateHealthLatestSampleDate(health, otherGame);
     return automaticUpdateHealthReady(outer)
+      && /^\d{4}-\d{2}-\d{2}$/u.test(targetSampleDate)
+      && /^\d{4}-\d{2}-\d{2}$/u.test(otherSampleDate)
       && outer.updateHealthGames.some((value) => value.includes("HSR 最近成功"))
       && outer.updateHealthGames.some((value) => value.includes("ZZZ 最近成功"))
+      && outer.updateHealthGames.some((value) => value.includes(`${game === "hsr" ? "HSR" : "ZZZ"} 最近成功`)
+        && value.includes(`终局最新采样 ${targetSampleDate}`))
+      && outer.updateHealthGames.some((value) => value.includes(`${otherGame === "hsr" ? "HSR" : "ZZZ"} 最近成功`)
+        && value.includes(`终局最新采样 ${otherSampleDate}`))
       && visibleTargetCompletedAt.includes(afterTarget.completed_at_utc)
       && visibleOtherCompletedAt.includes(afterOther.completed_at_utc)
       ? { health, outer, visibleTargetCompletedAt, visibleOtherCompletedAt }
       : null;
   }, updateTimeoutMs);
+  const updatedGameHealth = updateHealthGame(healthReceipt.health, game);
+  const targetSampleDate = updateHealthLatestSampleDate(healthReceipt.health, game);
+  const otherSampleDate = updateHealthLatestSampleDate(healthReceipt.health, otherGame);
+  const analysisSampleDates = analyses
+    .map((snapshot) => snapshot?.analysisExpectedPhase?.sampleDate ?? "")
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/u.test(value))
+    .sort();
+  const visualizerLatestSampleDate = analysisSampleDates.at(-1) ?? "";
+  assert(/^\d{4}-\d{2}-\d{2}$/u.test(targetSampleDate)
+    && /^\d{4}-\d{2}-\d{2}$/u.test(otherSampleDate),
+  `${game} update health does not expose strict sample dates for both games`, healthReceipt.health);
+  assert(targetSampleDate === visualizerLatestSampleDate,
+    `${game} update health sample date disagrees with the verified analysis modes`, {
+      targetSampleDate,
+      analysisSampleDates,
+    });
+  const hasHistoricalSamples = Object.values(updatedGameHealth?.freshness?.modes ?? {})
+    .some((mode) => mode?.status === "stale");
+  const hasQualityWarning = updatedGameHealth?.freshness?.status === "warning";
+  assert(task.text.includes("本机更新与校验成功")
+    && task.text.includes("查看本次更新结果")
+    && !task.text.includes("查看最新 Box 和分析"),
+  `${game} completed task card still overstates update freshness`, task);
+  if (hasHistoricalSamples) {
+    assert(task.text.includes("终局分析保留上游最新可用的历史样本"),
+      `${game} completed task card does not disclose historical upstream samples`, task);
+  } else if (hasQualityWarning) {
+    assert(task.text.includes("终局数据质量有告警") && !task.text.includes("历史样本"),
+      `${game} completed task card misstates a non-historical quality warning`, task);
+  } else {
+    assert(task.text.includes("Box、卡池和终局分析已刷新") && !task.text.includes("历史样本"),
+      `${game} completed task card incorrectly claims historical upstream samples`, task);
+  }
   return {
     taskId: task.taskId,
     status: task.status,
@@ -2252,7 +2351,16 @@ async function verifyPublicDataUpdate(topId, game) {
       state: healthReceipt.outer.updateHealthState,
       attemptId: updateHealthGame(healthReceipt.health, game).attempt_id,
       completedAtUtc: updateHealthGame(healthReceipt.health, game).completed_at_utc,
+      latestSampleDate: targetSampleDate,
+      modes: Object.fromEntries(Object.entries(updatedGameHealth.freshness.modes)
+        .map(([mode, freshness]) => [mode, {
+          status: freshness.status,
+          sampleDate: freshness.sample_date,
+          startDate: freshness.start_date,
+          endDate: freshness.end_date,
+        }])),
       otherGameAttemptId: updateHealthGame(healthReceipt.health, otherGame).attempt_id,
+      otherGameLatestSampleDate: otherSampleDate,
       visibleCompletedAtUtc: healthReceipt.visibleTargetCompletedAt,
       otherGameVisibleCompletedAtUtc: healthReceipt.visibleOtherCompletedAt,
     },
@@ -2351,6 +2459,7 @@ try {
       && automaticUpdateHealthReady(value)
   ));
   verifyOuter(initialOuter, "zzz");
+  receipt.outerCompactLayout = await verifyOuterCompactLayout(top.id);
   const zzzInitial = await productSnapshot("zzz");
   verifyProduct(zzzInitial, "zzz");
   const zzzContext = await activeFrameContext("zzz");

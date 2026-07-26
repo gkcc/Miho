@@ -13,7 +13,7 @@ use std::{
 };
 
 use anyhow::{bail, Context};
-use chrono::{Local, NaiveDateTime, Timelike};
+use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
 use miho_core::{
     atomic,
     decision_legacy::{
@@ -56,11 +56,12 @@ pub use task_manager::{
     TASK_SNAPSHOT_SCHEMA_V1,
 };
 pub use update::{
-    check_update_health_v1, check_update_health_with_state_v1, is_valid_update_attempt_id_v1,
-    run_update_observed_v1, run_update_v1, FileUpdateReceiptStore, NativeUpdateExecutorV1,
-    ObservedUpdateStepFuture, TrustedSingleGameUpdateV1, UpdateArtifactV1, UpdateGameReceiptV1,
-    UpdateHealthV1, UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1,
-    UpdateRunOutcomeV1, UpdateRunStatusV1, UpdateStateGameV1, UpdateStateV1, UpdateStepContextV1,
+    check_update_health_v1, check_update_health_with_state_and_freshness_v1,
+    check_update_health_with_state_v1, is_valid_update_attempt_id_v1, run_update_observed_v1,
+    run_update_v1, FileUpdateReceiptStore, NativeUpdateExecutorV1, ObservedUpdateStepFuture,
+    TrustedSingleGameUpdateV1, UpdateArtifactV1, UpdateGameReceiptV1, UpdateHealthV1,
+    UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1, UpdateRunOutcomeV1,
+    UpdateRunStatusV1, UpdateStateGameV1, UpdateStateV1, UpdateStepContextV1,
     UpdateStepExecutionErrorV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
     UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1, MAX_UPDATE_ATTEMPT_ID_BYTES_V1,
     UPDATE_ATTEMPT_DIRECTORY, UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_HEALTH_SCHEMA_V1,
@@ -583,15 +584,23 @@ impl From<&miho_core::data_quality::DataQualityReportV1> for TaskFreshnessSummar
                         mode.clone(),
                         TaskModeFreshnessV1 {
                             status: quality.freshness.status.clone(),
-                            sample_date: quality.freshness.sample_date.clone(),
-                            start_date: quality.freshness.start_date.clone(),
-                            end_date: quality.freshness.end_date.clone(),
+                            sample_date: public_freshness_date_v1(&quality.freshness.sample_date),
+                            start_date: public_freshness_date_v1(&quality.freshness.start_date),
+                            end_date: public_freshness_date_v1(&quality.freshness.end_date),
                         },
                     )
                 })
                 .collect(),
         }
     }
+}
+
+fn public_freshness_date_v1(value: &str) -> String {
+    let value = value.trim();
+    let candidate = value.get(..10).unwrap_or(value);
+    NaiveDate::parse_from_str(candidate, "%Y-%m-%d")
+        .map(|date| date.format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

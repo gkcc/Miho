@@ -44,7 +44,11 @@ test('completed update cards open the matching game and request its latest revis
   assert.match(showUpdated, /utilities\.open = false/);
   assert.match(showUpdated, /visualizerSection\.scrollIntoView/);
   assert.match(renderTasks, /task\.operation === "hsr-export" \? "hsr"/);
-  assert.match(renderTasks, /makeButton\("查看最新 Box 和分析"[\s\S]*?showUpdatedGame\(exportedGame\)/);
+  assert.match(renderTasks, /makeButton\("查看本次更新结果"[\s\S]*?showUpdatedGame\(exportedGame\)/);
+  assert.match(renderTasks, /本机更新与校验成功；Box 与卡池已刷新，终局分析保留上游最新可用的历史样本/);
+  assert.match(renderTasks, /本机更新与校验成功；Box 与卡池已刷新，终局数据质量有告警/);
+  assert.match(renderTasks, /freshnessLabel\(effectiveFreshnessStatus\(freshness\)\)/);
+  assert.doesNotMatch(renderTasks, /查看最新 Box 和分析|即可查看最新 Box、卡池和终局分析/);
   assert.match(renderTasks, /viewUpdate\.disabled = workspaceBusy \|\| boxTransitionBusy \|\| isWindowClosing\(\)/);
   assert.match(startExport, /setBoxTransitionBusy\(true\)/);
   assert.match(startExport, /ensureVisualizerBoxesSaved\(GAMES, "更新数据"\)/);
@@ -74,7 +78,9 @@ test('automatic update health is always visible above the Visualizer and adapts 
 
 test('update health validates native responses and binds late results to request and workspace generations', () => {
   const request = section('async function refreshUpdateHealth(', 'function updateWorkspaceControls()');
+  const gameParser = section('function isDesktopUpdateHealthGame(', 'function backendUpdateHealth(');
   const parser = section('function backendUpdateHealth(', 'function isTaskStatus(');
+  const freshnessParser = section('function isTaskFreshnessDate(', 'function isPublicTaskSnapshot(');
   const close = section('async function installWindowCloseHandler()', 'window.addEventListener("beforeunload"');
 
   assert.match(request, /const workspaceId = capabilities\?\.workspace\.workspace_id \?\? ""/);
@@ -88,9 +94,16 @@ test('update health validates native responses and binds late results to request
   assert.equal((request.match(/isWindowClosing\(\)/g) ?? []).length >= 3, true);
   assert.match(request, /health\.workspace_id !== workspaceId/);
 
-  assert.match(parser, /miho-desktop-update-health-v1/);
+  assert.match(parser, /miho-desktop-update-health-v2/);
   assert.match(parser, /"schema_version", "workspace_id", "healthy", "checked_games", "games", "retryable"/);
   assert.match(parser, /hasExactKeys\(value, expectedKeys\)/);
+  assert.match(gameParser, /hasExactKeys\(value, \["game", "attempt_id", "completed_at_utc", "freshness"\]\)/);
+  assert.match(gameParser, /isTaskFreshness\(value\.freshness\)/);
+  assert.match(freshnessParser, /if \(value === ""\) return true/);
+  assert.match(freshnessParser, /setUTCFullYear\(year, month - 1, day\)/);
+  assert.match(freshnessParser, /parsed\.getUTCFullYear\(\) === year/);
+  assert.match(freshnessParser, /const boundaryShapeMatches = freshness\.status === "future"/);
+  assert.match(freshnessParser, /freshness\.status === "active"[\s\S]*?freshness\.start_date !== "" \|\| freshness\.end_date !== ""/);
   assert.match(parser, /GAMES\.every\(\(targetGame\) => games\.some/);
   assert.match(close, /beginClose\(\) \{[\s\S]*?updateHealthRequestGeneration \+= 1/);
   assert.match(close, /resetWorkspace\(\) \{[\s\S]*?updateHealthRequestGeneration \+= 1;[\s\S]*?resetVisualizerFrames\(\)/);
@@ -104,9 +117,15 @@ test('update health explains artifact integrity, per-game success times, stalene
   assert.match(rendering, />= UPDATE_HEALTH_STALE_AFTER_MS/);
   assert.match(rendering, /本机产物校验通过/);
   assert.match(rendering, /\$\{gameShortLabel\(targetGame\)\} 最近成功/);
+  assert.match(rendering, /终局最新采样/);
+  assert.match(rendering, /freshnessLabel\(effectiveFreshnessStatus\(modeFreshness\)\)/);
+  assert.match(rendering, /最近更新记录正常/);
+  assert.match(rendering, /上游仍有历史终局样本/);
+  assert.match(rendering, /上游数据质量有告警/);
+  assert.match(rendering, /上游数据质量需留意/);
   assert.match(rendering, /return targetGame === "hsr" \? "HSR" : "ZZZ"/);
   assert.match(rendering, /计划任务可能未运行/);
-  assert.match(rendering, /上游尚未发布新样本，不等于本机更新失败/);
+  assert.match(rendering, /历史样本不等于本机刷新失败/);
   assert.match(rendering, /workspace\.busy/);
   assert.match(rendering, /workspace\.write_busy/);
   assert.match(rendering, /busy\|locked\|in_progress\|already_running/);
@@ -129,6 +148,8 @@ test('update health retries busy workspaces with bounded backoff and rechecks at
   assert.match(scheduling, /Math\.min\(updateHealthBusyRetryAttempt, UPDATE_HEALTH_BUSY_RETRY_DELAYS_MS\.length - 1\)/);
   assert.match(scheduling, /void refreshUpdateHealth\(true\)/);
   assert.match(scheduling, /Date\.parse\(entry\.completed_at_utc\) \+ UPDATE_HEALTH_STALE_AFTER_MS/);
+  assert.match(scheduling, /\[\[mode\.start_date, 0\], \[mode\.end_date, 1\]\]/);
+  assert.match(scheduling, /new Date\(year, month - 1, day \+ dayOffset\)\.getTime\(\)/);
   assert.match(scheduling, /Math\.min\(Math\.max\(1, Math\.min\(\.\.\.futureDeadlines\) - now\), MAX_BROWSER_TIMER_DELAY_MS\)/);
   assert.match(scheduling, /workspaceId !== capabilities\?\.workspace\.workspace_id/);
   assert.match(request, /clearUpdateHealthTimers\(!fromBusyRetry\)/);

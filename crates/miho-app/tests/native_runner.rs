@@ -9,14 +9,15 @@ use std::{
 
 use chrono::{FixedOffset, TimeZone, Timelike};
 use miho_app::{
-    check_update_health_v1, check_update_health_with_state_v1, export_cache_root,
-    run_update_observed_v1, run_update_v1, ExecutionControlError, ExecutionObserver,
-    FileUpdateReceiptStore, NativeUpdateExecutorV1, ObservedUpdateStepFuture, UpdateArtifactV1,
-    UpdateConfigV1, UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1,
-    UpdateRunStatusV1, UpdateStateV1, UpdateStepContextV1, UpdateStepExecutionErrorV1,
-    UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture, UpdateStepKindV1,
-    UpdateStepReceiptV1, UpdateStepStatusV1, WorkspaceSnapshotLease, WorkspaceWriteLease,
-    UPDATE_ATTEMPT_DIRECTORY, UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_STATE_FILE,
+    check_update_health_v1, check_update_health_with_state_and_freshness_v1,
+    check_update_health_with_state_v1, export_cache_root, run_update_observed_v1, run_update_v1,
+    ExecutionControlError, ExecutionObserver, FileUpdateReceiptStore, NativeUpdateExecutorV1,
+    ObservedUpdateStepFuture, UpdateArtifactV1, UpdateConfigV1, UpdateInvocationV1,
+    UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1, UpdateRunStatusV1, UpdateStateV1,
+    UpdateStepContextV1, UpdateStepExecutionErrorV1, UpdateStepExecutor, UpdateStepFailureV1,
+    UpdateStepFuture, UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1,
+    WorkspaceSnapshotLease, WorkspaceWriteLease, UPDATE_ATTEMPT_DIRECTORY,
+    UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_STATE_FILE,
 };
 use miho_core::{contract::Game, network::FetchSource};
 use sha2::{Digest, Sha256};
@@ -80,6 +81,109 @@ impl UpdateStepExecutor for FakeExecutor {
                 bytes: bytes.len() as u64,
                 sha256: format!("{:x}", Sha256::digest(&bytes)),
             }])
+        })
+    }
+}
+
+#[derive(Clone, Default)]
+struct FreshnessFakeExecutor {
+    inner: FakeExecutor,
+    invalid_hsr_mode: bool,
+    unparseable_hsr_dates: bool,
+}
+
+impl FreshnessFakeExecutor {
+    fn with_invalid_hsr_mode() -> Self {
+        Self {
+            invalid_hsr_mode: true,
+            ..Self::default()
+        }
+    }
+
+    fn with_unparseable_hsr_dates() -> Self {
+        Self {
+            unparseable_hsr_dates: true,
+            ..Self::default()
+        }
+    }
+}
+
+impl UpdateStepExecutor for FreshnessFakeExecutor {
+    fn execute<'a>(
+        &'a self,
+        step: UpdateStepKindV1,
+        context: &'a UpdateStepContextV1,
+    ) -> UpdateStepFuture<'a> {
+        Box::pin(async move {
+            let mut artifacts = self.inner.execute(step, context).await?;
+            let freshness = match step {
+                UpdateStepKindV1::HsrExport => Some((
+                    Game::Hsr,
+                    PathBuf::from("out/data_quality.json"),
+                    "moc",
+                    "stale",
+                    "2026-06-25",
+                    "2026-06-01",
+                    "2026-06-15",
+                )),
+                UpdateStepKindV1::ZzzExport => Some((
+                    Game::Zzz,
+                    PathBuf::from("out_zzz/data_quality.json"),
+                    "sd",
+                    "active",
+                    "2026-07-19T12:34:56Z",
+                    "2026-07-10",
+                    "",
+                )),
+                _ => None,
+            };
+            if let Some((game, relative, mode, status, sample, start, end)) = freshness {
+                let mode = if game == Game::Hsr && self.invalid_hsr_mode {
+                    "pf"
+                } else {
+                    mode
+                };
+                let (status, sample, start, end) =
+                    if game == Game::Hsr && self.unparseable_hsr_dates {
+                        ("unknown", "not-a-date", "not-a-date", "not-a-date")
+                    } else {
+                        (status, sample, start, end)
+                    };
+                let bytes = serde_json::to_vec(&serde_json::json!({
+                    "schema_version": "miho-data-quality-v1",
+                    "game": game.code(),
+                    "status": if status == "stale" { "warning" } else { "ok" },
+                    "warnings": [],
+                    "alias_conflict_count": 0,
+                    "modes": {
+                        (mode): {
+                            "row_count": 1,
+                            "valid_rank_count": 1,
+                            "valid_performance_count": 1,
+                            "sentinel_count": 0,
+                            "sentinel_rate": 0.0,
+                            "source_coverage": ["fixture"],
+                            "freshness": {
+                                "status": status,
+                                "sample_date": sample,
+                                "start_date": start,
+                                "end_date": end,
+                                "source": "private-fixture-source"
+                            }
+                        }
+                    }
+                }))
+                .unwrap();
+                let path = context.workspace.join(&relative);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(&path, &bytes).unwrap();
+                artifacts.push(UpdateArtifactV1 {
+                    path: relative,
+                    bytes: bytes.len() as u64,
+                    sha256: format!("{:x}", Sha256::digest(&bytes)),
+                });
+            }
+            Ok(artifacts)
         })
     }
 }
@@ -558,6 +662,104 @@ async fn health_binds_each_split_generation_receipt_to_the_expected_config() {
         health.failure.as_ref().map(|failure| failure.code.as_str()),
         Some("update.health_generation_mismatch")
     );
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn health_freshness_comes_from_the_same_verified_generation_snapshot() {
+    let root = temp_root("health-freshness-snapshot");
+    let config = freshness_config(&root);
+    let outcome = run_update_v1(
+        &request(&root),
+        &invocation_with("attempt-health-freshness", 33),
+        &FreshnessFakeExecutor::default(),
+        &FileUpdateReceiptStore,
+    )
+    .await;
+    assert_eq!(outcome.exit_code, 0);
+
+    let (health, state, freshness) =
+        check_update_health_with_state_and_freshness_v1(&config, true, true, &"a".repeat(64));
+
+    assert!(health.healthy);
+    assert!(state.is_ok());
+    assert_eq!(freshness[&Game::Hsr].status, "warning");
+    assert_eq!(freshness[&Game::Hsr].modes["moc"].status, "stale");
+    assert_eq!(freshness[&Game::Hsr].modes["moc"].sample_date, "2026-06-25");
+    assert_eq!(freshness[&Game::Zzz].modes["sd"].status, "active");
+    assert_eq!(freshness[&Game::Zzz].modes["sd"].sample_date, "2026-07-19");
+    assert_eq!(freshness[&Game::Zzz].modes["sd"].end_date, "");
+    assert!(!serde_json::to_string(&freshness)
+        .unwrap()
+        .contains("private-fixture-source"));
+
+    fs::write(
+        root.join("out/data_quality.json"),
+        br#"{"schema_version":"miho-data-quality-v1"}"#,
+    )
+    .unwrap();
+    let (tampered_health, _, tampered_freshness) =
+        check_update_health_with_state_and_freshness_v1(&config, true, true, &"a".repeat(64));
+    assert!(!tampered_health.healthy);
+    assert_eq!(
+        tampered_health
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.health_artifact_invalid")
+    );
+    assert!(tampered_freshness.is_empty());
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn health_rejects_semantically_invalid_freshness_even_when_artifacts_match_receipts() {
+    let root = temp_root("health-invalid-freshness");
+    let config = freshness_config(&root);
+    let outcome = run_update_v1(
+        &request(&root),
+        &invocation_with("attempt-invalid-freshness", 34),
+        &FreshnessFakeExecutor::with_invalid_hsr_mode(),
+        &FileUpdateReceiptStore,
+    )
+    .await;
+    assert_eq!(outcome.exit_code, 0);
+    assert!(check_update_health_v1(&root, true, true, &"a".repeat(64)).healthy);
+
+    let (health, state, freshness) =
+        check_update_health_with_state_and_freshness_v1(&config, true, true, &"a".repeat(64));
+
+    assert!(!health.healthy);
+    assert!(state.is_ok());
+    assert_eq!(
+        health.failure.as_ref().map(|failure| failure.code.as_str()),
+        Some("update.health_freshness_invalid")
+    );
+    assert!(freshness.is_empty());
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn health_accepts_producer_unknown_dates_and_sanitizes_them_for_the_desktop() {
+    let root = temp_root("health-unknown-freshness-dates");
+    let config = freshness_config(&root);
+    let outcome = run_update_v1(
+        &request(&root),
+        &invocation_with("attempt-unknown-dates", 35),
+        &FreshnessFakeExecutor::with_unparseable_hsr_dates(),
+        &FileUpdateReceiptStore,
+    )
+    .await;
+    assert_eq!(outcome.exit_code, 0);
+
+    let (health, _, freshness) =
+        check_update_health_with_state_and_freshness_v1(&config, true, true, &"a".repeat(64));
+
+    assert!(health.healthy);
+    assert_eq!(freshness[&Game::Hsr].modes["moc"].status, "unknown");
+    assert_eq!(freshness[&Game::Hsr].modes["moc"].sample_date, "");
+    assert_eq!(freshness[&Game::Hsr].modes["moc"].start_date, "");
+    assert_eq!(freshness[&Game::Hsr].modes["moc"].end_date, "");
     cleanup(&root);
 }
 
@@ -1439,6 +1641,20 @@ fn request(root: &Path) -> UpdateRequestV1 {
         force: false,
         config_sha256: Some("a".repeat(64)),
     }
+}
+
+fn freshness_config(root: &Path) -> miho_app::ResolvedUpdateConfigV1 {
+    UpdateConfigV1::parse(
+        br#"{
+          "schema_version":"miho-update-config-v1",
+          "days":183,
+          "hsr":{"output":"out","repo_id":"owner/hsr","revision":"main","modes":["moc"],"prydwen_top_n":100},
+          "zzz":{"output":"out_zzz","repo_id":"owner/zzz","revision":"main","modes":["sd"],"prydwen_top_n":100,"box":".miho/zzz_box_state.json","banner_plan":"configs/zzz_banner_plan.json","mechanism_notes":"configs/zzz_mechanism_notes","decision_baseline":"configs/zzz_decision_baseline.json"}
+        }"#,
+    )
+    .unwrap()
+    .resolve(root)
+    .unwrap()
 }
 
 fn invocation() -> UpdateInvocationV1 {

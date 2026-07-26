@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     ffi::{OsStr, OsString},
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom},
@@ -12,13 +13,14 @@ use std::{
 #[cfg(test)]
 use miho_app::UPDATE_HEALTH_SCHEMA_V1;
 use miho_app::{
-    bootstrap_workspace_v1, check_update_health_with_state_v1, is_valid_update_attempt_id_v1,
+    bootstrap_workspace_v1, check_update_health_with_state_and_freshness_v1,
+    check_update_health_with_state_v1, is_valid_update_attempt_id_v1,
     load_update_config_with_digest_v1, parse_export_task_intent_v1, parse_task_intent_v1,
     resolve_task_intent_v1, AppInvocation, CancelOutcomeV1, ExportTaskIntentSpecV1,
-    PublicTaskSnapshotV1, PublicTaskUpdateV1, ResolvedUpdateConfigV1, TaskFailureV1, TaskManager,
-    TaskManagerError, TaskOperationV1, TrustedSingleGameUpdateV1, UpdateHealthV1,
-    UpdateInvocationV1, UpdateStateV1, UpdateStepFailureV1, WorkspaceBootstrapError,
-    WorkspaceBootstrapRequestV1,
+    PublicTaskSnapshotV1, PublicTaskUpdateV1, ResolvedUpdateConfigV1, TaskFailureV1,
+    TaskFreshnessSummaryV1, TaskManager, TaskManagerError, TaskOperationV1,
+    TrustedSingleGameUpdateV1, UpdateHealthV1, UpdateInvocationV1, UpdateStateV1,
+    UpdateStepFailureV1, WorkspaceBootstrapError, WorkspaceBootstrapRequestV1,
 };
 use miho_core::pipeline::Game;
 use serde::{Deserialize, Serialize};
@@ -38,7 +40,7 @@ use crate::workspace::{
 
 const PUBLIC_COMMAND_FAILURE_SCHEMA_V1: &str = "miho-public-command-failure-v1";
 const DESKTOP_CAPABILITIES_SCHEMA_V1: &str = "miho-desktop-capabilities-v1";
-const DESKTOP_UPDATE_HEALTH_SCHEMA_V1: &str = "miho-desktop-update-health-v1";
+const DESKTOP_UPDATE_HEALTH_SCHEMA_V2: &str = "miho-desktop-update-health-v2";
 const WORKSPACE_SELECTION_SCHEMA_V1: &str = "miho-workspace-selection-v1";
 const CANCEL_TASK_RESULT_SCHEMA_V1: &str = "miho-public-cancel-task-result-v1";
 const TASK_UPDATE_SCHEMA_V1: &str = "miho-task-update-v1";
@@ -421,22 +423,23 @@ pub struct DesktopCapabilitiesV1 {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct DesktopUpdateHealthGameV1 {
+pub struct DesktopUpdateHealthGameV2 {
     pub game: Game,
     pub attempt_id: String,
     pub completed_at_utc: String,
+    pub freshness: TaskFreshnessSummaryV1,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct DesktopUpdateHealthV1 {
+pub struct DesktopUpdateHealthV2 {
     pub schema_version: String,
     pub workspace_id: String,
     pub healthy: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attempt_id: Option<String>,
     pub checked_games: Vec<Game>,
-    pub games: Vec<DesktopUpdateHealthGameV1>,
+    pub games: Vec<DesktopUpdateHealthGameV2>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_code: Option<String>,
     pub retryable: bool,
@@ -564,7 +567,7 @@ pub fn get_capabilities(
 #[tauri::command]
 pub async fn get_update_health(
     state: State<'_, DesktopState>,
-) -> Result<DesktopUpdateHealthV1, PublicCommandFailureV1> {
+) -> Result<DesktopUpdateHealthV2, PublicCommandFailureV1> {
     let (root, workspace) = state
         .workspaces
         .active_access()
@@ -1901,29 +1904,39 @@ fn prepare_export_task(
 }
 
 fn load_resolved_update_config(root: &Path) -> Result<ResolvedUpdateConfigV1, ()> {
-    let config_path = root.join("configs/update_v1.json");
-    validate_workspace_target(root, &config_path).map_err(|_| ())?;
-    load_update_config_with_digest_v1(&config_path)
-        .and_then(|loaded| loaded.config.resolve(root))
-        .map_err(|_| ())
+    load_resolved_update_config_with_digest(root).map(|(config, _)| config)
 }
 
 fn get_update_health_blocking(
     root: PathBuf,
     workspace_id: String,
-) -> Result<DesktopUpdateHealthV1, PublicCommandFailureV1> {
+) -> Result<DesktopUpdateHealthV2, PublicCommandFailureV1> {
     validate_selected_root(&root).map_err(map_workspace_error)?;
-    let config_sha256 = load_update_config_digest_v1(&root).unwrap_or_default();
-    let (health, state) = check_update_health_with_state_v1(&root, true, true, &config_sha256);
-    Ok(map_desktop_update_health_v1(workspace_id, health, state))
+    let (health, state, freshness) = match load_resolved_update_config_with_digest(&root) {
+        Ok((config, config_sha256)) => {
+            check_update_health_with_state_and_freshness_v1(&config, true, true, &config_sha256)
+        }
+        Err(()) => {
+            let (health, state) = check_update_health_with_state_v1(&root, true, true, "");
+            (health, state, BTreeMap::new())
+        }
+    };
+    Ok(map_desktop_update_health_v2(
+        workspace_id,
+        health,
+        state,
+        freshness,
+    ))
 }
 
-fn load_update_config_digest_v1(root: &Path) -> Result<String, ()> {
+fn load_resolved_update_config_with_digest(
+    root: &Path,
+) -> Result<(ResolvedUpdateConfigV1, String), ()> {
     let config_path = root.join("configs/update_v1.json");
     validate_workspace_target(root, &config_path).map_err(|_| ())?;
     let loaded = load_update_config_with_digest_v1(&config_path).map_err(|_| ())?;
-    loaded.config.resolve(root).map_err(|_| ())?;
-    Ok(loaded.sha256)
+    let config = loaded.config.resolve(root).map_err(|_| ())?;
+    Ok((config, loaded.sha256))
 }
 
 #[cfg(test)]
@@ -1941,11 +1954,12 @@ fn invalid_update_health_config_v1() -> UpdateHealthV1 {
     }
 }
 
-fn map_desktop_update_health_v1(
+fn map_desktop_update_health_v2(
     workspace_id: String,
     mut health: UpdateHealthV1,
     state: Result<UpdateStateV1, UpdateStepFailureV1>,
-) -> DesktopUpdateHealthV1 {
+    freshness: BTreeMap<Game, TaskFreshnessSummaryV1>,
+) -> DesktopUpdateHealthV2 {
     let state = match state {
         Ok(state) => state,
         Err(failure) if health.healthy => {
@@ -1961,11 +1975,17 @@ fn map_desktop_update_health_v1(
             state.games.get(&game).and_then(|game_state| {
                 (is_valid_update_attempt_id_v1(&game_state.attempt_id)
                     && is_public_update_completed_at_v1(&game_state.completed_at_utc))
-                .then(|| DesktopUpdateHealthGameV1 {
-                    game,
-                    attempt_id: game_state.attempt_id.clone(),
-                    completed_at_utc: game_state.completed_at_utc.clone(),
+                .then(|| {
+                    freshness
+                        .get(&game)
+                        .map(|freshness| DesktopUpdateHealthGameV2 {
+                            game,
+                            attempt_id: game_state.attempt_id.clone(),
+                            completed_at_utc: game_state.completed_at_utc.clone(),
+                            freshness: freshness.clone(),
+                        })
                 })
+                .flatten()
             })
         })
         .collect::<Vec<_>>();
@@ -1992,8 +2012,8 @@ fn map_desktop_update_health_v1(
         .failure
         .as_ref()
         .is_some_and(|failure| failure.retryable);
-    DesktopUpdateHealthV1 {
-        schema_version: DESKTOP_UPDATE_HEALTH_SCHEMA_V1.to_owned(),
+    DesktopUpdateHealthV2 {
+        schema_version: DESKTOP_UPDATE_HEALTH_SCHEMA_V2.to_owned(),
         workspace_id,
         healthy: health.healthy,
         attempt_id,
@@ -2300,6 +2320,43 @@ mod tests {
         )
     }
 
+    fn desktop_update_health_test_freshness() -> BTreeMap<Game, TaskFreshnessSummaryV1> {
+        [
+            (
+                Game::Hsr,
+                TaskFreshnessSummaryV1 {
+                    status: "warning".to_owned(),
+                    modes: BTreeMap::from([(
+                        "moc".to_owned(),
+                        miho_app::TaskModeFreshnessV1 {
+                            status: "stale".to_owned(),
+                            sample_date: "2026-06-25".to_owned(),
+                            start_date: "2026-06-01".to_owned(),
+                            end_date: "2026-06-15".to_owned(),
+                        },
+                    )]),
+                },
+            ),
+            (
+                Game::Zzz,
+                TaskFreshnessSummaryV1 {
+                    status: "ok".to_owned(),
+                    modes: BTreeMap::from([(
+                        "sd".to_owned(),
+                        miho_app::TaskModeFreshnessV1 {
+                            status: "active".to_owned(),
+                            sample_date: "2026-07-19".to_owned(),
+                            start_date: "2026-07-10".to_owned(),
+                            end_date: "2026-07-24".to_owned(),
+                        },
+                    )]),
+                },
+            ),
+        ]
+        .into_iter()
+        .collect()
+    }
+
     #[test]
     fn desktop_update_health_mapping_is_pathless_and_orders_games() {
         let mut update_state = UpdateStateV1::default();
@@ -2321,7 +2378,7 @@ mod tests {
                 artifacts: Vec::new(),
             },
         );
-        let mapped = map_desktop_update_health_v1(
+        let mapped = map_desktop_update_health_v2(
             "workspace-opaque".to_owned(),
             UpdateHealthV1 {
                 schema_version: UPDATE_HEALTH_SCHEMA_V1.to_owned(),
@@ -2335,6 +2392,7 @@ mod tests {
                 )),
             },
             Ok(update_state),
+            desktop_update_health_test_freshness(),
         );
 
         assert_eq!(
@@ -2348,13 +2406,111 @@ mod tests {
         let serialized = serde_json::to_value(&mapped).unwrap();
         assert_eq!(
             serialized["schema_version"],
-            DESKTOP_UPDATE_HEALTH_SCHEMA_V1
+            DESKTOP_UPDATE_HEALTH_SCHEMA_V2
         );
         assert_eq!(serialized["failure_code"], "workspace.write_busy");
         assert_eq!(serialized["retryable"], true);
+        assert_eq!(serialized["games"][0]["freshness"]["status"], "warning");
+        assert_eq!(
+            serialized["games"][0]["freshness"]["modes"]["moc"]["sample_date"],
+            "2026-06-25"
+        );
+        assert_eq!(serialized["games"][1]["freshness"]["status"], "ok");
+        let keys = |value: &serde_json::Value| {
+            value
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        assert_eq!(
+            keys(&serialized),
+            [
+                "attempt_id",
+                "checked_games",
+                "failure_code",
+                "games",
+                "healthy",
+                "retryable",
+                "schema_version",
+                "workspace_id",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+        );
+        assert_eq!(
+            keys(&serialized["games"][0]),
+            ["attempt_id", "completed_at_utc", "freshness", "game"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
+        assert_eq!(
+            keys(&serialized["games"][0]["freshness"]),
+            ["modes", "status"].into_iter().map(str::to_owned).collect()
+        );
+        assert_eq!(
+            keys(&serialized["games"][0]["freshness"]["modes"]["moc"]),
+            ["end_date", "sample_date", "start_date", "status"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
         assert!(serialized.get("message").is_none());
         assert!(!serialized.to_string().contains("private"));
         assert!(!serialized.to_string().contains("workspace is busy"));
+    }
+
+    #[test]
+    fn healthy_desktop_update_health_requires_freshness_for_both_games() {
+        let mut update_state = UpdateStateV1::default();
+        for (game, suffix, completed_at_utc) in [
+            (Game::Hsr, "hhhhhhhhhhhh", "2026-07-26T01:00:00.000000Z"),
+            (Game::Zzz, "zzzzzzzzzzzz", "2026-07-26T02:00:00.000000Z"),
+        ] {
+            update_state.games.insert(
+                game,
+                UpdateStateGameV1 {
+                    attempt_id: format!("20260726T020000000000Z-{suffix}"),
+                    completed_at_utc: completed_at_utc.to_owned(),
+                    config_sha256: "a".repeat(64),
+                    artifacts: Vec::new(),
+                },
+            );
+        }
+        let healthy = UpdateHealthV1 {
+            schema_version: UPDATE_HEALTH_SCHEMA_V1.to_owned(),
+            healthy: true,
+            attempt_id: Some("20260726T030000000000Z-latestlatest".to_owned()),
+            checked_games: vec![Game::Hsr, Game::Zzz],
+            failure: None,
+        };
+
+        let mapped = map_desktop_update_health_v2(
+            "workspace-opaque".to_owned(),
+            healthy.clone(),
+            Ok(update_state.clone()),
+            desktop_update_health_test_freshness(),
+        );
+        assert!(mapped.healthy);
+        assert_eq!(mapped.games.len(), 2);
+        assert!(mapped.failure_code.is_none());
+
+        let mut missing = desktop_update_health_test_freshness();
+        missing.remove(&Game::Zzz);
+        let mapped_missing = map_desktop_update_health_v2(
+            "workspace-opaque".to_owned(),
+            healthy,
+            Ok(update_state),
+            missing,
+        );
+        assert!(!mapped_missing.healthy);
+        assert_eq!(
+            mapped_missing.failure_code.as_deref(),
+            Some("update.health_state_missing")
+        );
     }
 
     #[test]
@@ -2386,10 +2542,11 @@ mod tests {
 
     #[test]
     fn desktop_update_health_invalid_config_maps_to_expected_unhealthy_dto() {
-        let mapped = map_desktop_update_health_v1(
+        let mapped = map_desktop_update_health_v2(
             "workspace-opaque".to_owned(),
             invalid_update_health_config_v1(),
             Ok(UpdateStateV1::default()),
+            BTreeMap::new(),
         );
         let serialized = serde_json::to_value(&mapped).unwrap();
 
@@ -2416,7 +2573,7 @@ mod tests {
                 artifacts: Vec::new(),
             },
         );
-        let mapped = map_desktop_update_health_v1(
+        let mapped = map_desktop_update_health_v2(
             "workspace-opaque".to_owned(),
             UpdateHealthV1 {
                 schema_version: UPDATE_HEALTH_SCHEMA_V1.to_owned(),
@@ -2430,6 +2587,7 @@ mod tests {
                 )),
             },
             Ok(update_state),
+            BTreeMap::new(),
         );
         let serialized = serde_json::to_string(&mapped).unwrap();
 
