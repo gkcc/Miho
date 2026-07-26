@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { coordinateDesktopClose } from "./desktop-close-coordinator.js";
 import {
   advanceVisualizerRefresh,
   bindPendingVisualizerRefresh,
@@ -207,6 +208,7 @@ let boxTransitionBusy = false;
 let boxTransitionDepth = 0;
 let allowWindowClose = false;
 let closeGuardRunning = false;
+let closeRequestRunning = false;
 let pendingTaskStart: Promise<void> | null = null;
 let pendingWorkspaceTransition: Promise<void> | null = null;
 let workspaceReconcilePending = false;
@@ -688,6 +690,7 @@ window.addEventListener("message", (event) => {
   const activeFrame = visualizerFrames.get(game)?.frame;
   if (!activeFrame || sourceState.frame !== activeFrame) return;
   if (event.data.schema_version === "miho-visualizer-external-link-v1" && typeof event.data.url === "string") {
+    if (isWindowClosing() || boxTransitionBusy) return;
     void invoke("open_external_https", { url: event.data.url }).catch((error) => {
       const failure = safeError(error);
       setNotice(visualizerMessage, `来源链接无法打开（${failure.code}）：${failure.message}`, "error");
@@ -1772,43 +1775,61 @@ async function installWindowCloseHandler(): Promise<void> {
   const appWindow = getCurrentWindow();
   unlistenWindowClose = await appWindow.onCloseRequested(async (event) => {
     event.preventDefault();
-    if (allowWindowClose || closeGuardRunning) return;
-    closeGuardRunning = true;
-    uninstallVisualizerRevisionWatchers();
-    setBoxTransitionBusy(true);
-    renderTasks();
-    persistTaskHistory();
+    if (allowWindowClose || closeRequestRunning) return;
+    closeRequestRunning = true;
     try {
-      const workspaceTransition = pendingWorkspaceTransition;
-      if (workspaceTransition) await workspaceTransition;
-      const taskStart = pendingTaskStart;
-      if (taskStart) await taskStart;
-      if (hasActiveTask()
-        && !window.confirm("仍有任务正在运行。现在关闭会将它记录为中断，且下次启动不会自动重跑。仍要关闭吗？")) {
-        return;
-      }
-      if (workspaceReconcilePending) {
-        capabilitiesRequestGeneration += 1;
-        resetVisualizerFrames();
-      }
-      if (!await ensureVisualizerBoxesSaved(["hsr", "zzz"], "关闭程序")) return;
-      persistTaskHistory();
-      allowWindowClose = true;
-      try {
-        await appWindow.destroy();
-      } catch (error) {
-        allowWindowClose = false;
-        const failure = safeError(error);
-        setNotice(workspaceMessage, `程序未能关闭（${failure.code}）：${failure.message}`, "error");
-      }
+      await coordinateDesktopClose({
+        beginClose() {
+          closeGuardRunning = true;
+          uninstallVisualizerRevisionWatchers();
+          setBoxTransitionBusy(true);
+          renderTasks();
+          persistTaskHistory();
+        },
+        getWorkspaceTransition() {
+          return pendingWorkspaceTransition;
+        },
+        getTaskStart() {
+          return pendingTaskStart;
+        },
+        hasActiveTask,
+        confirmActiveTaskClose() {
+          return window.confirm("仍有任务正在运行。现在关闭会将它记录为中断，且下次启动不会自动重跑。仍要关闭吗？");
+        },
+        shouldResetWorkspace() {
+          return workspaceReconcilePending;
+        },
+        resetWorkspace() {
+          capabilitiesRequestGeneration += 1;
+          resetVisualizerFrames();
+        },
+        flushBoxes() {
+          return ensureVisualizerBoxesSaved(["hsr", "zzz"], "关闭程序");
+        },
+        persist: persistTaskHistory,
+        async destroy() {
+          allowWindowClose = true;
+          try {
+            await appWindow.destroy();
+          } catch (error) {
+            allowWindowClose = false;
+            throw error;
+          }
+        },
+        async finishClose(closed) {
+          closeGuardRunning = false;
+          if (closed) return;
+          setBoxTransitionBusy(false);
+          if (workspaceReconcilePending) await reconcileWorkspaceAfterCloseCancellation();
+          if (!isWindowClosing()) installVisualizerRevisionWatchers();
+          renderTasks();
+        },
+      });
+    } catch (error) {
+      const failure = safeError(error);
+      setNotice(workspaceMessage, `程序未能关闭（${failure.code}）：${failure.message}`, "error");
     } finally {
-      closeGuardRunning = false;
-      if (!allowWindowClose) {
-        setBoxTransitionBusy(false);
-        if (workspaceReconcilePending) await reconcileWorkspaceAfterCloseCancellation();
-        if (!isWindowClosing()) installVisualizerRevisionWatchers();
-        renderTasks();
-      }
+      closeRequestRunning = false;
     }
   });
 }

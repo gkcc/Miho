@@ -78,22 +78,22 @@ test('window close owns the transition and late descriptor results cannot naviga
   assert.ok(descriptorAwait >= 0 && closingRecheck > descriptorAwait);
   assert.ok(flushRejection > closingRecheck && navigation > flushRejection);
 
-  const guardStart = close.indexOf('closeGuardRunning = true');
-  const transitionAcquire = close.indexOf('setBoxTransitionBusy(true)', guardStart);
-  const workspaceTransitionWait = close.indexOf('if (workspaceTransition) await workspaceTransition', transitionAcquire);
-  const taskStartWait = close.indexOf('if (taskStart) await taskStart', workspaceTransitionWait);
-  const activeTaskCheck = close.indexOf('if (hasActiveTask()', taskStartWait);
-  const workspaceReset = close.indexOf('if (workspaceReconcilePending)', activeTaskCheck);
-  const boxFlush = close.indexOf('ensureVisualizerBoxesSaved(["hsr", "zzz"], "关闭程序")');
-  const transitionRelease = close.indexOf('setBoxTransitionBusy(false)', boxFlush);
-  assert.ok(guardStart >= 0 && transitionAcquire > guardStart && boxFlush > transitionAcquire);
-  assert.ok(workspaceTransitionWait > transitionAcquire);
-  assert.ok(taskStartWait > workspaceTransitionWait && activeTaskCheck > taskStartWait);
-  assert.ok(workspaceReset > activeTaskCheck && boxFlush > workspaceReset);
-  assert.ok(transitionRelease > boxFlush);
+  assert.match(close, /coordinateDesktopClose\(\{/);
+  assert.match(close, /if \(allowWindowClose \|\| closeRequestRunning\) return;\s*closeRequestRunning = true/);
+  assert.match(close, /beginClose\(\) \{[\s\S]*?closeGuardRunning = true;[\s\S]*?setBoxTransitionBusy\(true\)/);
+  assert.match(close, /getWorkspaceTransition\(\) \{\s*return pendingWorkspaceTransition/);
+  assert.match(close, /getTaskStart\(\) \{\s*return pendingTaskStart/);
+  assert.match(close, /hasActiveTask,/);
+  assert.match(close, /shouldResetWorkspace\(\) \{\s*return workspaceReconcilePending/);
+  assert.match(close, /resetWorkspace\(\) \{\s*capabilitiesRequestGeneration \+= 1;\s*resetVisualizerFrames\(\)/);
+  assert.match(close, /flushBoxes\(\) \{\s*return ensureVisualizerBoxesSaved\(\["hsr", "zzz"\], "关闭程序"\)/);
+  assert.match(close, /persist: persistTaskHistory/);
+  assert.match(close, /allowWindowClose = true;[\s\S]*?await appWindow\.destroy\(\)/);
+  assert.match(close, /finishClose\(closed\)[\s\S]*?if \(closed\) return;[\s\S]*?setBoxTransitionBusy\(false\)/);
   assert.match(close, /uninstallVisualizerRevisionWatchers\(\)/);
   assert.match(close, /installVisualizerRevisionWatchers\(\)/);
   assert.match(close, /await reconcileWorkspaceAfterCloseCancellation\(\)/);
+  assert.match(close, /finally \{\s*closeRequestRunning = false/);
 });
 
 test('closing gates task launches and reconciles a workspace mutation before controls reopen', () => {
@@ -118,7 +118,25 @@ test('closing gates task launches and reconciles a workspace mutation before con
   assert.match(select, /workspaceSelectionUncertain = true;\s*const result = await invoke/);
   assert.match(select, /workspaceReconcilePending = true;\s*if \(isWindowClosing\(\)\) return/);
   assert.match(select, /finishWorkspaceTransition\(\)/);
-  assert.match(close, /if \(workspaceReconcilePending\) \{\s*capabilitiesRequestGeneration \+= 1;\s*resetVisualizerFrames\(\)/);
+  assert.match(close, /shouldResetWorkspace\(\) \{\s*return workspaceReconcilePending/);
+  assert.match(close, /resetWorkspace\(\) \{\s*capabilitiesRequestGeneration \+= 1;\s*resetVisualizerFrames\(\)/);
+});
+
+test('external links are ignored while closing or another Box transition owns the UI', () => {
+  const messages = section('window.addEventListener("message"', 'visualizerSection.append(');
+  const externalLink = messages.indexOf('event.data.schema_version === "miho-visualizer-external-link-v1"');
+  const closeGate = messages.indexOf('if (isWindowClosing() || boxTransitionBusy) return;', externalLink);
+  const open = messages.indexOf('invoke("open_external_https"', closeGate);
+
+  assert.ok(externalLink >= 0 && closeGate > externalLink && open > closeGate);
+  assert.ok(
+    messages.indexOf('miho-visualizer-box-flush-result-v1') < closeGate,
+    'Box flush responses must remain available while closing',
+  );
+  assert.ok(
+    messages.indexOf('miho-visualizer-ready-v1') < closeGate,
+    'ready handshakes must remain available while closing',
+  );
 });
 
 test('only a matching Visualizer ready handshake can complete iframe navigation', () => {
