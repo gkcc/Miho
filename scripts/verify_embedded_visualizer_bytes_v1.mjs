@@ -16,11 +16,27 @@ export const VISUALIZER_ASSET_RELATIVE_PATHS = Object.freeze([
   'crates/miho-core/assets/visualizer/solver.js',
 ]);
 
-export const DEFAULT_BINARY_RELATIVE_PATHS = Object.freeze([
-  'target/release/miho-desktop.exe',
-  'target/release/miho.exe',
-  'target/automation-no-window/release/miho.exe',
+export const PE_SUBSYSTEM_WINDOWS_GUI = 2;
+export const PE_SUBSYSTEM_WINDOWS_CUI = 3;
+
+export const DEFAULT_BINARY_SPECS = Object.freeze([
+  Object.freeze({
+    relativePath: 'target/release/miho-desktop.exe',
+    expectedSubsystem: PE_SUBSYSTEM_WINDOWS_GUI,
+  }),
+  Object.freeze({
+    relativePath: 'target/release/miho.exe',
+    expectedSubsystem: PE_SUBSYSTEM_WINDOWS_CUI,
+  }),
+  Object.freeze({
+    relativePath: 'target/automation-no-window/release/miho.exe',
+    expectedSubsystem: PE_SUBSYSTEM_WINDOWS_GUI,
+  }),
 ]);
+
+export const DEFAULT_BINARY_RELATIVE_PATHS = Object.freeze(
+  DEFAULT_BINARY_SPECS.map((spec) => spec.relativePath),
+);
 
 const USAGE = `Usage:
   node scripts/verify_embedded_visualizer_bytes_v1.mjs [options]
@@ -33,7 +49,98 @@ Options:
   --help            Show this help.
 
 The default binaries are:
-${DEFAULT_BINARY_RELATIVE_PATHS.map((entry) => `  ${entry}`).join('\n')}`;
+${DEFAULT_BINARY_SPECS.map(
+    (spec) => `  ${spec.relativePath} (PE subsystem ${spec.expectedSubsystem}: ${peSubsystemName(spec.expectedSubsystem)})`,
+  ).join('\n')}`;
+
+function invalidPe(binaryLabel, detail) {
+  return new Error(`Invalid PE image for ${binaryLabel}: ${detail}`);
+}
+
+export function peSubsystemName(subsystem) {
+  if (subsystem === PE_SUBSYSTEM_WINDOWS_GUI) return 'WINDOWS_GUI';
+  if (subsystem === PE_SUBSYSTEM_WINDOWS_CUI) return 'WINDOWS_CUI';
+  return `UNKNOWN(${subsystem})`;
+}
+
+export function parsePeSubsystem(binaryBytes, binaryLabel = '<binary>') {
+  if (!Buffer.isBuffer(binaryBytes)) {
+    throw new TypeError('binaryBytes must be a Buffer');
+  }
+  // IMAGE_DOS_HEADER ends at byte 0x40 and stores e_lfanew at 0x3c.
+  if (binaryBytes.length < 0x40) {
+    throw invalidPe(binaryLabel, 'DOS header is truncated');
+  }
+  if (binaryBytes.readUInt16LE(0) !== 0x5a4d) {
+    throw invalidPe(binaryLabel, 'DOS magic is not MZ');
+  }
+
+  const peOffset = binaryBytes.readUInt32LE(0x3c);
+  if (peOffset < 0x40) {
+    throw invalidPe(binaryLabel, `e_lfanew points inside the DOS header (${peOffset})`);
+  }
+  // The PE signature is followed by the fixed 20-byte COFF header.
+  const optionalHeaderOffset = peOffset + 4 + 20;
+  if (optionalHeaderOffset > binaryBytes.length) {
+    throw invalidPe(binaryLabel, `e_lfanew points beyond the complete PE/COFF header (${peOffset})`);
+  }
+  if (binaryBytes.readUInt32LE(peOffset) !== 0x00004550) {
+    throw invalidPe(binaryLabel, 'PE signature is not PE\\0\\0');
+  }
+
+  const optionalHeaderSize = binaryBytes.readUInt16LE(peOffset + 4 + 16);
+  // Subsystem is a two-byte field at offset 68 in both PE32 and PE32+.
+  const subsystemEnd = 68 + 2;
+  if (optionalHeaderSize < subsystemEnd) {
+    throw invalidPe(
+      binaryLabel,
+      `optional header is too small for Subsystem (${optionalHeaderSize} bytes)`,
+    );
+  }
+  if (optionalHeaderOffset + optionalHeaderSize > binaryBytes.length) {
+    throw invalidPe(binaryLabel, 'optional header is truncated');
+  }
+
+  const optionalMagic = binaryBytes.readUInt16LE(optionalHeaderOffset);
+  if (optionalMagic !== 0x010b && optionalMagic !== 0x020b) {
+    throw invalidPe(
+      binaryLabel,
+      `optional header magic is neither PE32 nor PE32+ (0x${optionalMagic.toString(16)})`,
+    );
+  }
+  return binaryBytes.readUInt16LE(optionalHeaderOffset + 68);
+}
+
+export function verifyPeSubsystem(binaryBytes, expectedSubsystem, binaryLabel = '<binary>') {
+  if (
+    expectedSubsystem !== PE_SUBSYSTEM_WINDOWS_GUI
+    && expectedSubsystem !== PE_SUBSYSTEM_WINDOWS_CUI
+  ) {
+    throw new RangeError(`unsupported expected PE subsystem: ${expectedSubsystem}`);
+  }
+  const actualSubsystem = parsePeSubsystem(binaryBytes, binaryLabel);
+  if (actualSubsystem !== expectedSubsystem) {
+    throw new Error(
+      `PE subsystem verification failed for ${binaryLabel}: expected ${expectedSubsystem} `
+      + `(${peSubsystemName(expectedSubsystem)}), found ${actualSubsystem} `
+      + `(${peSubsystemName(actualSubsystem)})`,
+    );
+  }
+  return actualSubsystem;
+}
+
+function normalizedPathIdentity(value) {
+  const normalized = path.normalize(path.resolve(value));
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+export function expectedPeSubsystemForBinaryPath(root, binaryPath) {
+  const binaryIdentity = normalizedPathIdentity(binaryPath);
+  const matched = DEFAULT_BINARY_SPECS.find(
+    (spec) => normalizedPathIdentity(path.resolve(root, spec.relativePath)) === binaryIdentity,
+  );
+  return matched?.expectedSubsystem ?? null;
+}
 
 export function countBufferOccurrences(haystack, needle) {
   if (!Buffer.isBuffer(haystack) || !Buffer.isBuffer(needle)) {
@@ -150,6 +257,14 @@ export function verifyBinaries({ root, binaryPaths }) {
       throw new Error(`Cannot read release binary ${binaryPath}: ${error.message}`, { cause: error });
     }
     verifyEmbeddedVisualizerBytes(binaryBytes, assets, binaryPath);
+    const expectedSubsystem = expectedPeSubsystemForBinaryPath(workspaceRoot, binaryPath);
+    if (expectedSubsystem === null) {
+      // Custom --binary overrides still have to be well-formed PE images. The
+      // exact GUI/CUI policy is defined only for the three default artifacts.
+      parsePeSubsystem(binaryBytes, binaryPath);
+    } else {
+      verifyPeSubsystem(binaryBytes, expectedSubsystem, binaryPath);
+    }
     results.push(binaryPath);
   }
   return results;
@@ -164,8 +279,13 @@ function runCli() {
 
   const verified = verifyBinaries(options);
   for (const binaryPath of verified) {
+    const expectedSubsystem = expectedPeSubsystemForBinaryPath(options.root, binaryPath);
+    const peSummary = expectedSubsystem === null
+      ? 'a valid PE header'
+      : `PE subsystem ${expectedSubsystem} (${peSubsystemName(expectedSubsystem)})`;
     process.stdout.write(
-      `Verified ${VISUALIZER_ASSET_RELATIVE_PATHS.length} Visualizer assets exactly once in ${binaryPath}\n`,
+      `Verified ${VISUALIZER_ASSET_RELATIVE_PATHS.length} Visualizer assets exactly once and `
+      + `${peSummary} in ${binaryPath}\n`,
     );
   }
 }

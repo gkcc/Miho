@@ -609,6 +609,14 @@
 - **关闭时序与外部干扰**：关闭协调顺序已抽成真实生产 helper，由 executable deferred-Promise 测试覆盖 workspace transition、task start、活动任务确认、必要 reset、双 Box flush、persist、destroy 和取消后的异步 reconcile。关闭或 Box transition 期间排队到达的 Visualizer 外链消息不再打开浏览器；flush-result 与 ready 回执仍继续放行。取消关闭后的重新同步完成前，重复关闭请求也由独立 request gate 拦截。
 - **验证与直接交付**：前端/推荐/关闭/字节门禁契约 89/89、Python 交付契约、TypeScript/Vite、diff check 与完整 `pnpm run tauri:build` 均通过；构建末尾对三份 release 产物各完成 7 项 exact-once 校验。安装版隐藏窗口真实启动、Visualizer 就绪及关闭均通过，进程退出 0、stdout/stderr 为空、调试端口与子进程清理完成，WindowsTerminal/OpenConsole 前后集合均为空。`D:\Miho Endgame\miho-desktop.exe` SHA-256 已更新为 `092EFB01E5C336F8E957495ADCA84EB2E97B451FEBF411C4A0C9A152550652E6`；普通 CLI `9AA139E7053650BBA2F6A9D36A6617F60C2A14B67290321A97059729A64E1180` 与无窗任务 generation `78262012A24EEFF068218BD2CB06AC08E7E90913726C1C4518837D0750CB6B50` 字节未变，无需切换自动化 owner。未进入 NSIS、portable 或旧安装器链。
 
+### 启动无黑框实装与双游戏更新健康可见化（2026-07-26，已交付）
+
+- **启动黑框闭环**：桌面与开始菜单快捷方式继续直接指向 WINDOWS_GUI 子系统的 `D:\Miho Endgame\miho-desktop.exe`；启动后自动化归属探针创建 PowerShell 时统一设置 `CREATE_NO_WINDOW`。普通 `miho.exe` 保留人工 CLI 的控制台语义，每日任务则使用独立 `automation-no-window` WINDOWS_GUI 产物，不再由启动检查或 09:30 定时更新唤起 Windows Terminal。
+- **启动与更新诊断**：双 Visualizer 使用 `initializing / ready / failed` 生命周期和固定失败码，iframe `load` 只用于诊断、不再冒充数据 ready；同 revision 失败停止重试，更新的排队 revision 仍可接续。桌面新增脱敏的双游戏更新健康状态，分别显示最近成功时间、本机产物校验与上游样本停更边界；严格 UTC 时间戳校验同时覆盖真实公历日期和闰年。
+- **数据语义**：ZZZ 的 `2026-07-19` 是终局统计采样，`2026-07-08` 是 Prydwen 榜单更新，来自不同来源；终局页继续逐模式显示主题、期次、周期和样本状态。HSR 本轮联网更新及本机 289 项产物校验均成功，但上游 `LvlUrArti/MocDataProcessed` 最新仍为 `4.3.2 / collect_date 2026-06-25`，因此旧样本属于上游未发布新数据，不是更新按钮或本机任务失效。
+- **验证与直接交付**：推荐/刷新/启动/字节门禁 Node 契约 120/120、desktop Rust 103/103、Python Visualizer/交付定点 9/9、PowerShell GUI contract、TypeScript/Vite、Rust fmt、`git diff --check` 与完整 `pnpm run tauri:build` 均通过，三份最终 EXE 的 7 项 Visualizer 原始字节各 exact-once。正式安装路径隐藏深测实际执行 `ZZZ → HSR → ZZZ`，启动状态 `ready`、更新健康 `healthy`、应用退出码 0、stdout/stderr 为空、调试端口关闭；连续轮询与收尾检查均未出现 WindowsTerminal/OpenConsole，HSR/ZZZ Box SHA-256 仍为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
+- **最终安装状态**：`D:\Miho Endgame\miho-desktop.exe` 与 release SHA-256 同为 `A47FAA9D58F8A798C2C535BBE329D6F1BCAB970E7663A657DD4A4DDA50579E63`（WINDOWS_GUI）；普通 CLI 为 `567941F81D9A4B402D98EC9C3D10209764475A9ED98B4F6204A5CFD5A3186A89`（CONSOLE）。owner-aware 事务 attempt `installer-0d0525877ec64531af09e1772403cb31` 对 HSR/ZZZ 均成功后，将任务切到无窗 generation `miho-0.1.0-6ef066a0de4f6ef912cb30cb9ea615575b766b3ecff6f34ec4ca08e0d82b02ed`；任务 Ready/Enabled、`LastTaskResult=0`、仅保留一个 generation，无 candidate/journal。未进入 NSIS、portable 或旧安装器链。
+
 ## 恢复入口
 
 - 项目状态：本文件。

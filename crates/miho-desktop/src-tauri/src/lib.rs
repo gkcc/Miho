@@ -657,6 +657,7 @@ pub fn run() {
             save_box_state,
             get_visualizer_url,
             tasks::get_capabilities,
+            tasks::get_update_health,
             tasks::select_workspace,
             tasks::start_task,
             tasks::start_export_task,

@@ -227,6 +227,14 @@ const HSR_HARNESS = String.raw`
     location.search = search;
     return postVisualizerReady();
   },
+  postInitializing(search) {
+    location.search = search;
+    return postVisualizerInitializing();
+  },
+  postFailed(search, code) {
+    location.search = search;
+    return postVisualizerFailed(code);
+  },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
   },
@@ -447,6 +455,14 @@ const ZZZ_HARNESS = String.raw`
     location.search = search;
     return postVisualizerReady();
   },
+  postInitializing(search) {
+    location.search = search;
+    return postVisualizerInitializing();
+  },
+  postFailed(search, code) {
+    location.search = search;
+    return postVisualizerFailed(code);
+  },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
   },
@@ -478,7 +494,7 @@ const ZZZ_HARNESS = String.raw`
 };
 `;
 
-function loadContract(appPath, harness, {desktopMode = false} = {}) {
+function loadContract(appPath, harness, {desktopMode = false, search = '', fetchImpl = null} = {}) {
   const storage = new Map();
   const parentMessages = [];
   const document = {
@@ -491,8 +507,8 @@ function loadContract(appPath, harness, {desktopMode = false} = {}) {
     console,
     __MIHO_DESKTOP__: desktopMode,
     document,
-    fetch: () => new Promise(() => {}),
-    location: {hash: '', href: 'http://localhost/', origin: 'http://localhost', search: ''},
+    fetch: fetchImpl ?? (() => new Promise(() => {})),
+    location: {hash: '', href: 'http://localhost/', origin: 'http://localhost', search},
     performance,
     setTimeout,
     clearTimeout,
@@ -2772,6 +2788,67 @@ test('desktop visualizers publish a revision-bound ready handshake only for a pa
 
   const browser = loadContract(HSR_APP, HSR_HARNESS);
   assert.equal(browser.postReady(`?revision=${revision}&navigation_id=hsr-1`), false);
+  assert.deepEqual(plain(browser.parentMessages()), []);
+});
+
+test('desktop visualizers publish bounded startup lifecycle messages without raw failures', async () => {
+  const revision = 'b'.repeat(64);
+  for (const [name, appPath, harness, navigationId] of [
+    ['HSR', HSR_APP, HSR_HARNESS, 'hsr-11'],
+    ['ZZZ', ZZZ_APP, ZZZ_HARNESS, 'zzz-13'],
+  ]) {
+    const search = `?revision=${revision}&navigation_id=${navigationId}`;
+    const boot = loadContract(appPath, harness, {desktopMode: true, search});
+    assert.deepEqual(plain(boot.parentMessages()), [{
+      schema_version: 'miho-visualizer-initializing-v1',
+      navigation_id: navigationId,
+      data_revision: revision,
+    }], `${name} did not announce startup before its pending data fetch`);
+
+    const failing = loadContract(appPath, harness, {
+      desktopMode: true,
+      search,
+      fetchImpl: () => Promise.reject(new Error('CANARY_SECRET_PATH')),
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(plain(failing.parentMessages()), [
+      {
+        schema_version: 'miho-visualizer-initializing-v1',
+        navigation_id: navigationId,
+        data_revision: revision,
+      },
+      {
+        schema_version: 'miho-visualizer-failed-v1',
+        navigation_id: navigationId,
+        data_revision: revision,
+        code: 'data_load_failed',
+      },
+    ], `${name} leaked or omitted its bounded startup failure`);
+    assert.doesNotMatch(JSON.stringify(failing.parentMessages()), /CANARY_SECRET_PATH/);
+
+    const api = loadContract(appPath, harness, {desktopMode: true});
+    assert.equal(api.postInitializing(search), true);
+    assert.equal(api.postFailed(search, 'raw secret path C:\\Users\\CANARY'), false);
+    assert.equal(api.postFailed(search, 'data_load_failed'), true);
+    assert.deepEqual(plain(api.parentMessages()), [
+      {
+        schema_version: 'miho-visualizer-initializing-v1',
+        navigation_id: navigationId,
+        data_revision: revision,
+      },
+      {
+        schema_version: 'miho-visualizer-failed-v1',
+        navigation_id: navigationId,
+        data_revision: revision,
+        code: 'data_load_failed',
+      },
+    ], `${name} startup lifecycle payload escaped its fixed protocol`);
+  }
+
+  const browser = loadContract(HSR_APP, HSR_HARNESS);
+  const search = `?revision=${revision}&navigation_id=hsr-1`;
+  assert.equal(browser.postInitializing(search), false);
+  assert.equal(browser.postFailed(search, 'data_load_failed'), false);
   assert.deepEqual(plain(browser.parentMessages()), []);
 });
 

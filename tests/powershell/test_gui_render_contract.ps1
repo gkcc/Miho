@@ -53,6 +53,9 @@ $validDom = [pscustomobject]@{
     brandText = "MIHO ENDGAME"
     appChildCount = 2
     visualizerLoaded = $true
+    visualizerStartupState = "ready"
+    visualizerStartupFailureCode = ""
+    visualizerStartupGame = "zzz"
     tauriInternals = $true
     bodyText = "MIHO ENDGAME workspace"
     neterror = $false
@@ -60,13 +63,69 @@ $validDom = [pscustomobject]@{
 if (-not (Test-MihoRenderedDomV1 -Dom $validDom)) {
     throw "GUI render contract rejected the production DOM"
 }
+
+$watchdogCases = @(
+    [pscustomobject]@{ requested = 30; expected = 45 },
+    [pscustomobject]@{ requested = 45; expected = 45 },
+    [pscustomobject]@{ requested = 90; expected = 90 }
+)
+foreach ($watchdogCase in $watchdogCases) {
+    $actualWatchdog = Resolve-MihoVisualizerStartupWatchdogSecondsV1 `
+        -RequestedSeconds ([int]$watchdogCase.requested)
+    if ($actualWatchdog -ne [int]$watchdogCase.expected) {
+        throw "GUI render startup watchdog changed $($watchdogCase.requested)->$actualWatchdog"
+    }
+}
+
+$fixedStartupFailureCodes = @(
+    "legacy_protocol_missing",
+    "data_load_failed",
+    "ready_handshake_rejected",
+    "ready_timeout"
+)
+foreach ($failureCode in $fixedStartupFailureCodes) {
+    foreach ($game in @("hsr", "zzz")) {
+        $failedDom = $validDom | Select-Object *
+        $failedDom.visualizerStartupState = "failed"
+        $failedDom.visualizerStartupFailureCode = $failureCode
+        $failedDom.visualizerStartupGame = $game
+        $failureMessage = ""
+        try {
+            $null = Test-MihoRenderedDomV1 -Dom $failedDom
+        }
+        catch {
+            $failureMessage = [string]$_.Exception.Message
+        }
+        $expectedFailureMessage = "visualizer_startup_failed code=$failureCode game=$game"
+        if ($failureMessage -cne $expectedFailureMessage -or
+            -not (Test-MihoFixedVisualizerStartupFailureMessageV1 -Message $failureMessage)) {
+            throw "GUI render startup failure changed: expected=$expectedFailureMessage actual=$failureMessage"
+        }
+    }
+}
+
+$unknownFailureDom = $validDom | Select-Object *
+$unknownFailureDom.visualizerStartupState = "failed"
+$unknownFailureDom.visualizerStartupFailureCode = "future_failure_code"
+$unknownFailureReturned = $null
+$unknownFailureThrew = $false
+try { $unknownFailureReturned = Test-MihoRenderedDomV1 -Dom $unknownFailureDom }
+catch { $unknownFailureThrew = $true }
+if ($unknownFailureThrew -or $unknownFailureReturned -ne $false -or
+    (Test-MihoFixedVisualizerStartupFailureMessageV1 `
+        -Message "visualizer_startup_failed code=future_failure_code game=zzz")) {
+    throw "GUI render treated an unknown startup code as a fixed terminal failure"
+}
+
 $invalidDom = @(
-    [pscustomobject]@{ href = "chrome-error://chromewebdata/"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; tauriInternals = $true; bodyText = "ERR_FILE_NOT_FOUND"; neterror = $true },
-    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = ""; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
-    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = ""; appChildCount = 0; visualizerLoaded = $true; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
-    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $false; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
-    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; tauriInternals = $false; bodyText = "workspace"; neterror = $false },
-    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; tauriInternals = $true; bodyText = "Microsoft Edge ERR_FILE_NOT_FOUND"; neterror = $false }
+    [pscustomobject]@{ href = "chrome-error://chromewebdata/"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; visualizerStartupState = "ready"; visualizerStartupFailureCode = ""; visualizerStartupGame = "zzz"; tauriInternals = $true; bodyText = "ERR_FILE_NOT_FOUND"; neterror = $true },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = ""; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; visualizerStartupState = "ready"; visualizerStartupFailureCode = ""; visualizerStartupGame = "zzz"; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = ""; appChildCount = 0; visualizerLoaded = $true; visualizerStartupState = "ready"; visualizerStartupFailureCode = ""; visualizerStartupGame = "zzz"; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $false; visualizerStartupState = "ready"; visualizerStartupFailureCode = ""; visualizerStartupGame = "zzz"; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; visualizerStartupState = "pending"; visualizerStartupFailureCode = ""; visualizerStartupGame = "zzz"; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; visualizerStartupState = "ready"; visualizerStartupFailureCode = ""; visualizerStartupGame = "future-game"; tauriInternals = $true; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; visualizerStartupState = "ready"; visualizerStartupFailureCode = ""; visualizerStartupGame = "zzz"; tauriInternals = $false; bodyText = "workspace"; neterror = $false },
+    [pscustomobject]@{ href = "https://tauri.localhost/#miho-app-ready-v1"; readyState = "complete"; ready = "v1"; brandText = "MIHO ENDGAME"; appChildCount = 2; visualizerLoaded = $true; visualizerStartupState = "ready"; visualizerStartupFailureCode = ""; visualizerStartupGame = "zzz"; tauriInternals = $true; bodyText = "Microsoft Edge ERR_FILE_NOT_FOUND"; neterror = $false }
 )
 foreach ($dom in $invalidDom) {
     if (Test-MihoRenderedDomV1 -Dom $dom) {
@@ -251,6 +310,10 @@ if ($scriptSource -notmatch 'Desktop process wrote unexpected stdout/stderr afte
     $scriptSource -notmatch 'webview_data_isolated = \(\$Mode -ceq "Portable"\)' -or
     $scriptSource -notmatch 'webview_data_scope = ' -or
     $scriptSource -notmatch 'webview_user_data_directory_bound = \$true' -or
+    $scriptSource -notmatch 'visualizer_startup_watchdog_seconds = \[int\]\$effectiveVisualizerStartupWatchdogSeconds' -or
+    $scriptSource -notmatch 'visualizerStartupState:document\.documentElement' -or
+    $scriptSource -notmatch 'visualizerStartupFailureCode:document\.documentElement' -or
+    $scriptSource -notmatch 'visualizerStartupGame:document\.documentElement' -or
     $scriptSource -notmatch 'Set-MihoGuiRenderChildEnvironmentV1 -StartInfo \$startInfo -DebugPort \$port' -or
     $scriptSource -notmatch 'Assert-MihoBoundWebViewUserDataDirectoryV1' -or
     $scriptSource -notmatch 'Get-MihoExitedProcessDiagnosticV1 -Process \$process -WaitMilliseconds 250' -or

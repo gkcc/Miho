@@ -4,7 +4,7 @@ param(
     [string]$Executable,
 
     [ValidateRange(5, 120)]
-    [int]$TimeoutSeconds = 20,
+    [int]$TimeoutSeconds = 45,
 
     [ValidateSet("Installed", "Portable")]
     [string]$Mode = "Installed",
@@ -27,6 +27,41 @@ param(
 
 $ErrorActionPreference = "Stop"
 $readyUrl = "https://tauri.localhost/#miho-app-ready-v1"
+$visualizerStartupFailureCodes = @(
+    "legacy_protocol_missing",
+    "data_load_failed",
+    "ready_handshake_rejected",
+    "ready_timeout"
+)
+
+function Resolve-MihoVisualizerStartupWatchdogSecondsV1 {
+    param([Parameter(Mandatory = $true)][ValidateRange(5, 120)][int]$RequestedSeconds)
+
+    return [Math]::Max(45, $RequestedSeconds)
+}
+
+function Test-MihoFixedVisualizerStartupFailureCodeV1 {
+    param([AllowEmptyString()][string]$Code)
+
+    return $visualizerStartupFailureCodes -ccontains $Code
+}
+
+function Assert-MihoVisualizerStartupDidNotFailV1 {
+    param([Parameter(Mandatory = $true)]$Dom)
+
+    $code = [string]$Dom.visualizerStartupFailureCode
+    if (Test-MihoFixedVisualizerStartupFailureCodeV1 -Code $code) {
+        throw ("visualizer_startup_failed code={0} game={1}" -f
+            $code,
+            [string]$Dom.visualizerStartupGame)
+    }
+}
+
+function Test-MihoFixedVisualizerStartupFailureMessageV1 {
+    param([AllowEmptyString()][string]$Message)
+
+    return $Message -cmatch '^visualizer_startup_failed code=(?:legacy_protocol_missing|data_load_failed|ready_handshake_rejected|ready_timeout) game=[^\r\n]*$'
+}
 
 function Get-MihoProbeFileSha256V1 {
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
@@ -91,12 +126,17 @@ function Test-MihoRenderedTargetV1 {
 function Test-MihoRenderedDomV1 {
     param([Parameter(Mandatory = $true)]$Dom)
 
+    Assert-MihoVisualizerStartupDidNotFailV1 -Dom $Dom
+
     if ([string]$Dom.href -cne $readyUrl -or
         [string]$Dom.readyState -cne "complete" -or
         [string]$Dom.ready -cne "v1" -or
         [string]$Dom.brandText -cne "MIHO ENDGAME" -or
         [int]$Dom.appChildCount -lt 2 -or
         [bool]$Dom.visualizerLoaded -ne $true -or
+        [string]$Dom.visualizerStartupState -cne "ready" -or
+        -not [string]::IsNullOrEmpty([string]$Dom.visualizerStartupFailureCode) -or
+        [string]$Dom.visualizerStartupGame -cnotin @("hsr", "zzz") -or
         [bool]$Dom.tauriInternals -ne $true -or
         [bool]$Dom.neterror) {
         return $false
@@ -199,7 +239,7 @@ function Invoke-MihoCdpDomProbeV1 {
     $cancellation = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(10))
     try {
         $null = $socket.ConnectAsync([Uri]$webSocketUrl, $cancellation.Token).GetAwaiter().GetResult()
-        $expression = "(()=>({href:location.href,readyState:document.readyState,ready:document.documentElement?.dataset?.mihoAppReady??'',brandText:document.querySelector('.brand .eyebrow')?.textContent??'',appChildCount:document.querySelector('#app')?.childElementCount??0,visualizerLoaded:[...document.querySelectorAll('iframe.visualizer-frame')].some(frame=>!!frame.getAttribute('src')&&frame.dataset.loaded==='true'),tauriInternals:typeof window.__TAURI_INTERNALS__==='object',bodyText:(document.body?.innerText??'').slice(0,2000),neterror:!!document.querySelector('body.neterror')}))()"
+        $expression = "(()=>({href:location.href,readyState:document.readyState,ready:document.documentElement?.dataset?.mihoAppReady??'',brandText:document.querySelector('.brand .eyebrow')?.textContent??'',appChildCount:document.querySelector('#app')?.childElementCount??0,visualizerLoaded:[...document.querySelectorAll('iframe.visualizer-frame')].some(frame=>!!frame.getAttribute('src')&&frame.dataset.loaded==='true'),visualizerStartupState:document.documentElement?.dataset?.visualizerStartupState??'',visualizerStartupFailureCode:document.documentElement?.dataset?.visualizerStartupFailureCode??'',visualizerStartupGame:document.documentElement?.dataset?.visualizerStartupGame??'',tauriInternals:typeof window.__TAURI_INTERNALS__==='object',bodyText:(document.body?.innerText??'').slice(0,2000),neterror:!!document.querySelector('body.neterror')}))()"
         $command = @{
             id = 17
             method = "Runtime.evaluate"
@@ -555,6 +595,8 @@ if ($env:MIHO_GUI_RENDER_TEST_DEFINE_ONLY_V1 -ceq "1") {
     return
 }
 
+$effectiveVisualizerStartupWatchdogSeconds = Resolve-MihoVisualizerStartupWatchdogSecondsV1 `
+    -RequestedSeconds $TimeoutSeconds
 $fullExecutable = [System.IO.Path]::GetFullPath($Executable)
 $executableItem = Get-Item -LiteralPath $fullExecutable -Force -ErrorAction Stop
 if ($executableItem.PSIsContainer -or
@@ -658,7 +700,7 @@ try {
     $rootProcessId = [int]$process.Id
     $rootStartTicks = [int64]$process.StartTime.ToUniversalTime().Ticks
     $rootProcessName = [string]$process.ProcessName
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $deadline = [DateTime]::UtcNow.AddSeconds($effectiveVisualizerStartupWatchdogSeconds)
     do {
         $earlyExit = Get-MihoExitedProcessDiagnosticV1 -Process $process
         if ($null -ne $earlyExit) {
@@ -714,11 +756,19 @@ try {
                     }
                 }
                 catch {
+                    if (Test-MihoFixedVisualizerStartupFailureMessageV1 `
+                            -Message ([string]$_.Exception.Message)) {
+                        throw
+                    }
                     $lastCdpError = $_.Exception.Message
                 }
             }
         }
         catch {
+            if (Test-MihoFixedVisualizerStartupFailureMessageV1 `
+                    -Message ([string]$_.Exception.Message)) {
+                throw
+            }
             $lastTargets = @()
             $lastCdpError = $_.Exception.Message
         }
@@ -871,6 +921,10 @@ try {
         dom_brand = [string]$renderedDom.brandText
         dom_app_child_count = [int]$renderedDom.appChildCount
         visualizer_loaded_before_close = [bool]$renderedDom.visualizerLoaded
+        visualizer_startup_state = [string]$renderedDom.visualizerStartupState
+        visualizer_startup_failure_code = [string]$renderedDom.visualizerStartupFailureCode
+        visualizer_startup_game = [string]$renderedDom.visualizerStartupGame
+        visualizer_startup_watchdog_seconds = [int]$effectiveVisualizerStartupWatchdogSeconds
         tauri_internals = [bool]$renderedDom.tauriInternals
         error_page_rejected = $true
         minimum_alive_seconds = 5

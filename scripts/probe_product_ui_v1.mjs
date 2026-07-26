@@ -3,6 +3,12 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import {
+  isVisualizerStartupFailureError,
+  throwIfVisualizerStartupFailed,
+  visualizerStartupStageReady,
+  waitForVisualizerStartupStage,
+} from "./visualizer_startup_probe_v1.mjs";
 
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
@@ -39,7 +45,7 @@ const expectedAnalysisModes = {
   hsr: ["moc", "pf", "as", "aa"],
   zzz: ["sd", "da"],
 };
-const timeoutMs = Number(args.get("timeout-ms") ?? "30000");
+const timeoutMs = Number(args.get("timeout-ms") ?? "45000");
 const runUpdatesValue = args.get("run-updates") ?? "false";
 const runUpdates = runUpdatesValue === "true";
 const updateTimeoutMs = Number(args.get("update-timeout-ms") ?? "600000");
@@ -85,8 +91,8 @@ for (const game of ["hsr", "zzz"]) {
     throw new Error(`--expected-${game}-banner-names must match the expected banner count`);
   }
 }
-if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 5000 || timeoutMs > 120000) {
-  throw new Error("--timeout-ms must be an integer between 5000 and 120000");
+if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 45000 || timeoutMs > 120000) {
+  throw new Error("--timeout-ms must be an integer between 45000 and 120000");
 }
 if (runUpdatesValue !== "true" && runUpdatesValue !== "false") {
   throw new Error("--run-updates must be true or false");
@@ -184,6 +190,7 @@ async function waitFor(description, probe, waitTimeoutMs = timeoutMs) {
       const value = await probe();
       if (value) return value;
     } catch (error) {
+      if (isVisualizerStartupFailureError(error)) throw error;
       lastError = error;
     }
     await delay(150);
@@ -211,13 +218,26 @@ const outerExpression = `(() => {
   const activeFrames = frames.filter((candidate) => !candidate.hidden);
   const frame = activeFrames[0];
   const utilities = document.querySelector('details.utilities');
+  const updateHealthPanel = document.querySelector('.update-health');
+  const updateHealthState = ['loading', 'healthy', 'warning', 'busy', 'error']
+    .find((value) => updateHealthPanel?.classList.contains(value)) ?? '';
   const activeGame = [...document.querySelectorAll('.game-button')]
     .find((button) => button.getAttribute('aria-pressed') === 'true');
   return {
     href: location.href,
     readyState: document.readyState,
     ready: document.documentElement.dataset.mihoAppReady ?? '',
+    visualizerStartupState: document.documentElement.dataset.visualizerStartupState ?? '',
+    visualizerStartupFailureCode: document.documentElement.dataset.visualizerStartupFailureCode ?? '',
+    visualizerStartupGame: document.documentElement.dataset.visualizerStartupGame ?? '',
     brand: document.querySelector('.brand .eyebrow')?.textContent?.trim() ?? '',
+    updateHealthVisible: visible(updateHealthPanel),
+    updateHealthState,
+    updateHealthBadge: updateHealthPanel?.querySelector('.update-health-badge')?.textContent?.trim() ?? '',
+    updateHealthSummary: updateHealthPanel?.querySelector('.update-health-summary')?.textContent?.trim() ?? '',
+    updateHealthDetail: updateHealthPanel?.querySelector('.update-health-detail')?.textContent?.trim() ?? '',
+    updateHealthGames: [...(updateHealthPanel?.querySelectorAll('.update-health-game') ?? [])]
+      .map((item) => item.textContent?.trim() ?? ''),
     firstPanel: document.querySelector('main.dashboard')?.firstElementChild?.className ?? '',
     visualizerTitle: document.querySelector('.visualizer-panel h2')?.textContent?.trim() ?? '',
     frameCount: frames.length,
@@ -551,6 +571,22 @@ async function evaluate(contextId, expression, sessionId = undefined, options = 
   return result.result?.value;
 }
 
+async function outerSnapshot(topId) {
+  const snapshot = await evaluate(topId, outerExpression);
+  throwIfVisualizerStartupFailed(snapshot);
+  return snapshot;
+}
+
+function waitForDesktopVisualizerStage(topId, game, description, accept) {
+  return waitForVisualizerStartupStage({
+    description,
+    game,
+    timeoutMs,
+    probe: () => evaluate(topId, outerExpression),
+    accept,
+  });
+}
+
 async function activeFrameContext(game) {
   const expectedPath = `/${game}/index.html`;
   return waitFor(`${game} Visualizer frame`, async () => {
@@ -636,7 +672,18 @@ function verifyOuter(snapshot, game, expectedPage = "box") {
   const gameLabel = game === "hsr" ? "崩坏：星穹铁道" : "绝区零";
   assert(snapshot.href === "https://tauri.localhost/#miho-app-ready-v1", "desktop URL is not the production ready URL", snapshot);
   assert(snapshot.readyState === "complete" && snapshot.ready === "v1", "desktop ready sentinel is absent", snapshot);
+  assert(visualizerStartupStageReady(snapshot, game), "desktop Visualizer startup diagnostic is not ready for the selected game", snapshot);
   assert(snapshot.brand === "MIHO ENDGAME", "desktop brand is absent", snapshot);
+  assert(automaticUpdateHealthReady(snapshot), "automatic update health did not reach a verified state", snapshot);
+  assert(snapshot.updateHealthVisible, "automatic update health is not visible above the Visualizer", snapshot);
+  assert(snapshot.updateHealthSummary.includes("本机产物校验通过"), "automatic update health lost artifact-integrity evidence", snapshot);
+  assert(snapshot.updateHealthDetail.includes("上游尚未发布新样本")
+    && snapshot.updateHealthDetail.includes("不等于本机更新失败"),
+  "automatic update health does not distinguish upstream staleness from a local failure", snapshot);
+  assert(snapshot.updateHealthGames.length === 2
+    && snapshot.updateHealthGames.some((value) => value.includes("HSR 最近成功"))
+    && snapshot.updateHealthGames.some((value) => value.includes("ZZZ 最近成功")),
+  "automatic update health does not show both per-game success times", snapshot);
   assert(snapshot.firstPanel.includes("visualizer-panel"), "Visualizer is not the first product panel", snapshot);
   assert(snapshot.visualizerTitle.includes(gameLabel) && snapshot.visualizerTitle.includes("我的 Box"), "Visualizer title does not describe the selected Box", snapshot);
   assert(snapshot.frameCount === 2 && snapshot.activeFrameCount === 1, "desktop does not retain exactly two Visualizer frames with one active", snapshot);
@@ -650,6 +697,10 @@ function verifyOuter(snapshot, game, expectedPage = "box") {
   assert(snapshot.utilitiesSummary === "更新数据、生成报告与设置", "advanced utilities do not use the customer-facing label", snapshot);
   assert(snapshot.visibleTaskIds === 0, "technical task identifiers are visible on the main page", snapshot);
   assert(snapshot.activeGame === gameLabel, "game switch did not update the active game", snapshot);
+}
+
+function automaticUpdateHealthReady(snapshot) {
+  return snapshot?.updateHealthState === "healthy" || snapshot?.updateHealthState === "warning";
 }
 
 function sha256(bytes) {
@@ -1993,10 +2044,10 @@ function verifyBoxProtection(before, after, game) {
 
 async function ensureActiveGame(topId, game) {
   const label = game === "hsr" ? "崩坏：星穹铁道" : "绝区零";
-  const current = await evaluate(topId, outerExpression);
+  const current = await outerSnapshot(topId);
   if (current?.activeGame !== label) await switchGame(topId, game);
   return waitFor(`${game} active desktop frame before update`, async () => {
-    const snapshot = await evaluate(topId, outerExpression);
+    const snapshot = await outerSnapshot(topId);
     return snapshot?.frameGame === game && snapshot?.frameLoaded ? snapshot : null;
   });
 }
@@ -2072,7 +2123,7 @@ async function verifyPublicDataUpdate(topId, game) {
   const beforeBanner = await switchProductPage(beforeContext, game, "banner");
   assert(beforeBanner.statePage === "banner", `${game} could not open the banner page before updating`, beforeBanner);
   const beforeOuter = await waitFor(`${game} banner page bridge before public-data update`, async () => {
-    const snapshot = await evaluate(topId, outerExpression);
+    const snapshot = await outerSnapshot(topId);
     return snapshot?.frameGame === game && snapshot?.framePage === "banner" ? snapshot : null;
   });
   assert(/^[a-f0-9]{64}$/u.test(beforeOuter.frameDataRevision), `${game} pre-update revision is invalid`, beforeOuter);
@@ -2084,7 +2135,7 @@ async function verifyPublicDataUpdate(topId, game) {
       terminal: terminalDescriptor.data_revision,
     });
   const afterOuter = await waitFor(`${game} authoritative Visualizer revision after public-data update`, async () => {
-    const snapshot = await evaluate(topId, outerExpression);
+    const snapshot = await outerSnapshot(topId);
     return snapshot?.frameGame === game
       && snapshot?.frameLoaded
       && snapshot?.frameSrc.includes(`/${game}/index.html`)
@@ -2229,10 +2280,10 @@ try {
     return true;
   })()`));
 
-  const initialOuter = await waitFor("initial ZZZ desktop shell", async () => {
-    const value = await evaluate(top.id, outerExpression);
-    return value.frameLoaded && value.frameSrc.includes("/zzz/index.html") && value.frameSrc.endsWith("#box") ? value : null;
-  });
+  const initialOuter = await waitForDesktopVisualizerStage(top.id, "zzz", "initial ZZZ desktop shell", (value) => (
+    value.frameLoaded && value.frameSrc.includes("/zzz/index.html") && value.frameSrc.endsWith("#box")
+      && automaticUpdateHealthReady(value)
+  ));
   verifyOuter(initialOuter, "zzz");
   const zzzInitial = await productSnapshot("zzz");
   verifyProduct(zzzInitial, "zzz");
@@ -2270,10 +2321,10 @@ try {
   });
 
   await switchGame(top.id, "hsr");
-  const hsrOuter = await waitFor("HSR desktop shell", async () => {
-    const value = await evaluate(top.id, outerExpression);
-    return value.frameLoaded && value.frameSrc.includes("/hsr/index.html") && value.frameSrc.endsWith("#box") ? value : null;
-  });
+  const hsrOuter = await waitForDesktopVisualizerStage(top.id, "hsr", "HSR desktop shell", (value) => (
+    value.frameLoaded && value.frameSrc.includes("/hsr/index.html") && value.frameSrc.endsWith("#box")
+      && automaticUpdateHealthReady(value)
+  ));
   verifyOuter(hsrOuter, "hsr");
   const hsrProduct = await productSnapshot("hsr");
   verifyProduct(hsrProduct, "hsr");
@@ -2298,10 +2349,10 @@ try {
   receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxBatchPreview: hsrBoxBatchPreview, boxExport: hsrBoxExport, recommender: hsrRecommender, searchAndLock: hsrSearchAndLock, recommenderLayout: hsrRecommenderLayout, analyses: hsrAnalyses, banner: hsrBanner });
 
   await switchGame(top.id, "zzz");
-  const zzzReturnOuter = await waitFor("returned ZZZ desktop shell", async () => {
-    const value = await evaluate(top.id, outerExpression);
-    return value.frameLoaded && value.frameSrc.includes("/zzz/index.html") && value.frameSrc.endsWith("#box") ? value : null;
-  });
+  const zzzReturnOuter = await waitForDesktopVisualizerStage(top.id, "zzz", "returned ZZZ desktop shell", (value) => (
+    value.frameLoaded && value.frameSrc.includes("/zzz/index.html") && value.frameSrc.endsWith("#box")
+      && automaticUpdateHealthReady(value)
+  ));
   verifyOuter(zzzReturnOuter, "zzz", "banner");
   assert(zzzReturnOuter.frameProbeId === initialOuter.frameProbeId,
     "ZZZ Visualizer iframe node was replaced across game switches", { initialOuter, zzzReturnOuter });
@@ -2342,6 +2393,13 @@ try {
   receipt.boxFlush = await verifyBoxFlushBridges(top.id);
 
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
+} catch (error) {
+  if (isVisualizerStartupFailureError(error)) {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  } else {
+    throw error;
+  }
 } finally {
   session.close();
 }

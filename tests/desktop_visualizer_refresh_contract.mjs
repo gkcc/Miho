@@ -11,6 +11,7 @@ import {
 } from '../crates/miho-desktop/src/visualizer-refresh-state.js';
 
 const source = readFileSync(new URL('../crates/miho-desktop/src/main.ts', import.meta.url), 'utf8');
+const styles = readFileSync(new URL('../crates/miho-desktop/src/styles.css', import.meta.url), 'utf8');
 
 function section(start, end) {
   const startIndex = source.indexOf(start);
@@ -24,8 +25,96 @@ test('workspace refresh saves and synchronizes both game visualizers', () => {
   const refresh = section('async function refreshAll()', 'async function installWindowCloseHandler()');
 
   assert.match(refresh, /ensureVisualizerBoxesSaved\(GAMES, "刷新页面"\)/);
+  assert.match(refresh, /invalidateUpdateHealth\("正在刷新当前工作区的自动更新记录…"\)/);
+  assert.match(refresh, /refreshUpdateHealth\(\)/);
   assert.match(refresh, /for \(const targetGame of GAMES\) markVisualizerDirty\(targetGame, false\)/);
   assert.match(refresh, /GAMES\.map\(\(targetGame\) => loadVisualizer\(false, targetGame\)\)/);
+});
+
+test('automatic update health is always visible above the Visualizer and adapts on narrow screens', () => {
+  const setup = section('const visualizerSection =', 'const utilities =');
+  const panel = setup.indexOf('const updateHealthPanel = element("aside", "update-health loading")');
+  const append = setup.indexOf('visualizerSection.append(');
+  const appendedPanel = setup.indexOf('updateHealthPanel,', append);
+  const appendedMessage = setup.indexOf('visualizerMessage,', append);
+  const appendedFrames = setup.indexOf('...[...visualizerFrames.values()]', append);
+
+  assert.ok(panel >= 0 && append > panel);
+  assert.ok(appendedPanel > append && appendedMessage > appendedPanel && appendedFrames > appendedMessage);
+  assert.match(setup, /aria-label", "自动更新健康状态"/);
+  assert.match(setup, /aria-live", "polite"/);
+  assert.match(setup, /正在读取最近自动更新记录…/);
+  assert.doesNotMatch(section('const utilities =', 'main.append('), /updateHealthPanel/);
+
+  assert.match(styles, /\.update-health \{[\s\S]*?flex:\s*0 0 auto/);
+  assert.match(styles, /\.update-health\.healthy/);
+  assert.match(styles, /\.update-health\.warning, \.update-health\.busy/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.update-health-copy, \.update-health-games/);
+});
+
+test('update health validates native responses and binds late results to request and workspace generations', () => {
+  const request = section('async function refreshUpdateHealth()', 'function updateWorkspaceControls()');
+  const parser = section('function backendUpdateHealth(', 'function isTaskStatus(');
+  const close = section('async function installWindowCloseHandler()', 'window.addEventListener("beforeunload"');
+
+  assert.match(request, /const workspaceId = capabilities\?\.workspace\.workspace_id \?\? ""/);
+  assert.match(request, /const request = \+\+updateHealthRequestGeneration/);
+  assert.match(request, /await invoke<unknown>\("get_update_health"\)/);
+  assert.equal((request.match(/request !== updateHealthRequestGeneration/g) ?? []).length, 2);
+  assert.equal((request.match(/workspaceId !== \(capabilities\?\.workspace\.workspace_id \?\? ""\)/g) ?? []).length, 2);
+  assert.equal((request.match(/isWindowClosing\(\)/g) ?? []).length >= 3, true);
+  assert.match(request, /health\.workspace_id !== workspaceId/);
+
+  assert.match(parser, /miho-desktop-update-health-v1/);
+  assert.match(parser, /"schema_version", "workspace_id", "healthy", "checked_games", "games", "retryable"/);
+  assert.match(parser, /hasExactKeys\(value, expectedKeys\)/);
+  assert.match(parser, /GAMES\.every\(\(targetGame\) => games\.some/);
+  assert.match(close, /beginClose\(\) \{[\s\S]*?updateHealthRequestGeneration \+= 1/);
+  assert.match(close, /resetWorkspace\(\) \{[\s\S]*?updateHealthRequestGeneration \+= 1;[\s\S]*?resetVisualizerFrames\(\)/);
+  assert.match(close, /finishClose\(closed\)[\s\S]*?if \(!isWindowClosing\(\)\) \{[\s\S]*?await refreshUpdateHealth\(\)/);
+});
+
+test('update health explains artifact integrity, per-game success times, staleness, busy workspaces and retry action', () => {
+  const rendering = section('function setUpdateHealthView(', 'async function refreshUpdateHealth()');
+
+  assert.match(source, /const UPDATE_HEALTH_STALE_AFTER_MS = 36 \* 60 \* 60 \* 1_000/);
+  assert.match(rendering, /本机产物校验通过/);
+  assert.match(rendering, /\$\{gameShortLabel\(targetGame\)\} 最近成功/);
+  assert.match(rendering, /return targetGame === "hsr" \? "HSR" : "ZZZ"/);
+  assert.match(rendering, /计划任务可能未运行/);
+  assert.match(rendering, /上游尚未发布新样本，不等于本机更新失败/);
+  assert.match(rendering, /workspace\.busy/);
+  assert.match(rendering, /workspace\.write_busy/);
+  assert.match(rendering, /busy\|locked\|in_progress\|already_running/);
+  assert.match(rendering, /数据正在更新，完成后会自动重新检查/);
+  assert.match(rendering, /可以重试：建议稍后点击刷新/);
+  assert.match(rendering, /需要修正后再重试/);
+  assert.match(rendering, /desktop\.update_health_failed/);
+  assert.match(rendering, /\$\{publicCode\}/);
+  assert.match(source, /desktop\.update_health_invalid_response/);
+  assert.match(source, /desktop\.update_health_workspace_mismatch/);
+});
+
+test('update health refreshes on meaningful lifecycle events without hashing every stable focus check', () => {
+  const reloadButton = section('const reloadVisualizerButton', 'visualizerHeading.append(');
+  const revisions = section('async function checkVisualizerRevisions()', 'function handleWindowFocus()');
+  const focusWatchers = section('function handleWindowFocus()', 'function setNotice(');
+  const reloadWorkspace = section('async function reloadSelectedWorkspaceState()', 'async function reconcileWorkspaceAfterCloseCancellation()');
+  const taskQuery = section('async function queryTask(', 'async function refreshTasks()');
+  const taskRefresh = section('async function refreshTasks()', 'async function cancelTask(');
+
+  assert.match(reloadButton, /Promise\.all\(\[loadVisualizer\(true\), refreshUpdateHealth\(\)\]\)/);
+  assert.match(reloadWorkspace, /invalidateUpdateHealth\("正在读取当前工作区的自动更新记录…"\)/);
+  assert.match(reloadWorkspace, /refreshTasks\(\), loadVisualizer\(false\), refreshUpdateHealth\(\)/);
+  assert.match(revisions, /const previousObservedRevision = observedVisualizerRevisions\.get\(targetGame\)/);
+  assert.match(revisions, /previousObservedRevision !== descriptor\.data_revision/);
+  assert.match(revisions, /if \(observedRevisionChanged\) await refreshUpdateHealth\(\)/);
+  assert.equal((revisions.match(/refreshUpdateHealth\(\)/g) ?? []).length, 1);
+  assert.doesNotMatch(focusWatchers, /refreshUpdateHealth\(\)/);
+  assert.match(taskQuery, /TERMINAL_STATUSES\.has\(snapshot\.status\)/);
+  assert.match(taskQuery, /updateHealthRefreshedTaskIds\.add\(snapshot\.task_id\);\s*await refreshUpdateHealth\(\)/);
+  assert.match(taskRefresh, /!TERMINAL_STATUSES\.has\(previous\.status\)[\s\S]*?TERMINAL_STATUSES\.has\(snapshot\.status\)/);
+  assert.match(taskRefresh, /if \(updateHealthAfterTerminalExport\) await refreshUpdateHealth\(\)/);
 });
 
 test('revision watchers check both games without navigating a stable revision', () => {
@@ -85,7 +174,7 @@ test('window close owns the transition and late descriptor results cannot naviga
   assert.match(close, /getTaskStart\(\) \{\s*return pendingTaskStart/);
   assert.match(close, /hasActiveTask,/);
   assert.match(close, /shouldResetWorkspace\(\) \{\s*return workspaceReconcilePending/);
-  assert.match(close, /resetWorkspace\(\) \{\s*capabilitiesRequestGeneration \+= 1;\s*resetVisualizerFrames\(\)/);
+  assert.match(close, /resetWorkspace\(\) \{\s*capabilitiesRequestGeneration \+= 1;\s*updateHealthRequestGeneration \+= 1;\s*resetVisualizerFrames\(\)/);
   assert.match(close, /flushBoxes\(\) \{\s*return ensureVisualizerBoxesSaved\(\["hsr", "zzz"\], "关闭程序"\)/);
   assert.match(close, /persist: persistTaskHistory/);
   assert.match(close, /allowWindowClose = true;[\s\S]*?await appWindow\.destroy\(\)/);
@@ -113,13 +202,13 @@ test('closing gates task launches and reconciles a workspace mutation before con
   assert.match(unload, /hasActiveTask\(\) \|\| taskBusy \|\| pendingTaskStart !== null/);
 
   assert.match(reloadWorkspace, /const capabilitiesReady = await refreshCapabilities\(\)/);
-  assert.match(reloadWorkspace, /if \(!capabilitiesReady \|\| isWindowClosing\(\)\) return false/);
+  assert.match(reloadWorkspace, /if \(!capabilitiesReady \|\| isWindowClosing\(\)\) \{[\s\S]*?return false;\s*\}/);
   assert.match(select, /const finishWorkspaceTransition = beginWorkspaceTransitionTracking\(\)/);
   assert.match(select, /workspaceSelectionUncertain = true;\s*const result = await invoke/);
   assert.match(select, /workspaceReconcilePending = true;\s*if \(isWindowClosing\(\)\) return/);
   assert.match(select, /finishWorkspaceTransition\(\)/);
   assert.match(close, /shouldResetWorkspace\(\) \{\s*return workspaceReconcilePending/);
-  assert.match(close, /resetWorkspace\(\) \{\s*capabilitiesRequestGeneration \+= 1;\s*resetVisualizerFrames\(\)/);
+  assert.match(close, /resetWorkspace\(\) \{\s*capabilitiesRequestGeneration \+= 1;\s*updateHealthRequestGeneration \+= 1;\s*resetVisualizerFrames\(\)/);
 });
 
 test('external links are ignored while closing or another Box transition owns the UI', () => {
@@ -139,20 +228,30 @@ test('external links are ignored while closing or another Box transition owns th
   );
 });
 
-test('only a matching Visualizer ready handshake can complete iframe navigation', () => {
+test('frame load is diagnostic only and a matching startup handshake alone completes iframe navigation', () => {
   const frameSetup = section('const visualizerDirty', 'window.addEventListener("message"');
   const messages = section('window.addEventListener("message"', 'function updateVisualizerFrameVisibility()');
   const load = section('async function loadVisualizer(', 'async function refreshAll()');
+  const frameLoad = section('frame.addEventListener("load"', 'window.addEventListener("message"');
 
-  assert.doesNotMatch(frameSetup, /frame\.addEventListener\("load"/);
+  assert.match(frameSetup, /frame\.addEventListener\("load"/);
+  assert.match(frameLoad, /transitionVisualizerStartup\(visualizerState\.startup, \{\s*type: "frame_load"/);
+  assert.doesNotMatch(frameLoad, /dataset\.loaded\s*=\s*"true"/);
   assert.doesNotMatch(frameSetup, /frame\.addEventListener\("error"/);
-  assert.match(messages, /event\.data\.schema_version === "miho-visualizer-ready-v1"/);
-  assert.match(messages, /sourceState\.pendingNavigationId === event\.data\.navigation_id/);
-  assert.match(messages, /sourceState\.pendingRevision === event\.data\.data_revision/);
+  assert.match(messages, /event\.data\.schema_version === "miho-visualizer-initializing-v1"|lifecycleSchema === "miho-visualizer-initializing-v1"/);
+  assert.match(messages, /lifecycleSchema === "miho-visualizer-failed-v1"/);
+  assert.match(messages, /lifecycleSchema === "miho-visualizer-ready-v1"/);
+  assert.match(messages, /transitionVisualizerStartup\(sourceState\.startup/);
+  assert.match(messages, /transition\.status !== VISUALIZER_STARTUP_STATUS\.READY/);
   assert.match(messages, /sourceState\.frame\.dataset\.loaded = "true"/);
   assert.match(load, /pageUrl\.searchParams\.set\("navigation_id", navigationId\)/);
-  assert.match(load, /failVisualizerReady\(targetGame, navigationId\)/);
-  assert.match(source, /function failVisualizerReady[\s\S]*?visualizerLoading\.delete\(targetGame\)/);
+  assert.match(load, /beginVisualizerStartup\(visualizerState\.startup/);
+  assert.match(load, /failVisualizerStartupOnTimeout\(targetGame, startupTicket\)/);
+  assert.match(source, /function finishVisualizerStartupFailure[\s\S]*?visualizerLoading\.delete\(targetGame\)/);
+  const startupFailure = section('function finishVisualizerStartupFailure(', 'function failVisualizerStartupOnTimeout(');
+  assert.match(startupFailure, /const failedCurrentRefresh = finishPendingVisualizerRefresh\(visualizerState\)/);
+  assert.match(startupFailure, /if \(failedCurrentRefresh\) pendingVisualizerRefreshes\.delete\(targetGame\)/);
+  assert.match(startupFailure, /if \(!failedCurrentRefresh && pendingVisualizerRefreshes\.has\(targetGame\)\)/);
   assert.match(source, /frame\.dataset\.loaded === "true"\s*&& visualizerState\.pendingNavigationId === null/);
   assert.match(source, /frame\.inert = boxTransitionBusy \|\| !active/);
   assert.match(source, /frame\.removeAttribute\("src"\)/);
@@ -216,4 +315,50 @@ test('pending iframe navigation serializes A, queued B, A load, then B load', ()
     completedCurrentRefresh: true,
   });
   assert.equal(hasPendingVisualizerRefresh(state), false);
+});
+
+test('failed iframe navigation stops the same revision but preserves a newer queued revision', () => {
+  function createModel() {
+    return {
+      refresh: { refreshGeneration: 0, pendingRefreshGeneration: null },
+      pending: false,
+      scheduled: 0,
+    };
+  }
+
+  function queue(model) {
+    advanceVisualizerRefresh(model.refresh);
+    model.pending = true;
+  }
+
+  function begin(model) {
+    bindPendingVisualizerRefresh(model.refresh, captureVisualizerRefresh(model.refresh));
+  }
+
+  function fail(model) {
+    const failedCurrentRefresh = finishPendingVisualizerRefresh(model.refresh);
+    if (failedCurrentRefresh) model.pending = false;
+    if (!failedCurrentRefresh && model.pending) model.scheduled += 1;
+    return failedCurrentRefresh;
+  }
+
+  const sameRevision = createModel();
+  queue(sameRevision);
+  begin(sameRevision);
+  assert.equal(fail(sameRevision), true);
+  assert.equal(sameRevision.pending, false);
+  assert.equal(sameRevision.scheduled, 0);
+
+  const newerRevision = createModel();
+  queue(newerRevision);
+  begin(newerRevision);
+  queue(newerRevision);
+  assert.equal(fail(newerRevision), false);
+  assert.equal(newerRevision.pending, true);
+  assert.equal(newerRevision.scheduled, 1);
+
+  begin(newerRevision);
+  assert.equal(fail(newerRevision), true);
+  assert.equal(newerRevision.pending, false);
+  assert.equal(newerRevision.scheduled, 1);
 });

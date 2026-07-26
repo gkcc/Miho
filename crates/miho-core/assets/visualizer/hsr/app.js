@@ -77,14 +77,26 @@ function postVisualizerPage(page=state.page){
   return true;
 }
 
-function postVisualizerReady(){
+function visualizerNavigationBinding(){
   const parentWindow=globalThis.parent;
-  if(!desktopMode||!parentWindow||parentWindow===globalThis||typeof parentWindow.postMessage!=='function')return false;
+  if(!desktopMode||!parentWindow||parentWindow===globalThis||typeof parentWindow.postMessage!=='function')return null;
   const params=new URLSearchParams(location.search),navigationId=params.get('navigation_id')||'',dataRevision=params.get('revision')||'';
-  if(!/^(?:hsr|zzz)-[1-9][0-9]{0,15}$/.test(navigationId)||!/^[a-f0-9]{64}$/.test(dataRevision))return false;
-  parentWindow.postMessage({schema_version:'miho-visualizer-ready-v1',navigation_id:navigationId,data_revision:dataRevision},'*');
+  if(!/^(?:hsr|zzz)-[1-9][0-9]{0,15}$/.test(navigationId)||!/^[a-f0-9]{64}$/.test(dataRevision))return null;
+  return{parentWindow,navigationId,dataRevision};
+}
+
+function postVisualizerLifecycle(schemaVersion,code=''){
+  const binding=visualizerNavigationBinding();
+  if(!binding)return false;
+  const message={schema_version:schemaVersion,navigation_id:binding.navigationId,data_revision:binding.dataRevision};
+  if(code)message.code=code;
+  binding.parentWindow.postMessage(message,'*');
   return true;
 }
+
+function postVisualizerInitializing(){return postVisualizerLifecycle('miho-visualizer-initializing-v1')}
+function postVisualizerFailed(code){return code==='data_load_failed'&&postVisualizerLifecycle('miho-visualizer-failed-v1',code)}
+function postVisualizerReady(){return postVisualizerLifecycle('miho-visualizer-ready-v1')}
 
 function installBoxFlushBridge(){
   const parentWindow=globalThis.parent;
@@ -110,9 +122,10 @@ async function fetchVisualizerData(){
   return legacy.json();
 }
 
+postVisualizerInitializing();
 fetchVisualizerData()
   .then(async raw=>{initializeVisualizerData(raw);loadRecSettings();if(desktopMode)await syncBoxFromServer();else loadBox();init();render();postVisualizerReady();})
-  .catch(err=>{const guard=desktopMode?'为保护你的 Box，本次没有启用编辑；请重启应用后再试。':'';document.body.innerHTML=`<main class="app-shell"><h1>应用启动失败</h1><p>${esc(err.message)}</p><p>${esc(guard)}</p></main>`;});
+  .catch(err=>{postVisualizerFailed('data_load_failed');const guard=desktopMode?'为保护你的 Box，本次没有启用编辑；请重启应用后再试。':'';document.body.innerHTML=`<main class="app-shell"><h1>应用启动失败</h1><p>${esc(err.message)}</p><p>${esc(guard)}</p></main>`;});
 
 function initializeVisualizerData(raw){
   const runtime=globalThis.MihoSlateSolver;

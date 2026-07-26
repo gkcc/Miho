@@ -10,6 +10,17 @@ import {
   finishPendingVisualizerRefresh,
   hasPendingVisualizerRefresh,
 } from "./visualizer-refresh-state.js";
+import {
+  beginVisualizerStartup,
+  createVisualizerStartupState,
+  resetVisualizerStartup,
+  transitionVisualizerStartup,
+  VISUALIZER_STARTUP_CODE,
+  VISUALIZER_STARTUP_STATUS,
+  type VisualizerStartupCode,
+  type VisualizerStartupIdentity,
+  type VisualizerStartupState,
+} from "./visualizer-startup-state.js";
 import "./styles.css";
 
 type Game = "hsr" | "zzz";
@@ -112,7 +123,28 @@ type VisualizerDescriptor = {
   data_revision: string;
 };
 
+type DesktopUpdateHealthGame = {
+  game: Game;
+  attempt_id: string;
+  completed_at_utc: string;
+};
+
+type DesktopUpdateHealth = {
+  schema_version: "miho-desktop-update-health-v1";
+  workspace_id: string;
+  healthy: boolean;
+  attempt_id?: string;
+  checked_games: Game[];
+  games: DesktopUpdateHealthGame[];
+  failure_code?: string;
+  retryable: boolean;
+};
+
 type VisualizerPage = "box" | "analysis" | "banner" | "recommender";
+
+type VisualizerStartupTicket = VisualizerStartupIdentity & {
+  generation: number;
+};
 
 type VisualizerFrameState = {
   frame: HTMLIFrameElement;
@@ -125,6 +157,8 @@ type VisualizerFrameState = {
   readyTimeout: number | null;
   pendingRefreshGeneration: number | null;
   page: VisualizerPage;
+  startup: VisualizerStartupState;
+  startupLoadTicket: VisualizerStartupTicket | null;
 };
 
 type TaskFormState = {
@@ -182,6 +216,7 @@ const TERMINAL_STATUSES = new Set<TaskStatus>(["succeeded", "failed", "cancelled
 const GAMES = ["hsr", "zzz"] as const;
 const VISUALIZER_REVISION_CHECK_INTERVAL_MS = 60_000;
 const VISUALIZER_READY_TIMEOUT_MS = 30_000;
+const UPDATE_HEALTH_STALE_AFTER_MS = 36 * 60 * 60 * 1_000;
 const app = document.querySelector<HTMLDivElement>("#app");
 
 if (!app) {
@@ -229,6 +264,9 @@ let visualizerRefreshDrainRunning = false;
 let visualizerRevisionCheckRunning = false;
 let visualizerRevisionCheckQueued = false;
 let visualizerRevisionCheckInterval: number | null = null;
+let updateHealthRequestGeneration = 0;
+const observedVisualizerRevisions = new Map<Game, string>();
+const updateHealthRefreshedTaskIds = new Set<string>();
 
 const tasks = new Map<string, PublicTaskSnapshot>();
 const authoritativeTaskSequences = new Map<string, number>();
@@ -525,13 +563,29 @@ const reloadVisualizerButton = makeButton("重新载入", "button secondary", as
   setBoxTransitionBusy(true);
   updateWorkspaceControls();
   try {
-    if (await ensureVisualizerBoxesSaved([game], "重新载入")) await loadVisualizer(true);
+    if (await ensureVisualizerBoxesSaved([game], "重新载入")) {
+      await Promise.all([loadVisualizer(true), refreshUpdateHealth()]);
+    }
   } finally {
     setBoxTransitionBusy(false);
     updateWorkspaceControls();
   }
 });
 visualizerHeading.append(visualizerTitleBlock);
+const updateHealthPanel = element("aside", "update-health loading");
+updateHealthPanel.setAttribute("aria-label", "自动更新健康状态");
+updateHealthPanel.setAttribute("aria-live", "polite");
+const updateHealthHeading = element("div", "update-health-heading");
+const updateHealthTitle = element("strong", undefined, "自动更新状态");
+const updateHealthBadge = element("span", "update-health-badge", "读取中");
+updateHealthHeading.append(updateHealthTitle, updateHealthBadge);
+const updateHealthCopy = element("div", "update-health-copy");
+const updateHealthSummary = element("p", "update-health-summary", "正在读取最近自动更新记录…");
+const updateHealthDetail = element("p", "update-health-detail", "完成后会显示 HSR 与 ZZZ 的最近成功时间。");
+updateHealthCopy.append(updateHealthSummary, updateHealthDetail);
+const updateHealthGames = element("div", "update-health-games");
+updateHealthGames.hidden = true;
+updateHealthPanel.append(updateHealthHeading, updateHealthCopy, updateHealthGames);
 const visualizerMessage = element("p", "notice", "正在向本机后端请求 Visualizer 地址…");
 const visualizerFrames = new Map<Game, VisualizerFrameState>();
 
@@ -586,30 +640,87 @@ function clearVisualizerReadyTimeout(visualizerState: VisualizerFrameState): voi
   visualizerState.readyTimeout = null;
 }
 
-function failVisualizerReady(targetGame: Game, navigationId: string): void {
+function syncVisualizerStartupDiagnostics(targetGame: Game, visualizerState: VisualizerFrameState): void {
+  visualizerState.frame.dataset.startupState = visualizerState.startup.status;
+  if (visualizerState.startup.code) {
+    visualizerState.frame.dataset.startupFailureCode = visualizerState.startup.code;
+  } else {
+    delete visualizerState.frame.dataset.startupFailureCode;
+  }
+  if (targetGame !== game) return;
+  document.documentElement.dataset.visualizerStartupGame = targetGame;
+  document.documentElement.dataset.visualizerStartupState = visualizerState.startup.status;
+  if (visualizerState.startup.code) {
+    document.documentElement.dataset.visualizerStartupFailureCode = visualizerState.startup.code;
+  } else {
+    delete document.documentElement.dataset.visualizerStartupFailureCode;
+  }
+}
+
+function visualizerStartupFailureMessage(code: VisualizerStartupCode): string {
+  switch (code) {
+    case VISUALIZER_STARTUP_CODE.LEGACY_PROTOCOL_MISSING:
+      return "Visualizer 页面已载入，但版本过旧，未提供启动协议。请重新构建或更新本机程序。";
+    case VISUALIZER_STARTUP_CODE.DATA_LOAD_FAILED:
+      return "Visualizer 已启动，但本机数据载入失败。请先更新该游戏数据后重试。";
+    case VISUALIZER_STARTUP_CODE.READY_HANDSHAKE_REJECTED:
+      return "Visualizer 就绪回执与当前数据版本不一致，已阻止显示。请重新载入；若仍出现请检查日志。";
+    case VISUALIZER_STARTUP_CODE.READY_TIMEOUT:
+      return "Visualizer 未在限定时间内完成初始化。请重新载入或检查本机生成状态。";
+  }
+}
+
+function finishVisualizerStartupFailure(
+  targetGame: Game,
+  ticket: VisualizerStartupTicket,
+  code: VisualizerStartupCode,
+): void {
   const visualizerState = visualizerFrames.get(targetGame);
-  if (!visualizerState || visualizerState.pendingNavigationId !== navigationId) return;
+  if (!visualizerState
+    || visualizerState.startup.generation !== ticket.generation
+    || visualizerState.startup.status !== VISUALIZER_STARTUP_STATUS.FAILED
+    || visualizerState.startup.code !== code) return;
   const { frame } = visualizerState;
   visualizerState.requestGeneration += 1;
   clearVisualizerReadyTimeout(visualizerState);
+  visualizerState.startupLoadTicket = null;
   visualizerState.loadedRevision = null;
   visualizerState.pendingRevision = null;
   visualizerState.pendingUrl = null;
   visualizerState.pendingNavigationId = null;
-  clearPendingVisualizerRefresh(visualizerState);
+  const failedCurrentRefresh = finishPendingVisualizerRefresh(visualizerState);
+  if (failedCurrentRefresh) pendingVisualizerRefreshes.delete(targetGame);
   visualizerLoading.delete(targetGame);
   delete frame.dataset.loadedRevision;
   frame.dataset.loaded = "false";
   frame.removeAttribute("src");
   visualizerDirty.add(targetGame);
+  syncVisualizerStartupDiagnostics(targetGame, visualizerState);
   updateVisualizerFrameVisibility();
   updateWorkspaceControls();
   if (game === targetGame) {
     visualizerMessage.hidden = false;
     utilities.open = true;
-    setNotice(visualizerMessage, "Visualizer 未在限定时间内完成初始化。请重新载入或检查本机生成状态。", "error");
+    setNotice(visualizerMessage, visualizerStartupFailureMessage(code), "error");
   }
-  if (pendingVisualizerRefreshes.has(targetGame)) schedulePendingVisualizerRefresh();
+  if (!failedCurrentRefresh && pendingVisualizerRefreshes.has(targetGame)) {
+    schedulePendingVisualizerRefresh();
+  }
+}
+
+function failVisualizerStartupOnTimeout(targetGame: Game, ticket: VisualizerStartupTicket): void {
+  const visualizerState = visualizerFrames.get(targetGame);
+  if (!visualizerState) return;
+  const result = transitionVisualizerStartup(visualizerState.startup, {
+    type: "timeout",
+    ...ticket,
+  });
+  syncVisualizerStartupDiagnostics(targetGame, visualizerState);
+  if (result.outcome === "accepted"
+    && result.status === VISUALIZER_STARTUP_STATUS.FAILED
+    && result.code) {
+    finishVisualizerStartupFailure(targetGame, ticket, result.code);
+  }
 }
 
 for (const targetGame of GAMES) {
@@ -625,6 +736,8 @@ for (const targetGame of GAMES) {
     readyTimeout: null,
     pendingRefreshGeneration: null,
     page: "box",
+    startup: createVisualizerStartupState(),
+    startupLoadTicket: null,
   };
   frame.title = `${targetGame === "hsr" ? "崩坏：星穹铁道" : "绝区零"}终局数据 Visualizer`;
   frame.dataset.game = targetGame;
@@ -635,6 +748,18 @@ for (const targetGame of GAMES) {
   frame.setAttribute("aria-hidden", "true");
   frame.tabIndex = -1;
   visualizerFrames.set(targetGame, visualizerState);
+  syncVisualizerStartupDiagnostics(targetGame, visualizerState);
+  frame.addEventListener("load", () => {
+    const ticket = visualizerState.startupLoadTicket;
+    if (!ticket) return;
+    const result = transitionVisualizerStartup(visualizerState.startup, {
+      type: "frame_load",
+      ...ticket,
+    });
+    if (result.outcome === "accepted") {
+      syncVisualizerStartupDiagnostics(targetGame, visualizerState);
+    }
+  });
 }
 window.addEventListener("message", (event) => {
   if (!isRecord(event.data)) return;
@@ -652,25 +777,62 @@ window.addEventListener("message", (event) => {
   const sourceState = [...visualizerFrames.values()]
     .find((visualizerState) => event.source === visualizerState.frame.contentWindow);
   if (!sourceState) return;
-  if (event.data.schema_version === "miho-visualizer-ready-v1"
-    && typeof event.data.navigation_id === "string"
-    && typeof event.data.data_revision === "string"
-    && /^[a-f0-9]{64}$/.test(event.data.data_revision)
-    && sourceState.pendingNavigationId === event.data.navigation_id
-    && sourceState.pendingRevision === event.data.data_revision
-    && sourceState.frame.getAttribute("src") === sourceState.pendingUrl) {
+  const lifecycleSchema = event.data.schema_version;
+  if (lifecycleSchema === "miho-visualizer-initializing-v1"
+    || lifecycleSchema === "miho-visualizer-failed-v1"
+    || lifecycleSchema === "miho-visualizer-ready-v1") {
+    const failedMessage = lifecycleSchema === "miho-visualizer-failed-v1";
+    const expectedKeys = failedMessage
+      ? ["schema_version", "navigation_id", "data_revision", "code"]
+      : ["schema_version", "navigation_id", "data_revision"];
+    if (!hasExactKeys(event.data, expectedKeys)
+      || typeof event.data.navigation_id !== "string"
+      || event.data.navigation_id.length === 0
+      || event.data.navigation_id.length > 128
+      || typeof event.data.data_revision !== "string"
+      || event.data.data_revision.length > 128
+      || (failedMessage && (typeof event.data.code !== "string" || event.data.code.length > 96))) return;
+    const ticket = sourceState.startupLoadTicket;
+    if (!ticket) return;
+    const identity = {
+      generation: ticket.generation,
+      navigation_id: event.data.navigation_id,
+      data_revision: event.data.data_revision,
+      src: sourceState.frame.getAttribute("src") ?? "",
+    };
+    const transition = lifecycleSchema === "miho-visualizer-initializing-v1"
+      ? transitionVisualizerStartup(sourceState.startup, { type: "initializing", ...identity })
+      : lifecycleSchema === "miho-visualizer-failed-v1"
+        ? transitionVisualizerStartup(sourceState.startup, {
+          type: "failed",
+          code: event.data.code as string,
+          ...identity,
+        })
+        : transitionVisualizerStartup(sourceState.startup, { type: "ready", ...identity });
+    const sourceGame = sourceState.frame.dataset.game as Game;
+    if (transition.outcome === "accepted") {
+      syncVisualizerStartupDiagnostics(sourceGame, sourceState);
+    }
+    if (transition.status === VISUALIZER_STARTUP_STATUS.FAILED && transition.code) {
+      finishVisualizerStartupFailure(sourceGame, ticket, transition.code);
+      return;
+    }
+    if (lifecycleSchema !== "miho-visualizer-ready-v1"
+      || transition.outcome !== "accepted"
+      || transition.status !== VISUALIZER_STARTUP_STATUS.READY) return;
     const completedCurrentRefresh = finishPendingVisualizerRefresh(sourceState);
     clearVisualizerReadyTimeout(sourceState);
+    sourceState.startupLoadTicket = null;
     sourceState.loadedRevision = event.data.data_revision;
     sourceState.frame.dataset.loadedRevision = event.data.data_revision;
     sourceState.pendingRevision = null;
     sourceState.pendingUrl = null;
     sourceState.pendingNavigationId = null;
     sourceState.frame.dataset.loaded = "true";
+    syncVisualizerStartupDiagnostics(sourceGame, sourceState);
     if (completedCurrentRefresh) {
-      const readyGame = sourceState.frame.dataset.game as Game;
-      visualizerDirty.delete(readyGame);
-      pendingVisualizerRefreshes.delete(readyGame);
+      visualizerDirty.delete(sourceGame);
+      pendingVisualizerRefreshes.delete(sourceGame);
     }
     updateVisualizerFrameVisibility();
     if (sourceState.frame.dataset.game === game) visualizerMessage.hidden = true;
@@ -699,6 +861,7 @@ window.addEventListener("message", (event) => {
 });
 visualizerSection.append(
   visualizerHeading,
+  updateHealthPanel,
   visualizerMessage,
   ...[...visualizerFrames.values()].map((visualizerState) => visualizerState.frame),
 );
@@ -725,6 +888,8 @@ function updateGameUI(): void {
   }
   const gameName = game === "zzz" ? "绝区零" : "崩坏：星穹铁道";
   visualizerTitle.textContent = `${gameName} · 我的 Box 与终局分析`;
+  const visualizerState = visualizerFrames.get(game);
+  if (visualizerState) syncVisualizerStartupDiagnostics(game, visualizerState);
   updateVisualizerFrameVisibility();
 }
 
@@ -765,6 +930,8 @@ function discardVisualizerBoxChanges(targetGames: ReadonlyArray<Game>): void {
     visualizerState.pendingUrl = null;
     visualizerState.pendingNavigationId = null;
     clearVisualizerReadyTimeout(visualizerState);
+    visualizerState.startupLoadTicket = null;
+    resetVisualizerStartup(visualizerState.startup);
     clearPendingVisualizerRefresh(visualizerState);
     visualizerState.page = "box";
     frame.dataset.loaded = "false";
@@ -776,6 +943,7 @@ function discardVisualizerBoxChanges(targetGames: ReadonlyArray<Game>): void {
     frame.tabIndex = -1;
     visualizerDirty.add(targetGame);
     pendingVisualizerRefreshes.delete(targetGame);
+    syncVisualizerStartupDiagnostics(targetGame, visualizerState);
   }
 }
 
@@ -902,14 +1070,21 @@ async function checkVisualizerRevisions(): Promise<void> {
     }));
     if (isWindowClosing()) return;
     if (workspaceId !== (capabilities?.workspace.workspace_id ?? "")) return;
+    let observedRevisionChanged = false;
     for (const [targetGame, descriptor] of descriptors) {
       if (!descriptor) continue;
+      const previousObservedRevision = observedVisualizerRevisions.get(targetGame);
+      observedVisualizerRevisions.set(targetGame, descriptor.data_revision);
+      if (previousObservedRevision !== descriptor.data_revision) {
+        observedRevisionChanged = true;
+      }
       const visualizerState = visualizerFrames.get(targetGame);
       if (!visualizerState) continue;
       const displayedRevision = visualizerState.pendingRevision ?? visualizerState.loadedRevision;
       if (displayedRevision === descriptor.data_revision) continue;
       markVisualizerDirty(targetGame, targetGame === game);
     }
+    if (observedRevisionChanged) await refreshUpdateHealth();
   } finally {
     visualizerRevisionCheckRunning = false;
     if (visualizerRevisionCheckQueued) {
@@ -948,6 +1123,141 @@ function uninstallVisualizerRevisionWatchers(): void {
 function setNotice(target: HTMLElement, message: string, kind: "normal" | "error" | "success" = "normal"): void {
   target.textContent = message;
   target.className = kind === "normal" ? "notice" : `notice ${kind}`;
+}
+
+function setUpdateHealthView(
+  state: "loading" | "healthy" | "warning" | "busy" | "error",
+  badge: string,
+  summary: string,
+  detail: string,
+): void {
+  updateHealthPanel.className = `update-health ${state}`;
+  updateHealthBadge.textContent = badge;
+  updateHealthSummary.textContent = summary;
+  updateHealthDetail.textContent = detail;
+  updateHealthGames.replaceChildren();
+  updateHealthGames.hidden = true;
+}
+
+function renderUpdateHealthLoading(detail = "完成后会显示 HSR 与 ZZZ 的最近成功时间。"): void {
+  setUpdateHealthView("loading", "读取中", "正在读取最近自动更新记录…", detail);
+}
+
+function invalidateUpdateHealth(detail: string): void {
+  updateHealthRequestGeneration += 1;
+  renderUpdateHealthLoading(detail);
+}
+
+function formatUpdateHealthTime(completedAtUtc: string): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(completedAtUtc));
+}
+
+function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
+  const games = new Map(health.games.map((entry) => [entry.game, entry]));
+  const staleGames = GAMES.filter((targetGame) => {
+    const entry = games.get(targetGame);
+    return entry && Date.now() - Date.parse(entry.completed_at_utc) > UPDATE_HEALTH_STALE_AFTER_MS;
+  });
+  const stale = staleGames.length > 0;
+  setUpdateHealthView(
+    stale ? "warning" : "healthy",
+    stale ? "需留意" : "正常",
+    stale
+      ? `本机产物校验通过，但 ${staleGames.map(gameShortLabel).join("、")} 的成功记录已超过 36 小时。`
+      : "本机产物校验通过。",
+    stale
+      ? "计划任务可能未运行；请手动更新对应游戏并检查每日计划任务。若手动更新成功后页面期次仍旧，表示上游尚未发布新样本，不等于本机更新失败。"
+      : "若页面期次或样本仍旧，表示上游尚未发布新样本，不等于本机更新失败。",
+  );
+  for (const targetGame of GAMES) {
+    const entry = games.get(targetGame);
+    if (!entry) continue;
+    const item = element("span", "update-health-game");
+    item.title = entry.completed_at_utc;
+    item.append(
+      element("strong", undefined, `${gameShortLabel(targetGame)} 最近成功`),
+      document.createTextNode(formatUpdateHealthTime(entry.completed_at_utc)),
+    );
+    updateHealthGames.append(item);
+  }
+  updateHealthGames.hidden = false;
+}
+
+function gameShortLabel(targetGame: Game): string {
+  return targetGame === "hsr" ? "HSR" : "ZZZ";
+}
+
+function isBusyUpdateHealthFailure(failureCode: string): boolean {
+  return failureCode === "workspace.busy"
+    || failureCode === "workspace.write_busy"
+    || /(?:^|[._-])(busy|locked|in_progress|already_running)(?:$|[._-])/.test(failureCode);
+}
+
+function renderUpdateHealthFailure(failureCode: string, retryable: boolean): void {
+  const publicCode = /^[a-z0-9._-]{1,96}$/.test(failureCode)
+    ? failureCode
+    : "desktop.update_health_failed";
+  if (isBusyUpdateHealthFailure(publicCode)) {
+    setUpdateHealthView(
+      "busy",
+      "更新中",
+      "数据正在更新，完成后会自动重新检查。",
+      `当前工作区正由更新任务占用（${publicCode}）。`,
+    );
+    return;
+  }
+  setUpdateHealthView(
+    "error",
+    "需处理",
+    "最近自动更新未通过完整校验。",
+    retryable
+      ? `可以重试：建议稍后点击刷新；若仍异常，请分别手动更新 HSR 与 ZZZ，并打开日志排查。（${publicCode}）`
+      : `需要修正后再重试：请先检查本机更新配置，再分别手动更新 HSR 与 ZZZ；若仍异常，请打开日志排查。（${publicCode}）`,
+  );
+}
+
+async function refreshUpdateHealth(): Promise<void> {
+  if (isWindowClosing()) return;
+  const workspaceId = capabilities?.workspace.workspace_id ?? "";
+  const request = ++updateHealthRequestGeneration;
+  if (!workspaceId) {
+    renderUpdateHealthFailure("desktop.workspace_unavailable", true);
+    return;
+  }
+  renderUpdateHealthLoading();
+  try {
+    const result = await invoke<unknown>("get_update_health");
+    if (isWindowClosing()
+      || request !== updateHealthRequestGeneration
+      || workspaceId !== (capabilities?.workspace.workspace_id ?? "")) return;
+    const health = backendUpdateHealth(result);
+    if (!health) {
+      renderUpdateHealthFailure("desktop.update_health_invalid_response", true);
+      return;
+    }
+    if (health.workspace_id !== workspaceId) {
+      renderUpdateHealthFailure("desktop.update_health_workspace_mismatch", true);
+      return;
+    }
+    if (health.healthy) {
+      renderHealthyUpdateHealth(health);
+      return;
+    }
+    renderUpdateHealthFailure(health.failure_code ?? "update.health_unknown", health.retryable);
+  } catch (error) {
+    if (isWindowClosing()
+      || request !== updateHealthRequestGeneration
+      || workspaceId !== (capabilities?.workspace.workspace_id ?? "")) return;
+    const failure = safeError(error);
+    renderUpdateHealthFailure(failure.code, failure.retryable ?? true);
+  }
 }
 
 function updateWorkspaceControls(): void {
@@ -1058,10 +1368,14 @@ async function refreshCapabilities(): Promise<boolean> {
 
 async function reloadSelectedWorkspaceState(): Promise<boolean> {
   capabilitiesRequestGeneration += 1;
+  invalidateUpdateHealth("正在读取当前工作区的自动更新记录…");
   resetVisualizerFrames();
   const capabilitiesReady = await refreshCapabilities();
-  if (!capabilitiesReady || isWindowClosing()) return false;
-  await Promise.all([refreshTasks(), loadVisualizer(false)]);
+  if (!capabilitiesReady || isWindowClosing()) {
+    if (!isWindowClosing()) renderUpdateHealthFailure("desktop.workspace_unavailable", true);
+    return false;
+  }
+  await Promise.all([refreshTasks(), loadVisualizer(false), refreshUpdateHealth()]);
   return !isWindowClosing();
 }
 
@@ -1349,6 +1663,10 @@ async function queryTask(taskId: string): Promise<void> {
       if (snapshot.status === "succeeded" && exportedGame) {
         markVisualizerDirty(exportedGame, exportedGame === game);
       }
+      if (exportedGame && !updateHealthRefreshedTaskIds.has(snapshot.task_id)) {
+        updateHealthRefreshedTaskIds.add(snapshot.task_id);
+        await refreshUpdateHealth();
+      }
     }
   } catch (error) {
     if (taskQueries.get(taskId) !== generation) return;
@@ -1363,8 +1681,24 @@ async function refreshTasks(): Promise<void> {
   taskRefreshButton.disabled = true;
   try {
     const snapshots = await invoke<PublicTaskSnapshot[]>("list_tasks");
-    for (const snapshot of snapshots) mergeQueriedTask(snapshot);
+    let updateHealthAfterTerminalExport = false;
+    for (const snapshot of snapshots) {
+      const previous = tasks.get(snapshot.task_id);
+      mergeQueriedTask(snapshot);
+      const current = tasks.get(snapshot.task_id);
+      const exported = snapshot.operation === "hsr-export" || snapshot.operation === "zzz-export";
+      if (current === snapshot
+        && previous
+        && !TERMINAL_STATUSES.has(previous.status)
+        && TERMINAL_STATUSES.has(snapshot.status)
+        && exported
+        && !updateHealthRefreshedTaskIds.has(snapshot.task_id)) {
+        updateHealthRefreshedTaskIds.add(snapshot.task_id);
+        updateHealthAfterTerminalExport = true;
+      }
+    }
     renderTasks();
+    if (updateHealthAfterTerminalExport) await refreshUpdateHealth();
   } catch (error) {
     const failure = safeError(error);
     setNotice(taskMessage, `任务列表刷新失败（${failure.code}）：${failure.message}`, "error");
@@ -1515,6 +1849,63 @@ function hasExactKeys(record: Record<string, unknown>, expected: readonly string
   return actual.length === expected.length && expected.every((key) => Object.hasOwn(record, key));
 }
 
+function isUpdateAttemptId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,96}$/.test(value);
+}
+
+function isUpdateHealthTimestamp(value: unknown): value is string {
+  return typeof value === "string"
+    && value.length <= 64
+    && /(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    && Number.isFinite(Date.parse(value));
+}
+
+function isDesktopUpdateHealthGame(value: unknown): value is DesktopUpdateHealthGame {
+  return isRecord(value)
+    && hasExactKeys(value, ["game", "attempt_id", "completed_at_utc"])
+    && GAMES.includes(value.game as Game)
+    && isUpdateAttemptId(value.attempt_id)
+    && isUpdateHealthTimestamp(value.completed_at_utc);
+}
+
+function backendUpdateHealth(value: unknown): DesktopUpdateHealth | null {
+  if (!isRecord(value)) return null;
+  const expectedKeys = ["schema_version", "workspace_id", "healthy", "checked_games", "games", "retryable"];
+  if (Object.hasOwn(value, "attempt_id")) expectedKeys.push("attempt_id");
+  if (Object.hasOwn(value, "failure_code")) expectedKeys.push("failure_code");
+  if (!hasExactKeys(value, expectedKeys)
+    || value.schema_version !== "miho-desktop-update-health-v1"
+    || typeof value.workspace_id !== "string"
+    || !/^[A-Za-z0-9-]{1,128}$/.test(value.workspace_id)
+    || typeof value.healthy !== "boolean"
+    || typeof value.retryable !== "boolean") return null;
+  if (!Array.isArray(value.checked_games)) return null;
+  const checkedGames = value.checked_games;
+  if (checkedGames.length !== GAMES.length
+    || !GAMES.every((targetGame) => checkedGames.includes(targetGame))
+    || new Set(checkedGames).size !== checkedGames.length) return null;
+  if (!Array.isArray(value.games)
+    || value.games.length > GAMES.length
+    || !value.games.every(isDesktopUpdateHealthGame)) return null;
+  const games = value.games as DesktopUpdateHealthGame[];
+  if (new Set(games.map((entry) => entry.game)).size !== games.length
+    || (Object.hasOwn(value, "attempt_id") && !isUpdateAttemptId(value.attempt_id))
+    || (Object.hasOwn(value, "failure_code")
+      && (typeof value.failure_code !== "string" || !/^[a-z0-9._-]{1,96}$/.test(value.failure_code)))) return null;
+  if (value.healthy && !GAMES.every((targetGame) => games.some((entry) => entry.game === targetGame))) return null;
+  const health: DesktopUpdateHealth = {
+    schema_version: "miho-desktop-update-health-v1",
+    workspace_id: value.workspace_id,
+    healthy: value.healthy,
+    checked_games: checkedGames as Game[],
+    games,
+    retryable: value.retryable,
+  };
+  if (isUpdateAttemptId(value.attempt_id)) health.attempt_id = value.attempt_id;
+  if (typeof value.failure_code === "string") health.failure_code = value.failure_code;
+  return health;
+}
+
 function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === "string" && Object.hasOwn(STATUS_LABELS, value);
 }
@@ -1639,6 +2030,7 @@ function resetVisualizerFrames(): void {
   visualizerDirty.clear();
   visualizerLoading.clear();
   pendingVisualizerRefreshes.clear();
+  observedVisualizerRevisions.clear();
   for (const [targetGame, visualizerState] of visualizerFrames) {
     const { frame } = visualizerState;
     rejectFrameFlushes(frame);
@@ -1649,6 +2041,8 @@ function resetVisualizerFrames(): void {
     visualizerState.pendingUrl = null;
     visualizerState.pendingNavigationId = null;
     clearVisualizerReadyTimeout(visualizerState);
+    visualizerState.startupLoadTicket = null;
+    resetVisualizerStartup(visualizerState.startup);
     clearPendingVisualizerRefresh(visualizerState);
     visualizerState.page = "box";
     frame.hidden = true;
@@ -1659,6 +2053,7 @@ function resetVisualizerFrames(): void {
     frame.dataset.page = visualizerState.page;
     frame.removeAttribute("src");
     visualizerDirty.add(targetGame);
+    syncVisualizerStartupDiagnostics(targetGame, visualizerState);
   }
   updateWorkspaceControls();
 }
@@ -1697,6 +2092,7 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
       }
       return;
     }
+    observedVisualizerRevisions.set(targetGame, descriptor.data_revision);
     if (!force
       && frame.dataset.loaded === "true"
       && visualizerState.loadedRevision === descriptor.data_revision) {
@@ -1725,8 +2121,21 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
     visualizerState.pendingUrl = navigationUrl;
     visualizerState.pendingNavigationId = navigationId;
     bindPendingVisualizerRefresh(visualizerState, refreshGeneration);
+    const startup = beginVisualizerStartup(visualizerState.startup, {
+      navigation_id: navigationId,
+      data_revision: descriptor.data_revision,
+      src: navigationUrl,
+    });
+    const startupTicket: VisualizerStartupTicket = {
+      generation: startup.generation,
+      navigation_id: navigationId,
+      data_revision: descriptor.data_revision,
+      src: navigationUrl,
+    };
+    visualizerState.startupLoadTicket = startupTicket;
+    syncVisualizerStartupDiagnostics(targetGame, visualizerState);
     visualizerState.readyTimeout = window.setTimeout(
-      () => failVisualizerReady(targetGame, navigationId),
+      () => failVisualizerStartupOnTimeout(targetGame, startupTicket),
       VISUALIZER_READY_TIMEOUT_MS,
     );
     frame.dataset.loaded = "false";
@@ -1757,11 +2166,13 @@ async function refreshAll(): Promise<void> {
   try {
     if (!await ensureVisualizerBoxesSaved(GAMES, "刷新页面")) return;
     if (isWindowClosing()) return;
+    invalidateUpdateHealth("正在刷新当前工作区的自动更新记录…");
     await refreshCapabilities();
     if (isWindowClosing()) return;
     for (const targetGame of GAMES) markVisualizerDirty(targetGame, false);
     await Promise.all([
       refreshTasks(),
+      refreshUpdateHealth(),
       ...GAMES.map((targetGame) => loadVisualizer(false, targetGame)),
     ]);
   } finally {
@@ -1781,6 +2192,7 @@ async function installWindowCloseHandler(): Promise<void> {
       await coordinateDesktopClose({
         beginClose() {
           closeGuardRunning = true;
+          updateHealthRequestGeneration += 1;
           uninstallVisualizerRevisionWatchers();
           setBoxTransitionBusy(true);
           renderTasks();
@@ -1801,6 +2213,7 @@ async function installWindowCloseHandler(): Promise<void> {
         },
         resetWorkspace() {
           capabilitiesRequestGeneration += 1;
+          updateHealthRequestGeneration += 1;
           resetVisualizerFrames();
         },
         flushBoxes() {
@@ -1821,7 +2234,10 @@ async function installWindowCloseHandler(): Promise<void> {
           if (closed) return;
           setBoxTransitionBusy(false);
           if (workspaceReconcilePending) await reconcileWorkspaceAfterCloseCancellation();
-          if (!isWindowClosing()) installVisualizerRevisionWatchers();
+          if (!isWindowClosing()) {
+            installVisualizerRevisionWatchers();
+            await refreshUpdateHealth();
+          }
           renderTasks();
         },
       });
@@ -1841,6 +2257,7 @@ window.addEventListener("beforeunload", (event) => {
     event.returnValue = "";
     return;
   }
+  resetVisualizerFrames();
   uninstallVisualizerRevisionWatchers();
   unlistenTaskUpdates?.();
   unlistenTaskUpdates = null;
