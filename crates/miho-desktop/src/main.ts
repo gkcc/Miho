@@ -1,7 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { coordinateDesktopClose } from "./desktop-close-coordinator.js";
+import {
+  coordinateDesktopClose,
+  type DesktopCloseStage,
+} from "./desktop-close-coordinator.js";
 import {
   advanceVisualizerRefresh,
   bindPendingVisualizerRefresh,
@@ -217,6 +220,8 @@ const GAMES = ["hsr", "zzz"] as const;
 const VISUALIZER_REVISION_CHECK_INTERVAL_MS = 60_000;
 const VISUALIZER_READY_TIMEOUT_MS = 30_000;
 const UPDATE_HEALTH_STALE_AFTER_MS = 36 * 60 * 60 * 1_000;
+const UPDATE_HEALTH_BUSY_RETRY_DELAYS_MS = [1_000, 2_500, 5_000, 10_000, 30_000] as const;
+const MAX_BROWSER_TIMER_DELAY_MS = 2_147_000_000;
 const app = document.querySelector<HTMLDivElement>("#app");
 
 if (!app) {
@@ -255,7 +260,13 @@ type PendingBoxFlush = {
   timeout: number;
 };
 
+type BoxFlushOptions = {
+  failureMode?: "prompt" | "cancel";
+  beforeFlush?: (targetGame: Game) => void;
+};
+
 const pendingBoxFlushes = new Map<string, PendingBoxFlush>();
+const pendingUpdateHealthReads = new Set<Promise<unknown>>();
 const visualizerLoading = new Set<Game>();
 const pendingVisualizerRefreshes = new Set<Game>();
 let boxFlushSequence = 0;
@@ -265,6 +276,9 @@ let visualizerRevisionCheckRunning = false;
 let visualizerRevisionCheckQueued = false;
 let visualizerRevisionCheckInterval: number | null = null;
 let updateHealthRequestGeneration = 0;
+let updateHealthBusyRetryTimer: number | null = null;
+let updateHealthStaleTimer: number | null = null;
+let updateHealthBusyRetryAttempt = 0;
 const observedVisualizerRevisions = new Map<Game, string>();
 const updateHealthRefreshedTaskIds = new Set<string>();
 
@@ -593,6 +607,12 @@ function isWindowClosing(): boolean {
   return allowWindowClose || closeGuardRunning;
 }
 
+function setDesktopCloseStage(stage: DesktopCloseStage): void {
+  document.documentElement.dataset.desktopCloseStage = stage;
+}
+
+setDesktopCloseStage("idle");
+
 function beginTaskStartTracking(): () => void {
   if (pendingTaskStart) throw new Error("A task start is already being tracked.");
   let resolveCompletion!: () => void;
@@ -893,6 +913,28 @@ function updateGameUI(): void {
   updateVisualizerFrameVisibility();
 }
 
+async function showUpdatedGame(targetGame: Game): Promise<void> {
+  if (workspaceBusy || boxTransitionBusy || isWindowClosing()) {
+    if (!isWindowClosing()) setNotice(taskMessage, "页面正在同步最新数据，请稍后再查看。", "normal");
+    return;
+  }
+  setBoxTransitionBusy(true);
+  updateWorkspaceControls();
+  try {
+    if (!await ensureVisualizerBoxesSaved([game], "查看更新结果") || isWindowClosing()) return;
+    game = targetGame;
+    updateGameUI();
+    markVisualizerDirty(targetGame, false);
+    await loadVisualizer(false, targetGame);
+    if (isWindowClosing()) return;
+    utilities.open = false;
+    visualizerSection.scrollIntoView({ behavior: "smooth" });
+  } finally {
+    setBoxTransitionBusy(false);
+    updateWorkspaceControls();
+  }
+}
+
 function updateVisualizerFrameVisibility(): void {
   for (const [targetGame, visualizerState] of visualizerFrames) {
     const { frame } = visualizerState;
@@ -966,7 +1008,11 @@ function flushVisualizerBox(targetGame: Game): Promise<void> {
   });
 }
 
-async function ensureVisualizerBoxesSaved(targetGames: ReadonlyArray<Game>, action: string): Promise<boolean> {
+async function ensureVisualizerBoxesSaved(
+  targetGames: ReadonlyArray<Game>,
+  action: string,
+  options: BoxFlushOptions = {},
+): Promise<boolean> {
   const loadedGames = [...new Set(targetGames)].filter((targetGame) => {
     const frame = visualizerFrames.get(targetGame)?.frame;
     return Boolean(frame?.getAttribute("src") && frame.dataset.loaded === "true");
@@ -974,10 +1020,14 @@ async function ensureVisualizerBoxesSaved(targetGames: ReadonlyArray<Game>, acti
   if (!loadedGames.length) return true;
   while (true) {
     try {
-      await Promise.all(loadedGames.map(flushVisualizerBox));
+      for (const targetGame of loadedGames) {
+        options.beforeFlush?.(targetGame);
+        await flushVisualizerBox(targetGame);
+      }
       return true;
     } catch {
       setNotice(visualizerMessage, `${action}前未能确认 Box 已保存。`, "error");
+      if (options.failureMode === "cancel") return false;
       if (window.confirm(`${action}前保存 Box 失败。\n\n选择“确定”重试，选择“取消”查看放弃选项。`)) continue;
       if (window.confirm("是否放弃这些尚未保存的 Box 修改并继续？此操作无法撤销。")) {
         discardVisualizerBoxChanges(loadedGames);
@@ -1143,9 +1193,68 @@ function renderUpdateHealthLoading(detail = "完成后会显示 HSR 与 ZZZ 的�
   setUpdateHealthView("loading", "读取中", "正在读取最近自动更新记录…", detail);
 }
 
+function clearUpdateHealthTimers(resetBusyAttempt = true): void {
+  if (updateHealthBusyRetryTimer !== null) {
+    window.clearTimeout(updateHealthBusyRetryTimer);
+    updateHealthBusyRetryTimer = null;
+  }
+  if (updateHealthStaleTimer !== null) {
+    window.clearTimeout(updateHealthStaleTimer);
+    updateHealthStaleTimer = null;
+  }
+  if (resetBusyAttempt) updateHealthBusyRetryAttempt = 0;
+}
+
+function scheduleBusyUpdateHealthRetry(): void {
+  if (isWindowClosing() || updateHealthBusyRetryTimer !== null) return;
+  const delay = UPDATE_HEALTH_BUSY_RETRY_DELAYS_MS[
+    Math.min(updateHealthBusyRetryAttempt, UPDATE_HEALTH_BUSY_RETRY_DELAYS_MS.length - 1)
+  ];
+  updateHealthBusyRetryAttempt += 1;
+  const workspaceId = capabilities?.workspace.workspace_id ?? "";
+  updateHealthBusyRetryTimer = window.setTimeout(() => {
+    updateHealthBusyRetryTimer = null;
+    if (isWindowClosing() || !workspaceId || workspaceId !== capabilities?.workspace.workspace_id) return;
+    void refreshUpdateHealth(true);
+  }, delay);
+}
+
+function scheduleUpdateHealthStaleDeadline(health: DesktopUpdateHealth): void {
+  if (isWindowClosing()) return;
+  const now = Date.now();
+  const futureDeadlines = health.games
+    .map((entry) => Date.parse(entry.completed_at_utc) + UPDATE_HEALTH_STALE_AFTER_MS)
+    .filter((deadline) => deadline > now);
+  if (!futureDeadlines.length) return;
+  const workspaceId = health.workspace_id;
+  const delay = Math.min(Math.max(1, Math.min(...futureDeadlines) - now), MAX_BROWSER_TIMER_DELAY_MS);
+  updateHealthStaleTimer = window.setTimeout(() => {
+    updateHealthStaleTimer = null;
+    if (isWindowClosing() || workspaceId !== capabilities?.workspace.workspace_id) return;
+    void refreshUpdateHealth();
+  }, delay);
+}
+
 function invalidateUpdateHealth(detail: string): void {
+  clearUpdateHealthTimers();
   updateHealthRequestGeneration += 1;
   renderUpdateHealthLoading(detail);
+}
+
+function invokeTrackedUpdateHealth(): Promise<unknown> {
+  const read = invoke<unknown>("get_update_health");
+  pendingUpdateHealthReads.add(read);
+  void read.then(
+    () => pendingUpdateHealthReads.delete(read),
+    () => pendingUpdateHealthReads.delete(read),
+  );
+  return read;
+}
+
+function pendingUpdateHealthRead(): Promise<void> | null {
+  const reads = [...pendingUpdateHealthReads];
+  if (!reads.length) return null;
+  return Promise.allSettled(reads).then(() => undefined);
 }
 
 function formatUpdateHealthTime(completedAtUtc: string): string {
@@ -1163,7 +1272,7 @@ function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
   const games = new Map(health.games.map((entry) => [entry.game, entry]));
   const staleGames = GAMES.filter((targetGame) => {
     const entry = games.get(targetGame);
-    return entry && Date.now() - Date.parse(entry.completed_at_utc) > UPDATE_HEALTH_STALE_AFTER_MS;
+    return entry && Date.now() - Date.parse(entry.completed_at_utc) >= UPDATE_HEALTH_STALE_AFTER_MS;
   });
   const stale = staleGames.length > 0;
   setUpdateHealthView(
@@ -1188,6 +1297,8 @@ function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
     updateHealthGames.append(item);
   }
   updateHealthGames.hidden = false;
+  updateHealthBusyRetryAttempt = 0;
+  scheduleUpdateHealthStaleDeadline(health);
 }
 
 function gameShortLabel(targetGame: Game): string {
@@ -1211,6 +1322,7 @@ function renderUpdateHealthFailure(failureCode: string, retryable: boolean): voi
       "数据正在更新，完成后会自动重新检查。",
       `当前工作区正由更新任务占用（${publicCode}）。`,
     );
+    scheduleBusyUpdateHealthRetry();
     return;
   }
   setUpdateHealthView(
@@ -1223,8 +1335,9 @@ function renderUpdateHealthFailure(failureCode: string, retryable: boolean): voi
   );
 }
 
-async function refreshUpdateHealth(): Promise<void> {
+async function refreshUpdateHealth(fromBusyRetry = false): Promise<void> {
   if (isWindowClosing()) return;
+  clearUpdateHealthTimers(!fromBusyRetry);
   const workspaceId = capabilities?.workspace.workspace_id ?? "";
   const request = ++updateHealthRequestGeneration;
   if (!workspaceId) {
@@ -1233,7 +1346,7 @@ async function refreshUpdateHealth(): Promise<void> {
   }
   renderUpdateHealthLoading();
   try {
-    const result = await invoke<unknown>("get_update_health");
+    const result = await invokeTrackedUpdateHealth();
     if (isWindowClosing()
       || request !== updateHealthRequestGeneration
       || workspaceId !== (capabilities?.workspace.workspace_id ?? "")) return;
@@ -1517,11 +1630,13 @@ async function startExport(operation: ExportOperation): Promise<void> {
     || !capabilities
     || !capability?.enabled) return;
   taskBusy = true;
+  setBoxTransitionBusy(true);
   const finishTaskStart = beginTaskStartTracking();
   updateExportControls();
   updateTaskForm();
   setNotice(exportMessage, "正在交给全局本机后台任务管理器…");
   try {
+    if (!await ensureVisualizerBoxesSaved(GAMES, "更新数据") || isWindowClosing()) return;
     const snapshot = await invoke<PublicTaskSnapshot>("start_export_task", {
       workspaceId: capabilities.workspace.workspace_id,
       intentJson: buildExportIntent(operation),
@@ -1536,6 +1651,7 @@ async function startExport(operation: ExportOperation): Promise<void> {
   } finally {
     taskBusy = false;
     finishTaskStart();
+    setBoxTransitionBusy(false);
     updateExportControls();
     updateTaskForm();
   }
@@ -1756,6 +1872,9 @@ function renderTasks(): void {
     taskList.append(element("p", "empty-state", "还没有进行数据更新或报告生成。"));
   }
   for (const task of ordered) {
+    const exportedGame = task.operation === "hsr-export" ? "hsr"
+      : task.operation === "zzz-export" ? "zzz"
+        : null;
     const card = element("article", `task-card status-${task.status}`);
     const titleRow = element("div", "task-title-row");
     const title = element("div");
@@ -1763,7 +1882,9 @@ function renderTasks(): void {
     const badge = element("span", `status-badge ${task.status}`, STATUS_LABELS[task.status]);
     titleRow.append(title, badge);
     const outcome = task.status === "succeeded"
-      ? "操作已经完成，相关页面或报告已刷新。"
+      ? exportedGame
+        ? "数据更新已完成；打开对应游戏即可查看最新 Box、卡池和终局分析。"
+        : "操作已经完成，报告已生成。"
       : task.status === "failed"
         ? "操作没有完成，请查看下方原因。"
         : task.status === "cancelled"
@@ -1823,8 +1944,10 @@ function renderTasks(): void {
       technical.append(artifacts);
     }
 
-    if (task.status === "succeeded" && (task.operation === "hsr-export" || task.operation === "zzz-export")) {
-      card.append(makeButton("查看 Box 和分析", "button secondary", () => visualizerSection.scrollIntoView({ behavior: "smooth" })));
+    if (task.status === "succeeded" && exportedGame) {
+      const viewUpdate = makeButton("查看最新 Box 和分析", "button secondary", () => showUpdatedGame(exportedGame));
+      viewUpdate.disabled = workspaceBusy || boxTransitionBusy || isWindowClosing();
+      card.append(viewUpdate);
     }
 
     if (!TERMINAL_STATUSES.has(task.status) && capabilities?.supports_cancel) {
@@ -2192,17 +2315,22 @@ async function installWindowCloseHandler(): Promise<void> {
       await coordinateDesktopClose({
         beginClose() {
           closeGuardRunning = true;
+          clearUpdateHealthTimers();
           updateHealthRequestGeneration += 1;
           uninstallVisualizerRevisionWatchers();
           setBoxTransitionBusy(true);
           renderTasks();
           persistTaskHistory();
         },
+        setStage: setDesktopCloseStage,
         getWorkspaceTransition() {
           return pendingWorkspaceTransition;
         },
         getTaskStart() {
           return pendingTaskStart;
+        },
+        getBackgroundRead() {
+          return pendingUpdateHealthRead();
         },
         hasActiveTask,
         confirmActiveTaskClose() {
@@ -2217,7 +2345,12 @@ async function installWindowCloseHandler(): Promise<void> {
           resetVisualizerFrames();
         },
         flushBoxes() {
-          return ensureVisualizerBoxesSaved(["hsr", "zzz"], "关闭程序");
+          return ensureVisualizerBoxesSaved(["hsr", "zzz"], "关闭程序", {
+            failureMode: "cancel",
+            beforeFlush(targetGame) {
+              setDesktopCloseStage(targetGame === "hsr" ? "flushing-hsr-box" : "flushing-zzz-box");
+            },
+          });
         },
         persist: persistTaskHistory,
         async destroy() {
@@ -2257,6 +2390,7 @@ window.addEventListener("beforeunload", (event) => {
     event.returnValue = "";
     return;
   }
+  clearUpdateHealthTimers();
   resetVisualizerFrames();
   uninstallVisualizerRevisionWatchers();
   unlistenTaskUpdates?.();

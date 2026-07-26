@@ -52,18 +52,19 @@ pub use export::{
 pub use task_manager::{
     CancelOutcomeV1, CancelTaskResultV1, ExportTaskExecutor, PublicArtifactV1, PublicTaskFailureV1,
     PublicTaskSnapshotV1, PublicTaskUpdateV1, TaskExecutor, TaskManager, TaskManagerError,
-    TaskSnapshotV1, TaskSpawner, TaskStatusV1, PUBLIC_TASK_SNAPSHOT_SCHEMA_V1,
+    TaskSnapshotV1, TaskSpawner, TaskStatusV1, UpdateTaskExecutor, PUBLIC_TASK_SNAPSHOT_SCHEMA_V1,
     TASK_SNAPSHOT_SCHEMA_V1,
 };
 pub use update::{
-    check_update_health_v1, is_valid_update_attempt_id_v1, run_update_v1, FileUpdateReceiptStore,
-    NativeUpdateExecutorV1, UpdateArtifactV1, UpdateGameReceiptV1, UpdateHealthV1,
-    UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1, UpdateRunOutcomeV1,
-    UpdateRunStatusV1, UpdateStateGameV1, UpdateStateV1, UpdateStepContextV1, UpdateStepExecutor,
-    UpdateStepFailureV1, UpdateStepFuture, UpdateStepKindV1, UpdateStepReceiptV1,
-    UpdateStepStatusV1, MAX_UPDATE_ATTEMPT_ID_BYTES_V1, UPDATE_ATTEMPT_DIRECTORY,
-    UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_HEALTH_SCHEMA_V1, UPDATE_RECEIPT_SCHEMA_V1,
-    UPDATE_STATE_FILE, UPDATE_STATE_SCHEMA_V1,
+    check_update_health_v1, check_update_health_with_state_v1, is_valid_update_attempt_id_v1,
+    run_update_observed_v1, run_update_v1, FileUpdateReceiptStore, NativeUpdateExecutorV1,
+    ObservedUpdateStepFuture, TrustedSingleGameUpdateV1, UpdateArtifactV1, UpdateGameReceiptV1,
+    UpdateHealthV1, UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1,
+    UpdateRunOutcomeV1, UpdateRunStatusV1, UpdateStateGameV1, UpdateStateV1, UpdateStepContextV1,
+    UpdateStepExecutionErrorV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
+    UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1, MAX_UPDATE_ATTEMPT_ID_BYTES_V1,
+    UPDATE_ATTEMPT_DIRECTORY, UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_HEALTH_SCHEMA_V1,
+    UPDATE_RECEIPT_SCHEMA_V1, UPDATE_STATE_FILE, UPDATE_STATE_SCHEMA_V1,
 };
 pub use update_config::{
     load_update_config_v1, load_update_config_with_digest_v1, LoadedUpdateConfigV1,
@@ -88,7 +89,9 @@ pub use workspace_bootstrap::{
     ZZZ_BOX_STATE_RELATIVE_PATH,
 };
 pub use workspace_write_lease::{
-    WorkspaceWriteLease, WorkspaceWriteLeaseError, WORKSPACE_WRITE_LOCK_RELATIVE_PATH,
+    WorkspaceSnapshotLease, WorkspaceWriteLease, WorkspaceWriteLeaseError,
+    WORKSPACE_SNAPSHOT_LOCK_RELATIVE_PATH, WORKSPACE_WRITER_ARBITRATION_LOCK_RELATIVE_PATH,
+    WORKSPACE_WRITER_INTENT_LOCK_RELATIVE_PATH, WORKSPACE_WRITE_LOCK_RELATIVE_PATH,
 };
 
 pub const TASK_REQUEST_SCHEMA_V1: &str = "miho-task-request-v1";
@@ -618,6 +621,18 @@ pub struct TaskFailureV1 {
 
 impl TaskFailureV1 {
     pub fn from_error(operation: Option<TaskOperationV1>, error: &anyhow::Error) -> Self {
+        if let Some(failure) = error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<UpdateStepFailureV1>())
+        {
+            return Self {
+                schema_version: TASK_FAILURE_SCHEMA_V1.to_owned(),
+                operation,
+                code: failure.code.clone(),
+                message: failure.message.clone(),
+                retryable: failure.retryable,
+            };
+        }
         let diagnostic = format!("{error:#}");
         let normalized = diagnostic.to_ascii_lowercase();
         let (code, retryable) = if normalized.contains("workspace.write_busy") {

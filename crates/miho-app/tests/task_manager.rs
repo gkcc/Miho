@@ -16,10 +16,12 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use miho_app::{
     AppInvocation, CancelOutcomeV1, EvidenceTaskV1, ExecutionObserver, ExportInvocation,
     ExportSourceV1, ExportTaskExecutor, ExportTaskV1, PublicTaskSnapshotV1, PullTaskV1,
-    TaskExecutor, TaskFailureV1, TaskFreshnessSummaryV1, TaskManager, TaskManagerError,
-    TaskModeFreshnessV1, TaskOperationV1, TaskReceiptV1, TaskRequestV1, TaskSnapshotV1,
-    TaskSpawner, TaskSpecV1, TaskStatusV1, TrustedExportTaskV1, WorkspaceLayout,
-    WorkspaceWriteLease, TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1, TASK_SNAPSHOT_SCHEMA_V1,
+    ResolvedGameUpdateConfigV1, ResolvedUpdateConfigV1, ResolvedZzzUpdateConfigV1, TaskExecutor,
+    TaskFailureV1, TaskFreshnessSummaryV1, TaskManager, TaskManagerError, TaskModeFreshnessV1,
+    TaskOperationV1, TaskReceiptV1, TaskRequestV1, TaskSnapshotV1, TaskSpawner, TaskSpecV1,
+    TaskStatusV1, TrustedExportTaskV1, TrustedSingleGameUpdateV1, UpdateInvocationV1,
+    UpdateStepFailureV1, UpdateTaskExecutor, WorkspaceLayout, WorkspaceWriteLease,
+    TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1, TASK_SNAPSHOT_SCHEMA_V1,
 };
 use miho_core::{
     contract::{FeatureFlags, GameMode},
@@ -101,6 +103,45 @@ fn export_request(root: &std::path::Path, game: Game) -> TrustedExportTaskV1 {
         },
         hsr_output_directory: "CANARY_NATIVE_HSR_DIRECTORY".to_owned(),
     }
+}
+
+fn update_request(root: &std::path::Path, game: Game) -> TrustedSingleGameUpdateV1 {
+    let hsr = ResolvedGameUpdateConfigV1 {
+        output: root.join("out"),
+        repo_id: "owner/hsr".to_owned(),
+        revision: "main".to_owned(),
+        modes: vec![GameMode::HsrMoc],
+        prydwen_top_n: 100,
+    };
+    let zzz_export = ResolvedGameUpdateConfigV1 {
+        output: root.join("out_zzz"),
+        repo_id: "owner/zzz".to_owned(),
+        revision: "main".to_owned(),
+        modes: vec![GameMode::ZzzSd],
+        prydwen_top_n: 100,
+    };
+    TrustedSingleGameUpdateV1::new(
+        ResolvedUpdateConfigV1 {
+            workspace: root.to_path_buf(),
+            days: 183,
+            hsr,
+            zzz: ResolvedZzzUpdateConfigV1 {
+                export: zzz_export,
+                box_path: root.join(".miho/zzz_box_state.json"),
+                banner_plan: root.join("configs/zzz_banner_plan.json"),
+                mechanism_notes: root.join("configs/zzz_mechanism_notes"),
+                decision_baseline: root.join("configs/zzz_decision_baseline.json"),
+            },
+        },
+        "a".repeat(64),
+        game,
+        UpdateInvocationV1::new(
+            "managed-update-attempt".to_owned(),
+            DateTime::parse_from_rfc3339("2026-07-13T09:10:11+08:00").unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap()
 }
 
 fn receipt() -> TaskReceiptV1 {
@@ -225,6 +266,75 @@ impl ExportTaskExecutor for FailingExportExecutor {
         _observer: &dyn ExecutionObserver,
     ) -> anyhow::Result<TaskReceiptV1> {
         bail!("CANARY_RAW_EXPORT_ERROR C:/CANARY_EXPORT_PATH")
+    }
+}
+
+struct MultiCommitUpdateExecutor {
+    first_permit_reached: Sender<()>,
+    release_second_permit: Mutex<Receiver<()>>,
+}
+
+impl UpdateTaskExecutor for MultiCommitUpdateExecutor {
+    fn execute(
+        &self,
+        request: &TrustedSingleGameUpdateV1,
+        observer: &dyn ExecutionObserver,
+    ) -> anyhow::Result<TaskReceiptV1> {
+        observer.before_commit()?;
+        self.first_permit_reached.send(()).unwrap();
+        self.release_second_permit.lock().unwrap().recv().unwrap();
+        observer.before_commit()?;
+        Ok(TaskReceiptV1 {
+            schema_version: TASK_RECEIPT_SCHEMA_V1.to_owned(),
+            operation: request.operation(),
+            method_version: "managed-update-test".to_owned(),
+            output_schema: "test".to_owned(),
+            local_datetime: request.invocation.local_datetime().to_string(),
+            outputs: vec![request.output_root().join("artifact_manifest.json")],
+            notices: Vec::new(),
+            freshness: Some(freshness()),
+        })
+    }
+}
+
+struct TypedFailingUpdateExecutor;
+
+impl UpdateTaskExecutor for TypedFailingUpdateExecutor {
+    fn execute(
+        &self,
+        _request: &TrustedSingleGameUpdateV1,
+        _observer: &dyn ExecutionObserver,
+    ) -> anyhow::Result<TaskReceiptV1> {
+        Err(anyhow::Error::new(UpdateStepFailureV1::safe(
+            "update.hsr_export.cache_fallback",
+            "the HSR update rejected stale cached source data",
+            true,
+        )))
+    }
+}
+
+struct CancelCleanupFailingUpdateExecutor {
+    entered: Sender<()>,
+    release: Mutex<Receiver<()>>,
+}
+
+impl UpdateTaskExecutor for CancelCleanupFailingUpdateExecutor {
+    fn execute(
+        &self,
+        _request: &TrustedSingleGameUpdateV1,
+        observer: &dyn ExecutionObserver,
+    ) -> anyhow::Result<TaskReceiptV1> {
+        self.entered.send(()).unwrap();
+        self.release.lock().unwrap().recv().unwrap();
+        assert_eq!(
+            observer.before_commit(),
+            Err(miho_app::ExecutionControlError::Cancelled)
+        );
+        Err(anyhow::Error::new(UpdateStepFailureV1::safe(
+            "update.receipt_write_failed",
+            "the interrupted update receipt could not be committed",
+            true,
+        )))
     }
 }
 
@@ -506,6 +616,128 @@ fn hsr_cancel_and_zzz_receipt_share_global_state_without_public_native_leaks() {
         }
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[test]
+fn managed_update_becomes_irreversible_after_first_of_multiple_commits() {
+    let root = temp_root("managed-update-multi-commit");
+    let (first_tx, first_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let manager = TaskManager::with_update_executor(Arc::new(MultiCommitUpdateExecutor {
+        first_permit_reached: first_tx,
+        release_second_permit: Mutex::new(release_rx),
+    }));
+    let queued = manager
+        .start_update(update_request(&root, Game::Zzz))
+        .unwrap();
+
+    first_rx.recv().unwrap();
+    assert_eq!(
+        manager.get(&queued.task_id).unwrap().status,
+        TaskStatusV1::Committing
+    );
+    assert_eq!(
+        manager.cancel(&queued.task_id).outcome,
+        CancelOutcomeV1::TooLate
+    );
+    release_tx.send(()).unwrap();
+
+    let succeeded = wait_terminal(&manager, &queued.task_id);
+    assert_eq!(succeeded.status, TaskStatusV1::Succeeded);
+    assert_eq!(succeeded.operation, TaskOperationV1::ZzzExport);
+    assert_eq!(
+        succeeded
+            .status_history
+            .iter()
+            .filter(|status| **status == TaskStatusV1::Committing)
+            .count(),
+        1
+    );
+    assert_eq!(
+        succeeded.status_history,
+        vec![
+            TaskStatusV1::Queued,
+            TaskStatusV1::Running,
+            TaskStatusV1::Committing,
+            TaskStatusV1::Succeeded,
+        ]
+    );
+    let public = succeeded.to_public();
+    assert_eq!(public.operation, TaskOperationV1::ZzzExport);
+    assert_eq!(public.artifacts.len(), 1);
+    assert_eq!(public.artifacts[0].name, "zzz-export-bundle");
+    assert_eq!(public.freshness, Some(freshness()));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn managed_update_preserves_typed_failure_code_message_and_retryability() {
+    let root = temp_root("managed-update-typed-failure");
+    let manager = TaskManager::with_update_executor(Arc::new(TypedFailingUpdateExecutor));
+    let queued = manager
+        .start_update(update_request(&root, Game::Hsr))
+        .unwrap();
+
+    let failed = wait_terminal(&manager, &queued.task_id);
+
+    assert_eq!(failed.status, TaskStatusV1::Failed);
+    let failure = failed.failure.as_ref().unwrap();
+    assert_eq!(failure.code, "update.hsr_export.cache_fallback");
+    assert_eq!(
+        failure.message,
+        "the HSR update rejected stale cached source data"
+    );
+    assert!(failure.retryable);
+    let public = failed.to_public();
+    assert_eq!(
+        public.failure.as_ref().map(|failure| failure.code.as_str()),
+        Some("update.hsr_export.cache_fallback")
+    );
+    let public_failure = public.failure.as_ref().unwrap();
+    assert_eq!(
+        public_failure.message,
+        "the HSR update rejected stale cached source data"
+    );
+    assert!(public_failure.retryable);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cancelled_is_not_published_when_interrupted_receipt_cleanup_fails() {
+    let root = temp_root("managed-update-cancel-cleanup-failure");
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let manager = TaskManager::with_update_executor(Arc::new(CancelCleanupFailingUpdateExecutor {
+        entered: entered_tx,
+        release: Mutex::new(release_rx),
+    }));
+    let queued = manager
+        .start_update(update_request(&root, Game::Hsr))
+        .unwrap();
+    entered_rx.recv().unwrap();
+    assert_eq!(
+        manager.cancel(&queued.task_id).outcome,
+        CancelOutcomeV1::Requested
+    );
+    release_tx.send(()).unwrap();
+
+    let failed = wait_terminal(&manager, &queued.task_id);
+
+    assert_eq!(failed.status, TaskStatusV1::Failed);
+    assert!(!failed.status_history.contains(&TaskStatusV1::Cancelled));
+    assert_eq!(
+        failed.failure.as_ref().map(|failure| failure.code.as_str()),
+        Some("update.receipt_write_failed")
+    );
+    assert_eq!(
+        failed
+            .to_public()
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.receipt_write_failed")
+    );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -879,7 +1111,7 @@ fn public_snapshot_omits_native_paths_and_raw_failure_details() {
 }
 
 #[test]
-fn cancelled_observer_keeps_active_owned_until_worker_finalizes() {
+fn cancelling_observer_publishes_cancelled_only_after_worker_finalizes() {
     let root = temp_root("active-owner");
     let (pre_tx, pre_rx) = mpsc::channel();
     let (release_pre_tx, release_pre_rx) = mpsc::channel();
@@ -902,7 +1134,7 @@ fn cancelled_observer_keeps_active_owned_until_worker_finalizes() {
     returned_rx.recv().unwrap();
     assert_eq!(
         manager.get(&task_a.task_id).unwrap().status,
-        TaskStatusV1::Cancelled
+        TaskStatusV1::Cancelling
     );
     assert!(matches!(
         manager.start(request(), invocation(root.clone())),
@@ -924,6 +1156,10 @@ fn cancelled_observer_keeps_active_owned_until_worker_finalizes() {
             Err(error) => panic!("unexpected start error: {error}"),
         }
     };
+    assert_eq!(
+        manager.get(&task_a.task_id).unwrap().status,
+        TaskStatusV1::Cancelled
+    );
     pre_rx.recv().unwrap();
     assert!(matches!(
         manager.start(request(), invocation(root.clone())),

@@ -107,4 +107,15 @@ test('the product probe gates the real ZZZ to HSR to ZZZ sequence and emits exac
   assert.match(productProbeSource, /updateHealthDetail\.includes\("上游尚未发布新样本"\)/u);
   assert.match(productProbeSource, /value\.includes\("HSR 最近成功"\)/u);
   assert.match(productProbeSource, /value\.includes\("ZZZ 最近成功"\)/u);
+  assert.match(productProbeSource, /internals\.invoke\('get_update_health'\)/u);
+  assert.match(productProbeSource, /afterTarget\.attempt_id === beforeTarget\.attempt_id/u);
+  assert.match(productProbeSource, /afterOther\.attempt_id === beforeOther\.attempt_id/u);
+  assert.match(productProbeSource, /afterOther\.completed_at_utc === beforeOther\.completed_at_utc/u);
+  assert.match(productProbeSource, /updateHealthGameTitles: updateHealthGameItems\.map/u);
+  assert.match(productProbeSource, /const label = game === "hsr" \? "HSR 最近成功" : "ZZZ 最近成功"/u);
+  assert.match(productProbeSource, /updateHealthGames\?\.findIndex\(\(value\) => value\.includes\(label\)\)/u);
+  assert.match(productProbeSource, /updateHealthGameTitles\?\.\[index\]/u);
+  assert.match(productProbeSource, /visibleTargetCompletedAt\.includes\(afterTarget\.completed_at_utc\)/u);
+  assert.match(productProbeSource, /visibleOtherCompletedAt\.includes\(afterOther\.completed_at_utc\)/u);
+  assert.match(productProbeSource, /authoritative and visible update health after public-data update/u);
 });

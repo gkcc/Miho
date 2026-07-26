@@ -9,14 +9,16 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+use miho_app::UPDATE_HEALTH_SCHEMA_V1;
 use miho_app::{
-    bootstrap_workspace_v1, check_update_health_v1, is_valid_update_attempt_id_v1,
-    load_update_config_v1, load_update_config_with_digest_v1, parse_export_task_intent_v1,
-    parse_task_intent_v1, resolve_task_intent_v1, AppInvocation, CancelOutcomeV1, ExportInvocation,
-    ExportTaskIntentSpecV1, FileUpdateReceiptStore, PublicTaskSnapshotV1, PublicTaskUpdateV1,
-    ResolvedUpdateConfigV1, TaskFailureV1, TaskManager, TaskManagerError, TaskOperationV1,
-    TrustedExportTaskV1, UpdateHealthV1, UpdateReceiptStore, UpdateStateV1, UpdateStepFailureV1,
-    WorkspaceBootstrapError, WorkspaceBootstrapRequestV1, UPDATE_HEALTH_SCHEMA_V1,
+    bootstrap_workspace_v1, check_update_health_with_state_v1, is_valid_update_attempt_id_v1,
+    load_update_config_with_digest_v1, parse_export_task_intent_v1, parse_task_intent_v1,
+    resolve_task_intent_v1, AppInvocation, CancelOutcomeV1, ExportTaskIntentSpecV1,
+    PublicTaskSnapshotV1, PublicTaskUpdateV1, ResolvedUpdateConfigV1, TaskFailureV1, TaskManager,
+    TaskManagerError, TaskOperationV1, TrustedSingleGameUpdateV1, UpdateHealthV1,
+    UpdateInvocationV1, UpdateStateV1, UpdateStepFailureV1, WorkspaceBootstrapError,
+    WorkspaceBootstrapRequestV1,
 };
 use miho_core::pipeline::Game;
 use serde::{Deserialize, Serialize};
@@ -1518,10 +1520,10 @@ pub fn start_export_task(
     state: State<'_, DesktopState>,
 ) -> Result<PublicTaskSnapshotV1, PublicCommandFailureV1> {
     let _gate = state.lock_gate()?;
-    let (request, invocation) = prepare_export_task(&state, &workspace_id, &intent_json)?;
+    let request = prepare_export_task(&state, &workspace_id, &intent_json)?;
     let snapshot = state
         .tasks
-        .start_export(request, invocation)
+        .start_update(request)
         .map_err(map_task_manager_error)?
         .to_public();
     let sequence = snapshot.status_history.len() as u64;
@@ -1856,46 +1858,53 @@ fn prepare_export_task(
     state: &DesktopState,
     workspace_id: &str,
     intent_json: &str,
-) -> Result<(TrustedExportTaskV1, ExportInvocation), PublicCommandFailureV1> {
+) -> Result<TrustedSingleGameUpdateV1, PublicCommandFailureV1> {
     let intent = parse_export_task_intent_v1(intent_json.as_bytes()).map_err(map_intent_failure)?;
     let root = state
         .workspaces
         .access(workspace_id)
         .map_err(map_workspace_error)?;
-    let config = load_resolved_update_config(&root).map_err(|_| {
+    let config_path = root.join("configs/update_v1.json");
+    validate_workspace_target(&root, &config_path).map_err(|_| {
         PublicCommandFailureV1::new(
             "export.config_invalid",
             "The native export configuration is missing, invalid, or unsafe.",
             false,
         )
     })?;
-    let invocation = ExportInvocation::capture_in(config.workspace.clone()).map_err(|_| {
+    let loaded = load_update_config_with_digest_v1(&config_path).map_err(|_| {
         PublicCommandFailureV1::new(
-            "task.invocation_failed",
-            "The task invocation could not be prepared.",
-            true,
+            "export.config_invalid",
+            "The native export configuration is missing, invalid, or unsafe.",
+            false,
+        )
+    })?;
+    let config = loaded.config.resolve(&root).map_err(|_| {
+        PublicCommandFailureV1::new(
+            "export.config_invalid",
+            "The native export configuration is missing, invalid, or unsafe.",
+            false,
         )
     })?;
     let game = match intent.task {
         ExportTaskIntentSpecV1::HsrExport(_) => Game::Hsr,
         ExportTaskIntentSpecV1::ZzzExport(_) => Game::Zzz,
     };
-    let request =
-        TrustedExportTaskV1::from_update_config_v1(&config, game, &invocation).map_err(|_| {
+    TrustedSingleGameUpdateV1::new(config, loaded.sha256, game, UpdateInvocationV1::capture())
+        .map_err(|_| {
             PublicCommandFailureV1::new(
                 "export.config_invalid",
                 "The native export configuration is missing, invalid, or unsafe.",
                 false,
             )
-        })?;
-    Ok((request, invocation))
+        })
 }
 
 fn load_resolved_update_config(root: &Path) -> Result<ResolvedUpdateConfigV1, ()> {
     let config_path = root.join("configs/update_v1.json");
     validate_workspace_target(root, &config_path).map_err(|_| ())?;
-    load_update_config_v1(&config_path)
-        .and_then(|config| config.resolve(root))
+    load_update_config_with_digest_v1(&config_path)
+        .and_then(|loaded| loaded.config.resolve(root))
         .map_err(|_| ())
 }
 
@@ -1904,11 +1913,8 @@ fn get_update_health_blocking(
     workspace_id: String,
 ) -> Result<DesktopUpdateHealthV1, PublicCommandFailureV1> {
     validate_selected_root(&root).map_err(map_workspace_error)?;
-    let health = match load_update_config_digest_v1(&root) {
-        Ok(config_sha256) => check_update_health_v1(&root, true, true, &config_sha256),
-        Err(()) => invalid_update_health_config_v1(),
-    };
-    let state = FileUpdateReceiptStore.load_state(&root);
+    let config_sha256 = load_update_config_digest_v1(&root).unwrap_or_default();
+    let (health, state) = check_update_health_with_state_v1(&root, true, true, &config_sha256);
     Ok(map_desktop_update_health_v1(workspace_id, health, state))
 }
 
@@ -1920,6 +1926,7 @@ fn load_update_config_digest_v1(root: &Path) -> Result<String, ()> {
     Ok(loaded.sha256)
 }
 
+#[cfg(test)]
 fn invalid_update_health_config_v1() -> UpdateHealthV1 {
     UpdateHealthV1 {
         schema_version: UPDATE_HEALTH_SCHEMA_V1.to_owned(),
@@ -2186,9 +2193,9 @@ fn spawn_task_monitor(
 mod tests {
     use super::*;
     use miho_app::{
-        DecisionTaskV1, ExecutionObserver, ExportIntentV1, ExportSourceV1, ExportTaskIntentV1,
-        TaskExecutor, TaskIntentSpecV1, TaskIntentV1, TaskReceiptV1, TaskRequestV1, TaskSpecV1,
-        TaskStatusV1, UpdateStateGameV1, WorkspaceLayout, TASK_RECEIPT_SCHEMA_V1,
+        DecisionTaskV1, ExecutionObserver, ExportIntentV1, ExportTaskIntentV1, TaskExecutor,
+        TaskIntentSpecV1, TaskIntentV1, TaskReceiptV1, TaskRequestV1, TaskSpecV1, TaskStatusV1,
+        UpdateStateGameV1, WorkspaceLayout, WorkspaceWriteLease, TASK_RECEIPT_SCHEMA_V1,
     };
     use std::{
         fs,
@@ -2468,6 +2475,27 @@ mod tests {
             Some("update.health_receipt_missing")
         );
         assert!(health.retryable);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn desktop_update_health_reports_writer_busy_instead_of_reading_mid_commit() {
+        let (root, _, workspace_id) = state("update-health-writer-busy");
+        fs::create_dir_all(root.join("configs")).unwrap();
+        fs::write(
+            root.join("configs/update_v1.json"),
+            include_bytes!("../../../../configs/update_v1.json"),
+        )
+        .unwrap();
+        let lease = WorkspaceWriteLease::acquire(&root).unwrap();
+
+        let health = get_update_health_blocking(root.clone(), workspace_id).unwrap();
+
+        assert!(!health.healthy);
+        assert_eq!(health.failure_code.as_deref(), Some("workspace.write_busy"));
+        assert!(health.retryable);
+        assert!(health.games.is_empty());
+        drop(lease);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3778,6 +3806,7 @@ mod tests {
         )
         .unwrap();
         let canonical = fs::canonicalize(&root).unwrap();
+        let config_sha256 = sha256_hex(include_bytes!("../../../../configs/update_v1.json"));
         for (intent, game, output, operation) in [
             (
                 ExportTaskIntentV1::new(ExportTaskIntentSpecV1::HsrExport(
@@ -3802,20 +3831,19 @@ mod tests {
                     .to_ascii_lowercase()
                     .contains(&forbidden.to_ascii_lowercase()));
             }
-            let (request, invocation) =
-                prepare_export_task(&state, &workspace_id, &intent_json).unwrap();
+            let request = prepare_export_task(&state, &workspace_id, &intent_json).unwrap();
             assert_eq!(request.operation(), operation);
-            assert_eq!(request.task.game, game);
-            assert_eq!(request.workspace, canonical);
-            assert_eq!(request.task.output_root, canonical.join(output));
-            assert_eq!(invocation.cwd(), canonical.as_path());
-            assert_eq!(request.hsr_output_directory, "out");
-            match &request.task.source {
-                ExportSourceV1::Online { cache_root } => {
-                    assert!(cache_root.starts_with(canonical.join(".miho/cache/rust")));
-                }
-                source => panic!("desktop export used unexpected source: {source:?}"),
-            }
+            assert_eq!(request.game, game);
+            assert_eq!(request.config.workspace, canonical);
+            assert_eq!(request.output_root(), canonical.join(output));
+            assert_eq!(request.config_sha256, config_sha256);
+            assert!(is_valid_update_attempt_id_v1(
+                &request.invocation.attempt_id
+            ));
+            let update_request = request.update_request();
+            assert!(update_request.force);
+            assert_eq!(update_request.skip_hsr, game != Game::Hsr);
+            assert_eq!(update_request.skip_zzz, game != Game::Zzz);
         }
         fs::remove_dir_all(root).unwrap();
     }

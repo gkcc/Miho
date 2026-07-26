@@ -21,10 +21,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    execute_export_v1, execute_export_with_hub_v1, execute_task_v1, export_cache_root,
-    AppInvocation, CoverageTaskV1, ExportInvocation, ExportSourceV1, ExportTaskV1, PullTaskV1,
-    ResolvedUpdateConfigV1, TaskRequestV1, TaskSpecV1, WorkspaceLayout, WorkspaceWriteLease,
-    WorkspaceWriteLeaseError,
+    execute_export_observed_v1, execute_export_observed_with_hub_v1, execute_task_observed_v1,
+    export_cache_root, AppInvocation, CoverageTaskV1, ExecutionControlError, ExecutionObserver,
+    ExportInvocation, ExportObserver, ExportSourceV1, ExportTaskV1, PullTaskV1,
+    ResolvedUpdateConfigV1, TaskOperationV1, TaskRequestV1, TaskSpecV1, WorkspaceLayout,
+    WorkspaceSnapshotLease, WorkspaceWriteLease, WorkspaceWriteLeaseError,
 };
 
 pub const UPDATE_RECEIPT_SCHEMA_V1: &str = "miho-update-receipt-v1";
@@ -105,6 +106,14 @@ impl UpdateStepFailureV1 {
         }
     }
 }
+
+impl std::fmt::Display for UpdateStepFailureV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for UpdateStepFailureV1 {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -191,6 +200,62 @@ pub struct UpdateRequestV1 {
     pub skip_zzz: bool,
     pub force: bool,
     pub config_sha256: Option<String>,
+}
+
+/// Fully resolved single-game update request owned by trusted native code.
+///
+/// This type deliberately has no serde implementation: a WebView may choose
+/// only the public HSR/ZZZ operation while the desktop adapter resolves the
+/// configuration, digest, workspace, and invocation locally.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustedSingleGameUpdateV1 {
+    pub config: ResolvedUpdateConfigV1,
+    pub config_sha256: String,
+    pub game: Game,
+    pub invocation: UpdateInvocationV1,
+}
+
+impl TrustedSingleGameUpdateV1 {
+    pub fn new(
+        config: ResolvedUpdateConfigV1,
+        config_sha256: String,
+        game: Game,
+        invocation: UpdateInvocationV1,
+    ) -> Result<Self, UpdateStepFailureV1> {
+        let request = Self {
+            config,
+            config_sha256,
+            game,
+            invocation,
+        };
+        request.update_request().validate()?;
+        Ok(request)
+    }
+
+    pub fn operation(&self) -> TaskOperationV1 {
+        match self.game {
+            Game::Hsr => TaskOperationV1::HsrExport,
+            Game::Zzz => TaskOperationV1::ZzzExport,
+        }
+    }
+
+    pub fn update_request(&self) -> UpdateRequestV1 {
+        UpdateRequestV1 {
+            workspace: self.config.workspace.clone(),
+            skip_hsr: self.game != Game::Hsr,
+            skip_zzz: self.game != Game::Zzz,
+            // A desktop "update now" request is always an explicit refresh.
+            force: true,
+            config_sha256: Some(self.config_sha256.clone()),
+        }
+    }
+
+    pub fn output_root(&self) -> &Path {
+        match self.game {
+            Game::Hsr => &self.config.hsr.output,
+            Game::Zzz => &self.config.zzz.export.output,
+        }
+    }
 }
 
 impl UpdateRequestV1 {
@@ -305,12 +370,35 @@ impl UpdateStepContextV1 {
 pub type UpdateStepFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Vec<UpdateArtifactV1>, UpdateStepFailureV1>> + Send + 'a>>;
 
+pub type ObservedUpdateStepFuture<'a> = Pin<
+    Box<dyn Future<Output = Result<Vec<UpdateArtifactV1>, UpdateStepExecutionErrorV1>> + Send + 'a>,
+>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateStepExecutionErrorV1 {
+    Failure(UpdateStepFailureV1),
+    Control(ExecutionControlError),
+}
+
 pub trait UpdateStepExecutor: Send + Sync {
     fn execute<'a>(
         &'a self,
         step: UpdateStepKindV1,
         context: &'a UpdateStepContextV1,
     ) -> UpdateStepFuture<'a>;
+
+    fn execute_observed<'a>(
+        &'a self,
+        step: UpdateStepKindV1,
+        context: &'a UpdateStepContextV1,
+        _observer: &'a dyn ExecutionObserver,
+    ) -> ObservedUpdateStepFuture<'a> {
+        Box::pin(async move {
+            self.execute(step, context)
+                .await
+                .map_err(UpdateStepExecutionErrorV1::Failure)
+        })
+    }
 
     /// Optional safe provenance for a completed execution attempt. The
     /// default preserves compatibility for external/custom executors.
@@ -381,7 +469,23 @@ impl UpdateStepExecutor for NativeUpdateExecutorV1 {
         step: UpdateStepKindV1,
         context: &'a UpdateStepContextV1,
     ) -> UpdateStepFuture<'a> {
-        Box::pin(async move { self.execute_step(step, context).await })
+        Box::pin(async move {
+            self.execute_step(step, context, None)
+                .await
+                .map_err(|error| match error {
+                    UpdateStepExecutionErrorV1::Failure(failure) => failure,
+                    UpdateStepExecutionErrorV1::Control(_) => cancelled_step_failure(),
+                })
+        })
+    }
+
+    fn execute_observed<'a>(
+        &'a self,
+        step: UpdateStepKindV1,
+        context: &'a UpdateStepContextV1,
+        observer: &'a dyn ExecutionObserver,
+    ) -> ObservedUpdateStepFuture<'a> {
+        Box::pin(async move { self.execute_step(step, context, Some(observer)).await })
     }
 
     fn fetch_source(
@@ -423,27 +527,30 @@ impl NativeUpdateExecutorV1 {
         &self,
         step: UpdateStepKindV1,
         context: &UpdateStepContextV1,
-    ) -> Result<Vec<UpdateArtifactV1>, UpdateStepFailureV1> {
+        observer: Option<&dyn ExecutionObserver>,
+    ) -> Result<Vec<UpdateArtifactV1>, UpdateStepExecutionErrorV1> {
         if context.workspace != self.config.workspace {
-            return Err(UpdateStepFailureV1::safe(
-                "update.workspace_mismatch",
-                "the update executor workspace does not match the locked workspace",
-                false,
+            return Err(UpdateStepExecutionErrorV1::Failure(
+                UpdateStepFailureV1::safe(
+                    "update.workspace_mismatch",
+                    "the update executor workspace does not match the locked workspace",
+                    false,
+                ),
             ));
         }
         #[cfg(debug_assertions)]
-        wait_for_debug_update_gate()?;
+        wait_for_debug_update_gate().map_err(UpdateStepExecutionErrorV1::Failure)?;
         match step {
-            UpdateStepKindV1::HsrExport => self.execute_export(Game::Hsr, context).await,
-            UpdateStepKindV1::ZzzExport => self.execute_export(Game::Zzz, context).await,
+            UpdateStepKindV1::HsrExport => self.execute_export(Game::Hsr, context, observer).await,
+            UpdateStepKindV1::ZzzExport => self.execute_export(Game::Zzz, context, observer).await,
             UpdateStepKindV1::ZzzCoverage => {
-                self.execute_report(UpdateStepKindV1::ZzzCoverage, context)
+                self.execute_report(UpdateStepKindV1::ZzzCoverage, context, observer)
             }
             UpdateStepKindV1::ZzzPullValue => {
-                self.execute_report(UpdateStepKindV1::ZzzPullValue, context)
+                self.execute_report(UpdateStepKindV1::ZzzPullValue, context, observer)
             }
             UpdateStepKindV1::ZzzReviewPacket => {
-                self.execute_report(UpdateStepKindV1::ZzzReviewPacket, context)
+                self.execute_report(UpdateStepKindV1::ZzzReviewPacket, context, observer)
             }
         }
     }
@@ -452,13 +559,19 @@ impl NativeUpdateExecutorV1 {
         &self,
         game: Game,
         context: &UpdateStepContextV1,
-    ) -> Result<Vec<UpdateArtifactV1>, UpdateStepFailureV1> {
+        observer: Option<&dyn ExecutionObserver>,
+    ) -> Result<Vec<UpdateArtifactV1>, UpdateStepExecutionErrorV1> {
         let settings = match game {
             Game::Hsr => &self.config.hsr,
             Game::Zzz => &self.config.zzz.export,
         };
         let invocation = ExportInvocation::new(context.workspace.clone(), context.observed_at)
-            .map_err(|_| safe_step_failure(game_export_step(game), false))?;
+            .map_err(|_| {
+                UpdateStepExecutionErrorV1::Failure(safe_step_failure(
+                    game_export_step(game),
+                    false,
+                ))
+            })?;
         let to_date = invocation.local_date();
         let from_date = to_date - Duration::days(i64::from(self.config.days));
         let refresh_official_banners = !self.fixture_sources.contains_key(&game);
@@ -496,6 +609,7 @@ impl NativeUpdateExecutorV1 {
                     hf_origin: self.hf_origins.get(&game).cloned(),
                 }),
         };
+        let export_observer = NativeUpdateExportObserverV1 { observer };
         let result = if game == Game::Zzz {
             let hsr_directory = self
                 .config
@@ -503,50 +617,74 @@ impl NativeUpdateExecutorV1 {
                 .output
                 .file_name()
                 .and_then(|value| value.to_str())
-                .ok_or_else(|| safe_step_failure(game_export_step(game), false))?;
-            execute_export_with_hub_v1(&task, &invocation, hsr_directory).await
+                .ok_or_else(|| {
+                    UpdateStepExecutionErrorV1::Failure(safe_step_failure(
+                        game_export_step(game),
+                        false,
+                    ))
+                })?;
+            execute_export_observed_with_hub_v1(&task, &invocation, &export_observer, hsr_directory)
+                .await
         } else {
-            execute_export_v1(&task, &invocation).await
+            execute_export_observed_v1(&task, &invocation, &export_observer).await
         };
         let receipt = match result {
             Ok(receipt) => receipt,
-            Err(error) if is_cache_fallback_error(&error) => {
-                return Err(cache_fallback_failure(game_export_step(game)))
+            Err(error) if is_execution_cancelled(&error) => {
+                return Err(UpdateStepExecutionErrorV1::Control(
+                    ExecutionControlError::Cancelled,
+                ))
             }
-            Err(_) => return Err(safe_step_failure(game_export_step(game), true)),
+            Err(error) if is_cache_fallback_error(&error) => {
+                return Err(UpdateStepExecutionErrorV1::Failure(cache_fallback_failure(
+                    game_export_step(game),
+                )))
+            }
+            Err(_) => {
+                return Err(UpdateStepExecutionErrorV1::Failure(safe_step_failure(
+                    game_export_step(game),
+                    true,
+                )))
+            }
         };
         if receipt
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == diagnostic_code::SUPPLEMENTAL_CACHE_FALLBACK)
         {
-            return Err(supplemental_cache_fallback_failure(game_export_step(game)));
+            return Err(UpdateStepExecutionErrorV1::Failure(
+                supplemental_cache_fallback_failure(game_export_step(game)),
+            ));
         }
         if receipt
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code != diagnostic_code::WORKBOOK_GENERATION_FAILED)
         {
-            return Err(UpdateStepFailureV1::safe(
-                format!("update.{}.degraded", step_code(game_export_step(game))),
-                format!(
-                    "the {} step completed with incomplete source diagnostics",
-                    step_code(game_export_step(game))
+            return Err(UpdateStepExecutionErrorV1::Failure(
+                UpdateStepFailureV1::safe(
+                    format!("update.{}.degraded", step_code(game_export_step(game))),
+                    format!(
+                        "the {} step completed with incomplete source diagnostics",
+                        step_code(game_export_step(game))
+                    ),
+                    true,
                 ),
-                true,
             ));
         }
-        collect_export_artifacts(&context.workspace, &settings.output, game)
-            .map_err(|_| safe_artifact_failure(game_export_step(game)))
+        collect_export_artifacts(&context.workspace, &settings.output, game).map_err(|_| {
+            UpdateStepExecutionErrorV1::Failure(safe_artifact_failure(game_export_step(game)))
+        })
     }
 
     fn execute_report(
         &self,
         step: UpdateStepKindV1,
         context: &UpdateStepContextV1,
-    ) -> Result<Vec<UpdateArtifactV1>, UpdateStepFailureV1> {
+        observer: Option<&dyn ExecutionObserver>,
+    ) -> Result<Vec<UpdateArtifactV1>, UpdateStepExecutionErrorV1> {
         let invocation = AppInvocation::new(context.workspace.clone(), context.local_datetime())
-            .map_err(|_| safe_step_failure(step, false))?;
+            .map_err(|_| UpdateStepExecutionErrorV1::Failure(safe_step_failure(step, false)))?;
         let workspace = WorkspaceLayout {
             data_dir: self.config.zzz.export.output.clone(),
             box_path: self.config.zzz.box_path.clone(),
@@ -584,12 +722,46 @@ impl NativeUpdateExecutorV1 {
                     TaskSpecV1::ReviewPacket(task)
                 }
             }
-            _ => return Err(safe_step_failure(step, false)),
+            _ => {
+                return Err(UpdateStepExecutionErrorV1::Failure(safe_step_failure(
+                    step, false,
+                )))
+            }
         };
-        let receipt = execute_task_v1(&TaskRequestV1::new(workspace, task), &invocation)
-            .map_err(|_| safe_step_failure(step, true))?;
+        let request = TaskRequestV1::new(workspace, task);
+        let result = if let Some(observer) = observer {
+            execute_task_observed_v1(&request, &invocation, observer)
+        } else {
+            execute_task_observed_v1(&request, &invocation, &DirectUpdateExecutionObserverV1)
+        };
+        let receipt = result.map_err(|error| {
+            if is_execution_cancelled(&error) {
+                UpdateStepExecutionErrorV1::Control(ExecutionControlError::Cancelled)
+            } else {
+                UpdateStepExecutionErrorV1::Failure(safe_step_failure(step, true))
+            }
+        })?;
         collect_output_artifacts(&context.workspace, &receipt.outputs)
-            .map_err(|_| safe_artifact_failure(step))
+            .map_err(|_| UpdateStepExecutionErrorV1::Failure(safe_artifact_failure(step)))
+    }
+}
+
+struct NativeUpdateExportObserverV1<'a> {
+    observer: Option<&'a dyn ExecutionObserver>,
+}
+
+impl ExportObserver for NativeUpdateExportObserverV1<'_> {
+    fn before_commit(&self) -> Result<(), ExecutionControlError> {
+        self.observer
+            .map_or(Ok(()), ExecutionObserver::before_commit)
+    }
+}
+
+struct DirectUpdateExecutionObserverV1;
+
+impl ExecutionObserver for DirectUpdateExecutionObserverV1 {
+    fn before_commit(&self) -> Result<(), ExecutionControlError> {
+        Ok(())
     }
 }
 
@@ -627,6 +799,22 @@ fn safe_step_failure(step: UpdateStepKindV1, retryable: bool) -> UpdateStepFailu
         format!("the {} step failed", step_code(step)),
         retryable,
     )
+}
+
+fn cancelled_step_failure() -> UpdateStepFailureV1 {
+    UpdateStepFailureV1::safe(
+        "task.cancelled",
+        "the update was cancelled before its first output commit",
+        true,
+    )
+}
+
+fn is_execution_cancelled(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<ExecutionControlError>()
+            .is_some_and(|control| *control == ExecutionControlError::Cancelled)
+    })
 }
 
 fn safe_artifact_failure(step: UpdateStepKindV1) -> UpdateStepFailureV1 {
@@ -876,6 +1064,13 @@ pub trait UpdateReceiptStore: Send + Sync {
         workspace: &Path,
         receipt: &UpdateReceiptV1,
     ) -> Result<(), UpdateStepFailureV1>;
+    /// Terminalize only this attempt's journal entry after cancellation. The
+    /// previously committed state and canonical receipt must remain intact.
+    fn commit_interrupted(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1>;
 }
 
 #[derive(Debug, Default)]
@@ -1062,6 +1257,18 @@ impl UpdateReceiptStore for FileUpdateReceiptStore {
         ])
         .map_err(|_| receipt_write_failure())
     }
+
+    fn commit_interrupted(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        atomic::write(
+            &attempt_receipt_path(workspace, &receipt.attempt_id),
+            &json_bytes(receipt)?,
+        )
+        .map_err(|_| receipt_write_failure())
+    }
 }
 
 fn metadata_root(workspace: &Path) -> PathBuf {
@@ -1134,6 +1341,19 @@ pub fn check_update_health_v1(
     require_zzz: bool,
     expected_config_sha256: &str,
 ) -> UpdateHealthV1 {
+    check_update_health_with_state_v1(workspace, require_hsr, require_zzz, expected_config_sha256).0
+}
+
+/// Read health and the desktop-facing update state under one coherent shared
+/// snapshot lease so callers cannot combine metadata from two generations. A busy writer is
+/// returned as `workspace.write_busy`, allowing the UI to retry instead of
+/// briefly reporting an artifact-integrity failure during a commit.
+pub fn check_update_health_with_state_v1(
+    workspace: &Path,
+    require_hsr: bool,
+    require_zzz: bool,
+    expected_config_sha256: &str,
+) -> (UpdateHealthV1, Result<UpdateStateV1, UpdateStepFailureV1>) {
     let checked_games = [
         require_hsr.then_some(Game::Hsr),
         require_zzz.then_some(Game::Zzz),
@@ -1141,6 +1361,29 @@ pub fn check_update_health_v1(
     .into_iter()
     .flatten()
     .collect::<Vec<_>>();
+    let lease = match WorkspaceSnapshotLease::acquire(workspace) {
+        Ok(lease) => lease,
+        Err(error) => {
+            let failure = lease_failure(error);
+            return (
+                unhealthy(checked_games, None, failure.clone()),
+                Err(failure),
+            );
+        }
+    };
+    let workspace = lease.workspace_root();
+    let state = FileUpdateReceiptStore.load_state(workspace);
+    let health =
+        check_update_health_locked_v1(workspace, checked_games, expected_config_sha256, &state);
+    (health, state)
+}
+
+fn check_update_health_locked_v1(
+    workspace: &Path,
+    checked_games: Vec<Game>,
+    expected_config_sha256: &str,
+    state: &Result<UpdateStateV1, UpdateStepFailureV1>,
+) -> UpdateHealthV1 {
     if checked_games.is_empty() {
         return unhealthy(
             checked_games,
@@ -1163,11 +1406,6 @@ pub fn check_update_health_v1(
             ),
         );
     }
-    let lease = match WorkspaceWriteLease::acquire(workspace) {
-        Ok(lease) => lease,
-        Err(error) => return unhealthy(checked_games, None, lease_failure(error)),
-    };
-    let workspace = lease.workspace_root();
     let receipt = match read_canonical_receipt(workspace) {
         Ok(receipt) => receipt,
         Err(failure) => return unhealthy(checked_games, None, failure),
@@ -1209,9 +1447,9 @@ pub fn check_update_health_v1(
         }
     };
     debug_assert_eq!(canonical_attempt, receipt);
-    let state = match FileUpdateReceiptStore.load_state(workspace) {
+    let state = match state {
         Ok(state) => state,
-        Err(failure) => return unhealthy(checked_games, attempt_id, failure),
+        Err(failure) => return unhealthy(checked_games, attempt_id, failure.clone()),
     };
     for game in &checked_games {
         let Some(game_state) = state.games.get(game) else {
@@ -1393,6 +1631,23 @@ pub async fn run_update_v1<E: UpdateStepExecutor, S: UpdateReceiptStore>(
     executor: &E,
     store: &S,
 ) -> UpdateRunOutcomeV1 {
+    run_update_observed_v1(
+        request,
+        invocation,
+        executor,
+        store,
+        &DirectUpdateExecutionObserverV1,
+    )
+    .await
+}
+
+pub async fn run_update_observed_v1<E: UpdateStepExecutor, S: UpdateReceiptStore>(
+    request: &UpdateRequestV1,
+    invocation: &UpdateInvocationV1,
+    executor: &E,
+    store: &S,
+    observer: &dyn ExecutionObserver,
+) -> UpdateRunOutcomeV1 {
     let mut receipt = initial_receipt(request, invocation);
     if !is_valid_update_attempt_id_v1(&invocation.attempt_id) {
         return in_memory_failure(
@@ -1423,7 +1678,12 @@ pub async fn run_update_v1<E: UpdateStepExecutor, S: UpdateReceiptStore>(
 
     let mut state = match store.load_state(&workspace) {
         Ok(state) => state,
-        Err(failure) => return finish_failure(&workspace, receipt, failure, store),
+        Err(failure) => {
+            if observer.before_commit().is_err() {
+                return finish_interrupted(&workspace, receipt, store);
+            }
+            return finish_failure(&workspace, receipt, failure, store);
+        }
     };
 
     let context = UpdateStepContextV1 {
@@ -1433,7 +1693,12 @@ pub async fn run_update_v1<E: UpdateStepExecutor, S: UpdateReceiptStore>(
         force: request.force,
     };
 
-    run_selected_games(&mut receipt, &context, executor).await;
+    if run_selected_games(&mut receipt, &context, executor, observer)
+        .await
+        .is_err()
+    {
+        return finish_interrupted(&workspace, receipt, store);
+    }
     let successful = receipt
         .games
         .iter()
@@ -1451,6 +1716,9 @@ pub async fn run_update_v1<E: UpdateStepExecutor, S: UpdateReceiptStore>(
         } else {
             UpdateRunStatusV1::Failed
         };
+        if observer.before_commit().is_err() {
+            return finish_interrupted(&workspace, receipt, store);
+        }
         return finish_failure(
             &workspace,
             receipt,
@@ -1464,6 +1732,9 @@ pub async fn run_update_v1<E: UpdateStepExecutor, S: UpdateReceiptStore>(
     }
 
     let Some(config_sha256) = receipt.config_sha256.clone() else {
+        if observer.before_commit().is_err() {
+            return finish_interrupted(&workspace, receipt, store);
+        }
         return finish_failure(
             &workspace,
             receipt,
@@ -1494,6 +1765,9 @@ pub async fn run_update_v1<E: UpdateStepExecutor, S: UpdateReceiptStore>(
             },
         );
     }
+    if observer.before_commit().is_err() {
+        return finish_interrupted(&workspace, receipt, store);
+    }
     receipt.status = UpdateRunStatusV1::Succeeded;
     receipt.state_committed = true;
     receipt.receipt_committed = true;
@@ -1516,7 +1790,8 @@ async fn run_selected_games<E: UpdateStepExecutor>(
     receipt: &mut UpdateReceiptV1,
     context: &UpdateStepContextV1,
     executor: &E,
-) {
+    observer: &dyn ExecutionObserver,
+) -> Result<(), ExecutionControlError> {
     for game_index in 0..receipt.games.len() {
         if !receipt.games[game_index].selected {
             continue;
@@ -1534,7 +1809,7 @@ async fn run_selected_games<E: UpdateStepExecutor>(
             receipt.games[game_index].status = UpdateStepStatusV1::Running;
             receipt.games[game_index].steps[step_index].status = UpdateStepStatusV1::Running;
             let started_at = Instant::now();
-            let execution = executor.execute(step, context).await;
+            let execution = executor.execute_observed(step, context, observer).await;
             let execution_succeeded = execution.is_ok();
             let (status, artifacts, row_count, failure) = match execution {
                 Ok(artifacts) => match validate_artifacts(&context.workspace, artifacts) {
@@ -1549,9 +1824,23 @@ async fn run_selected_games<E: UpdateStepExecutor>(
                         (UpdateStepStatusV1::Failed, Vec::new(), None, Some(failure))
                     }
                 },
-                Err(failure) => {
+                Err(UpdateStepExecutionErrorV1::Failure(failure)) => {
                     game_failed = true;
                     (UpdateStepStatusV1::Failed, Vec::new(), None, Some(failure))
+                }
+                Err(UpdateStepExecutionErrorV1::Control(control)) => {
+                    let step_receipt = &mut receipt.games[game_index].steps[step_index];
+                    step_receipt.status = UpdateStepStatusV1::Skipped;
+                    step_receipt.duration_ms = Some(
+                        started_at
+                            .elapsed()
+                            .as_millis()
+                            .try_into()
+                            .unwrap_or(u64::MAX),
+                    );
+                    step_receipt.reason_code = Some("task.cancelled".to_owned());
+                    normalize_interrupted_steps(receipt);
+                    return Err(control);
                 }
             };
             let fetch_source = executor.fetch_source(step, execution_succeeded, failure.as_ref());
@@ -1582,6 +1871,7 @@ async fn run_selected_games<E: UpdateStepExecutor>(
         };
     }
     stabilize_receipt_steps(receipt);
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -1897,6 +2187,49 @@ fn finish_failure<S: UpdateReceiptStore>(
     UpdateRunOutcomeV1 {
         receipt,
         exit_code: 1,
+    }
+}
+
+fn finish_interrupted<S: UpdateReceiptStore>(
+    workspace: &Path,
+    mut receipt: UpdateReceiptV1,
+    store: &S,
+) -> UpdateRunOutcomeV1 {
+    receipt.finished_at_utc = Some(now_utc_text());
+    receipt.status = UpdateRunStatusV1::Interrupted;
+    receipt.state_committed = false;
+    receipt.receipt_committed = false;
+    receipt.failure = Some(cancelled_step_failure());
+    normalize_interrupted_steps(&mut receipt);
+    stabilize_receipt_steps(&mut receipt);
+    let exit_code = match store.commit_interrupted(workspace, &receipt) {
+        Ok(()) => 130,
+        Err(failure) => {
+            receipt.status = UpdateRunStatusV1::Failed;
+            receipt.failure = Some(failure);
+            1
+        }
+    };
+    UpdateRunOutcomeV1 { receipt, exit_code }
+}
+
+fn normalize_interrupted_steps(receipt: &mut UpdateReceiptV1) {
+    for game in &mut receipt.games {
+        if !game.selected || game.status == UpdateStepStatusV1::Succeeded {
+            continue;
+        }
+        game.status = UpdateStepStatusV1::Skipped;
+        for step in &mut game.steps {
+            if matches!(
+                step.status,
+                UpdateStepStatusV1::Pending | UpdateStepStatusV1::Running
+            ) {
+                step.status = UpdateStepStatusV1::Skipped;
+                step.duration_ms.get_or_insert(0);
+                step.reason_code = Some("task.cancelled".to_owned());
+                step.failure = None;
+            }
+        }
     }
 }
 

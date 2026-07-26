@@ -1,7 +1,7 @@
 use std::{
     any::Any,
     collections::BTreeMap,
-    fmt,
+    fmt, fs,
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -12,11 +12,15 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use miho_core::data_quality::DataQualityReportV1;
+
 use crate::{
-    execute_export_observed_with_hub_v1, execute_task_observed_v1, AppInvocation,
-    ExecutionControlError, ExecutionObserver, ExportInvocation, ExportObserver, TaskFailureV1,
-    TaskFreshnessSummaryV1, TaskOperationV1, TaskReceiptV1, TaskRequestV1, TrustedExportTaskV1,
-    WorkspaceWriteLease, TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
+    execute_export_observed_with_hub_v1, execute_task_observed_v1, run_update_observed_v1,
+    AppInvocation, ExecutionControlError, ExecutionObserver, ExportInvocation, ExportObserver,
+    FileUpdateReceiptStore, NativeUpdateExecutorV1, TaskFailureV1, TaskFreshnessSummaryV1,
+    TaskOperationV1, TaskReceiptV1, TaskRequestV1, TrustedExportTaskV1, TrustedSingleGameUpdateV1,
+    UpdateRunStatusV1, UpdateStepFailureV1, UpdateStepStatusV1, WorkspaceWriteLease,
+    TASK_FAILURE_SCHEMA_V1, TASK_RECEIPT_SCHEMA_V1,
 };
 
 pub const TASK_SNAPSHOT_SCHEMA_V1: &str = "miho-task-snapshot-v1";
@@ -210,6 +214,15 @@ fn public_task_failure(failure: &TaskFailureV1) -> PublicTaskFailureV1 {
             "The task stopped because of an unexpected internal error.",
             "Restart the application and retry once.",
         ),
+        code if code.starts_with("update.") => (
+            "update",
+            failure.message.as_str(),
+            if failure.retryable {
+                "Retry the update; if it fails again, review the update health and logs."
+            } else {
+                "Review the update configuration before retrying."
+            },
+        ),
         _ => (
             "execution",
             "The task could not be completed.",
@@ -335,6 +348,16 @@ pub trait ExportTaskExecutor: Send + Sync + 'static {
     ) -> anyhow::Result<TaskReceiptV1>;
 }
 
+/// Managed native update executor. The request has already been resolved from
+/// the authorized workspace and carries no WebView-controlled paths.
+pub trait UpdateTaskExecutor: Send + Sync + 'static {
+    fn execute(
+        &self,
+        request: &TrustedSingleGameUpdateV1,
+        observer: &dyn ExecutionObserver,
+    ) -> anyhow::Result<TaskReceiptV1>;
+}
+
 pub trait TaskSpawner: Send + Sync + 'static {
     fn spawn(&self, name: String, job: Box<dyn FnOnce() + Send + 'static>) -> std::io::Result<()>;
 }
@@ -360,6 +383,8 @@ impl TaskExecutor for CoreTaskExecutor {
 }
 
 struct CoreExportTaskExecutor;
+
+struct CoreUpdateTaskExecutor;
 
 struct ManagedExportObserver<'a> {
     observer: &'a dyn ExecutionObserver,
@@ -410,6 +435,96 @@ impl ExportTaskExecutor for CoreExportTaskExecutor {
     }
 }
 
+impl UpdateTaskExecutor for CoreUpdateTaskExecutor {
+    fn execute(
+        &self,
+        request: &TrustedSingleGameUpdateV1,
+        observer: &dyn ExecutionObserver,
+    ) -> anyhow::Result<TaskReceiptV1> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        let executor = NativeUpdateExecutorV1::new(request.config.clone());
+        let update_request = request.update_request();
+        let outcome = runtime.block_on(run_update_observed_v1(
+            &update_request,
+            &request.invocation,
+            &executor,
+            &FileUpdateReceiptStore,
+            observer,
+        ));
+        if outcome.receipt.status == UpdateRunStatusV1::Interrupted {
+            return Err(ExecutionControlError::Cancelled.into());
+        }
+        let selected_succeeded = outcome
+            .receipt
+            .games
+            .iter()
+            .find(|game| game.game == request.game && game.selected)
+            .is_some_and(|game| {
+                game.status == UpdateStepStatusV1::Succeeded
+                    && game
+                        .steps
+                        .iter()
+                        .all(|step| step.status == UpdateStepStatusV1::Succeeded)
+            });
+        if outcome.exit_code != 0
+            || outcome.receipt.status != UpdateRunStatusV1::Succeeded
+            || !outcome.receipt.state_committed
+            || !outcome.receipt.receipt_committed
+            || !selected_succeeded
+        {
+            let step_failure = outcome
+                .receipt
+                .games
+                .iter()
+                .find(|game| game.game == request.game && game.selected)
+                .and_then(|game| game.steps.iter().find_map(|step| step.failure.as_ref()));
+            let failure =
+                select_managed_update_failure(outcome.receipt.failure.as_ref(), step_failure);
+            return Err(anyhow::Error::new(failure));
+        }
+        let output_root = request.output_root();
+        let freshness = fs::read(output_root.join("data_quality.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<DataQualityReportV1>(&bytes).ok())
+            .map(|report| TaskFreshnessSummaryV1::from(&report));
+        Ok(TaskReceiptV1 {
+            schema_version: TASK_RECEIPT_SCHEMA_V1.to_owned(),
+            operation: request.operation(),
+            method_version: "native-update-v1".to_owned(),
+            output_schema: "miho-export-artifact-bundle-v1".to_owned(),
+            local_datetime: request
+                .invocation
+                .local_datetime()
+                .format("%Y-%m-%dT%H:%M:%S%.f")
+                .to_string(),
+            outputs: vec![output_root.join("artifact_manifest.json")],
+            notices: Vec::new(),
+            freshness,
+        })
+    }
+}
+
+fn select_managed_update_failure(
+    terminal_failure: Option<&UpdateStepFailureV1>,
+    step_failure: Option<&UpdateStepFailureV1>,
+) -> UpdateStepFailureV1 {
+    match terminal_failure {
+        Some(failure) if failure.code != "update.partial_or_failed" => failure.clone(),
+        _ => step_failure
+            .cloned()
+            .or_else(|| terminal_failure.cloned())
+            .unwrap_or_else(|| {
+                UpdateStepFailureV1::safe(
+                    "update.failed",
+                    "the managed update did not commit successfully",
+                    true,
+                )
+            }),
+    }
+}
+
 struct ThreadTaskSpawner;
 
 impl TaskSpawner for ThreadTaskSpawner {
@@ -426,6 +541,7 @@ pub struct TaskManager {
     inner: Arc<ManagerInner>,
     executor: Arc<dyn TaskExecutor>,
     export_executor: Arc<dyn ExportTaskExecutor>,
+    update_executor: Arc<dyn UpdateTaskExecutor>,
     spawner: Arc<dyn TaskSpawner>,
 }
 
@@ -438,6 +554,9 @@ enum ManagedTaskWorkV1 {
         request: TrustedExportTaskV1,
         invocation: ExportInvocation,
     },
+    Update {
+        request: TrustedSingleGameUpdateV1,
+    },
 }
 
 impl ManagedTaskWorkV1 {
@@ -445,6 +564,7 @@ impl ManagedTaskWorkV1 {
         match self {
             Self::Report { request, .. } => request.operation(),
             Self::Export { request, .. } => request.operation(),
+            Self::Update { request } => request.operation(),
         }
     }
 }
@@ -533,6 +653,16 @@ impl TaskManager {
         Self::with_all_runtime(
             Arc::new(CoreTaskExecutor),
             export_executor,
+            Arc::new(CoreUpdateTaskExecutor),
+            Arc::new(ThreadTaskSpawner),
+        )
+    }
+
+    pub fn with_update_executor(update_executor: Arc<dyn UpdateTaskExecutor>) -> Self {
+        Self::with_all_runtime(
+            Arc::new(CoreTaskExecutor),
+            Arc::new(CoreExportTaskExecutor),
+            update_executor,
             Arc::new(ThreadTaskSpawner),
         )
     }
@@ -541,16 +671,27 @@ impl TaskManager {
         executor: Arc<dyn TaskExecutor>,
         export_executor: Arc<dyn ExportTaskExecutor>,
     ) -> Self {
-        Self::with_all_runtime(executor, export_executor, Arc::new(ThreadTaskSpawner))
+        Self::with_all_runtime(
+            executor,
+            export_executor,
+            Arc::new(CoreUpdateTaskExecutor),
+            Arc::new(ThreadTaskSpawner),
+        )
     }
 
     pub fn with_runtime(executor: Arc<dyn TaskExecutor>, spawner: Arc<dyn TaskSpawner>) -> Self {
-        Self::with_all_runtime(executor, Arc::new(CoreExportTaskExecutor), spawner)
+        Self::with_all_runtime(
+            executor,
+            Arc::new(CoreExportTaskExecutor),
+            Arc::new(CoreUpdateTaskExecutor),
+            spawner,
+        )
     }
 
     fn with_all_runtime(
         executor: Arc<dyn TaskExecutor>,
         export_executor: Arc<dyn ExportTaskExecutor>,
+        update_executor: Arc<dyn UpdateTaskExecutor>,
         spawner: Arc<dyn TaskSpawner>,
     ) -> Self {
         let epoch = SystemTime::now()
@@ -566,6 +707,7 @@ impl TaskManager {
             }),
             executor,
             export_executor,
+            update_executor,
             spawner,
         }
     }
@@ -590,6 +732,13 @@ impl TaskManager {
             request,
             invocation,
         })
+    }
+
+    pub fn start_update(
+        &self,
+        request: TrustedSingleGameUpdateV1,
+    ) -> Result<TaskSnapshotV1, TaskManagerError> {
+        self.start_work(ManagedTaskWorkV1::Update { request })
     }
 
     fn start_work(&self, work: ManagedTaskWorkV1) -> Result<TaskSnapshotV1, TaskManagerError> {
@@ -738,6 +887,9 @@ impl TaskManager {
             } => self
                 .export_executor
                 .execute(&request, &invocation, &observer),
+            ManagedTaskWorkV1::Update { request } => {
+                self.update_executor.execute(&request, &observer)
+            }
         }));
         let mut state = self.inner.lock_state();
         let record = state.tasks.get_mut(&task_id).expect("task record missing");
@@ -788,8 +940,14 @@ impl ExecutionObserver for ManagerExecutionObserver {
             .tasks
             .get_mut(&self.task_id)
             .expect("task record missing");
+        // The first permit is irreversible. Native updates install several
+        // output/report batches before the final state+receipt transaction;
+        // every later permit must remain valid after the task enters this
+        // monotonic phase.
+        if record.status == TaskStatusV1::Committing {
+            return Ok(());
+        }
         if record.cancellation_requested || record.status == TaskStatusV1::Cancelling {
-            record.transition(TaskStatusV1::Cancelled);
             return Err(ExecutionControlError::Cancelled);
         }
         record.transition(TaskStatusV1::Committing);
@@ -804,5 +962,45 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
         message.clone()
     } else {
         "task executor panicked".to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn receipt_commit_failure_outranks_the_original_step_failure() {
+        let step_failure =
+            UpdateStepFailureV1::safe("update.hsr_export.failed", "the HSR export failed", true);
+        let receipt_failure = UpdateStepFailureV1::safe(
+            "update.receipt_write_failed",
+            "the terminal update receipt could not be written",
+            true,
+        );
+
+        assert_eq!(
+            select_managed_update_failure(Some(&receipt_failure), Some(&step_failure)),
+            receipt_failure
+        );
+    }
+
+    #[test]
+    fn generic_partial_wrapper_yields_the_precise_step_failure() {
+        let step_failure = UpdateStepFailureV1::safe(
+            "update.zzz_coverage.failed",
+            "the ZZZ coverage report failed",
+            true,
+        );
+        let wrapper = UpdateStepFailureV1::safe(
+            "update.partial_or_failed",
+            "one or more selected update steps failed",
+            true,
+        );
+
+        assert_eq!(
+            select_managed_update_failure(Some(&wrapper), Some(&step_failure)),
+            step_failure
+        );
     }
 }

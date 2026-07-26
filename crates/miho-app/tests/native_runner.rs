@@ -2,16 +2,20 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex},
+    thread,
+    time::Duration as StdDuration,
 };
 
 use chrono::{FixedOffset, TimeZone, Timelike};
 use miho_app::{
-    check_update_health_v1, export_cache_root, run_update_v1, FileUpdateReceiptStore,
-    NativeUpdateExecutorV1, UpdateArtifactV1, UpdateConfigV1, UpdateInvocationV1,
-    UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1, UpdateRunStatusV1, UpdateStateV1,
-    UpdateStepContextV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
-    UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1, WorkspaceWriteLease,
+    check_update_health_v1, check_update_health_with_state_v1, export_cache_root,
+    run_update_observed_v1, run_update_v1, ExecutionControlError, ExecutionObserver,
+    FileUpdateReceiptStore, NativeUpdateExecutorV1, ObservedUpdateStepFuture, UpdateArtifactV1,
+    UpdateConfigV1, UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1,
+    UpdateRunStatusV1, UpdateStateV1, UpdateStepContextV1, UpdateStepExecutionErrorV1,
+    UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture, UpdateStepKindV1,
+    UpdateStepReceiptV1, UpdateStepStatusV1, WorkspaceSnapshotLease, WorkspaceWriteLease,
     UPDATE_ATTEMPT_DIRECTORY, UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_STATE_FILE,
 };
 use miho_core::{contract::Game, network::FetchSource};
@@ -80,11 +84,53 @@ impl UpdateStepExecutor for FakeExecutor {
     }
 }
 
+#[derive(Clone, Default)]
+struct ObserverAwareFakeExecutor(FakeExecutor);
+
+impl UpdateStepExecutor for ObserverAwareFakeExecutor {
+    fn execute<'a>(
+        &'a self,
+        step: UpdateStepKindV1,
+        context: &'a UpdateStepContextV1,
+    ) -> UpdateStepFuture<'a> {
+        self.0.execute(step, context)
+    }
+
+    fn execute_observed<'a>(
+        &'a self,
+        step: UpdateStepKindV1,
+        context: &'a UpdateStepContextV1,
+        observer: &'a dyn ExecutionObserver,
+    ) -> ObservedUpdateStepFuture<'a> {
+        Box::pin(async move {
+            observer
+                .before_commit()
+                .map_err(UpdateStepExecutionErrorV1::Control)?;
+            self.0
+                .execute(step, context)
+                .await
+                .map_err(UpdateStepExecutionErrorV1::Failure)
+        })
+    }
+}
+
+struct AlwaysCancelObserver;
+
+impl ExecutionObserver for AlwaysCancelObserver {
+    fn before_commit(&self) -> Result<(), ExecutionControlError> {
+        Err(ExecutionControlError::Cancelled)
+    }
+}
+
 struct FailSuccessStore {
     inner: FileUpdateReceiptStore,
 }
 
 struct FailFailureStore {
+    inner: FileUpdateReceiptStore,
+}
+
+struct FailInterruptedStore {
     inner: FileUpdateReceiptStore,
 }
 
@@ -126,6 +172,14 @@ impl UpdateReceiptStore for LeaveRunningStore {
     ) -> Result<(), UpdateStepFailureV1> {
         self.inner.commit_failure(workspace, receipt)
     }
+
+    fn commit_interrupted(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.commit_interrupted(workspace, receipt)
+    }
 }
 
 impl UpdateReceiptStore for FailSuccessStore {
@@ -161,6 +215,14 @@ impl UpdateReceiptStore for FailSuccessStore {
     ) -> Result<(), UpdateStepFailureV1> {
         self.inner.commit_failure(workspace, receipt)
     }
+
+    fn commit_interrupted(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.commit_interrupted(workspace, receipt)
+    }
 }
 
 impl UpdateReceiptStore for FailFailureStore {
@@ -193,6 +255,57 @@ impl UpdateReceiptStore for FailFailureStore {
         Err(UpdateStepFailureV1::safe(
             "update.receipt_write_failed",
             "the update receipt could not be committed",
+            true,
+        ))
+    }
+
+    fn commit_interrupted(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.commit_interrupted(workspace, receipt)
+    }
+}
+
+impl UpdateReceiptStore for FailInterruptedStore {
+    fn load_state(&self, workspace: &Path) -> Result<UpdateStateV1, UpdateStepFailureV1> {
+        self.inner.load_state(workspace)
+    }
+
+    fn write_running(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.write_running(workspace, receipt)
+    }
+
+    fn commit_success(
+        &self,
+        workspace: &Path,
+        state: &UpdateStateV1,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.commit_success(workspace, state, receipt)
+    }
+
+    fn commit_failure(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.commit_failure(workspace, receipt)
+    }
+
+    fn commit_interrupted(
+        &self,
+        _workspace: &Path,
+        _receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        Err(UpdateStepFailureV1::safe(
+            "update.receipt_write_failed",
+            "the interrupted update receipt could not be committed",
             true,
         ))
     }
@@ -445,6 +558,65 @@ async fn health_binds_each_split_generation_receipt_to_the_expected_config() {
         health.failure.as_ref().map(|failure| failure.code.as_str()),
         Some("update.health_generation_mismatch")
     );
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn single_game_refresh_cannot_hide_other_games_stale_config_generation() {
+    let root = temp_root("single-game-config-change");
+    let executor = FakeExecutor::default();
+    let mut hsr_a = request(&root);
+    hsr_a.skip_zzz = true;
+    assert_eq!(
+        run_update_v1(
+            &hsr_a,
+            &invocation_with("attempt-config-a-hsr", 30),
+            &executor,
+            &FileUpdateReceiptStore,
+        )
+        .await
+        .exit_code,
+        0
+    );
+    let mut zzz_a = request(&root);
+    zzz_a.skip_hsr = true;
+    assert_eq!(
+        run_update_v1(
+            &zzz_a,
+            &invocation_with("attempt-config-a-zzz", 31),
+            &executor,
+            &FileUpdateReceiptStore,
+        )
+        .await
+        .exit_code,
+        0
+    );
+    assert!(check_update_health_v1(&root, true, true, &"a".repeat(64)).healthy);
+
+    let mut hsr_b = request(&root);
+    hsr_b.skip_zzz = true;
+    hsr_b.config_sha256 = Some("b".repeat(64));
+    assert_eq!(
+        run_update_v1(
+            &hsr_b,
+            &invocation_with("attempt-config-b-hsr", 32),
+            &executor,
+            &FileUpdateReceiptStore,
+        )
+        .await
+        .exit_code,
+        0
+    );
+
+    let health = check_update_health_v1(&root, true, true, &"b".repeat(64));
+    assert!(!health.healthy);
+    assert_eq!(
+        health.failure.as_ref().map(|failure| failure.code.as_str()),
+        Some("update.health_config_mismatch")
+    );
+    let state = FileUpdateReceiptStore.load_state(&root).unwrap();
+    assert_eq!(state.games[&Game::Hsr].config_sha256, "b".repeat(64));
+    assert_eq!(state.games[&Game::Zzz].config_sha256, "a".repeat(64));
     cleanup(&root);
 }
 
@@ -817,6 +989,258 @@ async fn busy_contender_does_not_replace_canonical_receipt() {
     );
     assert_eq!(fs::read(&canonical).unwrap(), b"sentinel");
     drop(lease);
+    cleanup(&root);
+}
+
+#[test]
+fn health_and_state_snapshot_reports_busy_while_writer_holds_the_lease() {
+    let root = temp_root("health-busy");
+    let lease = WorkspaceWriteLease::acquire(&root).unwrap();
+
+    let (health, state) = check_update_health_with_state_v1(&root, true, true, &"a".repeat(64));
+
+    assert!(!health.healthy);
+    assert_eq!(
+        health.failure.as_ref().map(|failure| failure.code.as_str()),
+        Some("workspace.write_busy")
+    );
+    assert_eq!(
+        state.unwrap_err().code,
+        "workspace.write_busy",
+        "desktop state must not be read outside the health lease"
+    );
+    drop(lease);
+    cleanup(&root);
+}
+
+#[test]
+fn button_update_waits_for_health_snapshot_and_then_succeeds() {
+    let root = temp_root("update-waits-health-snapshot");
+    let snapshot = WorkspaceSnapshotLease::acquire(&root).unwrap();
+    let worker_root = root.clone();
+    let (outcome_tx, outcome_rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let outcome = runtime.block_on(run_update_v1(
+            &request(&worker_root),
+            &invocation(),
+            &FakeExecutor::default(),
+            &FileUpdateReceiptStore,
+        ));
+        outcome_tx.send(outcome).unwrap();
+    });
+
+    assert!(
+        outcome_rx
+            .recv_timeout(StdDuration::from_millis(100))
+            .is_err(),
+        "the update should wait instead of returning workspace.write_busy"
+    );
+    drop(snapshot);
+    let outcome = outcome_rx.recv_timeout(StdDuration::from_secs(5)).unwrap();
+    assert_eq!(outcome.exit_code, 0);
+    assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Succeeded);
+    worker.join().unwrap();
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn cancellation_before_first_commit_preserves_generation_and_terminalizes_attempt() {
+    let root = temp_root("cancel-before-commit");
+    let baseline = run_update_v1(
+        &request(&root),
+        &invocation(),
+        &FakeExecutor::default(),
+        &FileUpdateReceiptStore,
+    )
+    .await;
+    assert_eq!(baseline.exit_code, 0);
+    let canonical_path = root.join(".miho").join(UPDATE_CANONICAL_RECEIPT_FILE);
+    let state_path = root.join(".miho").join(UPDATE_STATE_FILE);
+    let output_path = root.join("generated/hsr-export.csv");
+    let before = [
+        fs::read(&canonical_path).unwrap(),
+        fs::read(&state_path).unwrap(),
+        fs::read(&output_path).unwrap(),
+    ];
+
+    let mut hsr_only = request(&root);
+    hsr_only.skip_zzz = true;
+    let invocation = invocation_with("attempt-cancel-before-commit", 31);
+    let outcome = run_update_observed_v1(
+        &hsr_only,
+        &invocation,
+        &ObserverAwareFakeExecutor::default(),
+        &FileUpdateReceiptStore,
+        &AlwaysCancelObserver,
+    )
+    .await;
+
+    assert_eq!(outcome.exit_code, 130);
+    assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Interrupted);
+    assert!(!outcome.receipt.state_committed);
+    assert!(!outcome.receipt.receipt_committed);
+    assert_eq!(
+        outcome
+            .receipt
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("task.cancelled")
+    );
+    assert!(outcome
+        .receipt
+        .games
+        .iter()
+        .all(|game| game.status != UpdateStepStatusV1::Running));
+    assert!(outcome
+        .receipt
+        .games
+        .iter()
+        .flat_map(|game| &game.steps)
+        .all(|step| step.status != UpdateStepStatusV1::Running));
+    assert_eq!(
+        read_json::<UpdateReceiptV1>(
+            &root
+                .join(".miho")
+                .join(UPDATE_ATTEMPT_DIRECTORY)
+                .join(format!("{}.json", invocation.attempt_id))
+        ),
+        outcome.receipt
+    );
+    assert_eq!(
+        [
+            fs::read(&canonical_path).unwrap(),
+            fs::read(&state_path).unwrap(),
+            fs::read(&output_path).unwrap(),
+        ],
+        before
+    );
+    assert!(check_update_health_v1(&root, true, true, &"a".repeat(64)).healthy);
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn cancellation_receipt_write_failure_is_failed_and_keeps_canonical_generation() {
+    let root = temp_root("cancel-receipt-write-failure");
+    let baseline = run_update_v1(
+        &request(&root),
+        &invocation(),
+        &FakeExecutor::default(),
+        &FileUpdateReceiptStore,
+    )
+    .await;
+    assert_eq!(baseline.exit_code, 0);
+    let canonical_path = root.join(".miho").join(UPDATE_CANONICAL_RECEIPT_FILE);
+    let state_path = root.join(".miho").join(UPDATE_STATE_FILE);
+    let before = [
+        fs::read(&canonical_path).unwrap(),
+        fs::read(&state_path).unwrap(),
+    ];
+    let mut hsr_only = request(&root);
+    hsr_only.skip_zzz = true;
+    let invocation = invocation_with("attempt-cancel-receipt-failure", 32);
+
+    let outcome = run_update_observed_v1(
+        &hsr_only,
+        &invocation,
+        &ObserverAwareFakeExecutor::default(),
+        &FailInterruptedStore {
+            inner: FileUpdateReceiptStore,
+        },
+        &AlwaysCancelObserver,
+    )
+    .await;
+
+    assert_eq!(outcome.exit_code, 1);
+    assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Failed);
+    assert_eq!(
+        outcome
+            .receipt
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.receipt_write_failed")
+    );
+    assert_eq!(
+        [
+            fs::read(&canonical_path).unwrap(),
+            fs::read(&state_path).unwrap(),
+        ],
+        before
+    );
+    let on_disk = read_json::<UpdateReceiptV1>(
+        &root
+            .join(".miho")
+            .join(UPDATE_ATTEMPT_DIRECTORY)
+            .join(format!("{}.json", invocation.attempt_id)),
+    );
+    assert_eq!(on_disk.status, UpdateRunStatusV1::Running);
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn native_export_observer_propagates_cancellation_without_installing_output() {
+    let root = temp_root("native-cancel-before-export-commit");
+    let repository = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let config = UpdateConfigV1::parse(
+        br#"{
+  "schema_version":"miho-update-config-v1",
+  "days":183,
+  "hsr":{"output":"out","repo_id":"owner/hsr","revision":"main","modes":["moc"],"prydwen_top_n":100},
+  "zzz":{"output":"out_zzz","repo_id":"owner/zzz","revision":"main","modes":["sd"],"prydwen_top_n":100,"box":".miho/zzz_box_state.json","banner_plan":"configs/zzz_banner_plan.json","mechanism_notes":"configs/zzz_mechanism_notes","decision_baseline":"configs/zzz_decision_baseline.json"}
+}"#,
+    )
+    .unwrap()
+    .resolve(&root)
+    .unwrap();
+    let executor = NativeUpdateExecutorV1::new(config).with_fixture_source(
+        Game::Hsr,
+        repository.join("tests/fixtures/offline_hsr"),
+        Some(repository.join("tests/fixtures/hsr_supplemental")),
+    );
+    let mut hsr_only = request(&root);
+    hsr_only.skip_zzz = true;
+    let invocation = invocation_with("attempt-native-cancel", 33);
+
+    let outcome = run_update_observed_v1(
+        &hsr_only,
+        &invocation,
+        &executor,
+        &FileUpdateReceiptStore,
+        &AlwaysCancelObserver,
+    )
+    .await;
+
+    assert_eq!(outcome.exit_code, 130);
+    assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Interrupted);
+    assert_eq!(
+        outcome
+            .receipt
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("task.cancelled")
+    );
+    assert!(!root.join("out").exists());
+    assert!(!root.join(".out.stage").exists());
+    assert!(!root
+        .join(".miho")
+        .join(UPDATE_CANONICAL_RECEIPT_FILE)
+        .exists());
+    assert_eq!(
+        read_json::<UpdateReceiptV1>(
+            &root
+                .join(".miho")
+                .join(UPDATE_ATTEMPT_DIRECTORY)
+                .join(format!("{}.json", invocation.attempt_id))
+        )
+        .status,
+        UpdateRunStatusV1::Interrupted
+    );
     cleanup(&root);
 }
 

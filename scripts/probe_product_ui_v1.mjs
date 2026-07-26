@@ -219,6 +219,7 @@ const outerExpression = `(() => {
   const frame = activeFrames[0];
   const utilities = document.querySelector('details.utilities');
   const updateHealthPanel = document.querySelector('.update-health');
+  const updateHealthGameItems = [...(updateHealthPanel?.querySelectorAll('.update-health-game') ?? [])];
   const updateHealthState = ['loading', 'healthy', 'warning', 'busy', 'error']
     .find((value) => updateHealthPanel?.classList.contains(value)) ?? '';
   const activeGame = [...document.querySelectorAll('.game-button')]
@@ -236,8 +237,8 @@ const outerExpression = `(() => {
     updateHealthBadge: updateHealthPanel?.querySelector('.update-health-badge')?.textContent?.trim() ?? '',
     updateHealthSummary: updateHealthPanel?.querySelector('.update-health-summary')?.textContent?.trim() ?? '',
     updateHealthDetail: updateHealthPanel?.querySelector('.update-health-detail')?.textContent?.trim() ?? '',
-    updateHealthGames: [...(updateHealthPanel?.querySelectorAll('.update-health-game') ?? [])]
-      .map((item) => item.textContent?.trim() ?? ''),
+    updateHealthGames: updateHealthGameItems.map((item) => item.textContent?.trim() ?? ''),
+    updateHealthGameTitles: updateHealthGameItems.map((item) => item.getAttribute('title')?.trim() ?? ''),
     firstPanel: document.querySelector('main.dashboard')?.firstElementChild?.className ?? '',
     visualizerTitle: document.querySelector('.visualizer-panel h2')?.textContent?.trim() ?? '',
     frameCount: frames.length,
@@ -2117,8 +2118,39 @@ async function authoritativeVisualizerDescriptor(topId, game) {
   return descriptor;
 }
 
+async function authoritativeUpdateHealth(topId) {
+  const health = await evaluate(topId, `(async () => {
+    const internals = globalThis.__TAURI_INTERNALS__;
+    if (!internals || typeof internals.invoke !== 'function') return null;
+    return internals.invoke('get_update_health');
+  })()`);
+  assert(health?.schema_version === "miho-desktop-update-health-v1"
+    && typeof health?.workspace_id === "string"
+    && typeof health?.healthy === "boolean"
+    && Array.isArray(health?.checked_games)
+    && Array.isArray(health?.games),
+  "authoritative update health is invalid", health);
+  return health;
+}
+
+function updateHealthGame(health, game) {
+  return health?.games?.find((entry) => entry?.game === game) ?? null;
+}
+
+function visibleUpdateHealthCompletedAt(snapshot, game) {
+  const label = game === "hsr" ? "HSR 最近成功" : "ZZZ 最近成功";
+  const index = snapshot?.updateHealthGames?.findIndex((value) => value.includes(label)) ?? -1;
+  return index >= 0 ? snapshot?.updateHealthGameTitles?.[index] ?? "" : "";
+}
+
 async function verifyPublicDataUpdate(topId, game) {
   await ensureActiveGame(topId, game);
+  const beforeHealth = await waitFor(`${game} healthy update state before public-data update`, async () => {
+    const health = await authoritativeUpdateHealth(topId);
+    return health.healthy && updateHealthGame(health, "hsr") && updateHealthGame(health, "zzz")
+      ? health
+      : null;
+  });
   const beforeContext = await activeFrameContext(game);
   const beforeBanner = await switchProductPage(beforeContext, game, "banner");
   assert(beforeBanner.statePage === "banner", `${game} could not open the banner page before updating`, beforeBanner);
@@ -2173,6 +2205,32 @@ async function verifyPublicDataUpdate(topId, game) {
     });
   const analysisSnapshot = await switchProductPage(context, game, "analysis");
   const analyses = await verifyAnalysisModes(context, game, analysisSnapshot);
+  const otherGame = game === "hsr" ? "zzz" : "hsr";
+  const healthReceipt = await waitFor(`${game} authoritative and visible update health after public-data update`, async () => {
+    const health = await authoritativeUpdateHealth(topId);
+    if (!health.healthy) return null;
+    const beforeTarget = updateHealthGame(beforeHealth, game);
+    const afterTarget = updateHealthGame(health, game);
+    const beforeOther = updateHealthGame(beforeHealth, otherGame);
+    const afterOther = updateHealthGame(health, otherGame);
+    if (!beforeTarget || !afterTarget || !beforeOther || !afterOther
+      || afterTarget.attempt_id === beforeTarget.attempt_id) return null;
+    assert(Date.parse(afterTarget.completed_at_utc) >= task.startedAt - 300000,
+      `${game} update-health completion time predates this button run`, { task, beforeTarget, afterTarget });
+    assert(afterOther.attempt_id === beforeOther.attempt_id
+      && afterOther.completed_at_utc === beforeOther.completed_at_utc,
+    `${game} single-game update changed ${otherGame} health provenance`, { beforeOther, afterOther });
+    const outer = await outerSnapshot(topId);
+    const visibleTargetCompletedAt = visibleUpdateHealthCompletedAt(outer, game);
+    const visibleOtherCompletedAt = visibleUpdateHealthCompletedAt(outer, otherGame);
+    return automaticUpdateHealthReady(outer)
+      && outer.updateHealthGames.some((value) => value.includes("HSR 最近成功"))
+      && outer.updateHealthGames.some((value) => value.includes("ZZZ 最近成功"))
+      && visibleTargetCompletedAt.includes(afterTarget.completed_at_utc)
+      && visibleOtherCompletedAt.includes(afterOther.completed_at_utc)
+      ? { health, outer, visibleTargetCompletedAt, visibleOtherCompletedAt }
+      : null;
+  }, updateTimeoutMs);
   return {
     taskId: task.taskId,
     status: task.status,
@@ -2190,6 +2248,14 @@ async function verifyPublicDataUpdate(topId, game) {
     },
     bannerCurrentNames: bannerSnapshot.bannerCardNames,
     analyses: analyses.map((snapshot) => snapshot.analysisExpectedPhase),
+    updateHealth: {
+      state: healthReceipt.outer.updateHealthState,
+      attemptId: updateHealthGame(healthReceipt.health, game).attempt_id,
+      completedAtUtc: updateHealthGame(healthReceipt.health, game).completed_at_utc,
+      otherGameAttemptId: updateHealthGame(healthReceipt.health, otherGame).attempt_id,
+      visibleCompletedAtUtc: healthReceipt.visibleTargetCompletedAt,
+      otherGameVisibleCompletedAtUtc: healthReceipt.visibleOtherCompletedAt,
+    },
   };
 }
 

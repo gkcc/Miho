@@ -617,6 +617,13 @@
 - **验证与直接交付**：推荐/刷新/启动/字节门禁 Node 契约 120/120、desktop Rust 103/103、Python Visualizer/交付定点 9/9、PowerShell GUI contract、TypeScript/Vite、Rust fmt、`git diff --check` 与完整 `pnpm run tauri:build` 均通过，三份最终 EXE 的 7 项 Visualizer 原始字节各 exact-once。正式安装路径隐藏深测实际执行 `ZZZ → HSR → ZZZ`，启动状态 `ready`、更新健康 `healthy`、应用退出码 0、stdout/stderr 为空、调试端口关闭；连续轮询与收尾检查均未出现 WindowsTerminal/OpenConsole，HSR/ZZZ Box SHA-256 仍为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
 - **最终安装状态**：`D:\Miho Endgame\miho-desktop.exe` 与 release SHA-256 同为 `A47FAA9D58F8A798C2C535BBE329D6F1BCAB970E7663A657DD4A4DDA50579E63`（WINDOWS_GUI）；普通 CLI 为 `567941F81D9A4B402D98EC9C3D10209764475A9ED98B4F6204A5CFD5A3186A89`（CONSOLE）。owner-aware 事务 attempt `installer-0d0525877ec64531af09e1772403cb31` 对 HSR/ZZZ 均成功后，将任务切到无窗 generation `miho-0.1.0-6ef066a0de4f6ef912cb30cb9ea615575b766b3ecff6f34ec4ca08e0d82b02ed`；任务 Ready/Enabled、`LastTaskResult=0`、仅保留一个 generation，无 candidate/journal。未进入 NSIS、portable 或旧安装器链。
 
+### 无黑框正式路径复验与更新后关闭收口（2026-07-27，已交付）
+
+- **关闭竞态修复**：关闭前会等待在途健康读取，HSR/ZZZ Box 改为顺序 flush，避免争抢同一 workspace writer lease；关闭专用保存失败会取消关闭并直接显示错误，不再进入无人响应的确认循环。验证器同步记录 `waiting-* / flushing-* / destroying` 阶段，便于区分保存等待与窗口销毁。
+- **正式路径无窗复验**：`D:\Miho Endgame\miho-desktop.exe` 已更新为 `E3EF76A1C26479114974F61AF289CB1E20667468BF92907DE1713B54906F308F`（WINDOWS_GUI），隐藏启动后 Visualizer `ready`、正常退出 0、stdout/stderr 为空、调试端口关闭；100 ms 连续轮询未观察到新增 WindowsTerminal/OpenConsole。普通 CLI 更新为 `CDF5BE297847CAADB0526B259FDDD6B49B544FD51A9085E1EF7C4F13B5BE3719`（CONSOLE）。
+- **定点验证**：推荐/刷新/启动/关闭契约 124/124、desktop Rust 104/104、PowerShell GUI/no-window contract、TypeScript/Vite、`git diff --check` 与完整 `pnpm run tauri:build` 均通过；三份最终 EXE 的 7 项 Visualizer 原始字节各 exact-once。
+- **每日任务与数据安全**：owner-aware 事务 attempt `installer-24aa053b40ac454fb96352fcfffd9229` 对 HSR/ZZZ 均 `succeeded` 且 state/receipt committed，将任务切到无窗 generation `miho-0.1.0-9c960e3c329c5b8224f2f33c0d512122407edc7548043b1f20a95b353be719b3`；任务 Ready/Enabled、`LastTaskResult=0`、仅一个 generation，无 candidate/journal。HSR/ZZZ Box SHA-256 继续保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`，候选文件已清理；未进入 NSIS、portable 或旧安装器链。
+
 ## 恢复入口
 
 - 项目状态：本文件。

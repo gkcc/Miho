@@ -4,8 +4,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Stable location of the workspace-wide writer lock.
+/// Stable location of the legacy-compatible workspace writer barrier.
 pub const WORKSPACE_WRITE_LOCK_RELATIVE_PATH: &str = ".miho/workspace-write-v1.lock";
+/// Reader/writer barrier protecting one coherent update-generation snapshot.
+pub const WORKSPACE_SNAPSHOT_LOCK_RELATIVE_PATH: &str = ".miho/workspace-snapshot-v1.lock";
+/// New-writer-only mutex; readers never contend on this lock.
+pub const WORKSPACE_WRITER_ARBITRATION_LOCK_RELATIVE_PATH: &str =
+    ".miho/workspace-writer-arbitration-v1.lock";
+/// Crash-released writer intent whose locked byte is probed by readers.
+pub const WORKSPACE_WRITER_INTENT_LOCK_RELATIVE_PATH: &str =
+    ".miho/workspace-writer-intent-v1.lock";
 
 /// Stable, pathless failure categories for acquiring [`WorkspaceWriteLease`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,13 +47,18 @@ impl std::error::Error for WorkspaceWriteLeaseError {}
 
 /// An OS-backed, workspace-wide exclusive writer lease.
 ///
-/// The lock file is intentionally persistent. Dropping this value closes the
-/// only owned handle and releases the OS lock; crashes and normal process exit
-/// receive the same release behavior without deleting or replacing the file.
+/// The lock files are intentionally persistent. Dropping this value closes
+/// the owned handles and releases the OS locks; crashes and normal process
+/// exit receive the same release behavior without deleting or replacing them.
 #[derive(Debug)]
 pub struct WorkspaceWriteLease {
     workspace_root: PathBuf,
-    _file: File,
+    // Field order is the lock release order: data barriers before intent, and
+    // intent before the writer-only mutex.
+    _legacy_file: File,
+    _snapshot_file: File,
+    _intent_file: File,
+    _arbitration_file: File,
 }
 
 impl WorkspaceWriteLease {
@@ -65,35 +78,182 @@ impl WorkspaceWriteLease {
         reject_alias_chain_from(&canonical_root, &metadata_dir)?;
         require_directory(&metadata_dir)?;
 
-        let lock_path = canonical_root.join(WORKSPACE_WRITE_LOCK_RELATIVE_PATH);
-        reject_existing_lock_target(&lock_path)?;
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&lock_path)
+        // The arbitration lock is writer-only, so a failed non-blocking lock
+        // unambiguously means another new writer is already active or waiting.
+        let arbitration_file = open_lock_file(
+            &canonical_root,
+            WORKSPACE_WRITER_ARBITRATION_LOCK_RELATIVE_PATH,
+        )?;
+        let intent_file =
+            open_lock_file(&canonical_root, WORKSPACE_WRITER_INTENT_LOCK_RELATIVE_PATH)?;
+        let snapshot_file = open_lock_file(&canonical_root, WORKSPACE_SNAPSHOT_LOCK_RELATIVE_PATH)?;
+        let legacy_file = open_lock_file(&canonical_root, WORKSPACE_WRITE_LOCK_RELATIVE_PATH)?;
+
+        try_lock_exclusive(&arbitration_file)?;
+
+        // On Windows, readers observe this lock through mandatory byte-range
+        // I/O rather than taking a competing lock. Publishing intent can
+        // therefore block no first writer and depends on no waiter fairness.
+        initialize_writer_intent_byte(&intent_file)?;
+        intent_file
+            .lock()
             .map_err(|_| WorkspaceWriteLeaseError::Unavailable)?;
 
-        // Re-check after opening so a stable symlink/reparse target cannot be
-        // accepted merely because it appeared between inspection and open.
-        reject_alias_chain_from(&canonical_root, &lock_path)?;
-        require_regular_file(&lock_path)?;
+        // A reader probes intent both before and after taking its shared data
+        // barriers. Once intent is exclusive, every later or in-flight reader
+        // releases without reading, so this waits for a finite admitted set.
+        snapshot_file
+            .lock()
+            .map_err(|_| WorkspaceWriteLeaseError::Unavailable)?;
 
-        match file.try_lock() {
-            Ok(()) => Ok(Self {
-                workspace_root: canonical_root,
-                _file: file,
-            }),
-            Err(TryLockError::WouldBlock) => Err(WorkspaceWriteLeaseError::Busy),
-            Err(TryLockError::Error(_)) => Err(WorkspaceWriteLeaseError::Unavailable),
+        // Every new reader releases legacy before snapshot. Therefore, after
+        // snapshot becomes exclusive, legacy contention can only be an old
+        // writer that does not participate in the new protocol.
+        match legacy_file.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => return Err(WorkspaceWriteLeaseError::Busy),
+            Err(TryLockError::Error(_)) => return Err(WorkspaceWriteLeaseError::Unavailable),
         }
+
+        Ok(Self {
+            workspace_root: canonical_root,
+            _legacy_file: legacy_file,
+            _snapshot_file: snapshot_file,
+            _intent_file: intent_file,
+            _arbitration_file: arbitration_file,
+        })
     }
 
     /// Canonical root whose writer namespace this lease protects.
     pub fn workspace_root(&self) -> &Path {
         &self.workspace_root
     }
+}
+
+/// Shared, read-only lease for one coherent update-generation snapshot.
+/// Writers wait for existing snapshot readers after winning writer
+/// arbitration, so a health check can never make a button update fail busy.
+#[derive(Debug)]
+pub struct WorkspaceSnapshotLease {
+    workspace_root: PathBuf,
+    // Release legacy before snapshot so a writer that has drained snapshot
+    // cannot mistake a still-dropping new reader for an old exclusive writer.
+    _legacy_file: File,
+    _snapshot_file: File,
+}
+
+impl WorkspaceSnapshotLease {
+    pub fn acquire(workspace_root: &Path) -> Result<Self, WorkspaceWriteLeaseError> {
+        let absolute_root = absolute_without_normalizing(workspace_root)?;
+        reject_alias_chain(&absolute_root)?;
+        require_directory(&absolute_root)?;
+
+        let canonical_root =
+            fs::canonicalize(&absolute_root).map_err(|_| WorkspaceWriteLeaseError::Unavailable)?;
+        reject_alias_chain(&canonical_root)?;
+        require_directory(&canonical_root)?;
+
+        let metadata_dir = canonical_root.join(".miho");
+        ensure_metadata_directory(&metadata_dir)?;
+        reject_alias_chain_from(&canonical_root, &metadata_dir)?;
+        require_directory(&metadata_dir)?;
+
+        let intent_file =
+            open_lock_file(&canonical_root, WORKSPACE_WRITER_INTENT_LOCK_RELATIVE_PATH)?;
+        let snapshot_file = open_lock_file(&canonical_root, WORKSPACE_SNAPSHOT_LOCK_RELATIVE_PATH)?;
+        let legacy_file = open_lock_file(&canonical_root, WORKSPACE_WRITE_LOCK_RELATIVE_PATH)?;
+
+        probe_writer_intent(&intent_file)?;
+        try_lock_shared(&snapshot_file)?;
+        try_lock_shared(&legacy_file)?;
+        probe_writer_intent(&intent_file)?;
+
+        Ok(Self {
+            workspace_root: canonical_root,
+            _legacy_file: legacy_file,
+            _snapshot_file: snapshot_file,
+        })
+    }
+
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
+    }
+}
+
+fn try_lock_exclusive(file: &File) -> Result<(), WorkspaceWriteLeaseError> {
+    match file.try_lock() {
+        Ok(()) => Ok(()),
+        Err(TryLockError::WouldBlock) => Err(WorkspaceWriteLeaseError::Busy),
+        Err(TryLockError::Error(_)) => Err(WorkspaceWriteLeaseError::Unavailable),
+    }
+}
+
+fn try_lock_shared(file: &File) -> Result<(), WorkspaceWriteLeaseError> {
+    match file.try_lock_shared() {
+        Ok(()) => Ok(()),
+        Err(TryLockError::WouldBlock) => Err(WorkspaceWriteLeaseError::Busy),
+        Err(TryLockError::Error(_)) => Err(WorkspaceWriteLeaseError::Unavailable),
+    }
+}
+
+#[cfg(windows)]
+fn initialize_writer_intent_byte(file: &File) -> Result<(), WorkspaceWriteLeaseError> {
+    use std::os::windows::fs::FileExt;
+
+    match file.seek_write(&[0], 0) {
+        Ok(1) => Ok(()),
+        Ok(_) => Err(WorkspaceWriteLeaseError::Unavailable),
+        Err(_) => Err(WorkspaceWriteLeaseError::Unavailable),
+    }
+}
+
+#[cfg(windows)]
+fn probe_writer_intent(file: &File) -> Result<(), WorkspaceWriteLeaseError> {
+    use std::os::windows::fs::FileExt;
+    use windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION;
+
+    match file.seek_write(&[0], 0) {
+        Ok(1) => Ok(()),
+        Ok(_) => Err(WorkspaceWriteLeaseError::Unavailable),
+        Err(error) if error.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32) => {
+            Err(WorkspaceWriteLeaseError::Busy)
+        }
+        Err(_) => Err(WorkspaceWriteLeaseError::Unavailable),
+    }
+}
+
+#[cfg(not(windows))]
+fn initialize_writer_intent_byte(_file: &File) -> Result<(), WorkspaceWriteLeaseError> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn probe_writer_intent(file: &File) -> Result<(), WorkspaceWriteLeaseError> {
+    // Advisory-lock fallback keeps the same safety ordering on non-Windows;
+    // the mandatory, fairness-independent product contract is Windows-only.
+    try_lock_shared(file)?;
+    File::unlock(file).map_err(|_| WorkspaceWriteLeaseError::Unavailable)
+}
+
+fn open_lock_file(
+    canonical_root: &Path,
+    relative_path: &str,
+) -> Result<File, WorkspaceWriteLeaseError> {
+    let lock_path = canonical_root.join(relative_path);
+    reject_existing_lock_target(&lock_path)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|_| WorkspaceWriteLeaseError::Unavailable)?;
+
+    // Re-check after opening so a stable symlink/reparse target cannot be
+    // accepted merely because it appeared between inspection and open.
+    reject_alias_chain_from(canonical_root, &lock_path)?;
+    require_regular_file(&lock_path)?;
+    Ok(file)
 }
 
 fn absolute_without_normalizing(path: &Path) -> Result<PathBuf, WorkspaceWriteLeaseError> {

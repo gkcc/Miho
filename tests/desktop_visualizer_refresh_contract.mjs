@@ -31,6 +31,26 @@ test('workspace refresh saves and synchronizes both game visualizers', () => {
   assert.match(refresh, /GAMES\.map\(\(targetGame\) => loadVisualizer\(false, targetGame\)\)/);
 });
 
+test('completed update cards open the matching game and request its latest revision', () => {
+  const showUpdated = section('async function showUpdatedGame(', 'function updateVisualizerFrameVisibility()');
+  const startExport = section('async function startExport(', 'function updateTaskForm()');
+  const renderTasks = section('function renderTasks()', 'function isRecord(');
+
+  assert.match(showUpdated, /页面正在同步最新数据，请稍后再查看/);
+  assert.match(showUpdated, /ensureVisualizerBoxesSaved\(\[game\], "查看更新结果"\)/);
+  assert.match(showUpdated, /game = targetGame;\s*updateGameUI\(\)/);
+  assert.match(showUpdated, /markVisualizerDirty\(targetGame, false\)/);
+  assert.match(showUpdated, /await loadVisualizer\(false, targetGame\)/);
+  assert.match(showUpdated, /utilities\.open = false/);
+  assert.match(showUpdated, /visualizerSection\.scrollIntoView/);
+  assert.match(renderTasks, /task\.operation === "hsr-export" \? "hsr"/);
+  assert.match(renderTasks, /makeButton\("查看最新 Box 和分析"[\s\S]*?showUpdatedGame\(exportedGame\)/);
+  assert.match(renderTasks, /viewUpdate\.disabled = workspaceBusy \|\| boxTransitionBusy \|\| isWindowClosing\(\)/);
+  assert.match(startExport, /setBoxTransitionBusy\(true\)/);
+  assert.match(startExport, /ensureVisualizerBoxesSaved\(GAMES, "更新数据"\)/);
+  assert.match(startExport, /finally \{[\s\S]*?setBoxTransitionBusy\(false\)/);
+});
+
 test('automatic update health is always visible above the Visualizer and adapts on narrow screens', () => {
   const setup = section('const visualizerSection =', 'const utilities =');
   const panel = setup.indexOf('const updateHealthPanel = element("aside", "update-health loading")');
@@ -53,13 +73,16 @@ test('automatic update health is always visible above the Visualizer and adapts 
 });
 
 test('update health validates native responses and binds late results to request and workspace generations', () => {
-  const request = section('async function refreshUpdateHealth()', 'function updateWorkspaceControls()');
+  const request = section('async function refreshUpdateHealth(', 'function updateWorkspaceControls()');
   const parser = section('function backendUpdateHealth(', 'function isTaskStatus(');
   const close = section('async function installWindowCloseHandler()', 'window.addEventListener("beforeunload"');
 
   assert.match(request, /const workspaceId = capabilities\?\.workspace\.workspace_id \?\? ""/);
   assert.match(request, /const request = \+\+updateHealthRequestGeneration/);
-  assert.match(request, /await invoke<unknown>\("get_update_health"\)/);
+  assert.match(request, /await invokeTrackedUpdateHealth\(\)/);
+  assert.match(source, /const pendingUpdateHealthReads = new Set<Promise<unknown>>\(\)/);
+  assert.match(source, /function invokeTrackedUpdateHealth\(\)[\s\S]*?pendingUpdateHealthReads\.add\(read\)/);
+  assert.match(source, /function pendingUpdateHealthRead\(\)[\s\S]*?Promise\.allSettled\(reads\)/);
   assert.equal((request.match(/request !== updateHealthRequestGeneration/g) ?? []).length, 2);
   assert.equal((request.match(/workspaceId !== \(capabilities\?\.workspace\.workspace_id \?\? ""\)/g) ?? []).length, 2);
   assert.equal((request.match(/isWindowClosing\(\)/g) ?? []).length >= 3, true);
@@ -75,9 +98,10 @@ test('update health validates native responses and binds late results to request
 });
 
 test('update health explains artifact integrity, per-game success times, staleness, busy workspaces and retry action', () => {
-  const rendering = section('function setUpdateHealthView(', 'async function refreshUpdateHealth()');
+  const rendering = section('function setUpdateHealthView(', 'async function refreshUpdateHealth(');
 
   assert.match(source, /const UPDATE_HEALTH_STALE_AFTER_MS = 36 \* 60 \* 60 \* 1_000/);
+  assert.match(rendering, />= UPDATE_HEALTH_STALE_AFTER_MS/);
   assert.match(rendering, /本机产物校验通过/);
   assert.match(rendering, /\$\{gameShortLabel\(targetGame\)\} 最近成功/);
   assert.match(rendering, /return targetGame === "hsr" \? "HSR" : "ZZZ"/);
@@ -93,6 +117,23 @@ test('update health explains artifact integrity, per-game success times, stalene
   assert.match(rendering, /\$\{publicCode\}/);
   assert.match(source, /desktop\.update_health_invalid_response/);
   assert.match(source, /desktop\.update_health_workspace_mismatch/);
+});
+
+test('update health retries busy workspaces with bounded backoff and rechecks at the next stale deadline', () => {
+  const scheduling = section('function clearUpdateHealthTimers(', 'function invalidateUpdateHealth(');
+  const request = section('async function refreshUpdateHealth(', 'function updateWorkspaceControls()');
+  const close = section('async function installWindowCloseHandler()', 'window.addEventListener("beforeunload"');
+  const unload = section('window.addEventListener("beforeunload"', 'updateGameUI();');
+
+  assert.match(source, /const UPDATE_HEALTH_BUSY_RETRY_DELAYS_MS = \[1_000, 2_500, 5_000, 10_000, 30_000\]/);
+  assert.match(scheduling, /Math\.min\(updateHealthBusyRetryAttempt, UPDATE_HEALTH_BUSY_RETRY_DELAYS_MS\.length - 1\)/);
+  assert.match(scheduling, /void refreshUpdateHealth\(true\)/);
+  assert.match(scheduling, /Date\.parse\(entry\.completed_at_utc\) \+ UPDATE_HEALTH_STALE_AFTER_MS/);
+  assert.match(scheduling, /Math\.min\(Math\.max\(1, Math\.min\(\.\.\.futureDeadlines\) - now\), MAX_BROWSER_TIMER_DELAY_MS\)/);
+  assert.match(scheduling, /workspaceId !== capabilities\?\.workspace\.workspace_id/);
+  assert.match(request, /clearUpdateHealthTimers\(!fromBusyRetry\)/);
+  assert.match(close, /beginClose\(\) \{[\s\S]*?clearUpdateHealthTimers\(\)/);
+  assert.match(unload, /clearUpdateHealthTimers\(\)/);
 });
 
 test('update health refreshes on meaningful lifecycle events without hashing every stable focus check', () => {
@@ -172,10 +213,14 @@ test('window close owns the transition and late descriptor results cannot naviga
   assert.match(close, /beginClose\(\) \{[\s\S]*?closeGuardRunning = true;[\s\S]*?setBoxTransitionBusy\(true\)/);
   assert.match(close, /getWorkspaceTransition\(\) \{\s*return pendingWorkspaceTransition/);
   assert.match(close, /getTaskStart\(\) \{\s*return pendingTaskStart/);
+  assert.match(close, /getBackgroundRead\(\) \{\s*return pendingUpdateHealthRead\(\)/);
   assert.match(close, /hasActiveTask,/);
   assert.match(close, /shouldResetWorkspace\(\) \{\s*return workspaceReconcilePending/);
   assert.match(close, /resetWorkspace\(\) \{\s*capabilitiesRequestGeneration \+= 1;\s*updateHealthRequestGeneration \+= 1;\s*resetVisualizerFrames\(\)/);
-  assert.match(close, /flushBoxes\(\) \{\s*return ensureVisualizerBoxesSaved\(\["hsr", "zzz"\], "关闭程序"\)/);
+  assert.match(close, /setStage: setDesktopCloseStage/);
+  assert.match(close, /flushBoxes\(\) \{\s*return ensureVisualizerBoxesSaved\(\["hsr", "zzz"\], "关闭程序", \{/);
+  assert.match(close, /failureMode: "cancel"/);
+  assert.match(close, /"flushing-hsr-box" : "flushing-zzz-box"/);
   assert.match(close, /persist: persistTaskHistory/);
   assert.match(close, /allowWindowClose = true;[\s\S]*?await appWindow\.destroy\(\)/);
   assert.match(close, /finishClose\(closed\)[\s\S]*?if \(closed\) return;[\s\S]*?setBoxTransitionBusy\(false\)/);
@@ -183,6 +228,14 @@ test('window close owns the transition and late descriptor results cannot naviga
   assert.match(close, /installVisualizerRevisionWatchers\(\)/);
   assert.match(close, /await reconcileWorkspaceAfterCloseCancellation\(\)/);
   assert.match(close, /finally \{\s*closeRequestRunning = false/);
+});
+
+test('Box saves are serialized and close failures do not enter a confirmation loop', () => {
+  const flush = section('async function ensureVisualizerBoxesSaved(', 'function markVisualizerDirty(');
+
+  assert.match(flush, /for \(const targetGame of loadedGames\) \{[\s\S]*?await flushVisualizerBox\(targetGame\)/);
+  assert.doesNotMatch(flush, /Promise\.all\(loadedGames\.map\(flushVisualizerBox\)\)/);
+  assert.match(flush, /if \(options\.failureMode === "cancel"\) return false;[\s\S]*?window\.confirm/);
 });
 
 test('closing gates task launches and reconciles a workspace mutation before controls reopen', () => {

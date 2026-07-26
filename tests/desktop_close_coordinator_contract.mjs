@@ -16,9 +16,10 @@ function nextTurn() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-test('close waits for workspace, task start, reset, and Box flush before destroying once', async () => {
+test('close waits for workspace, task start, background read, reset, and Box flush before destroying once', async () => {
   const workspace = deferred();
   const taskStart = deferred();
+  const backgroundRead = deferred();
   const boxFlush = deferred();
   const events = [];
   let closeGate = false;
@@ -30,6 +31,9 @@ test('close waits for workspace, task start, reset, and Box flush before destroy
       closeGate = true;
       events.push('begin-close');
     },
+    setStage(stage) {
+      events.push(`stage:${stage}`);
+    },
     getWorkspaceTransition() {
       events.push('get-workspace-transition');
       return workspace.promise;
@@ -37,6 +41,10 @@ test('close waits for workspace, task start, reset, and Box flush before destroy
     getTaskStart() {
       events.push('get-task-start');
       return taskStart.promise;
+    },
+    getBackgroundRead() {
+      events.push('get-background-read');
+      return backgroundRead.promise;
     },
     hasActiveTask() {
       events.push('check-active-task');
@@ -70,13 +78,17 @@ test('close waits for workspace, task start, reset, and Box flush before destroy
   });
 
   assert.equal(closeGate, true, 'beginClose must acquire the close gate synchronously');
-  assert.deepEqual(events, ['begin-close', 'get-workspace-transition']);
+  assert.deepEqual(events, [
+    'begin-close',
+    'stage:waiting-workspace-transition',
+    'get-workspace-transition',
+  ]);
 
   taskStart.resolve();
   await nextTurn();
   assert.deepEqual(
     events,
-    ['begin-close', 'get-workspace-transition'],
+    ['begin-close', 'stage:waiting-workspace-transition', 'get-workspace-transition'],
     'an already-finished task start must not bypass the workspace transition',
   );
   assert.equal(destroyCount, 0);
@@ -86,11 +98,30 @@ test('close waits for workspace, task start, reset, and Box flush before destroy
   await nextTurn();
   assert.deepEqual(events, [
     'begin-close',
+    'stage:waiting-workspace-transition',
     'get-workspace-transition',
+    'stage:waiting-task-start',
     'get-task-start',
+    'stage:waiting-background-read',
+    'get-background-read',
+  ]);
+  assert.equal(destroyCount, 0, 'a pending background read must block Box flushing');
+
+  backgroundRead.resolve();
+  await nextTurn();
+  assert.deepEqual(events, [
+    'begin-close',
+    'stage:waiting-workspace-transition',
+    'get-workspace-transition',
+    'stage:waiting-task-start',
+    'get-task-start',
+    'stage:waiting-background-read',
+    'get-background-read',
+    'stage:checking-active-task',
     'check-active-task',
     'check-workspace-reset',
     'reset-workspace',
+    'stage:flushing-boxes',
     'flush-boxes',
   ]);
   assert.equal(destroyCount, 0, 'a pending Box flush must block window destruction');
@@ -99,9 +130,69 @@ test('close waits for workspace, task start, reset, and Box flush before destroy
   assert.equal(await closing, true);
   assert.equal(destroyCount, 1, 'the window must be destroyed exactly once');
   assert.equal(closeGate, false);
-  assert.deepEqual(events.slice(-3), ['persist', 'destroy', 'finish-close:true']);
+  assert.deepEqual(events.slice(-5), [
+    'persist',
+    'stage:destroying',
+    'destroy',
+    'stage:destroy-resolved',
+    'finish-close:true',
+  ]);
   assert.ok(events.indexOf('reset-workspace') < events.indexOf('flush-boxes'));
   assert.ok(events.indexOf('flush-boxes') < events.indexOf('destroy'));
+});
+
+test('a failed Box flush cancels close without persisting or destroying', async () => {
+  const events = [];
+  const closed = await coordinateDesktopClose({
+    beginClose() {
+      events.push('begin-close');
+    },
+    setStage(stage) {
+      events.push(`stage:${stage}`);
+    },
+    getWorkspaceTransition() {
+      return null;
+    },
+    getTaskStart() {
+      return null;
+    },
+    getBackgroundRead() {
+      return null;
+    },
+    hasActiveTask() {
+      return false;
+    },
+    confirmActiveTaskClose() {
+      assert.fail('inactive tasks must not prompt');
+    },
+    shouldResetWorkspace() {
+      return false;
+    },
+    resetWorkspace() {
+      assert.fail('a stable workspace must not reset');
+    },
+    flushBoxes() {
+      events.push('flush-boxes');
+      return false;
+    },
+    persist() {
+      assert.fail('a failed flush must not persist the final close state');
+    },
+    destroy() {
+      assert.fail('a failed flush must not destroy the window');
+    },
+    finishClose(wasClosed) {
+      events.push(`finish-close:${wasClosed}`);
+    },
+  });
+
+  assert.equal(closed, false);
+  assert.deepEqual(events.slice(-4), [
+    'stage:flushing-boxes',
+    'flush-boxes',
+    'stage:box-flush-cancelled',
+    'finish-close:false',
+  ]);
 });
 
 test('a cancelled close keeps its gate until asynchronous reconciliation finishes', async () => {
@@ -115,10 +206,16 @@ test('a cancelled close keeps its gate until asynchronous reconciliation finishe
       closeGate = true;
       events.push('begin-close');
     },
+    setStage(stage) {
+      events.push(`stage:${stage}`);
+    },
     getWorkspaceTransition() {
       return null;
     },
     getTaskStart() {
+      return null;
+    },
+    getBackgroundRead() {
       return null;
     },
     hasActiveTask() {
@@ -158,7 +255,16 @@ test('a cancelled close keeps its gate until asynchronous reconciliation finishe
   await nextTurn();
   assert.equal(closeGate, true, 'the close gate must remain acquired during reconciliation');
   assert.equal(settled, false, 'the coordinator must await reconciliation in finishClose');
-  assert.deepEqual(events, ['begin-close', 'cancel-close', 'start-reconcile']);
+  assert.deepEqual(events, [
+    'begin-close',
+    'stage:waiting-workspace-transition',
+    'stage:waiting-task-start',
+    'stage:waiting-background-read',
+    'stage:checking-active-task',
+    'cancel-close',
+    'stage:active-task-cancelled',
+    'start-reconcile',
+  ]);
 
   reconcile.resolve();
   assert.equal(await closing, false);
@@ -166,7 +272,12 @@ test('a cancelled close keeps its gate until asynchronous reconciliation finishe
   assert.equal(closeGate, false);
   assert.deepEqual(events, [
     'begin-close',
+    'stage:waiting-workspace-transition',
+    'stage:waiting-task-start',
+    'stage:waiting-background-read',
+    'stage:checking-active-task',
     'cancel-close',
+    'stage:active-task-cancelled',
     'start-reconcile',
     'finish-reconcile',
   ]);

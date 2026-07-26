@@ -10,6 +10,68 @@ finally {
     $env:MIHO_GUI_RENDER_TEST_DEFINE_ONLY_V1 = $previousDefineOnly
 }
 
+function Assert-MihoDesktopPowerShellProbeNoWindowSourceV1 {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Source)
+
+    $commandExtPattern = '(?m)^#\[cfg\(windows\)\]\r?\nuse std::os::windows::process::CommandExt;$'
+    $constantPattern = '(?m)^#\[cfg\(windows\)\]\r?\nconst CREATE_NO_WINDOW_V1: u32 = 0x0800_0000;$'
+    $flagPattern = '(?m)^\s*#\[cfg\(windows\)\]\r?\n\s*powershell_command\.creation_flags\(CREATE_NO_WINDOW_V1\);\s*$'
+    if ([regex]::Matches($Source, $commandExtPattern).Count -ne 1 -or
+        [regex]::Matches($Source, $constantPattern).Count -ne 1 -or
+        [regex]::Matches($Source, $flagPattern).Count -ne 1 -or
+        $Source -cmatch 'CREATE_NEW_CONSOLE') {
+        throw "Desktop PowerShell automation probe no-window declarations are missing or unsafe"
+    }
+
+    $runnerStart = $Source.IndexOf(
+        'impl AutomationProbeRunnerV1 for PowerShellAutomationProbeRunnerV1 {'
+    )
+    $runnerEnd = $Source.IndexOf('fn validate_probe_receipt_shape_v1(', $runnerStart + 1)
+    if ($runnerStart -lt 0 -or $runnerEnd -le $runnerStart) {
+        throw "Desktop PowerShell automation probe runner could not be isolated"
+    }
+    $runner = $Source.Substring($runnerStart, $runnerEnd - $runnerStart)
+    $commandText = 'let mut powershell_command = Command::new(&powershell);'
+    $flagText = 'powershell_command.creation_flags(CREATE_NO_WINDOW_V1);'
+    $spawnText = '.spawn()'
+    $commandIndex = $runner.IndexOf($commandText)
+    $flagIndex = $runner.IndexOf($flagText)
+    $spawnIndex = $runner.IndexOf($spawnText)
+    if ($commandIndex -lt 0 -or $flagIndex -le $commandIndex -or $spawnIndex -le $flagIndex -or
+        [regex]::Matches($runner, [regex]::Escape($commandText)).Count -ne 1 -or
+        [regex]::Matches($runner, [regex]::Escape($flagText)).Count -ne 1 -or
+        [regex]::Matches($runner, '\.spawn\(\)').Count -ne 1) {
+        throw "Desktop PowerShell automation probe does not apply CREATE_NO_WINDOW before its only spawn"
+    }
+}
+
+$tasksSourcePath = Join-Path $root "crates\miho-desktop\src-tauri\src\tasks.rs"
+$tasksSource = Get-Content -LiteralPath $tasksSourcePath -Raw
+Assert-MihoDesktopPowerShellProbeNoWindowSourceV1 -Source $tasksSource
+
+$noWindowMutations = @(
+    $tasksSource.Replace(
+        'powershell_command.creation_flags(CREATE_NO_WINDOW_V1);',
+        'powershell_command.creation_flags(0);'
+    ),
+    $tasksSource.Replace('0x0800_0000', '0x0000_0010'),
+    $tasksSource.Replace(
+        "        #[cfg(windows)]`r`n        powershell_command.creation_flags(CREATE_NO_WINDOW_V1);`r`n",
+        "        powershell_command.creation_flags(CREATE_NO_WINDOW_V1);`r`n"
+    ).Replace(
+        "        #[cfg(windows)]`n        powershell_command.creation_flags(CREATE_NO_WINDOW_V1);`n",
+        "        powershell_command.creation_flags(CREATE_NO_WINDOW_V1);`n"
+    )
+)
+foreach ($mutatedSource in $noWindowMutations) {
+    $rejected = $false
+    try { Assert-MihoDesktopPowerShellProbeNoWindowSourceV1 -Source $mutatedSource }
+    catch { $rejected = $true }
+    if (-not $rejected) {
+        throw "Desktop PowerShell automation probe no-window gate accepted a regression fixture"
+    }
+}
+
 $hashFixture = Join-Path ([System.IO.Path]::GetTempPath()) ("miho-gui-hash-" + [guid]::NewGuid().ToString("N"))
 try {
     [System.IO.File]::WriteAllBytes($hashFixture, [System.Text.Encoding]::UTF8.GetBytes("abc"))
@@ -314,6 +376,8 @@ if ($scriptSource -notmatch 'Desktop process wrote unexpected stdout/stderr afte
     $scriptSource -notmatch 'visualizerStartupState:document\.documentElement' -or
     $scriptSource -notmatch 'visualizerStartupFailureCode:document\.documentElement' -or
     $scriptSource -notmatch 'visualizerStartupGame:document\.documentElement' -or
+    $scriptSource -notmatch 'desktopCloseStage:document\.documentElement' -or
+    $scriptSource -notmatch 'main_window_handle=\$mainWindowHandle close_stage=\$closeStage' -or
     $scriptSource -notmatch 'Set-MihoGuiRenderChildEnvironmentV1 -StartInfo \$startInfo -DebugPort \$port' -or
     $scriptSource -notmatch 'Assert-MihoBoundWebViewUserDataDirectoryV1' -or
     $scriptSource -notmatch 'Get-MihoExitedProcessDiagnosticV1 -Process \$process -WaitMilliseconds 250' -or

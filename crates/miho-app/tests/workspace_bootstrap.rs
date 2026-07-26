@@ -17,7 +17,9 @@ use miho_app::{
     RELEASE_BOOTSTRAP_STATE_RELATIVE_PATH, RELEASE_BOOTSTRAP_STATE_SCHEMA_V1,
     RELEASE_BOOTSTRAP_TRANSACTION_BEFORE_DIRECTORY_V1,
     RELEASE_BOOTSTRAP_TRANSACTION_MANIFEST_FILE_V1,
-    RELEASE_BOOTSTRAP_TRANSACTION_RECEIPT_SCHEMA_V1, ZZZ_BOX_STATE_RELATIVE_PATH,
+    RELEASE_BOOTSTRAP_TRANSACTION_RECEIPT_SCHEMA_V1, WORKSPACE_SNAPSHOT_LOCK_RELATIVE_PATH,
+    WORKSPACE_WRITER_ARBITRATION_LOCK_RELATIVE_PATH, WORKSPACE_WRITER_INTENT_LOCK_RELATIVE_PATH,
+    WORKSPACE_WRITE_LOCK_RELATIVE_PATH, ZZZ_BOX_STATE_RELATIVE_PATH,
 };
 use miho_core::box_state::BoxState;
 use serde_json::{json, Value};
@@ -652,10 +654,20 @@ fn workspace_bootstrap_transaction_fresh_begin_verify_and_missing_rollback_are_e
     assert_eq!(snapshot_transaction_files(&workspace), before);
     assert!(!workspace.join("configs").exists());
     assert!(workspace.join(".miho").is_dir());
+    assert!(workspace.join(WORKSPACE_WRITE_LOCK_RELATIVE_PATH).is_file());
+    assert!(workspace
+        .join(WORKSPACE_SNAPSHOT_LOCK_RELATIVE_PATH)
+        .is_file());
+    assert!(workspace
+        .join(WORKSPACE_WRITER_ARBITRATION_LOCK_RELATIVE_PATH)
+        .is_file());
+    assert!(workspace
+        .join(WORKSPACE_WRITER_INTENT_LOCK_RELATIVE_PATH)
+        .is_file());
     assert_eq!(
         fs::read_dir(workspace.join(".miho")).unwrap().count(),
-        1,
-        "the persistent workspace lease is the only fresh .miho entry"
+        4,
+        "the four persistent protocol locks are the only fresh .miho entries"
     );
     assert!(
         transaction.is_dir(),

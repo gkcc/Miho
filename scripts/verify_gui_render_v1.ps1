@@ -239,7 +239,7 @@ function Invoke-MihoCdpDomProbeV1 {
     $cancellation = [System.Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(10))
     try {
         $null = $socket.ConnectAsync([Uri]$webSocketUrl, $cancellation.Token).GetAwaiter().GetResult()
-        $expression = "(()=>({href:location.href,readyState:document.readyState,ready:document.documentElement?.dataset?.mihoAppReady??'',brandText:document.querySelector('.brand .eyebrow')?.textContent??'',appChildCount:document.querySelector('#app')?.childElementCount??0,visualizerLoaded:[...document.querySelectorAll('iframe.visualizer-frame')].some(frame=>!!frame.getAttribute('src')&&frame.dataset.loaded==='true'),visualizerStartupState:document.documentElement?.dataset?.visualizerStartupState??'',visualizerStartupFailureCode:document.documentElement?.dataset?.visualizerStartupFailureCode??'',visualizerStartupGame:document.documentElement?.dataset?.visualizerStartupGame??'',tauriInternals:typeof window.__TAURI_INTERNALS__==='object',bodyText:(document.body?.innerText??'').slice(0,2000),neterror:!!document.querySelector('body.neterror')}))()"
+        $expression = "(()=>({href:location.href,readyState:document.readyState,ready:document.documentElement?.dataset?.mihoAppReady??'',brandText:document.querySelector('.brand .eyebrow')?.textContent??'',appChildCount:document.querySelector('#app')?.childElementCount??0,visualizerLoaded:[...document.querySelectorAll('iframe.visualizer-frame')].some(frame=>!!frame.getAttribute('src')&&frame.dataset.loaded==='true'),visualizerStartupState:document.documentElement?.dataset?.visualizerStartupState??'',visualizerStartupFailureCode:document.documentElement?.dataset?.visualizerStartupFailureCode??'',visualizerStartupGame:document.documentElement?.dataset?.visualizerStartupGame??'',desktopCloseStage:document.documentElement?.dataset?.desktopCloseStage??'',tauriInternals:typeof window.__TAURI_INTERNALS__==='object',bodyText:(document.body?.innerText??'').slice(0,2000),neterror:!!document.querySelector('body.neterror')}))()"
         $command = @{
             id = 17
             method = "Runtime.evaluate"
@@ -858,7 +858,19 @@ try {
         throw "Desktop process did not expose a closable main window after rendering"
     }
     if (-not $process.WaitForExit(10000)) {
-        throw "Desktop process did not exit after its main window closed"
+        $process.Refresh()
+        $mainWindowHandle = [int64]$process.MainWindowHandle
+        $closeStage = "unavailable"
+        try {
+            $closeDom = Invoke-MihoCdpDomProbeV1 -Target $readyTarget
+            $closeStage = [string]$closeDom.desktopCloseStage
+            if ([string]::IsNullOrWhiteSpace($closeStage)) { $closeStage = "missing" }
+        }
+        catch {
+            $closeStage = "unavailable"
+        }
+        throw ("Desktop process did not exit after close request " +
+            "(main_window_handle=$mainWindowHandle close_stage=$closeStage)")
     }
     $stdout = $process.StandardOutput.ReadToEnd()
     $stderr = $process.StandardError.ReadToEnd()
