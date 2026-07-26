@@ -6,6 +6,7 @@
 //! and resolves it against an authorized workspace.
 
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Component, Path, PathBuf},
 };
@@ -232,8 +233,14 @@ fn validate_game_config(
     if modes.is_empty() {
         bail!("{label}.modes must not be empty");
     }
-    if let Some(mode) = modes.iter().find(|mode| mode.game() != game) {
-        bail!("mode {} does not belong to {label}", mode.code());
+    let mut seen = BTreeSet::new();
+    for mode in modes {
+        if mode.game() != game {
+            bail!("mode {} does not belong to {label}", mode.code());
+        }
+        if !seen.insert(*mode) {
+            bail!("{label}.modes contains duplicate mode {}", mode.code());
+        }
     }
     if !(MIN_PRYDWEN_TOP_N_V1..=MAX_PRYDWEN_TOP_N_V1).contains(&prydwen_top_n) {
         bail!(
@@ -525,6 +532,17 @@ mod tests {
             "\"modes\":[\"moc\"]",
         );
         assert!(UpdateConfigV1::parse(foreign_mode.as_bytes()).is_err());
+        for (from, to) in [
+            (
+                "\"modes\":[\"moc\",\"pf\",\"as\",\"aa\"]",
+                "\"modes\":[\"moc\",\"moc\"]",
+            ),
+            ("\"modes\":[\"sd\",\"da\"]", "\"modes\":[\"sd\",\"sd\"]"),
+        ] {
+            let duplicate_mode = replace_once(&valid_json(), from, to);
+            let error = UpdateConfigV1::parse(duplicate_mode.as_bytes()).unwrap_err();
+            assert!(error.to_string().contains("duplicate mode"));
+        }
         let empty_repo = replace_once(
             &valid_json(),
             "\"repo_id\":\"owner/hsr\"",

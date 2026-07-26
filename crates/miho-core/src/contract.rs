@@ -353,6 +353,7 @@ impl ExportFailureV1 {
             MihoError::CsvWidth { .. } => "format.csv_width",
             MihoError::Csv(_) => "format.csv_failed",
             MihoError::Workbook(_) => "workbook.generation_failed",
+            MihoError::DataQualityFreshness(_) => "data_quality.freshness_invalid",
             MihoError::Visualizer(_) => "visualizer.generation_failed",
             MihoError::Unsupported(_) => "request.unsupported",
         };

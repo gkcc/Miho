@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -52,6 +52,151 @@ pub struct DataQualityReportV1 {
     pub warnings: Vec<String>,
     pub alias_conflict_count: usize,
     pub modes: BTreeMap<String, ModeDataQualityV1>,
+}
+
+/// Validate the identity and generation-relative freshness semantics of one
+/// data-quality report.
+///
+/// Known freshness states require strict dates. Every parseable sample must be
+/// no newer than the generation date. `unknown` deliberately remains
+/// compatible with upstream date values that cannot be parsed, but any valid
+/// boundary must still agree with the reported state.
+pub fn validate_data_quality_report_v1(
+    report: &DataQualityReportV1,
+    expected_game: Game,
+    required_modes: &[GameMode],
+    generation_local_date: NaiveDate,
+) -> Result<()> {
+    if report.schema_version != DATA_QUALITY_SCHEMA_V1 {
+        return Err(data_quality_freshness_error(
+            "the report schema version is invalid",
+        ));
+    }
+    if report.game != expected_game.code() {
+        return Err(data_quality_freshness_error(
+            "the report game identity is invalid",
+        ));
+    }
+    if !matches!(report.status.as_str(), "ok" | "warning") {
+        return Err(data_quality_freshness_error("the report status is invalid"));
+    }
+    if required_modes.is_empty() {
+        return Err(data_quality_freshness_error(
+            "required modes must not be empty",
+        ));
+    }
+
+    let mut expected_mode_codes = BTreeSet::new();
+    for mode in required_modes {
+        if mode.game() != expected_game {
+            return Err(data_quality_freshness_error(
+                "a required mode belongs to another game",
+            ));
+        }
+        if !expected_mode_codes.insert(mode.code()) {
+            return Err(data_quality_freshness_error(
+                "required modes must not contain duplicates",
+            ));
+        }
+    }
+    let actual_mode_codes = report
+        .modes
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if actual_mode_codes != expected_mode_codes {
+        return Err(data_quality_freshness_error(
+            "report modes do not match the required modes",
+        ));
+    }
+
+    for quality in report.modes.values() {
+        validate_mode_freshness_v1(&quality.freshness, generation_local_date)?;
+    }
+    Ok(())
+}
+
+fn validate_mode_freshness_v1(
+    freshness: &FreshnessV1,
+    generation_local_date: NaiveDate,
+) -> Result<()> {
+    let known = matches!(freshness.status.as_str(), "active" | "stale" | "future");
+    if !known && freshness.status != "unknown" {
+        return Err(data_quality_freshness_error(
+            "a mode freshness status is invalid",
+        ));
+    }
+
+    let sample = parse_data_quality_date_v1(&freshness.sample_date);
+    let start = parse_data_quality_date_v1(&freshness.start_date);
+    let end = parse_data_quality_date_v1(&freshness.end_date);
+    if sample.is_some_and(|date| date > generation_local_date) {
+        return Err(data_quality_freshness_error(
+            "a sample date is newer than its generation",
+        ));
+    }
+    if known {
+        if sample.is_none() {
+            return Err(data_quality_freshness_error(
+                "a known freshness state requires a valid sample date",
+            ));
+        }
+        if (!freshness.start_date.is_empty() && start.is_none())
+            || (!freshness.end_date.is_empty() && end.is_none())
+        {
+            return Err(data_quality_freshness_error(
+                "a known freshness state has an invalid boundary date",
+            ));
+        }
+    }
+    if matches!((start, end), (Some(start), Some(end)) if start > end) {
+        return Err(data_quality_freshness_error(
+            "freshness boundary dates are reversed",
+        ));
+    }
+
+    let recomputed = if start.is_some_and(|date| date > generation_local_date) {
+        "future"
+    } else if end.is_some_and(|date| date < generation_local_date) {
+        "stale"
+    } else if start.is_some() || end.is_some() {
+        "active"
+    } else {
+        "unknown"
+    };
+    if freshness.status != recomputed {
+        return Err(data_quality_freshness_error(
+            "a mode freshness status does not match its dates",
+        ));
+    }
+    Ok(())
+}
+
+/// Parse the exact date shapes accepted by the data-quality freshness
+/// contract. Callers that expose freshness must use this parser too, so an
+/// upstream value classified as unknown cannot be normalized into a date by a
+/// more permissive consumer.
+pub fn parse_data_quality_date_v1(value: &str) -> Option<NaiveDate> {
+    if value.is_empty() || value != value.trim() {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    if bytes.len() == 10
+        && bytes[0..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b'-'
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[7] == b'-'
+        && bytes[8..10].iter().all(u8::is_ascii_digit)
+    {
+        return NaiveDate::parse_from_str(value, "%Y-%m-%d").ok();
+    }
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|value| value.date_naive())
+}
+
+fn data_quality_freshness_error(message: &str) -> MihoError {
+    MihoError::DataQualityFreshness(message.to_owned())
 }
 
 pub fn attach_data_quality_v1(
@@ -160,6 +305,7 @@ pub fn attach_data_quality_v1(
     if !report.warnings.is_empty() {
         report.status = "warning".to_owned();
     }
+    validate_data_quality_report_v1(&report, game, required_modes, local_date)?;
     bundle.add_json("data_quality.json", &report)?;
     Ok(report)
 }
@@ -421,6 +567,218 @@ mod tests {
             start_date: String::new(),
             end_date: String::new(),
             source: String::new(),
+        }
+    }
+
+    fn quality_with_freshness(
+        status: &str,
+        sample_date: &str,
+        start_date: &str,
+        end_date: &str,
+    ) -> ModeDataQualityV1 {
+        ModeDataQualityV1 {
+            row_count: 1,
+            valid_rank_count: 1,
+            valid_performance_count: 1,
+            sentinel_count: 0,
+            sentinel_rate: 0.0,
+            source_coverage: vec!["fixture".to_owned()],
+            freshness: FreshnessV1 {
+                status: status.to_owned(),
+                sample_date: sample_date.to_owned(),
+                start_date: start_date.to_owned(),
+                end_date: end_date.to_owned(),
+                source: "fixture".to_owned(),
+            },
+            change_from_previous: None,
+        }
+    }
+
+    fn freshness_report(
+        game: Game,
+        modes: impl IntoIterator<Item = (&'static str, ModeDataQualityV1)>,
+    ) -> DataQualityReportV1 {
+        DataQualityReportV1 {
+            schema_version: DATA_QUALITY_SCHEMA_V1.to_owned(),
+            game: game.code().to_owned(),
+            status: "ok".to_owned(),
+            warnings: Vec::new(),
+            alias_conflict_count: 0,
+            modes: modes
+                .into_iter()
+                .map(|(mode, quality)| (mode.to_owned(), quality))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn freshness_validator_accepts_recomputed_known_states_and_compatible_unknown() {
+        let generation = NaiveDate::from_ymd_opt(2026, 7, 12).unwrap();
+        let mut report = freshness_report(
+            Game::Hsr,
+            [
+                (
+                    "moc",
+                    quality_with_freshness(
+                        "active",
+                        "2026-07-12T23:59:59+08:00",
+                        "2026-07-01",
+                        "2026-07-31T23:59:59Z",
+                    ),
+                ),
+                (
+                    "pf",
+                    quality_with_freshness("stale", "2026-07-10", "2026-06-01", "2026-07-11"),
+                ),
+                (
+                    "as",
+                    quality_with_freshness(
+                        "future",
+                        "2026-07-12",
+                        "2026-07-13T00:00:00+08:00",
+                        "2026-08-01",
+                    ),
+                ),
+                (
+                    "aa",
+                    quality_with_freshness(
+                        "unknown",
+                        "upstream-sample-is-unparseable",
+                        "upstream-start-is-unparseable",
+                        "upstream-end-is-unparseable",
+                    ),
+                ),
+            ],
+        );
+        report.status = "warning".to_owned();
+
+        validate_data_quality_report_v1(
+            &report,
+            Game::Hsr,
+            &[
+                GameMode::HsrMoc,
+                GameMode::HsrPf,
+                GameMode::HsrAs,
+                GameMode::HsrAa,
+            ],
+            generation,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn freshness_validator_rejects_invalid_report_and_required_mode_identity() {
+        let generation = NaiveDate::from_ymd_opt(2026, 7, 12).unwrap();
+        let valid = freshness_report(
+            Game::Hsr,
+            [(
+                "as",
+                quality_with_freshness("active", "2026-07-12", "2026-07-01", "2026-07-31"),
+            )],
+        );
+        let validate = |report: &DataQualityReportV1, modes: &[GameMode]| {
+            validate_data_quality_report_v1(report, Game::Hsr, modes, generation)
+        };
+
+        let mut wrong_schema = valid.clone();
+        wrong_schema.schema_version = "miho-data-quality-v2".to_owned();
+        assert!(validate(&wrong_schema, &[GameMode::HsrAs]).is_err());
+
+        let mut wrong_game = valid.clone();
+        wrong_game.game = "zzz".to_owned();
+        assert!(validate(&wrong_game, &[GameMode::HsrAs]).is_err());
+
+        let mut wrong_status = valid.clone();
+        wrong_status.status = "failed".to_owned();
+        assert!(validate(&wrong_status, &[GameMode::HsrAs]).is_err());
+
+        assert!(validate(&valid, &[]).is_err());
+        assert!(validate(&valid, &[GameMode::HsrAs, GameMode::HsrAs]).is_err());
+        assert!(validate(&valid, &[GameMode::ZzzSd]).is_err());
+
+        let mut missing_mode = valid.clone();
+        missing_mode.modes.clear();
+        assert!(validate(&missing_mode, &[GameMode::HsrAs]).is_err());
+
+        let mut extra_mode = valid.clone();
+        extra_mode.modes.insert(
+            "pf".to_owned(),
+            quality_with_freshness("active", "2026-07-12", "2026-07-01", "2026-07-31"),
+        );
+        assert!(validate(&extra_mode, &[GameMode::HsrAs]).is_err());
+    }
+
+    #[test]
+    fn freshness_validator_rejects_invalid_known_dates_and_status_mismatches() {
+        let generation = NaiveDate::from_ymd_opt(2026, 7, 12).unwrap();
+        let assert_invalid = |quality| {
+            let report = freshness_report(Game::Hsr, [("as", quality)]);
+            assert!(validate_data_quality_report_v1(
+                &report,
+                Game::Hsr,
+                &[GameMode::HsrAs],
+                generation,
+            )
+            .is_err());
+        };
+
+        for sample in [
+            "",
+            "not-a-date",
+            " 2026-07-12",
+            "2026-07-12 ",
+            "2026-07-12garbage",
+            "2026-07-13",
+        ] {
+            assert_invalid(quality_with_freshness(
+                "active",
+                sample,
+                "2026-07-01",
+                "2026-07-31",
+            ));
+        }
+        assert_invalid(quality_with_freshness(
+            "active",
+            "2026-07-12",
+            "not-a-date",
+            "2026-07-31",
+        ));
+        assert_invalid(quality_with_freshness(
+            "active",
+            "2026-07-12",
+            "2026-07-01",
+            "2026-07-31garbage",
+        ));
+        assert_invalid(quality_with_freshness(
+            "active",
+            "2026-07-12",
+            "2026-07-31",
+            "2026-07-01",
+        ));
+        assert_invalid(quality_with_freshness(
+            "stale",
+            "2026-07-12",
+            "2026-07-01",
+            "2026-07-31",
+        ));
+    }
+
+    #[test]
+    fn freshness_validator_only_treats_unparseable_unknown_boundaries_as_missing() {
+        let generation = NaiveDate::from_ymd_opt(2026, 7, 12).unwrap();
+        for quality in [
+            quality_with_freshness("unknown", "2026-07-13", "not-a-date", "not-a-date"),
+            quality_with_freshness("unknown", "not-a-date", "not-a-date", "2026-07-31"),
+            quality_with_freshness("unknown", "not-a-date", "2026-07-13", "not-a-date"),
+        ] {
+            let report = freshness_report(Game::Hsr, [("as", quality)]);
+            assert!(validate_data_quality_report_v1(
+                &report,
+                Game::Hsr,
+                &[GameMode::HsrAs],
+                generation,
+            )
+            .is_err());
         }
     }
 

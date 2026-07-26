@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fs::{self, File},
     future::Future,
     io::Read,
@@ -15,7 +15,7 @@ use chrono::{
 use miho_core::{
     atomic,
     contract::{diagnostic_code, FeatureFlags, Game},
-    data_quality::{DataQualityReportV1, DATA_QUALITY_SCHEMA_V1},
+    data_quality::{validate_data_quality_report_v1, DataQualityReportV1},
     network::FetchSource,
     output::ArtifactManifestEntry,
     MihoError,
@@ -656,6 +656,11 @@ impl NativeUpdateExecutorV1 {
                     game_export_step(game),
                 )))
             }
+            Err(error) if is_data_quality_freshness_error(&error) => {
+                return Err(UpdateStepExecutionErrorV1::Failure(
+                    update_freshness_failure_v1(),
+                ))
+            }
             Err(_) => {
                 return Err(UpdateStepExecutionErrorV1::Failure(safe_step_failure(
                     game_export_step(game),
@@ -869,6 +874,15 @@ fn is_cache_fallback_error(error: &anyhow::Error) -> bool {
             .to_string()
             .to_ascii_lowercase()
             .contains("cache fallback")
+    })
+}
+
+fn is_data_quality_freshness_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<MihoError>(),
+            Some(MihoError::DataQualityFreshness(_))
+        )
     })
 }
 
@@ -1563,19 +1577,27 @@ fn check_update_health_snapshot_locked_v1(
         check_update_health_locked_v1(workspace, checked_games, expected_config_sha256, &state);
     let freshness = if health.healthy {
         match (freshness_config, state.as_ref()) {
-            (Some(config), Ok(state)) => match load_update_freshness_locked_v1(
-                workspace,
-                &health.checked_games,
-                config,
-                state,
-            ) {
-                Ok(freshness) => freshness,
-                Err(failure) => {
-                    health.healthy = false;
-                    health.failure = Some(failure);
-                    BTreeMap::new()
+            (Some(config), Ok(state)) => {
+                let freshness =
+                    load_generation_dates_locked_v1(workspace, &health.checked_games, state)
+                        .and_then(|generation_dates| {
+                            load_update_freshness_locked_v1(
+                                workspace,
+                                &health.checked_games,
+                                config,
+                                state,
+                                &generation_dates,
+                            )
+                        });
+                match freshness {
+                    Ok(freshness) => freshness,
+                    Err(failure) => {
+                        health.healthy = false;
+                        health.failure = Some(failure);
+                        BTreeMap::new()
+                    }
                 }
-            },
+            }
             (None, _) => BTreeMap::new(),
             (Some(_), Err(failure)) => {
                 health.healthy = false;
@@ -1612,6 +1634,7 @@ fn load_update_freshness_locked_v1(
     checked_games: &[Game],
     config: &ResolvedUpdateConfigV1,
     state: &UpdateStateV1,
+    generation_dates: &BTreeMap<Game, NaiveDate>,
 ) -> Result<BTreeMap<Game, TaskFreshnessSummaryV1>, UpdateStepFailureV1> {
     if config.workspace != workspace {
         return Err(update_freshness_failure_v1());
@@ -1622,6 +1645,10 @@ fn load_update_freshness_locked_v1(
             Game::Hsr => (&config.hsr.output, &config.hsr.modes),
             Game::Zzz => (&config.zzz.export.output, &config.zzz.export.modes),
         };
+        let generation_date = generation_dates
+            .get(game)
+            .copied()
+            .ok_or_else(update_freshness_failure_v1)?;
         let path = output_root.join("data_quality.json");
         let relative = path
             .strip_prefix(workspace)
@@ -1662,36 +1689,63 @@ fn load_update_freshness_locked_v1(
         }
         let report = serde_json::from_slice::<DataQualityReportV1>(&bytes)
             .map_err(|_| update_freshness_failure_v1())?;
-        let expected_mode_codes = expected_modes
-            .iter()
-            .map(|mode| mode.code())
-            .collect::<BTreeSet<_>>();
-        let actual_mode_codes = report
-            .modes
-            .keys()
-            .map(String::as_str)
-            .collect::<BTreeSet<_>>();
-        if report.schema_version != DATA_QUALITY_SCHEMA_V1
-            || report.game != game.code()
-            || !matches!(report.status.as_str(), "ok" | "warning")
-            || actual_mode_codes != expected_mode_codes
-            || report.modes.values().any(|quality| {
-                !matches!(
-                    quality.freshness.status.as_str(),
-                    "active" | "stale" | "future" | "unknown"
-                ) || !valid_update_freshness_dates_v1(
-                    &quality.freshness.status,
-                    &quality.freshness.sample_date,
-                    &quality.freshness.start_date,
-                    &quality.freshness.end_date,
-                )
-            })
-        {
-            return Err(update_freshness_failure_v1());
-        }
+        validate_data_quality_report_v1(&report, *game, expected_modes, generation_date)
+            .map_err(|_| update_freshness_failure_v1())?;
         freshness.insert(*game, TaskFreshnessSummaryV1::from(&report));
     }
     Ok(freshness)
+}
+
+fn load_generation_dates_locked_v1(
+    workspace: &Path,
+    checked_games: &[Game],
+    state: &UpdateStateV1,
+) -> Result<BTreeMap<Game, NaiveDate>, UpdateStepFailureV1> {
+    let mut generation_dates = BTreeMap::new();
+    for game in checked_games {
+        let game_state = state
+            .games
+            .get(game)
+            .ok_or_else(update_freshness_failure_v1)?;
+        let receipt = read_attempt_receipt(workspace, &game_state.attempt_id)
+            .map_err(|_| update_freshness_failure_v1())?;
+        let game_receipt = receipt
+            .games
+            .iter()
+            .find(|candidate| candidate.game == *game && candidate.selected)
+            .ok_or_else(update_freshness_failure_v1)?;
+        let receipt_artifacts = game_receipt
+            .steps
+            .iter()
+            .flat_map(|step| step.artifacts.clone())
+            .collect::<Vec<_>>();
+        if receipt.status != UpdateRunStatusV1::Succeeded
+            || !receipt.state_committed
+            || !receipt.receipt_committed
+            || receipt.attempt_id != game_state.attempt_id
+            || receipt.config_sha256.as_deref() != Some(game_state.config_sha256.as_str())
+            || game_receipt.status != UpdateStepStatusV1::Succeeded
+            || game_receipt
+                .steps
+                .iter()
+                .any(|step| step.status != UpdateStepStatusV1::Succeeded)
+            || receipt_artifacts != game_state.artifacts
+        {
+            return Err(update_freshness_failure_v1());
+        }
+        generation_dates.insert(*game, generation_local_date_v1(&receipt)?);
+    }
+    Ok(generation_dates)
+}
+
+fn generation_local_date_v1(receipt: &UpdateReceiptV1) -> Result<NaiveDate, UpdateStepFailureV1> {
+    let parsed =
+        NaiveDateTime::parse_from_str(&receipt.invocation_local_datetime, "%Y-%m-%dT%H:%M:%S%.6f")
+            .map_err(|_| update_freshness_failure_v1())?;
+    if parsed.format("%Y-%m-%dT%H:%M:%S%.6f").to_string() != receipt.invocation_local_datetime {
+        return Err(update_freshness_failure_v1());
+    }
+    Ok(parsed.date())
 }
 
 fn load_committed_attempt_freshness_locked_v1(
@@ -1749,46 +1803,13 @@ fn load_committed_attempt_freshness_locked_v1(
         }
     }
 
-    load_update_freshness_locked_v1(workspace, &checked_games, config, state)
-}
-
-fn valid_update_freshness_dates_v1(status: &str, sample: &str, start: &str, end: &str) -> bool {
-    let parse = |value: &str| {
-        let value = value.trim();
-        NaiveDate::parse_from_str(value, "%Y-%m-%d")
-            .ok()
-            .or_else(|| {
-                DateTime::parse_from_rfc3339(value)
-                    .ok()
-                    .map(|value| value.date_naive())
-            })
-    };
-    let is_empty = |value: &str| value.trim().is_empty();
-    let sample_date = parse(sample);
-    let start_date = parse(start);
-    let end_date = parse(end);
-    let optional_dates_are_valid =
-        (is_empty(start) || start_date.is_some()) && (is_empty(end) || end_date.is_some());
-    let ordered = match (start_date, end_date) {
-        (Some(start), Some(end)) => start <= end,
-        _ => true,
-    };
-    match status {
-        "future" => {
-            sample_date.is_some() && optional_dates_are_valid && ordered && start_date.is_some()
-        }
-        "stale" => {
-            sample_date.is_some() && optional_dates_are_valid && ordered && end_date.is_some()
-        }
-        "active" => {
-            sample_date.is_some()
-                && optional_dates_are_valid
-                && ordered
-                && (start_date.is_some() || end_date.is_some())
-        }
-        "unknown" => start_date.is_none() && end_date.is_none(),
-        _ => false,
-    }
+    let generation_date = generation_local_date_v1(receipt)?;
+    let generation_dates = checked_games
+        .iter()
+        .copied()
+        .map(|game| (game, generation_date))
+        .collect::<BTreeMap<_, _>>();
+    load_update_freshness_locked_v1(workspace, &checked_games, config, state, &generation_dates)
 }
 
 fn update_freshness_failure_v1() -> UpdateStepFailureV1 {
@@ -2136,16 +2157,20 @@ pub async fn run_update_observed_v1<E: UpdateStepExecutor, S: UpdateReceiptStore
         if observer.before_commit().is_err() {
             return finish_interrupted(&workspace, receipt, store);
         }
-        return finish_failure(
-            &workspace,
-            receipt,
-            UpdateStepFailureV1::safe(
-                "update.partial_or_failed",
-                "one or more selected update steps failed",
-                true,
-            ),
-            store,
-        );
+        let failure = receipt
+            .games
+            .iter()
+            .filter(|game| game.selected)
+            .flat_map(|game| &game.steps)
+            .find_map(|step| step.failure.clone())
+            .unwrap_or_else(|| {
+                UpdateStepFailureV1::safe(
+                    "update.partial_or_failed",
+                    "one or more selected update steps failed",
+                    true,
+                )
+            });
+        return finish_failure(&workspace, receipt, failure, store);
     }
 
     let Some(config_sha256) = receipt.config_sha256.clone() else {
@@ -2181,6 +2206,32 @@ pub async fn run_update_observed_v1<E: UpdateStepExecutor, S: UpdateReceiptStore
                     .collect(),
             },
         );
+    }
+    if let Some(config) = executor.freshness_config() {
+        let checked_games = receipt
+            .games
+            .iter()
+            .filter(|game| game.selected)
+            .map(|game| game.game)
+            .collect::<Vec<_>>();
+        let generation_date = invocation.local_datetime().date();
+        let generation_dates = checked_games
+            .iter()
+            .copied()
+            .map(|game| (game, generation_date))
+            .collect::<BTreeMap<_, _>>();
+        if let Err(failure) = load_update_freshness_locked_v1(
+            &workspace,
+            &checked_games,
+            config,
+            &state,
+            &generation_dates,
+        ) {
+            if observer.before_commit().is_err() {
+                return finish_interrupted(&workspace, receipt, store);
+            }
+            return finish_failure(&workspace, receipt, failure, store);
+        }
     }
     if observer.before_commit().is_err() {
         return finish_interrupted(&workspace, receipt, store);
@@ -2735,34 +2786,53 @@ mod tests {
     }
 
     #[test]
-    fn freshness_dates_require_samples_valid_optional_dates_and_ordered_bounds() {
-        for (status, sample, start, end) in [
-            ("active", "2026-07-19", "2026-07-10", ""),
-            ("active", "2026-07-19T12:34:56Z", "2026-07-10", "2026-07-28"),
-            ("stale", "2026-06-25", "2026-06-01", "2026-06-15"),
-            ("future", "2026-07-19", "2026-08-01", "2026-08-15"),
-            ("unknown", "not-a-date", "not-a-date", "not-a-date"),
-        ] {
-            assert!(
-                valid_update_freshness_dates_v1(status, sample, start, end),
-                "expected valid freshness: {status} {sample} {start} {end}"
-            );
-        }
+    fn generation_receipt_local_datetime_requires_exact_writer_round_trip() {
+        let mut receipt = UpdateReceiptV1 {
+            schema_version: UPDATE_RECEIPT_SCHEMA_V1.to_owned(),
+            attempt_id: "attempt-generation-date".to_owned(),
+            started_at_utc: "2026-07-13T01:30:00.123456Z".to_owned(),
+            invocation_local_datetime: "2026-07-13T09:30:00.123456".to_owned(),
+            finished_at_utc: None,
+            status: UpdateRunStatusV1::Running,
+            force: false,
+            config_sha256: None,
+            state_committed: false,
+            receipt_committed: false,
+            games: Vec::new(),
+            failure: None,
+        };
+        assert_eq!(
+            generation_local_date_v1(&receipt).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 7, 13).unwrap()
+        );
 
-        for (status, sample, start, end) in [
-            ("active", "", "2026-07-10", "2026-07-28"),
-            ("active", "not-a-date", "2026-07-10", "2026-07-28"),
-            ("active", "2026-07-19garbage", "2026-07-10", "2026-07-28"),
-            ("active", "2026-07-19", "not-a-date", "2026-07-28"),
-            ("stale", "2026-07-19", "2026-07-10", "not-a-date"),
-            ("future", "2026-07-19", "not-a-date", ""),
-            ("active", "2026-07-19", "2026-07-28", "2026-07-10"),
+        for invalid in [
+            "2026-07-13T09:30:00",
+            "2026-07-13T09:30:00.123",
+            "2026-07-13T09:30:00.1234567",
+            "2026-07-13T09:30:00.123456Z",
+            "2026-07-13T09:30:00.123456+08:00",
+            " 2026-07-13T09:30:00.123456",
+            "2026-07-13T09:30:00.123456 ",
+            "2026-02-30T09:30:00.123456",
         ] {
+            receipt.invocation_local_datetime = invalid.to_owned();
             assert!(
-                !valid_update_freshness_dates_v1(status, sample, start, end),
-                "expected invalid freshness: {status} {sample} {start} {end}"
+                generation_local_date_v1(&receipt).is_err(),
+                "accepted non-canonical generation datetime {invalid:?}"
             );
         }
+    }
+
+    #[test]
+    fn typed_data_quality_freshness_error_survives_the_anyhow_boundary() {
+        let typed = anyhow::Error::new(MihoError::DataQualityFreshness(
+            "injected invalid report".to_owned(),
+        ));
+        assert!(is_data_quality_freshness_error(&typed));
+        assert!(!is_data_quality_freshness_error(&anyhow::Error::new(
+            MihoError::Visualizer("another visualizer failure".to_owned())
+        )));
     }
 
     #[test]

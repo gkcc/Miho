@@ -21,7 +21,7 @@ use miho_core::{
         DatasetRef, DateRange, Diagnostic, ExportContext, FeatureFlags, FetchPolicy, GameMode,
         HistoryPolicy, WorkbookPolicy, EXPORT_REQUEST_SCHEMA_VERSION,
     },
-    data_quality::attach_data_quality_v1,
+    data_quality::{attach_data_quality_v1, validate_data_quality_report_v1},
     hf::HuggingFaceRepo,
     hsr_sources::official_names as hsr_official_names,
     hsr_supplemental::{HsrFixtureSupplementalSource, HsrHttpSupplementalSource},
@@ -413,6 +413,12 @@ pub async fn execute_export_observed_with_hub_v1(
         &task.modes,
         invocation.local_date(),
         previous_data_quality.as_deref(),
+    )?;
+    validate_data_quality_report_v1(
+        &data_quality,
+        task.game,
+        &task.modes,
+        invocation.local_date(),
     )?;
     let freshness = TaskFreshnessSummaryV1::from(&data_quality);
     if task.refresh_official_banners {
@@ -1802,6 +1808,104 @@ mod tests {
         );
         assert!(!output_root.join("artifact_manifest.json").exists());
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn invalid_producer_freshness_preserves_existing_output_and_hub() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let root = std::env::temp_dir().join(format!(
+            "miho-app-export-freshness-gate-{}-{}",
+            std::process::id(),
+            NEXT_OUTPUT_TRANSACTION_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let fixture_root = root.join("fixture");
+        let source_fixture = workspace.join("tests/fixtures/offline_zzz");
+        let output_root = root.join("out_zzz");
+        let hub_root = root.join("visualizer");
+        let _ = fs::remove_dir_all(&root);
+
+        for relative in [
+            "manifest.json",
+            "raw/hf/config.json",
+            "raw/hf/3.0.1/builds.json",
+            "raw/hf/3.0.1/sd/comps/5-1_combined.json",
+        ] {
+            let destination = fixture_root.join(relative);
+            fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            fs::copy(source_fixture.join(relative), destination).unwrap();
+        }
+        let config_path = fixture_root.join("raw/hf/config.json");
+        let original_config = fs::read_to_string(&config_path).unwrap();
+        let invalid_config = original_config.replacen(
+            "\"collect_date\":\"21/06/2026\"",
+            "\"collect_date\":\"2026-06-21garbage\"",
+            1,
+        );
+        assert_ne!(invalid_config, original_config);
+        fs::write(&config_path, invalid_config).unwrap();
+
+        fs::create_dir_all(&output_root).unwrap();
+        fs::create_dir_all(&hub_root).unwrap();
+        fs::write(output_root.join("old-output.txt"), b"old-output").unwrap();
+        fs::write(hub_root.join("old-hub.txt"), b"old-hub").unwrap();
+
+        let invocation = ExportInvocation::new(
+            root.clone(),
+            DateTime::parse_from_rfc3339("2026-07-13T09:30:01+08:00").unwrap(),
+        )
+        .unwrap();
+        let error = execute_export_observed_with_hub_v1(
+            &ExportTaskV1 {
+                game: Game::Zzz,
+                modes: vec![GameMode::ZzzSd],
+                from_date: NaiveDate::from_ymd_opt(2026, 1, 11).unwrap(),
+                to_date: NaiveDate::from_ymd_opt(2026, 7, 13).unwrap(),
+                output_root: output_root.clone(),
+                repo_id: "LvlUrArti/ShiyuDataProcessed".to_owned(),
+                revision: "main".to_owned(),
+                features: FeatureFlags {
+                    hf_teams: true,
+                    prydwen_visible: true,
+                    prydwen_tier: true,
+                    official_names: true,
+                },
+                prydwen_top_n: 100,
+                name_map_seed: None,
+                refresh_official_banners: false,
+                source: ExportSourceV1::Fixture {
+                    root: fixture_root,
+                    supplemental_root: Some(workspace.join("tests/fixtures/zzz_supplemental")),
+                },
+            },
+            &invocation,
+            &DirectExportObserver,
+            "out",
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("data quality freshness validation failed"),
+            "{error:#}"
+        );
+        assert!(error.chain().any(|cause| matches!(
+            cause.downcast_ref::<MihoError>(),
+            Some(MihoError::DataQualityFreshness(_))
+        )));
+        assert_eq!(
+            fs::read(output_root.join("old-output.txt")).unwrap(),
+            b"old-output"
+        );
+        assert_eq!(fs::read(hub_root.join("old-hub.txt")).unwrap(), b"old-hub");
+        assert_eq!(fs::read_dir(&output_root).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(&hub_root).unwrap().count(), 1);
+        assert!(fs::read_dir(&root).unwrap().all(|entry| {
+            let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+            !name.contains(".miho-stage-") && !name.contains(".miho-backup-")
+        }));
         fs::remove_dir_all(root).unwrap();
     }
 }

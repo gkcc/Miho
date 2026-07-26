@@ -90,6 +90,7 @@ struct FreshnessFakeExecutor {
     inner: FakeExecutor,
     invalid_hsr_mode: bool,
     unparseable_hsr_dates: bool,
+    future_hsr_sample: bool,
     freshness_config: Option<ResolvedUpdateConfigV1>,
 }
 
@@ -104,6 +105,13 @@ impl FreshnessFakeExecutor {
     fn with_unparseable_hsr_dates() -> Self {
         Self {
             unparseable_hsr_dates: true,
+            ..Self::default()
+        }
+    }
+
+    fn with_future_hsr_sample() -> Self {
+        Self {
+            future_hsr_sample: true,
             ..Self::default()
         }
     }
@@ -137,7 +145,7 @@ impl UpdateStepExecutor for FreshnessFakeExecutor {
                     PathBuf::from("out_zzz/data_quality.json"),
                     "sd",
                     "active",
-                    "2026-07-19T12:34:56Z",
+                    "2026-07-12T12:34:56Z",
                     "2026-07-10",
                     "",
                 )),
@@ -152,6 +160,8 @@ impl UpdateStepExecutor for FreshnessFakeExecutor {
                 let (status, sample, start, end) =
                     if game == Game::Hsr && self.unparseable_hsr_dates {
                         ("unknown", "not-a-date", "not-a-date", "not-a-date")
+                    } else if game == Game::Hsr && self.future_hsr_sample {
+                        (status, "2026-07-14", start, end)
                     } else {
                         (status, sample, start, end)
                     };
@@ -753,7 +763,7 @@ async fn health_freshness_comes_from_the_same_verified_generation_snapshot() {
     );
     assert_eq!(
         committed_freshness[&Game::Zzz].modes["sd"].sample_date,
-        "2026-07-19"
+        "2026-07-12"
     );
 
     let (health, state, freshness) =
@@ -765,7 +775,7 @@ async fn health_freshness_comes_from_the_same_verified_generation_snapshot() {
     assert_eq!(freshness[&Game::Hsr].modes["moc"].status, "stale");
     assert_eq!(freshness[&Game::Hsr].modes["moc"].sample_date, "2026-06-25");
     assert_eq!(freshness[&Game::Zzz].modes["sd"].status, "active");
-    assert_eq!(freshness[&Game::Zzz].modes["sd"].sample_date, "2026-07-19");
+    assert_eq!(freshness[&Game::Zzz].modes["sd"].sample_date, "2026-07-12");
     assert_eq!(freshness[&Game::Zzz].modes["sd"].end_date, "");
     assert!(!serde_json::to_string(&freshness)
         .unwrap()
@@ -825,7 +835,7 @@ async fn committed_freshness_rejects_an_artifact_swap_before_the_write_lease_is_
 }
 
 #[tokio::test]
-async fn health_rejects_semantically_invalid_freshness_even_when_artifacts_match_receipts() {
+async fn update_rejects_semantically_invalid_freshness_before_success_state_commit() {
     let root = temp_root("health-invalid-freshness");
     let config = freshness_config(&root);
     let outcome = run_update_v1(
@@ -835,22 +845,170 @@ async fn health_rejects_semantically_invalid_freshness_even_when_artifacts_match
         &FileUpdateReceiptStore,
     )
     .await;
-    assert_eq!(outcome.exit_code, 0);
+    assert_eq!(outcome.exit_code, 1);
+    assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Failed);
+    assert!(!outcome.receipt.state_committed);
     assert_eq!(
         outcome
-            .freshness
+            .receipt
+            .failure
             .as_ref()
-            .unwrap()
-            .as_ref()
-            .unwrap_err()
-            .code,
-        "update.health_freshness_invalid"
+            .map(|failure| failure.code.as_str()),
+        Some("update.health_freshness_invalid")
     );
-    assert!(check_update_health_v1(&root, true, true, &"a".repeat(64)).healthy);
+    assert!(!root.join(".miho").join(UPDATE_STATE_FILE).exists());
+    let canonical =
+        read_json::<UpdateReceiptV1>(&root.join(".miho").join(UPDATE_CANONICAL_RECEIPT_FILE));
+    assert_eq!(canonical.status, UpdateRunStatusV1::Failed);
+    assert!(!canonical.state_committed);
+    assert_eq!(
+        canonical
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.health_freshness_invalid")
+    );
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn update_rejects_a_future_sample_before_success_state_commit() {
+    let root = temp_root("future-freshness-sample");
+    let config = freshness_config(&root);
+    let outcome = run_update_v1(
+        &request(&root),
+        &invocation_with("attempt-future-freshness-sample", 34),
+        &FreshnessFakeExecutor::with_future_hsr_sample().with_freshness_config(config),
+        &FileUpdateReceiptStore,
+    )
+    .await;
+
+    assert_eq!(outcome.exit_code, 1);
+    assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Failed);
+    assert!(!outcome.receipt.state_committed);
+    assert_eq!(
+        outcome
+            .receipt
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.health_freshness_invalid")
+    );
+    assert!(!root.join(".miho").join(UPDATE_STATE_FILE).exists());
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn native_producer_freshness_failure_keeps_last_good_and_the_typed_code() {
+    let root = temp_root("native-producer-invalid-freshness");
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let source_fixture = workspace.join("tests/fixtures/offline_zzz");
+    let fixture_root = root.join("fixture");
+    for relative in [
+        "manifest.json",
+        "raw/hf/config.json",
+        "raw/hf/3.0.1/builds.json",
+        "raw/hf/3.0.1/sd/comps/5-1_combined.json",
+    ] {
+        let destination = fixture_root.join(relative);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::copy(source_fixture.join(relative), destination).unwrap();
+    }
+    let config_path = fixture_root.join("raw/hf/config.json");
+    let original = fs::read_to_string(&config_path).unwrap();
+    let invalid = original.replacen(
+        "\"collect_date\":\"21/06/2026\"",
+        "\"collect_date\":\"2026-06-21garbage\"",
+        1,
+    );
+    assert_ne!(invalid, original);
+    fs::write(config_path, invalid).unwrap();
+
+    fs::create_dir_all(root.join("out_zzz")).unwrap();
+    fs::write(root.join("out_zzz/last-good.txt"), b"last-good").unwrap();
+    let mut config = freshness_config(&root);
+    config.zzz.export.repo_id = "LvlUrArti/ShiyuDataProcessed".to_owned();
+    let executor = NativeUpdateExecutorV1::new(config).with_fixture_source(
+        Game::Zzz,
+        fixture_root,
+        Some(workspace.join("tests/fixtures/zzz_supplemental")),
+    );
+    let mut zzz_request = request(&root);
+    zzz_request.skip_hsr = true;
+    let outcome = run_update_v1(
+        &zzz_request,
+        &invocation_with("attempt-native-producer-invalid", 34),
+        &executor,
+        &FileUpdateReceiptStore,
+    )
+    .await;
+
+    assert_eq!(outcome.exit_code, 1);
+    assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Failed);
+    assert_eq!(
+        outcome
+            .receipt
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.health_freshness_invalid")
+    );
+    assert_eq!(
+        outcome.receipt.games[1].steps[0]
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.health_freshness_invalid")
+    );
+    assert_eq!(
+        fs::read(root.join("out_zzz/last-good.txt")).unwrap(),
+        b"last-good"
+    );
+    assert_eq!(fs::read_dir(root.join("out_zzz")).unwrap().count(), 1);
+    assert!(!root.join(".miho").join(UPDATE_STATE_FILE).exists());
+    cleanup(&root);
+}
+
+#[tokio::test]
+async fn health_recomputes_freshness_from_each_generation_receipt_date() {
+    let root = temp_root("generation-receipt-date");
+    let config = freshness_config(&root);
+    let mut hsr_request = request(&root);
+    hsr_request.skip_zzz = true;
+    let hsr = run_update_v1(
+        &hsr_request,
+        &invocation_with("attempt-generation-receipt-hsr", 34),
+        &FreshnessFakeExecutor::default().with_freshness_config(config.clone()),
+        &FileUpdateReceiptStore,
+    )
+    .await;
+    assert_eq!(hsr.exit_code, 0);
+
+    let mut zzz_request = request(&root);
+    zzz_request.skip_hsr = true;
+    let zzz = run_update_v1(
+        &zzz_request,
+        &invocation_with("attempt-generation-receipt-zzz", 35),
+        &FreshnessFakeExecutor::default().with_freshness_config(config.clone()),
+        &FileUpdateReceiptStore,
+    )
+    .await;
+    assert_eq!(zzz.exit_code, 0);
+
+    let hsr_receipt_path = root
+        .join(".miho")
+        .join(UPDATE_ATTEMPT_DIRECTORY)
+        .join("attempt-generation-receipt-hsr.json");
+    let mut receipt = read_json::<UpdateReceiptV1>(&hsr_receipt_path);
+    receipt.invocation_local_datetime = "2026-06-10T09:34:00.123456".to_owned();
+    fs::write(
+        &hsr_receipt_path,
+        serde_json::to_vec_pretty(&receipt).unwrap(),
+    )
+    .unwrap();
 
     let (health, state, freshness) =
         check_update_health_with_state_and_freshness_v1(&config, true, true, &"a".repeat(64));
-
     assert!(!health.healthy);
     assert!(state.is_ok());
     assert_eq!(
@@ -1110,6 +1268,14 @@ async fn hsr_failure_still_runs_zzz_but_does_not_advance_success_state() {
 
     assert_eq!(outcome.exit_code, 1);
     assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Partial);
+    assert_eq!(
+        outcome
+            .receipt
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("step.hsr-export.failed")
+    );
     assert_eq!(outcome.receipt.games[0].status, UpdateStepStatusV1::Failed);
     assert_eq!(
         outcome.receipt.games[1].status,

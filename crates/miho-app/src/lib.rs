@@ -13,9 +13,10 @@ use std::{
 };
 
 use anyhow::{bail, Context};
-use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
+use chrono::{Local, NaiveDateTime, Timelike};
 use miho_core::{
     atomic,
+    data_quality::parse_data_quality_date_v1,
     decision_legacy::{
         build_decision_legacy_v0, render_decision_json_legacy_v0,
         render_decision_markdown_legacy_v0, DecisionLegacyContextV0, DecisionLegacyInputsV0,
@@ -597,9 +598,7 @@ impl From<&miho_core::data_quality::DataQualityReportV1> for TaskFreshnessSummar
 }
 
 fn public_freshness_date_v1(value: &str) -> String {
-    let value = value.trim();
-    let candidate = value.get(..10).unwrap_or(value);
-    NaiveDate::parse_from_str(candidate, "%Y-%m-%d")
+    parse_data_quality_date_v1(value)
         .map(|date| date.format("%Y-%m-%d").to_string())
         .unwrap_or_default()
 }
@@ -1382,5 +1381,30 @@ mod tests {
         assert_eq!(modes.get("default"), Some(&7.0));
         assert!(parse_min_a_app_rate("sd=NaN").is_err());
         assert!(parse_min_a_app_rate("sd=-1").is_err());
+    }
+
+    #[test]
+    fn public_freshness_dates_accept_only_the_shared_strict_date_shapes() {
+        assert_eq!(public_freshness_date_v1("2026-07-12"), "2026-07-12");
+        assert_eq!(
+            public_freshness_date_v1("2026-07-12T23:59:59+08:00"),
+            "2026-07-12"
+        );
+        for invalid in [
+            "not-a-date",
+            "2026-07-12garbage",
+            "2026-7-12",
+            "2026-07-2",
+            "+2026-07-12",
+            " 2026-07-12",
+            "2026-07-12 ",
+            "2026-02-30",
+        ] {
+            assert_eq!(
+                public_freshness_date_v1(invalid),
+                "",
+                "exposed non-canonical freshness date {invalid:?}"
+            );
+        }
     }
 }

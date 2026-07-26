@@ -42,6 +42,8 @@ pub enum MihoError {
     Csv(#[from] csv::Error),
     #[error("workbook generation failed: {0}")]
     Workbook(String),
+    #[error("data quality freshness validation failed: {0}")]
+    DataQualityFreshness(String),
     #[error("visualizer generation failed: {0}")]
     Visualizer(String),
     #[error("unsupported operation: {0}")]
