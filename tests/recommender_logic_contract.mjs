@@ -223,6 +223,10 @@ const HSR_HARNESS = String.raw`
   postPage(page) {
     return postVisualizerPage(page);
   },
+  postReady(search) {
+    location.search = search;
+    return postVisualizerReady();
+  },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
   },
@@ -439,6 +443,10 @@ const ZZZ_HARNESS = String.raw`
   postPage(page) {
     return postVisualizerPage(page);
   },
+  postReady(search) {
+    location.search = search;
+    return postVisualizerReady();
+  },
   tooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad) {
     return {...boundedTooltipPosition(viewportWidth, viewportHeight, tooltipWidth, tooltipHeight, anchorX, anchorY, pad)};
   },
@@ -484,10 +492,11 @@ function loadContract(appPath, harness, {desktopMode = false} = {}) {
     __MIHO_DESKTOP__: desktopMode,
     document,
     fetch: () => new Promise(() => {}),
-    location: {hash: '', href: 'http://localhost/', origin: 'http://localhost'},
+    location: {hash: '', href: 'http://localhost/', origin: 'http://localhost', search: ''},
     performance,
     setTimeout,
     clearTimeout,
+    URLSearchParams,
     localStorage: {
       getItem: key => storage.get(String(key)) ?? null,
       setItem: (key, value) => storage.set(String(key), String(value)),
@@ -506,9 +515,12 @@ function loadContract(appPath, harness, {desktopMode = false} = {}) {
   return api;
 }
 
-function loadBoxFlushContract(appPath, {putOk = true} = {}) {
+function loadBoxFlushContract(appPath, {putOk = true, putOutcomes = [], deferFirstPut = false} = {}) {
   const storage = new Map();
   let putCount = 0;
+  const remainingPutOutcomes = [...putOutcomes];
+  let releaseDeferredFirstPut = () => {};
+  const deferredFirstPut = new Promise(resolve => { releaseDeferredFirstPut = resolve; });
   const context = vm.createContext({
     console,
     __MIHO_DESKTOP__: true,
@@ -525,15 +537,18 @@ function loadBoxFlushContract(appPath, {putOk = true} = {}) {
     fetch: (url, options = {}) => {
       if (options.method !== 'PUT') return new Promise(() => {});
       putCount += 1;
+      const putIndex = putCount;
       const payload = JSON.parse(String(options.body || '{}'));
-      return Promise.resolve({ok: putOk, json: () => Promise.resolve(payload)});
+      const ok = remainingPutOutcomes.length ? remainingPutOutcomes.shift() : putOk;
+      const response = {ok, json: () => Promise.resolve(payload)};
+      return deferFirstPut && putIndex === 1 ? deferredFirstPut.then(() => response) : Promise.resolve(response);
     },
   });
   context.global = context;
   context.window = context;
   const harness = String.raw`
 ;globalThis.__boxFlushContract = {
-  async saveOne(slug) {
+  prepareOne(slug) {
     DATA = {rosterRows: []};
     state = {...state, page: 'not-rendered'};
     box = {...box, owned: new Set([slug]), builds: {}, buildSlug: ''};
@@ -541,13 +556,22 @@ function loadBoxFlushContract(appPath, {putOk = true} = {}) {
     boxPendingSave = null;
     boxSaveChain = Promise.resolve();
     saveBox();
-    await flushBoxSave();
-    return box.saveStatus;
   },
+  saveNext(slug) {
+    box = {...box, owned: new Set([slug]), builds: {}, buildSlug: ''};
+    saveBox();
+  },
+  async flush() { await flushBoxSave(); return box.saveStatus; },
+  async saveOne(slug) { this.prepareOne(slug); return this.flush(); },
+  status() { return box.saveStatus; },
 };
 `;
   new vm.Script(`${readFileSync(appPath, 'utf8')}\n${harness}`, {filename: appPath}).runInContext(context, {timeout: 2_000});
-  return {api: context.__boxFlushContract, putCount: () => putCount};
+  return {
+    api: context.__boxFlushContract,
+    putCount: () => putCount,
+    releaseFirstPut: () => releaseDeferredFirstPut(),
+  };
 }
 
 function solveSlate(input) {
@@ -2730,6 +2754,27 @@ test('desktop visualizers publish only allowlisted page state on initialization 
   assert.deepEqual(plain(browser.parentMessages()), []);
 });
 
+test('desktop visualizers publish a revision-bound ready handshake only for a parent frame', () => {
+  const revision = 'a'.repeat(64);
+  for (const [name, appPath, harness, navigationId] of [
+    ['HSR', HSR_APP, HSR_HARNESS, 'hsr-7'],
+    ['ZZZ', ZZZ_APP, ZZZ_HARNESS, 'zzz-9'],
+  ]) {
+    const api = loadContract(appPath, harness, {desktopMode: true});
+    assert.equal(api.postReady(`?revision=${revision}&navigation_id=invalid`), false, `${name} accepted an invalid navigation id`);
+    assert.equal(api.postReady(`?revision=${revision}&navigation_id=${navigationId}`), true);
+    assert.deepEqual(plain(api.parentMessages()), [{
+      schema_version: 'miho-visualizer-ready-v1',
+      navigation_id: navigationId,
+      data_revision: revision,
+    }]);
+  }
+
+  const browser = loadContract(HSR_APP, HSR_HARNESS);
+  assert.equal(browser.postReady(`?revision=${revision}&navigation_id=hsr-1`), false);
+  assert.deepEqual(plain(browser.parentMessages()), []);
+});
+
 test('top metadata distinguishes endgame samples from Prydwen list updates and exposes stale HSR modes', () => {
   const hsr = loadContract(HSR_APP, HSR_HARNESS);
   hsr.reset({
@@ -2835,5 +2880,27 @@ for (const [game, appPath] of [['HSR', HSR_APP], ['ZZZ', ZZZ_APP]]) {
     const contract = loadBoxFlushContract(appPath, {putOk: false});
     await assert.rejects(contract.api.saveOne('unit-a'), /Box 保存失败，请重试/);
     assert.equal(contract.putCount(), 1);
+  });
+
+  test(`${game} flushBoxSave retries the latest payload after a transient PUT failure`, async () => {
+    const contract = loadBoxFlushContract(appPath, {putOutcomes: [false, true]});
+    contract.api.prepareOne('unit-a');
+    await assert.rejects(contract.api.flush(), /Box 保存失败，请重试/);
+    assert.equal(contract.putCount(), 1);
+    assert.equal(await contract.api.flush(), '本机自动保存');
+    assert.equal(contract.putCount(), 2);
+    assert.equal(contract.api.status(), '本机自动保存');
+  });
+
+  test(`${game} flushBoxSave drains a newer edit created while an earlier PUT is pending`, async () => {
+    const contract = loadBoxFlushContract(appPath, {deferFirstPut: true});
+    contract.api.prepareOne('unit-a');
+    const flushing = contract.api.flush();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(contract.putCount(), 1);
+    contract.api.saveNext('unit-b');
+    contract.releaseFirstPut();
+    assert.equal(await flushing, '本机自动保存');
+    assert.equal(contract.putCount(), 2);
   });
 }

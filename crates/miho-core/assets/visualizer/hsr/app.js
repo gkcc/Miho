@@ -77,6 +77,15 @@ function postVisualizerPage(page=state.page){
   return true;
 }
 
+function postVisualizerReady(){
+  const parentWindow=globalThis.parent;
+  if(!desktopMode||!parentWindow||parentWindow===globalThis||typeof parentWindow.postMessage!=='function')return false;
+  const params=new URLSearchParams(location.search),navigationId=params.get('navigation_id')||'',dataRevision=params.get('revision')||'';
+  if(!/^(?:hsr|zzz)-[1-9][0-9]{0,15}$/.test(navigationId)||!/^[a-f0-9]{64}$/.test(dataRevision))return false;
+  parentWindow.postMessage({schema_version:'miho-visualizer-ready-v1',navigation_id:navigationId,data_revision:dataRevision},'*');
+  return true;
+}
+
 function installBoxFlushBridge(){
   const parentWindow=globalThis.parent;
   if(typeof globalThis.addEventListener!=='function'||!parentWindow||parentWindow===globalThis)return;
@@ -102,7 +111,7 @@ async function fetchVisualizerData(){
 }
 
 fetchVisualizerData()
-  .then(async raw=>{initializeVisualizerData(raw);loadRecSettings();if(desktopMode)await syncBoxFromServer();else loadBox();init();render();})
+  .then(async raw=>{initializeVisualizerData(raw);loadRecSettings();if(desktopMode)await syncBoxFromServer();else loadBox();init();render();postVisualizerReady();})
   .catch(err=>{const guard=desktopMode?'为保护你的 Box，本次没有启用编辑；请重启应用后再试。':'';document.body.innerHTML=`<main class="app-shell"><h1>应用启动失败</h1><p>${esc(err.message)}</p><p>${esc(guard)}</p></main>`;});
 
 function initializeVisualizerData(raw){
@@ -581,10 +590,10 @@ function confirmBoxBatchPreview(title,preview){const total=(preview.ownedAdded||
 function clearEntireBox(){const snapshot=boxSnapshot(),buildCount=Object.keys(snapshot.builds).length;if(!snapshot.owned.length&&!buildCount){box.exportStatus='Box 已为空';renderBox();return;}if(!globalThis.confirm(`确认清空整个 Box？\n将移除 ${snapshot.owned.length} 个已拥有角色和 ${buildCount} 条练度记录。\n\n清空后仍可使用“撤销”恢复。`))return;commitBoxChange(()=>{box.owned.clear();box.builds={};box.buildSlug='';});}
 function enqueueBoxServerSave(pending){if(boxPendingSave===pending)boxPendingSave=null;const operation=boxSaveChain.catch(()=>undefined).then(()=>pending.revision===boxSaveRevision?saveBoxToServer(pending.payload,pending.revision):undefined);boxSaveChain=operation;operation.catch(()=>{});return operation;}
 function saveBox(){const payload=boxPayload();box.exportStatus='';const exportButton=$('boxExportBtn');if(exportButton&&!exportButton.disabled){exportButton.textContent='导出Box';exportButton.title='';}clearTimeout(boxSaveTimer);boxSaveTimer=null;if(!desktopMode){localStorage.setItem(BOX_KEY,JSON.stringify(payload));boxPendingSave=null;box.saveStatus='已保存到浏览器';}else{const pending={payload,revision:++boxSaveRevision};boxPendingSave=pending;box.saveStatus='正在保存到本机';boxSaveTimer=setTimeout(()=>{boxSaveTimer=null;if(boxPendingSave===pending)boxPendingSave=null;enqueueBoxServerSave(pending).catch(()=>{});},180);}if(state.page==='box'||state.page==='banner')requestAnimationFrame(()=>{if(state.page==='box')renderBox();else renderBanner();});}
-async function flushBoxSave(){if(!desktopMode)return;clearTimeout(boxSaveTimer);boxSaveTimer=null;const pending=boxPendingSave;boxPendingSave=null;if(pending)await enqueueBoxServerSave(pending);else await boxSaveChain;}
+async function flushBoxSave(){if(!desktopMode)return;while(true){clearTimeout(boxSaveTimer);boxSaveTimer=null;const pending=boxPendingSave,revision=boxSaveRevision;boxPendingSave=null;if(pending)await enqueueBoxServerSave(pending);else await boxSaveChain;if(revision===boxSaveRevision&&!boxPendingSave)return;}}
 globalThis.flushBoxSave=flushBoxSave;
 function syncBoxFromServer(){return fetch('/api/hsr/box',{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject(new Error(`Box 读取失败（${r.status}）`))).then(server=>{server.fromServer=true;applyBoxRaw(server);boxUndoStack=[];localStorage.setItem(BOX_KEY,JSON.stringify(server));box.saveStatus='本机自动保存';});}
-function saveBoxToServer(payload,revision){return fetch('/api/hsr/box',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.ok?r.json():Promise.reject(new Error('Box 保存失败'))).then(saved=>{if(revision!==boxSaveRevision)return;localStorage.setItem(BOX_KEY,JSON.stringify(saved));box.saveStatus='本机自动保存';if(state.page==='box'||state.page==='banner')render();}).catch(()=>{if(revision===boxSaveRevision){box.saveStatus='保存失败，请重试';if(state.page==='box'||state.page==='banner')render();}throw new Error('Box 保存失败，请重试。');});}
+function saveBoxToServer(payload,revision){return fetch('/api/hsr/box',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.ok?r.json():Promise.reject(new Error('Box 保存失败'))).then(saved=>{if(revision!==boxSaveRevision)return;localStorage.setItem(BOX_KEY,JSON.stringify(saved));box.saveStatus='本机自动保存';if(state.page==='box'||state.page==='banner')render();}).catch(()=>{if(revision===boxSaveRevision){boxPendingSave={payload,revision};box.saveStatus='保存失败，请重试';if(state.page==='box'||state.page==='banner')render();}throw new Error('Box 保存失败，请重试。');});}
 function releaseOrder(row){const n=Number(row.release_order);return Number.isFinite(n)?n:99999}
 function matchesBoxStatus(row){if(box.status==='all')return true;if(box.status==='owned')return box.owned.has(row.character_slug);if(box.status==='missing')return !box.owned.has(row.character_slug);if(box.status.startsWith('banner_'))return String(row.banner_statuses||'').split(';').includes(box.status.replace('banner_',''));return true}
 function boxStatusLabel(){return{all:'全部状态',owned:'已拥有',missing:'未拥有',banner_current:'当期UP',banner_next:'后续卡池',banner_recent:'历史参考'}[box.status]||box.status}

@@ -118,6 +118,9 @@ def test_visualizer_box_edits_are_previewed_undoable_and_flushable(game: str) ->
     assert "event.source!==parentWindow" in app
     assert "miho-visualizer-box-flush-request-v1" in app
     assert "miho-visualizer-box-flush-result-v1" in app
+    assert "miho-visualizer-ready-v1" in app
+    assert "navigation_id" in app
+    assert "data_revision" in app
     assert "error:'Box 保存失败，请重试。'" in app
     assert "throw new Error('Box 保存失败，请重试。')" in app
 

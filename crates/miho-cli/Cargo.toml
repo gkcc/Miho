@@ -3,6 +3,9 @@ name = "miho-cli"
 version.workspace = true
 edition.workspace = true
 
+[features]
+automation-no-window = []
+
 [[bin]]
 name = "miho"
 path = "src/main.rs"

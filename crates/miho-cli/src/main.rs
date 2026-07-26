@@ -1,3 +1,8 @@
+#![cfg_attr(
+    all(feature = "automation-no-window", target_os = "windows"),
+    windows_subsystem = "windows"
+)]
+
 use std::{
     fs::{self, File, OpenOptions, TryLockError},
     path::{Component, Path, PathBuf},

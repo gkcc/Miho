@@ -120,6 +120,8 @@ type VisualizerFrameState = {
   loadedRevision: string | null;
   pendingRevision: string | null;
   pendingUrl: string | null;
+  pendingNavigationId: string | null;
+  readyTimeout: number | null;
   pendingRefreshGeneration: number | null;
   page: VisualizerPage;
 };
@@ -178,6 +180,7 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
 const TERMINAL_STATUSES = new Set<TaskStatus>(["succeeded", "failed", "cancelled"]);
 const GAMES = ["hsr", "zzz"] as const;
 const VISUALIZER_REVISION_CHECK_INTERVAL_MS = 60_000;
+const VISUALIZER_READY_TIMEOUT_MS = 30_000;
 const app = document.querySelector<HTMLDivElement>("#app");
 
 if (!app) {
@@ -197,11 +200,16 @@ let taskForm: TaskFormState = {
 let capabilitiesRequestGeneration = 0;
 let workspaceBusy = false;
 let taskBusy = false;
+let taskRefreshBusy = false;
 let unlistenTaskUpdates: UnlistenFn | null = null;
 let unlistenWindowClose: UnlistenFn | null = null;
 let boxTransitionBusy = false;
+let boxTransitionDepth = 0;
 let allowWindowClose = false;
 let closeGuardRunning = false;
+let pendingTaskStart: Promise<void> | null = null;
+let pendingWorkspaceTransition: Promise<void> | null = null;
+let workspaceReconcilePending = false;
 
 type PendingBoxFlush = {
   frame: HTMLIFrameElement;
@@ -525,16 +533,83 @@ visualizerHeading.append(visualizerTitleBlock);
 const visualizerMessage = element("p", "notice", "正在向本机后端请求 Visualizer 地址…");
 const visualizerFrames = new Map<Game, VisualizerFrameState>();
 
+function isWindowClosing(): boolean {
+  return allowWindowClose || closeGuardRunning;
+}
+
+function beginTaskStartTracking(): () => void {
+  if (pendingTaskStart) throw new Error("A task start is already being tracked.");
+  let resolveCompletion!: () => void;
+  const completion = new Promise<void>((resolve) => {
+    resolveCompletion = resolve;
+  });
+  pendingTaskStart = completion;
+  let finished = false;
+  return () => {
+    if (finished) return;
+    finished = true;
+    if (pendingTaskStart === completion) pendingTaskStart = null;
+    resolveCompletion();
+  };
+}
+
+function beginWorkspaceTransitionTracking(): () => void {
+  if (pendingWorkspaceTransition) throw new Error("A workspace transition is already being tracked.");
+  let resolveCompletion!: () => void;
+  const completion = new Promise<void>((resolve) => {
+    resolveCompletion = resolve;
+  });
+  pendingWorkspaceTransition = completion;
+  let finished = false;
+  return () => {
+    if (finished) return;
+    finished = true;
+    if (pendingWorkspaceTransition === completion) pendingWorkspaceTransition = null;
+    resolveCompletion();
+  };
+}
+
 function setBoxTransitionBusy(busy: boolean): void {
-  boxTransitionBusy = busy;
-  for (const { frame } of visualizerFrames.values()) {
-    frame.inert = busy;
-    frame.setAttribute("aria-busy", String(busy));
-  }
-  if (!busy && !visualizerRefreshDrainRunning) schedulePendingVisualizerRefresh();
+  boxTransitionDepth = busy ? boxTransitionDepth + 1 : Math.max(0, boxTransitionDepth - 1);
+  boxTransitionBusy = boxTransitionDepth > 0 || isWindowClosing();
+  updateVisualizerFrameVisibility();
+  if (!boxTransitionBusy && !visualizerRefreshDrainRunning) schedulePendingVisualizerRefresh();
 }
 
 const visualizerDirty = new Set<Game>(["hsr", "zzz"]);
+
+function clearVisualizerReadyTimeout(visualizerState: VisualizerFrameState): void {
+  if (visualizerState.readyTimeout === null) return;
+  window.clearTimeout(visualizerState.readyTimeout);
+  visualizerState.readyTimeout = null;
+}
+
+function failVisualizerReady(targetGame: Game, navigationId: string): void {
+  const visualizerState = visualizerFrames.get(targetGame);
+  if (!visualizerState || visualizerState.pendingNavigationId !== navigationId) return;
+  const { frame } = visualizerState;
+  visualizerState.requestGeneration += 1;
+  clearVisualizerReadyTimeout(visualizerState);
+  visualizerState.loadedRevision = null;
+  visualizerState.pendingRevision = null;
+  visualizerState.pendingUrl = null;
+  visualizerState.pendingNavigationId = null;
+  clearPendingVisualizerRefresh(visualizerState);
+  visualizerLoading.delete(targetGame);
+  delete frame.dataset.loadedRevision;
+  frame.dataset.loaded = "false";
+  frame.removeAttribute("src");
+  visualizerDirty.add(targetGame);
+  updateVisualizerFrameVisibility();
+  updateWorkspaceControls();
+  if (game === targetGame) {
+    visualizerMessage.hidden = false;
+    utilities.open = true;
+    setNotice(visualizerMessage, "Visualizer 未在限定时间内完成初始化。请重新载入或检查本机生成状态。", "error");
+  }
+  if (pendingVisualizerRefreshes.has(targetGame)) schedulePendingVisualizerRefresh();
+}
+
 for (const targetGame of GAMES) {
   const frame = element("iframe", "visualizer-frame");
   const visualizerState: VisualizerFrameState = {
@@ -544,6 +619,8 @@ for (const targetGame of GAMES) {
     loadedRevision: null,
     pendingRevision: null,
     pendingUrl: null,
+    pendingNavigationId: null,
+    readyTimeout: null,
     pendingRefreshGeneration: null,
     page: "box",
   };
@@ -555,44 +632,6 @@ for (const targetGame of GAMES) {
   frame.hidden = true;
   frame.setAttribute("aria-hidden", "true");
   frame.tabIndex = -1;
-  frame.addEventListener("error", () => {
-    visualizerState.loadedRevision = null;
-    visualizerState.pendingRevision = null;
-    visualizerState.pendingUrl = null;
-    clearPendingVisualizerRefresh(visualizerState);
-    delete frame.dataset.loadedRevision;
-    frame.dataset.loaded = "false";
-    frame.hidden = true;
-    frame.setAttribute("aria-hidden", "true");
-    frame.tabIndex = -1;
-    visualizerDirty.add(targetGame);
-    if (game === targetGame) {
-      visualizerMessage.hidden = false;
-      utilities.open = true;
-      visualizerMessage.textContent = "Visualizer 页面加载失败。请刷新或检查本机生成状态。";
-      visualizerMessage.className = "notice error";
-    }
-  });
-  frame.addEventListener("load", () => {
-    const loadedUrl = frame.getAttribute("src");
-    if (loadedUrl && loadedUrl === visualizerState.pendingUrl && visualizerState.pendingRevision) {
-      const completedCurrentRefresh = finishPendingVisualizerRefresh(visualizerState);
-      visualizerState.loadedRevision = visualizerState.pendingRevision;
-      frame.dataset.loadedRevision = visualizerState.pendingRevision;
-      visualizerState.pendingRevision = null;
-      visualizerState.pendingUrl = null;
-      if (completedCurrentRefresh) {
-        visualizerDirty.delete(targetGame);
-        pendingVisualizerRefreshes.delete(targetGame);
-      }
-    }
-    frame.dataset.loaded = loadedUrl ? "true" : "false";
-    updateVisualizerFrameVisibility();
-    if (loadedUrl && game === targetGame) visualizerMessage.hidden = true;
-    if (game === targetGame && pendingVisualizerRefreshes.has(targetGame)) {
-      schedulePendingVisualizerRefresh();
-    }
-  });
   visualizerFrames.set(targetGame, visualizerState);
 }
 window.addEventListener("message", (event) => {
@@ -611,8 +650,36 @@ window.addEventListener("message", (event) => {
   const sourceState = [...visualizerFrames.values()]
     .find((visualizerState) => event.source === visualizerState.frame.contentWindow);
   if (!sourceState) return;
+  if (event.data.schema_version === "miho-visualizer-ready-v1"
+    && typeof event.data.navigation_id === "string"
+    && typeof event.data.data_revision === "string"
+    && /^[a-f0-9]{64}$/.test(event.data.data_revision)
+    && sourceState.pendingNavigationId === event.data.navigation_id
+    && sourceState.pendingRevision === event.data.data_revision
+    && sourceState.frame.getAttribute("src") === sourceState.pendingUrl) {
+    const completedCurrentRefresh = finishPendingVisualizerRefresh(sourceState);
+    clearVisualizerReadyTimeout(sourceState);
+    sourceState.loadedRevision = event.data.data_revision;
+    sourceState.frame.dataset.loadedRevision = event.data.data_revision;
+    sourceState.pendingRevision = null;
+    sourceState.pendingUrl = null;
+    sourceState.pendingNavigationId = null;
+    sourceState.frame.dataset.loaded = "true";
+    if (completedCurrentRefresh) {
+      const readyGame = sourceState.frame.dataset.game as Game;
+      visualizerDirty.delete(readyGame);
+      pendingVisualizerRefreshes.delete(readyGame);
+    }
+    updateVisualizerFrameVisibility();
+    if (sourceState.frame.dataset.game === game) visualizerMessage.hidden = true;
+    if (sourceState.frame.dataset.game === game && pendingVisualizerRefreshes.has(game)) {
+      schedulePendingVisualizerRefresh();
+    }
+    return;
+  }
   if (event.data.schema_version === "miho-visualizer-page-v1"
     && typeof event.data.page === "string"
+    && sourceState.frame.dataset.loaded === "true"
     && ["box", "analysis", "banner", "recommender"].includes(event.data.page)) {
     sourceState.page = event.data.page as VisualizerPage;
     sourceState.frame.dataset.page = sourceState.page;
@@ -660,10 +727,16 @@ function updateGameUI(): void {
 
 function updateVisualizerFrameVisibility(): void {
   for (const [targetGame, visualizerState] of visualizerFrames) {
-    const active = targetGame === game && Boolean(visualizerState.frame.getAttribute("src"));
-    visualizerState.frame.hidden = !active;
-    visualizerState.frame.setAttribute("aria-hidden", String(!active));
-    visualizerState.frame.tabIndex = active ? 0 : -1;
+    const { frame } = visualizerState;
+    const ready = Boolean(frame.getAttribute("src"))
+      && frame.dataset.loaded === "true"
+      && visualizerState.pendingNavigationId === null;
+    const active = targetGame === game && ready;
+    frame.hidden = !active;
+    frame.inert = boxTransitionBusy || !active;
+    frame.setAttribute("aria-hidden", String(!active));
+    frame.setAttribute("aria-busy", String(boxTransitionBusy || !ready));
+    frame.tabIndex = active ? 0 : -1;
   }
 }
 
@@ -687,6 +760,8 @@ function discardVisualizerBoxChanges(targetGames: ReadonlyArray<Game>): void {
     visualizerState.loadedRevision = null;
     visualizerState.pendingRevision = null;
     visualizerState.pendingUrl = null;
+    visualizerState.pendingNavigationId = null;
+    clearVisualizerReadyTimeout(visualizerState);
     clearPendingVisualizerRefresh(visualizerState);
     visualizerState.page = "box";
     frame.dataset.loaded = "false";
@@ -785,7 +860,7 @@ async function drainPendingVisualizerRefresh(): Promise<void> {
   updateWorkspaceControls();
   try {
     if (!await ensureVisualizerBoxesSaved([targetGame], "载入最新数据")) return;
-    if (targetGame !== game) return;
+    if (isWindowClosing() || targetGame !== game) return;
     await loadVisualizer(false, targetGame);
   } finally {
     setBoxTransitionBusy(false);
@@ -822,6 +897,7 @@ async function checkVisualizerRevisions(): Promise<void> {
         return [targetGame, null] as const;
       }
     }));
+    if (isWindowClosing()) return;
     if (workspaceId !== (capabilities?.workspace.workspace_id ?? "")) return;
     for (const [targetGame, descriptor] of descriptors) {
       if (!descriptor) continue;
@@ -955,57 +1031,125 @@ function renderCapabilities(): void {
   updateTaskForm();
 }
 
-async function refreshCapabilities(): Promise<void> {
+async function refreshCapabilities(): Promise<boolean> {
   const request = ++capabilitiesRequestGeneration;
   setNotice(workspaceMessage, "正在读取本机能力…");
   try {
     const next = await invoke<DesktopCapabilities>("get_capabilities");
-    if (request !== capabilitiesRequestGeneration) return;
+    if (isWindowClosing() || request !== capabilitiesRequestGeneration) return false;
     const workspaceChanged = historyWorkspaceId !== next.workspace.workspace_id;
     capabilities = next;
     if (workspaceChanged) restoreTaskHistory(next.workspace.workspace_id);
     renderCapabilities();
     setNotice(workspaceMessage, "能力与缺失输入已刷新。", "success");
+    return true;
   } catch (error) {
-    if (request !== capabilitiesRequestGeneration) return;
+    if (isWindowClosing() || request !== capabilitiesRequestGeneration) return false;
     capabilities = null;
     renderCapabilities();
     const failure = safeError(error);
     setNotice(workspaceMessage, `能力读取失败（${failure.code}）：${failure.message}`, "error");
+    return false;
+  }
+}
+
+async function reloadSelectedWorkspaceState(): Promise<boolean> {
+  capabilitiesRequestGeneration += 1;
+  resetVisualizerFrames();
+  const capabilitiesReady = await refreshCapabilities();
+  if (!capabilitiesReady || isWindowClosing()) return false;
+  await Promise.all([refreshTasks(), loadVisualizer(false)]);
+  return !isWindowClosing();
+}
+
+async function reconcileWorkspaceAfterCloseCancellation(): Promise<void> {
+  if (!workspaceReconcilePending || isWindowClosing() || pendingWorkspaceTransition) return;
+  workspaceBusy = true;
+  setBoxTransitionBusy(true);
+  const finishWorkspaceTransition = beginWorkspaceTransitionTracking();
+  renderCapabilities();
+  try {
+    if (await reloadSelectedWorkspaceState()) {
+      workspaceReconcilePending = false;
+      setNotice(workspaceMessage, "工作区状态已重新同步。", "success");
+    }
+  } catch (error) {
+    const failure = safeError(error);
+    setNotice(workspaceMessage, `工作区重新同步失败（${failure.code}）：${failure.message}`, "error");
+  } finally {
+    workspaceBusy = false;
+    setBoxTransitionBusy(false);
+    finishWorkspaceTransition();
+    renderCapabilities();
   }
 }
 
 async function selectWorkspace(): Promise<void> {
-  if (workspaceBusy || boxTransitionBusy || hasActiveTask()) return;
+  if (workspaceBusy || boxTransitionBusy || hasActiveTask() || isWindowClosing()) return;
   workspaceBusy = true;
   setBoxTransitionBusy(true);
+  const finishWorkspaceTransition = beginWorkspaceTransitionTracking();
+  let workspaceSelectionUncertain = false;
   renderCapabilities();
   try {
     if (!await ensureVisualizerBoxesSaved(["hsr", "zzz"], "切换工作区")) {
       setNotice(workspaceMessage, "工作区未切换；请先处理 Box 保存问题。", "error");
       return;
     }
+    if (isWindowClosing()) return;
     setNotice(workspaceMessage, "请选择可信的本机工作区…");
+    workspaceSelectionUncertain = true;
     const result = await invoke<{ selected: boolean; workspace: WorkspaceSummary }>("select_workspace");
     if (!result.selected) {
-      setNotice(workspaceMessage, "未更改工作区；现有 Box 保持不变。");
+      workspaceSelectionUncertain = false;
+      if (!isWindowClosing()) setNotice(workspaceMessage, "未更改工作区；现有 Box 保持不变。");
       return;
     }
+    workspaceReconcilePending = true;
+    if (isWindowClosing()) return;
     setNotice(workspaceMessage, "工作区已切换，正在刷新…", "success");
-    resetVisualizerFrames();
-    await refreshCapabilities();
-    await Promise.all([refreshTasks(), loadVisualizer(false)]);
+    if (await reloadSelectedWorkspaceState()) {
+      workspaceSelectionUncertain = false;
+      workspaceReconcilePending = false;
+    }
   } catch (error) {
+    const reconcileAfterFailure = workspaceSelectionUncertain;
+    let reconciledAfterFailure = false;
+    if (reconcileAfterFailure) {
+      workspaceReconcilePending = true;
+      if (!isWindowClosing()) {
+        try {
+          if (await reloadSelectedWorkspaceState()) {
+            workspaceSelectionUncertain = false;
+            workspaceReconcilePending = false;
+            reconciledAfterFailure = true;
+          }
+        } catch {
+          // Preserve the original, authoritative selection failure below.
+        }
+      }
+    }
     const failure = safeError(error);
-    setNotice(workspaceMessage, `切换失败（${failure.code}）：${failure.message}`, "error");
+    if (!isWindowClosing()) {
+      setNotice(
+        workspaceMessage,
+        reconcileAfterFailure
+          ? `${reconciledAfterFailure ? "切换结果未能确认，已按后端当前工作区重新同步" : "切换结果未能确认，工作区仍需重新同步"}（${failure.code}）：${failure.message}`
+          : `切换失败（${failure.code}）：${failure.message}`,
+        "error",
+      );
+    }
   } finally {
+    if (workspaceSelectionUncertain && isWindowClosing()) workspaceReconcilePending = true;
     workspaceBusy = false;
     setBoxTransitionBusy(false);
+    finishWorkspaceTransition();
     renderCapabilities();
   }
 }
 
 async function openLogLocation(): Promise<void> {
+  if (isWindowClosing()) return;
   try {
     await invoke("open_log_location");
     setNotice(workspaceMessage, "已打开脱敏诊断日志目录。", "success");
@@ -1021,7 +1165,11 @@ function updateExportControls(): void {
     const button = exportButtons.get(operation.value);
     const status = exportStatuses.get(operation.value);
     if (!button || !status) continue;
-    button.disabled = taskBusy || hasActiveTask() || !capability?.enabled;
+    button.disabled = taskBusy
+      || hasActiveTask()
+      || boxTransitionBusy
+      || isWindowClosing()
+      || !capability?.enabled;
     if (!capabilities) {
       setNotice(status, "等待本机能力信息。");
     } else if (!capability) {
@@ -1045,8 +1193,14 @@ function buildExportIntent(operation: ExportOperation): string {
 
 async function startExport(operation: ExportOperation): Promise<void> {
   const capability = capabilityFor(operation);
-  if (taskBusy || hasActiveTask() || !capabilities || !capability?.enabled) return;
+  if (taskBusy
+    || hasActiveTask()
+    || boxTransitionBusy
+    || isWindowClosing()
+    || !capabilities
+    || !capability?.enabled) return;
   taskBusy = true;
+  const finishTaskStart = beginTaskStartTracking();
   updateExportControls();
   updateTaskForm();
   setNotice(exportMessage, "正在交给全局本机后台任务管理器…");
@@ -1064,6 +1218,7 @@ async function startExport(operation: ExportOperation): Promise<void> {
     if (failure.retryable) await Promise.all([refreshCapabilities(), refreshTasks()]);
   } finally {
     taskBusy = false;
+    finishTaskStart();
     updateExportControls();
     updateTaskForm();
   }
@@ -1084,7 +1239,11 @@ function updateTaskForm(): void {
   operationDescription.textContent = operation?.description ?? "";
   const capability = capabilityFor(taskForm.operation);
   const missing = capability?.missing_inputs ?? [];
-  const disabled = taskBusy || hasActiveTask() || !capability?.enabled;
+  const disabled = taskBusy
+    || hasActiveTask()
+    || boxTransitionBusy
+    || isWindowClosing()
+    || !capability?.enabled;
   startTaskButton.disabled = disabled;
   if (!capabilities) {
     setNotice(taskMessage, "等待本机能力信息。", "normal");
@@ -1130,10 +1289,16 @@ function buildIntent(): string | null {
 
 async function startTask(): Promise<void> {
   const capability = capabilityFor(taskForm.operation);
-  if (taskBusy || hasActiveTask() || !capabilities || !capability?.enabled) return;
+  if (taskBusy
+    || hasActiveTask()
+    || boxTransitionBusy
+    || isWindowClosing()
+    || !capabilities
+    || !capability?.enabled) return;
   const intentJson = buildIntent();
   if (!intentJson) return;
   taskBusy = true;
+  const finishTaskStart = beginTaskStartTracking();
   updateExportControls();
   updateTaskForm();
   setNotice(taskMessage, "正在交给本机后台任务管理器…");
@@ -1151,6 +1316,7 @@ async function startTask(): Promise<void> {
     if (failure.retryable) await Promise.all([refreshCapabilities(), refreshTasks()]);
   } finally {
     taskBusy = false;
+    finishTaskStart();
     updateExportControls();
     updateTaskForm();
   }
@@ -1189,6 +1355,8 @@ async function queryTask(taskId: string): Promise<void> {
 }
 
 async function refreshTasks(): Promise<void> {
+  if (taskRefreshBusy || isWindowClosing()) return;
+  taskRefreshBusy = true;
   taskRefreshButton.disabled = true;
   try {
     const snapshots = await invoke<PublicTaskSnapshot[]>("list_tasks");
@@ -1198,11 +1366,13 @@ async function refreshTasks(): Promise<void> {
     const failure = safeError(error);
     setNotice(taskMessage, `任务列表刷新失败（${failure.code}）：${failure.message}`, "error");
   } finally {
-    taskRefreshButton.disabled = false;
+    taskRefreshBusy = false;
+    taskRefreshButton.disabled = boxTransitionBusy || isWindowClosing();
   }
 }
 
 async function cancelTask(taskId: string): Promise<void> {
+  if (isWindowClosing()) return;
   try {
     const result = await invoke<{ outcome: CancelOutcome; task: PublicTaskSnapshot | null }>("cancel_task", { taskId });
     if (result.task) mergeQueriedTask(result.task);
@@ -1223,6 +1393,7 @@ async function cancelTask(taskId: string): Promise<void> {
 }
 
 async function useArtifact(command: "open_artifact" | "reveal_artifact", artifact: PublicArtifact): Promise<void> {
+  if (isWindowClosing()) return;
   try {
     await invoke(command, { artifactId: artifact.artifact_id });
     setNotice(
@@ -1242,6 +1413,7 @@ function hasActiveTask(): boolean {
 
 function renderTasks(): void {
   taskList.replaceChildren();
+  taskRefreshButton.disabled = taskRefreshBusy || boxTransitionBusy || isWindowClosing();
   const ordered = [...tasks.values()].sort((left, right) => right.task_id.localeCompare(left.task_id));
   if (ordered.length === 0) {
     taskList.append(element("p", "empty-state", "还没有进行数据更新或报告生成。"));
@@ -1301,10 +1473,11 @@ function renderTasks(): void {
         if (restoredTaskIds.has(task.task_id)) {
           actions.append(element("span", "muted", "历史回执"));
         } else {
-          actions.append(
-            makeButton("打开", "button compact", () => useArtifact("open_artifact", artifact)),
-            makeButton("定位", "button compact secondary", () => useArtifact("reveal_artifact", artifact)),
-          );
+          const openArtifact = makeButton("打开", "button compact", () => useArtifact("open_artifact", artifact));
+          const revealArtifact = makeButton("定位", "button compact secondary", () => useArtifact("reveal_artifact", artifact));
+          openArtifact.disabled = isWindowClosing();
+          revealArtifact.disabled = isWindowClosing();
+          actions.append(openArtifact, revealArtifact);
         }
         item.append(identity, actions);
         list.append(item);
@@ -1319,7 +1492,7 @@ function renderTasks(): void {
 
     if (!TERMINAL_STATUSES.has(task.status) && capabilities?.supports_cancel) {
       const cancel = makeButton(task.cancellation_requested ? "取消已请求" : "取消任务", "button danger", () => cancelTask(task.task_id));
-      cancel.disabled = task.cancellation_requested || task.status === "committing";
+      cancel.disabled = task.cancellation_requested || task.status === "committing" || isWindowClosing();
       card.append(cancel);
     }
     card.append(technical);
@@ -1471,6 +1644,8 @@ function resetVisualizerFrames(): void {
     visualizerState.loadedRevision = null;
     visualizerState.pendingRevision = null;
     visualizerState.pendingUrl = null;
+    visualizerState.pendingNavigationId = null;
+    clearVisualizerReadyTimeout(visualizerState);
     clearPendingVisualizerRefresh(visualizerState);
     visualizerState.page = "box";
     frame.hidden = true;
@@ -1486,6 +1661,7 @@ function resetVisualizerFrames(): void {
 }
 
 async function loadVisualizer(force = false, targetGame: Game = game): Promise<void> {
+  if (isWindowClosing()) return;
   const visualizerState = visualizerFrames.get(targetGame);
   if (!visualizerState) return;
   const { frame } = visualizerState;
@@ -1508,7 +1684,8 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
   }
   try {
     const result = await invoke<unknown>("get_visualizer_url", { game: targetGame });
-    if (request !== visualizerState.requestGeneration
+    if (isWindowClosing()
+      || request !== visualizerState.requestGeneration
       || workspaceId !== (capabilities?.workspace.workspace_id ?? "")) return;
     const descriptor = backendVisualizerDescriptor(result, targetGame);
     if (!descriptor) {
@@ -1529,7 +1706,9 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
       return;
     }
     const pageUrl = new URL(descriptor.url);
+    const navigationId = `${targetGame}-${request}`;
     pageUrl.searchParams.set("revision", descriptor.data_revision);
+    pageUrl.searchParams.set("navigation_id", navigationId);
     if (force) pageUrl.searchParams.set("reload", String(request));
     pageUrl.hash = visualizerState.page;
     const navigationUrl = pageUrl.toString();
@@ -1538,9 +1717,15 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
       && visualizerState.pendingUrl === navigationUrl
       && frame.getAttribute("src") === navigationUrl) return;
     rejectFrameFlushes(frame);
+    clearVisualizerReadyTimeout(visualizerState);
     visualizerState.pendingRevision = descriptor.data_revision;
     visualizerState.pendingUrl = navigationUrl;
+    visualizerState.pendingNavigationId = navigationId;
     bindPendingVisualizerRefresh(visualizerState, refreshGeneration);
+    visualizerState.readyTimeout = window.setTimeout(
+      () => failVisualizerReady(targetGame, navigationId),
+      VISUALIZER_READY_TIMEOUT_MS,
+    );
     frame.dataset.loaded = "false";
     delete frame.dataset.loadedRevision;
     frame.src = navigationUrl;
@@ -1562,13 +1747,15 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
 }
 
 async function refreshAll(): Promise<void> {
-  if (workspaceBusy || boxTransitionBusy) return;
+  if (workspaceBusy || boxTransitionBusy || isWindowClosing()) return;
   workspaceBusy = true;
   setBoxTransitionBusy(true);
   renderCapabilities();
   try {
     if (!await ensureVisualizerBoxesSaved(GAMES, "刷新页面")) return;
+    if (isWindowClosing()) return;
     await refreshCapabilities();
+    if (isWindowClosing()) return;
     for (const targetGame of GAMES) markVisualizerDirty(targetGame, false);
     await Promise.all([
       refreshTasks(),
@@ -1587,14 +1774,23 @@ async function installWindowCloseHandler(): Promise<void> {
     event.preventDefault();
     if (allowWindowClose || closeGuardRunning) return;
     closeGuardRunning = true;
+    uninstallVisualizerRevisionWatchers();
+    setBoxTransitionBusy(true);
+    renderTasks();
     persistTaskHistory();
     try {
+      const workspaceTransition = pendingWorkspaceTransition;
+      if (workspaceTransition) await workspaceTransition;
+      const taskStart = pendingTaskStart;
+      if (taskStart) await taskStart;
       if (hasActiveTask()
         && !window.confirm("仍有任务正在运行。现在关闭会将它记录为中断，且下次启动不会自动重跑。仍要关闭吗？")) {
         return;
       }
-      setBoxTransitionBusy(true);
-      updateWorkspaceControls();
+      if (workspaceReconcilePending) {
+        capabilitiesRequestGeneration += 1;
+        resetVisualizerFrames();
+      }
       if (!await ensureVisualizerBoxesSaved(["hsr", "zzz"], "关闭程序")) return;
       persistTaskHistory();
       allowWindowClose = true;
@@ -1609,7 +1805,9 @@ async function installWindowCloseHandler(): Promise<void> {
       closeGuardRunning = false;
       if (!allowWindowClose) {
         setBoxTransitionBusy(false);
-        updateWorkspaceControls();
+        if (workspaceReconcilePending) await reconcileWorkspaceAfterCloseCancellation();
+        if (!isWindowClosing()) installVisualizerRevisionWatchers();
+        renderTasks();
       }
     }
   });
@@ -1617,7 +1815,7 @@ async function installWindowCloseHandler(): Promise<void> {
 
 window.addEventListener("beforeunload", (event) => {
   persistTaskHistory();
-  if (!allowWindowClose && hasActiveTask()) {
+  if (!allowWindowClose && (hasActiveTask() || taskBusy || pendingTaskStart !== null)) {
     event.preventDefault();
     event.returnValue = "";
     return;
