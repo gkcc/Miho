@@ -13,12 +13,11 @@ use std::{
 #[cfg(test)]
 use miho_app::UPDATE_HEALTH_SCHEMA_V1;
 use miho_app::{
-    bootstrap_workspace_v1, check_update_health_with_state_and_freshness_v1,
-    check_update_health_with_state_v1, is_valid_update_attempt_id_v1,
-    load_update_config_with_digest_v1, parse_export_task_intent_v1, parse_task_intent_v1,
-    resolve_task_intent_v1, AppInvocation, CancelOutcomeV1, ExportTaskIntentSpecV1,
-    PublicTaskSnapshotV1, PublicTaskUpdateV1, ResolvedUpdateConfigV1, TaskFailureV1,
-    TaskFreshnessSummaryV1, TaskManager, TaskManagerError, TaskOperationV1,
+    bootstrap_workspace_v1, check_update_health_with_workspace_config_and_freshness_v1,
+    is_valid_update_attempt_id_v1, load_update_config_with_digest_v1, parse_export_task_intent_v1,
+    parse_task_intent_v1, resolve_task_intent_v1, AppInvocation, CancelOutcomeV1,
+    ExportTaskIntentSpecV1, PublicTaskSnapshotV1, PublicTaskUpdateV1, ResolvedUpdateConfigV1,
+    TaskFailureV1, TaskFreshnessSummaryV1, TaskManager, TaskManagerError, TaskOperationV1,
     TrustedSingleGameUpdateV1, UpdateHealthV1, UpdateInvocationV1, UpdateStateV1,
     UpdateStepFailureV1, WorkspaceBootstrapError, WorkspaceBootstrapRequestV1,
 };
@@ -1912,15 +1911,8 @@ fn get_update_health_blocking(
     workspace_id: String,
 ) -> Result<DesktopUpdateHealthV2, PublicCommandFailureV1> {
     validate_selected_root(&root).map_err(map_workspace_error)?;
-    let (health, state, freshness) = match load_resolved_update_config_with_digest(&root) {
-        Ok((config, config_sha256)) => {
-            check_update_health_with_state_and_freshness_v1(&config, true, true, &config_sha256)
-        }
-        Err(()) => {
-            let (health, state) = check_update_health_with_state_v1(&root, true, true, "");
-            (health, state, BTreeMap::new())
-        }
-    };
+    let (health, state, freshness) =
+        check_update_health_with_workspace_config_and_freshness_v1(&root, true, true);
     Ok(map_desktop_update_health_v2(
         workspace_id,
         health,

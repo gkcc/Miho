@@ -138,6 +138,28 @@ test('update health explains artifact integrity, per-game success times, stalene
   assert.match(source, /desktop\.update_health_workspace_mismatch/);
 });
 
+test('per-mode update health is keyboard and touch expandable without relying on hover titles', () => {
+  const rendering = section('function setUpdateHealthView(', 'async function refreshUpdateHealth(');
+
+  assert.match(source, /function freshnessPeriodLabel\(freshness: TaskModeFreshness\)/);
+  assert.match(rendering, /const item = element\("details", "update-health-game"\)/);
+  assert.match(rendering, /item\.dataset\.game = targetGame/);
+  assert.match(rendering, /item\.dataset\.completedAtUtc = entry\.completed_at_utc/);
+  assert.match(rendering, /const itemSummary = element\("summary", "update-health-game-summary"\)/);
+  assert.match(rendering, /itemSummary\.setAttribute\([\s\S]*?"aria-label"[\s\S]*?各模式状态、采样日与周期边界/);
+  assert.match(rendering, /element\("span", "update-health-toggle", "各模式详情"\)/);
+  assert.match(rendering, /modeList\.setAttribute\("aria-label", `\$\{gameShortLabel\(targetGame\)\} 各模式终局数据时效`\)/);
+  assert.match(rendering, /freshnessLabel\(effectiveFreshnessStatus\(modeFreshness\)\)/);
+  assert.match(rendering, /采样日未知/);
+  assert.match(rendering, /freshnessPeriodLabel\(modeFreshness\)/);
+  assert.doesNotMatch(rendering, /item\.title\s*=/);
+
+  assert.match(styles, /\.update-health-game-summary:focus-visible\s*\{[^}]*outline:/);
+  assert.match(styles, /\.update-health-game\[open\] > \.update-health-game-summary::after/);
+  assert.match(styles, /\.update-health-mode-dates\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.update-health-game\s*\{[^}]*min-width:\s*0;[^}]*flex-basis:\s*100%/);
+});
+
 test('update health retries busy workspaces with bounded backoff and rechecks at the next stale deadline', () => {
   const scheduling = section('function clearUpdateHealthTimers(', 'function invalidateUpdateHealth(');
   const request = section('async function refreshUpdateHealth(', 'function updateWorkspaceControls()');

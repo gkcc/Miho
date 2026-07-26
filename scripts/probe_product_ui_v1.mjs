@@ -9,6 +9,7 @@ import {
   visualizerStartupStageReady,
   waitForVisualizerStartupStage,
 } from "./visualizer_startup_probe_v1.mjs";
+import { serializeProductUiProbeReceipt } from "./product_ui_probe_receipt_v1.mjs";
 
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
@@ -238,7 +239,7 @@ const outerExpression = `(() => {
     updateHealthSummary: updateHealthPanel?.querySelector('.update-health-summary')?.textContent?.trim() ?? '',
     updateHealthDetail: updateHealthPanel?.querySelector('.update-health-detail')?.textContent?.trim() ?? '',
     updateHealthGames: updateHealthGameItems.map((item) => item.textContent?.trim() ?? ''),
-    updateHealthGameTitles: updateHealthGameItems.map((item) => item.getAttribute('title')?.trim() ?? ''),
+    updateHealthGameCompletedAtUtc: updateHealthGameItems.map((item) => item.dataset.completedAtUtc ?? ''),
     firstPanel: document.querySelector('main.dashboard')?.firstElementChild?.className ?? '',
     visualizerTitle: document.querySelector('.visualizer-panel h2')?.textContent?.trim() ?? '',
     frameCount: frames.length,
@@ -2198,7 +2199,7 @@ function updateHealthLatestSampleDate(health, game) {
 function visibleUpdateHealthCompletedAt(snapshot, game) {
   const label = game === "hsr" ? "HSR 最近成功" : "ZZZ 最近成功";
   const index = snapshot?.updateHealthGames?.findIndex((value) => value.includes(label)) ?? -1;
-  return index >= 0 ? snapshot?.updateHealthGameTitles?.[index] ?? "" : "";
+  return index >= 0 ? snapshot?.updateHealthGameCompletedAtUtc?.[index] ?? "" : "";
 }
 
 async function verifyPublicDataUpdate(topId, game) {
@@ -2331,6 +2332,7 @@ async function verifyPublicDataUpdate(topId, game) {
       `${game} completed task card incorrectly claims historical upstream samples`, task);
   }
   return {
+    game,
     taskId: task.taskId,
     status: task.status,
     revisionBefore: beforeOuter.frameDataRevision,
@@ -2567,7 +2569,7 @@ try {
     : { skipped: true, reason: "--run-updates was not enabled" };
   receipt.boxFlush = await verifyBoxFlushBridges(top.id);
 
-  process.stdout.write(`${JSON.stringify(receipt)}\n`);
+  process.stdout.write(`${serializeProductUiProbeReceipt(receipt)}\n`);
 } catch (error) {
   if (isVisualizerStartupFailureError(error)) {
     process.stderr.write(`${error.message}\n`);

@@ -57,15 +57,15 @@ pub use task_manager::{
 };
 pub use update::{
     check_update_health_v1, check_update_health_with_state_and_freshness_v1,
-    check_update_health_with_state_v1, is_valid_update_attempt_id_v1, run_update_observed_v1,
-    run_update_v1, FileUpdateReceiptStore, NativeUpdateExecutorV1, ObservedUpdateStepFuture,
-    TrustedSingleGameUpdateV1, UpdateArtifactV1, UpdateGameReceiptV1, UpdateHealthV1,
-    UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1, UpdateRunOutcomeV1,
-    UpdateRunStatusV1, UpdateStateGameV1, UpdateStateV1, UpdateStepContextV1,
-    UpdateStepExecutionErrorV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
-    UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1, MAX_UPDATE_ATTEMPT_ID_BYTES_V1,
-    UPDATE_ATTEMPT_DIRECTORY, UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_HEALTH_SCHEMA_V1,
-    UPDATE_RECEIPT_SCHEMA_V1, UPDATE_STATE_FILE, UPDATE_STATE_SCHEMA_V1,
+    check_update_health_with_state_v1, check_update_health_with_workspace_config_and_freshness_v1,
+    is_valid_update_attempt_id_v1, run_update_observed_v1, run_update_v1, FileUpdateReceiptStore,
+    NativeUpdateExecutorV1, ObservedUpdateStepFuture, TrustedSingleGameUpdateV1, UpdateArtifactV1,
+    UpdateGameReceiptV1, UpdateHealthV1, UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1,
+    UpdateRequestV1, UpdateRunOutcomeV1, UpdateRunStatusV1, UpdateStateGameV1, UpdateStateV1,
+    UpdateStepContextV1, UpdateStepExecutionErrorV1, UpdateStepExecutor, UpdateStepFailureV1,
+    UpdateStepFuture, UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1,
+    MAX_UPDATE_ATTEMPT_ID_BYTES_V1, UPDATE_ATTEMPT_DIRECTORY, UPDATE_CANONICAL_RECEIPT_FILE,
+    UPDATE_HEALTH_SCHEMA_V1, UPDATE_RECEIPT_SCHEMA_V1, UPDATE_STATE_FILE, UPDATE_STATE_SCHEMA_V1,
 };
 pub use update_config::{
     load_update_config_v1, load_update_config_with_digest_v1, LoadedUpdateConfigV1,

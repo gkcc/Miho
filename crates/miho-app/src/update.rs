@@ -39,6 +39,7 @@ pub const UPDATE_STATE_FILE: &str = "update-state-v1.json";
 pub const UPDATE_CANONICAL_RECEIPT_FILE: &str = "last-update-receipt-v1.json";
 pub const MAX_UPDATE_ATTEMPT_ID_BYTES_V1: usize = 96;
 const MAX_UPDATE_FRESHNESS_BYTES_V1: u64 = 2 * 1024 * 1024;
+const DEFAULT_UPDATE_CONFIG_RELATIVE_PATH_V1: &str = "configs/update_v1.json";
 
 static NEXT_ATTEMPT_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -422,6 +423,13 @@ pub trait UpdateStepExecutor: Send + Sync {
     ) -> bool {
         false
     }
+
+    /// Optional trusted configuration used to verify the committed
+    /// generation's freshness evidence before the workspace write lease is
+    /// released. Custom executors retain their existing behavior by default.
+    fn freshness_config(&self) -> Option<&ResolvedUpdateConfigV1> {
+        None
+    }
 }
 
 /// Production native backend. It reuses the same export and typed report
@@ -523,6 +531,10 @@ impl UpdateStepExecutor for NativeUpdateExecutorV1 {
         failure: Option<&UpdateStepFailureV1>,
     ) -> bool {
         failure.is_some_and(|failure| is_cache_fallback_code(&failure.code))
+    }
+
+    fn freshness_config(&self) -> Option<&ResolvedUpdateConfigV1> {
+        Some(&self.config)
     }
 }
 
@@ -1325,6 +1337,10 @@ fn receipt_history_failure() -> UpdateStepFailureV1 {
 pub struct UpdateRunOutcomeV1 {
     pub receipt: UpdateReceiptV1,
     pub exit_code: i32,
+    /// Sanitized freshness captured from the exact committed state/artifact
+    /// generation while the workspace write lease is still held. `None`
+    /// means the executor did not provide a trusted resolved configuration.
+    pub freshness: Option<Result<BTreeMap<Game, TaskFreshnessSummaryV1>, UpdateStepFailureV1>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1391,6 +1407,87 @@ pub fn check_update_health_with_state_and_freshness_v1(
     )
 }
 
+/// Load the canonical workspace update config, its digest, committed state,
+/// and freshness evidence while one shared snapshot lease remains held. This
+/// prevents a release/bootstrap writer from switching config and generation
+/// between the desktop's config read and health verification.
+pub fn check_update_health_with_workspace_config_and_freshness_v1(
+    workspace: &Path,
+    require_hsr: bool,
+    require_zzz: bool,
+) -> (
+    UpdateHealthV1,
+    Result<UpdateStateV1, UpdateStepFailureV1>,
+    BTreeMap<Game, TaskFreshnessSummaryV1>,
+) {
+    check_update_health_with_config_loader_v1(
+        workspace,
+        require_hsr,
+        require_zzz,
+        |snapshot_root| {
+            // Use the caller's already validated spelling for the file open.
+            // On Windows, `canonicalize` may add a verbatim-path prefix that
+            // strict component-by-component config validation intentionally
+            // does not accept. Resolution still uses the canonical root held
+            // by the snapshot lease.
+            let config_path = workspace.join(DEFAULT_UPDATE_CONFIG_RELATIVE_PATH_V1);
+            let loaded = crate::load_update_config_with_digest_v1(&config_path)
+                .map_err(|_| update_health_config_failure_v1())?;
+            let config = loaded
+                .config
+                .resolve(snapshot_root)
+                .map_err(|_| update_health_config_failure_v1())?;
+            Ok((config, loaded.sha256))
+        },
+    )
+}
+
+fn check_update_health_with_config_loader_v1<F>(
+    workspace: &Path,
+    require_hsr: bool,
+    require_zzz: bool,
+    load_config: F,
+) -> (
+    UpdateHealthV1,
+    Result<UpdateStateV1, UpdateStepFailureV1>,
+    BTreeMap<Game, TaskFreshnessSummaryV1>,
+)
+where
+    F: FnOnce(&Path) -> Result<(ResolvedUpdateConfigV1, String), UpdateStepFailureV1>,
+{
+    let checked_games = requested_health_games_v1(require_hsr, require_zzz);
+    let lease = match WorkspaceSnapshotLease::acquire(workspace) {
+        Ok(lease) => lease,
+        Err(error) => {
+            let failure = lease_failure(error);
+            return (
+                unhealthy(checked_games, None, failure.clone()),
+                Err(failure),
+                BTreeMap::new(),
+            );
+        }
+    };
+    let snapshot_root = lease.workspace_root();
+    let result = match load_config(snapshot_root) {
+        Ok((config, config_sha256)) => check_update_health_snapshot_locked_v1(
+            snapshot_root,
+            checked_games,
+            &config_sha256,
+            Some(&config),
+        ),
+        Err(failure) => {
+            let state = FileUpdateReceiptStore.load_state(snapshot_root);
+            (
+                unhealthy(checked_games, None, failure),
+                state,
+                BTreeMap::new(),
+            )
+        }
+    };
+    drop(lease);
+    result
+}
+
 fn check_update_health_snapshot_v1(
     workspace: &Path,
     require_hsr: bool,
@@ -1402,13 +1499,7 @@ fn check_update_health_snapshot_v1(
     Result<UpdateStateV1, UpdateStepFailureV1>,
     BTreeMap<Game, TaskFreshnessSummaryV1>,
 ) {
-    let checked_games = [
-        require_hsr.then_some(Game::Hsr),
-        require_zzz.then_some(Game::Zzz),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>();
+    let checked_games = requested_health_games_v1(require_hsr, require_zzz);
     let lease = match WorkspaceSnapshotLease::acquire(workspace) {
         Ok(lease) => lease,
         Err(error) => {
@@ -1421,6 +1512,26 @@ fn check_update_health_snapshot_v1(
         }
     };
     let workspace = lease.workspace_root();
+    let result = check_update_health_snapshot_locked_v1(
+        workspace,
+        checked_games,
+        expected_config_sha256,
+        freshness_config,
+    );
+    drop(lease);
+    result
+}
+
+fn check_update_health_snapshot_locked_v1(
+    workspace: &Path,
+    checked_games: Vec<Game>,
+    expected_config_sha256: &str,
+    freshness_config: Option<&ResolvedUpdateConfigV1>,
+) -> (
+    UpdateHealthV1,
+    Result<UpdateStateV1, UpdateStepFailureV1>,
+    BTreeMap<Game, TaskFreshnessSummaryV1>,
+) {
     let state = FileUpdateReceiptStore.load_state(workspace);
     let mut health =
         check_update_health_locked_v1(workspace, checked_games, expected_config_sha256, &state);
@@ -1450,6 +1561,24 @@ fn check_update_health_snapshot_v1(
         BTreeMap::new()
     };
     (health, state, freshness)
+}
+
+fn requested_health_games_v1(require_hsr: bool, require_zzz: bool) -> Vec<Game> {
+    [
+        require_hsr.then_some(Game::Hsr),
+        require_zzz.then_some(Game::Zzz),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+fn update_health_config_failure_v1() -> UpdateStepFailureV1 {
+    UpdateStepFailureV1::safe(
+        "update.health_config_invalid",
+        "the update health configuration is unavailable or invalid",
+        false,
+    )
 }
 
 fn load_update_freshness_locked_v1(
@@ -1537,6 +1666,64 @@ fn load_update_freshness_locked_v1(
         freshness.insert(*game, TaskFreshnessSummaryV1::from(&report));
     }
     Ok(freshness)
+}
+
+fn load_committed_attempt_freshness_locked_v1(
+    workspace: &Path,
+    receipt: &UpdateReceiptV1,
+    config: &ResolvedUpdateConfigV1,
+    state: &UpdateStateV1,
+) -> Result<BTreeMap<Game, TaskFreshnessSummaryV1>, UpdateStepFailureV1> {
+    let Some(config_sha256) = receipt.config_sha256.as_deref() else {
+        return Err(update_freshness_failure_v1());
+    };
+    if receipt.status != UpdateRunStatusV1::Succeeded
+        || !receipt.state_committed
+        || !receipt.receipt_committed
+        || !valid_sha256(config_sha256)
+    {
+        return Err(update_freshness_failure_v1());
+    }
+
+    let checked_games = receipt
+        .games
+        .iter()
+        .filter(|game| game.selected)
+        .map(|game| game.game)
+        .collect::<Vec<_>>();
+    if checked_games.is_empty() {
+        return Err(update_freshness_failure_v1());
+    }
+
+    for game in &checked_games {
+        let game_receipt = receipt
+            .games
+            .iter()
+            .find(|candidate| candidate.game == *game && candidate.selected)
+            .ok_or_else(update_freshness_failure_v1)?;
+        let game_state = state
+            .games
+            .get(game)
+            .ok_or_else(update_freshness_failure_v1)?;
+        let receipt_artifacts = game_receipt
+            .steps
+            .iter()
+            .flat_map(|step| step.artifacts.clone())
+            .collect::<Vec<_>>();
+        if game_receipt.status != UpdateStepStatusV1::Succeeded
+            || game_receipt
+                .steps
+                .iter()
+                .any(|step| step.status != UpdateStepStatusV1::Succeeded)
+            || game_state.attempt_id != receipt.attempt_id
+            || game_state.config_sha256 != config_sha256
+            || game_state.artifacts != receipt_artifacts
+        {
+            return Err(update_freshness_failure_v1());
+        }
+    }
+
+    load_update_freshness_locked_v1(workspace, &checked_games, config, state)
 }
 
 fn valid_update_freshness_dates_v1(status: &str, _sample: &str, start: &str, end: &str) -> bool {
@@ -1953,10 +2140,16 @@ pub async fn run_update_observed_v1<E: UpdateStepExecutor, S: UpdateReceiptStore
     receipt.state_committed = true;
     receipt.receipt_committed = true;
     match store.commit_success(&workspace, &state, &receipt) {
-        Ok(()) => UpdateRunOutcomeV1 {
-            receipt,
-            exit_code: 0,
-        },
+        Ok(()) => {
+            let freshness = executor.freshness_config().map(|config| {
+                load_committed_attempt_freshness_locked_v1(&workspace, &receipt, config, &state)
+            });
+            UpdateRunOutcomeV1 {
+                receipt,
+                exit_code: 0,
+                freshness,
+            }
+        }
         Err(failure) => {
             receipt.state_committed = false;
             receipt.receipt_committed = false;
@@ -2342,6 +2535,7 @@ fn in_memory_failure(
     UpdateRunOutcomeV1 {
         receipt,
         exit_code: 1,
+        freshness: None,
     }
 }
 
@@ -2368,6 +2562,7 @@ fn finish_failure<S: UpdateReceiptStore>(
     UpdateRunOutcomeV1 {
         receipt,
         exit_code: 1,
+        freshness: None,
     }
 }
 
@@ -2391,7 +2586,11 @@ fn finish_interrupted<S: UpdateReceiptStore>(
             1
         }
     };
-    UpdateRunOutcomeV1 { receipt, exit_code }
+    UpdateRunOutcomeV1 {
+        receipt,
+        exit_code,
+        freshness: None,
+    }
 }
 
 fn normalize_interrupted_steps(receipt: &mut UpdateReceiptV1) {
@@ -2424,9 +2623,67 @@ static ARTIFACT_HASH_PASSES_V1: AtomicU64 = AtomicU64::new(0);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::mpsc,
+        thread,
+        time::{Duration as StdDuration, SystemTime, UNIX_EPOCH},
+    };
 
     static HASH_TEST_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn workspace_config_loader_runs_inside_the_health_snapshot_lease() {
+        let root = std::env::temp_dir().join(format!(
+            "miho-update-config-snapshot-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+
+        let (start_writer, writer_start) = mpsc::channel();
+        let (writer_entered, entered_writer) = mpsc::channel();
+        let (writer_finished, finished_writer) = mpsc::channel();
+        let writer_root = root.clone();
+        let writer = thread::spawn(move || {
+            writer_start.recv().unwrap();
+            writer_entered.send(()).unwrap();
+            let result = WorkspaceWriteLease::acquire(&writer_root).map(drop);
+            writer_finished.send(result).unwrap();
+        });
+
+        let (health, _, freshness) =
+            check_update_health_with_config_loader_v1(&root, true, true, |snapshot_root| {
+                assert_eq!(snapshot_root, fs::canonicalize(&root).unwrap());
+                start_writer.send(()).unwrap();
+                entered_writer.recv().unwrap();
+                assert!(
+                    matches!(
+                        finished_writer.recv_timeout(StdDuration::from_millis(150)),
+                        Err(mpsc::RecvTimeoutError::Timeout)
+                    ),
+                    "a writer switched config/state while the config loader was running"
+                );
+                Err(update_health_config_failure_v1())
+            });
+
+        assert!(!health.healthy);
+        assert_eq!(
+            health.failure.as_ref().map(|failure| failure.code.as_str()),
+            Some("update.health_config_invalid")
+        );
+        assert!(freshness.is_empty());
+        assert_eq!(
+            finished_writer
+                .recv_timeout(StdDuration::from_secs(5))
+                .expect("the writer did not resume after health returned"),
+            Ok(())
+        );
+        writer.join().unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn collected_artifact_is_hashed_once_during_trusted_validation() {

@@ -12,11 +12,11 @@ use miho_app::{
     check_update_health_v1, check_update_health_with_state_and_freshness_v1,
     check_update_health_with_state_v1, export_cache_root, run_update_observed_v1, run_update_v1,
     ExecutionControlError, ExecutionObserver, FileUpdateReceiptStore, NativeUpdateExecutorV1,
-    ObservedUpdateStepFuture, UpdateArtifactV1, UpdateConfigV1, UpdateInvocationV1,
-    UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1, UpdateRunStatusV1, UpdateStateV1,
-    UpdateStepContextV1, UpdateStepExecutionErrorV1, UpdateStepExecutor, UpdateStepFailureV1,
-    UpdateStepFuture, UpdateStepKindV1, UpdateStepReceiptV1, UpdateStepStatusV1,
-    WorkspaceSnapshotLease, WorkspaceWriteLease, UPDATE_ATTEMPT_DIRECTORY,
+    ObservedUpdateStepFuture, ResolvedUpdateConfigV1, UpdateArtifactV1, UpdateConfigV1,
+    UpdateInvocationV1, UpdateReceiptStore, UpdateReceiptV1, UpdateRequestV1, UpdateRunStatusV1,
+    UpdateStateV1, UpdateStepContextV1, UpdateStepExecutionErrorV1, UpdateStepExecutor,
+    UpdateStepFailureV1, UpdateStepFuture, UpdateStepKindV1, UpdateStepReceiptV1,
+    UpdateStepStatusV1, WorkspaceSnapshotLease, WorkspaceWriteLease, UPDATE_ATTEMPT_DIRECTORY,
     UPDATE_CANONICAL_RECEIPT_FILE, UPDATE_STATE_FILE,
 };
 use miho_core::{contract::Game, network::FetchSource};
@@ -90,6 +90,7 @@ struct FreshnessFakeExecutor {
     inner: FakeExecutor,
     invalid_hsr_mode: bool,
     unparseable_hsr_dates: bool,
+    freshness_config: Option<ResolvedUpdateConfigV1>,
 }
 
 impl FreshnessFakeExecutor {
@@ -105,6 +106,11 @@ impl FreshnessFakeExecutor {
             unparseable_hsr_dates: true,
             ..Self::default()
         }
+    }
+
+    fn with_freshness_config(mut self, config: ResolvedUpdateConfigV1) -> Self {
+        self.freshness_config = Some(config);
+        self
     }
 }
 
@@ -186,6 +192,10 @@ impl UpdateStepExecutor for FreshnessFakeExecutor {
             Ok(artifacts)
         })
     }
+
+    fn freshness_config(&self) -> Option<&ResolvedUpdateConfigV1> {
+        self.freshness_config.as_ref()
+    }
 }
 
 #[derive(Clone, Default)]
@@ -240,6 +250,65 @@ struct FailInterruptedStore {
 
 struct LeaveRunningStore {
     inner: FileUpdateReceiptStore,
+}
+
+struct TamperFreshnessAfterSuccessStore {
+    inner: FileUpdateReceiptStore,
+}
+
+impl UpdateReceiptStore for TamperFreshnessAfterSuccessStore {
+    fn recover_interrupted(
+        &self,
+        workspace: &Path,
+        current_attempt_id: &str,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner
+            .recover_interrupted(workspace, current_attempt_id)
+    }
+
+    fn load_state(&self, workspace: &Path) -> Result<UpdateStateV1, UpdateStepFailureV1> {
+        self.inner.load_state(workspace)
+    }
+
+    fn write_running(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.write_running(workspace, receipt)
+    }
+
+    fn commit_success(
+        &self,
+        workspace: &Path,
+        state: &UpdateStateV1,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.commit_success(workspace, state, receipt)?;
+        fs::write(
+            workspace.join("out/data_quality.json"),
+            br#"{"schema_version":"miho-data-quality-v1","game":"hsr","status":"ok","warnings":[],"alias_conflict_count":0,"modes":{}}"#,
+        )
+        .map_err(|_| {
+            UpdateStepFailureV1::safe("test.freshness_tamper_failed", "fixture failed", false)
+        })
+    }
+
+    fn commit_failure(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.commit_failure(workspace, receipt)
+    }
+
+    fn commit_interrupted(
+        &self,
+        workspace: &Path,
+        receipt: &UpdateReceiptV1,
+    ) -> Result<(), UpdateStepFailureV1> {
+        self.inner.commit_interrupted(workspace, receipt)
+    }
 }
 
 impl UpdateReceiptStore for LeaveRunningStore {
@@ -672,11 +741,20 @@ async fn health_freshness_comes_from_the_same_verified_generation_snapshot() {
     let outcome = run_update_v1(
         &request(&root),
         &invocation_with("attempt-health-freshness", 33),
-        &FreshnessFakeExecutor::default(),
+        &FreshnessFakeExecutor::default().with_freshness_config(config.clone()),
         &FileUpdateReceiptStore,
     )
     .await;
     assert_eq!(outcome.exit_code, 0);
+    let committed_freshness = outcome.freshness.as_ref().unwrap().as_ref().unwrap();
+    assert_eq!(
+        committed_freshness[&Game::Hsr].modes["moc"].sample_date,
+        "2026-06-25"
+    );
+    assert_eq!(
+        committed_freshness[&Game::Zzz].modes["sd"].sample_date,
+        "2026-07-19"
+    );
 
     let (health, state, freshness) =
         check_update_health_with_state_and_freshness_v1(&config, true, true, &"a".repeat(64));
@@ -698,6 +776,11 @@ async fn health_freshness_comes_from_the_same_verified_generation_snapshot() {
         br#"{"schema_version":"miho-data-quality-v1"}"#,
     )
     .unwrap();
+    assert_eq!(
+        committed_freshness[&Game::Hsr].modes["moc"].sample_date,
+        "2026-06-25",
+        "the outcome must retain the verified committed generation rather than reread the workspace"
+    );
     let (tampered_health, _, tampered_freshness) =
         check_update_health_with_state_and_freshness_v1(&config, true, true, &"a".repeat(64));
     assert!(!tampered_health.healthy);
@@ -713,17 +796,56 @@ async fn health_freshness_comes_from_the_same_verified_generation_snapshot() {
 }
 
 #[tokio::test]
+async fn committed_freshness_rejects_an_artifact_swap_before_the_write_lease_is_released() {
+    let root = temp_root("committed-freshness-artifact-swap");
+    let config = freshness_config(&root);
+    let outcome = run_update_v1(
+        &request(&root),
+        &invocation_with("attempt-freshness-artifact-swap", 36),
+        &FreshnessFakeExecutor::default().with_freshness_config(config),
+        &TamperFreshnessAfterSuccessStore {
+            inner: FileUpdateReceiptStore,
+        },
+    )
+    .await;
+
+    assert_eq!(outcome.exit_code, 0, "the update commit itself succeeded");
+    assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Succeeded);
+    assert_eq!(
+        outcome
+            .freshness
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap_err()
+            .code,
+        "update.health_freshness_invalid"
+    );
+    cleanup(&root);
+}
+
+#[tokio::test]
 async fn health_rejects_semantically_invalid_freshness_even_when_artifacts_match_receipts() {
     let root = temp_root("health-invalid-freshness");
     let config = freshness_config(&root);
     let outcome = run_update_v1(
         &request(&root),
         &invocation_with("attempt-invalid-freshness", 34),
-        &FreshnessFakeExecutor::with_invalid_hsr_mode(),
+        &FreshnessFakeExecutor::with_invalid_hsr_mode().with_freshness_config(config.clone()),
         &FileUpdateReceiptStore,
     )
     .await;
     assert_eq!(outcome.exit_code, 0);
+    assert_eq!(
+        outcome
+            .freshness
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap_err()
+            .code,
+        "update.health_freshness_invalid"
+    );
     assert!(check_update_health_v1(&root, true, true, &"a".repeat(64)).healthy);
 
     let (health, state, freshness) =
@@ -746,11 +868,17 @@ async fn health_accepts_producer_unknown_dates_and_sanitizes_them_for_the_deskto
     let outcome = run_update_v1(
         &request(&root),
         &invocation_with("attempt-unknown-dates", 35),
-        &FreshnessFakeExecutor::with_unparseable_hsr_dates(),
+        &FreshnessFakeExecutor::with_unparseable_hsr_dates().with_freshness_config(config.clone()),
         &FileUpdateReceiptStore,
     )
     .await;
     assert_eq!(outcome.exit_code, 0);
+    let committed_freshness = outcome.freshness.as_ref().unwrap().as_ref().unwrap();
+    assert_eq!(
+        committed_freshness[&Game::Hsr].modes["moc"].status,
+        "unknown"
+    );
+    assert_eq!(committed_freshness[&Game::Hsr].modes["moc"].sample_date, "");
 
     let (health, _, freshness) =
         check_update_health_with_state_and_freshness_v1(&config, true, true, &"a".repeat(64));

@@ -276,11 +276,10 @@ h1, h2, h3, h4, p { margin: 0; }
 .update-health-games { display: flex; flex: 1 1 310px; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 
 .update-health-game {
-  display: grid;
   min-width: 148px;
+  max-width: 100%;
   flex: 1 1 148px;
-  gap: 1px;
-  padding: 5px 8px;
+  overflow: hidden;
   border-radius: 7px;
   color: var(--ink-soft);
   background: var(--surface-subtle);
@@ -288,10 +287,47 @@ h1, h2, h3, h4, p { margin: 0; }
   line-height: 1.35;
 }
 
-.update-health-game strong { color: var(--muted); font-size: 10px; }
+.update-health-game-summary {
+  position: relative;
+  display: grid;
+  gap: 1px;
+  padding: 5px 26px 5px 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.update-health-game-summary::-webkit-details-marker { display: none; }
+.update-health-game-summary::after {
+  content: "⌄";
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  transform: translateY(-55%);
+}
+.update-health-game[open] > .update-health-game-summary::after { transform: translateY(-45%) rotate(180deg); }
+.update-health-game-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.update-health-game-summary:hover { background: rgba(255, 255, 255, .55); }
+.update-health-game-summary strong { color: var(--muted); font-size: 10px; }
 .update-health-completed { color: var(--ink-soft); }
 .update-health-sample { color: var(--muted); font-size: 10px; }
 .update-health-game.has-history .update-health-sample { color: var(--warning); font-weight: 650; }
+.update-health-toggle { color: var(--accent); font-size: 10px; font-weight: 650; }
+.update-health-mode-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 7px 8px 8px;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+.update-health-mode { display: grid; min-width: 0; gap: 1px; }
+.update-health-mode-heading { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 3px 6px; }
+.update-health-mode-name { color: var(--ink-soft); font-size: 10px; }
+.update-health-mode-status { color: var(--muted); font-size: 10px; }
+.update-health-mode-dates { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .update-health.healthy { border-left-color: var(--success); background: #f6fbf9; }
 .update-health.healthy .update-health-badge { color: var(--success); background: #e2f2ec; }
 .update-health.warning, .update-health.busy { border-left-color: var(--warning); background: #fffaf1; }
@@ -501,6 +537,7 @@ h1, h2, h3, h4, p { margin: 0; }
   .update-health-heading { width: 100%; justify-content: space-between; }
   .update-health-copy, .update-health-games { min-width: 0; flex-basis: 100%; }
   .update-health-games { justify-content: stretch; }
+  .update-health-game { min-width: 0; flex-basis: 100%; }
   .utilities > summary { justify-content: center; }
   .utilities[open]::before { inset: 154px 0 0; }
   .utilities-content { top: 162px; right: 8px; bottom: 8px; width: calc(100vw - 16px); padding: 8px; }

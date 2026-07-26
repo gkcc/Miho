@@ -394,6 +394,15 @@ function freshnessLabel(status: string): string {
         : "周期未知";
 }
 
+function freshnessPeriodLabel(freshness: TaskModeFreshness): string {
+  if (freshness.start_date && freshness.end_date) {
+    return `周期 ${freshness.start_date} 至 ${freshness.end_date}`;
+  }
+  if (freshness.start_date) return `周期起始 ${freshness.start_date}`;
+  if (freshness.end_date) return `周期截至 ${freshness.end_date}`;
+  return "周期边界未知";
+}
+
 function localDateKey(now = new Date()): string {
   return [
     now.getFullYear().toString().padStart(4, "0"),
@@ -1367,13 +1376,16 @@ function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
       summary.future ? `未来 ${summary.future}` : "",
       summary.unknown ? `未知 ${summary.unknown}` : "",
     ].filter(Boolean);
-    const item = element("span", "update-health-game");
+    const item = element("details", "update-health-game");
+    item.dataset.game = targetGame;
+    item.dataset.completedAtUtc = entry.completed_at_utc;
     if (summary.stale) item.classList.add("has-history");
-    const modeDetails = Object.entries(entry.freshness.modes)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([mode, modeFreshness]) => `${modeLabel(mode)}：${freshnessLabel(effectiveFreshnessStatus(modeFreshness))}${modeFreshness.sample_date ? `（采样 ${modeFreshness.sample_date}）` : ""}`);
-    item.title = [entry.completed_at_utc, ...modeDetails].join("\n");
-    item.append(
+    const itemSummary = element("summary", "update-health-game-summary");
+    itemSummary.setAttribute(
+      "aria-label",
+      `${gameShortLabel(targetGame)} 最近成功 ${formatUpdateHealthTime(entry.completed_at_utc)}；终局最新采样 ${summary.latestSampleDate ?? "未知"}${modeStates.length ? `；${modeStates.join("，")}` : ""}；各模式状态、采样日与周期边界`,
+    );
+    itemSummary.append(
       element("strong", undefined, `${gameShortLabel(targetGame)} 最近成功`),
       element("span", "update-health-completed", formatUpdateHealthTime(entry.completed_at_utc)),
       element(
@@ -1381,7 +1393,33 @@ function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
         "update-health-sample",
         `终局最新采样 ${summary.latestSampleDate ?? "未知"}${modeStates.length ? ` · ${modeStates.join(" / ")}` : ""}`,
       ),
+      element("span", "update-health-toggle", "各模式详情"),
     );
+    const modeList = element("ul", "update-health-mode-list");
+    modeList.setAttribute("aria-label", `${gameShortLabel(targetGame)} 各模式终局数据时效`);
+    for (const [mode, modeFreshness] of Object.entries(entry.freshness.modes)
+      .sort(([left], [right]) => left.localeCompare(right))) {
+      const modeItem = element("li", "update-health-mode");
+      const modeHeading = element("span", "update-health-mode-heading");
+      modeHeading.append(
+        element("strong", "update-health-mode-name", modeLabel(mode)),
+        element(
+          "span",
+          "update-health-mode-status",
+          freshnessLabel(effectiveFreshnessStatus(modeFreshness)),
+        ),
+      );
+      modeItem.append(
+        modeHeading,
+        element(
+          "span",
+          "update-health-mode-dates",
+          `${modeFreshness.sample_date ? `采样 ${modeFreshness.sample_date}` : "采样日未知"} · ${freshnessPeriodLabel(modeFreshness)}`,
+        ),
+      );
+      modeList.append(modeItem);
+    }
+    item.append(itemSummary, modeList);
     updateHealthGames.append(item);
   }
   updateHealthGames.hidden = false;

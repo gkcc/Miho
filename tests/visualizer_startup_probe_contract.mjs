@@ -114,10 +114,11 @@ test('the product probe gates the real ZZZ to HSR to ZZZ sequence and emits exac
   assert.match(productProbeSource, /afterTarget\.attempt_id === beforeTarget\.attempt_id/u);
   assert.match(productProbeSource, /afterOther\.attempt_id === beforeOther\.attempt_id/u);
   assert.match(productProbeSource, /afterOther\.completed_at_utc === beforeOther\.completed_at_utc/u);
-  assert.match(productProbeSource, /updateHealthGameTitles: updateHealthGameItems\.map/u);
+  assert.match(productProbeSource, /updateHealthGameCompletedAtUtc: updateHealthGameItems\.map/u);
+  assert.match(productProbeSource, /item\.dataset\.completedAtUtc/u);
   assert.match(productProbeSource, /const label = game === "hsr" \? "HSR 最近成功" : "ZZZ 最近成功"/u);
   assert.match(productProbeSource, /updateHealthGames\?\.findIndex\(\(value\) => value\.includes\(label\)\)/u);
-  assert.match(productProbeSource, /updateHealthGameTitles\?\.\[index\]/u);
+  assert.match(productProbeSource, /updateHealthGameCompletedAtUtc\?\.\[index\]/u);
   assert.match(productProbeSource, /visibleTargetCompletedAt\.includes\(afterTarget\.completed_at_utc\)/u);
   assert.match(productProbeSource, /visibleOtherCompletedAt\.includes\(afterOther\.completed_at_utc\)/u);
   assert.match(productProbeSource, /updateHealthLatestSampleDate\(health, game\)/u);

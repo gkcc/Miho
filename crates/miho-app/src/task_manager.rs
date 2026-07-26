@@ -1,7 +1,7 @@
 use std::{
     any::Any,
     collections::BTreeMap,
-    fmt, fs,
+    fmt,
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -11,8 +11,6 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-
-use miho_core::data_quality::DataQualityReportV1;
 
 use crate::{
     execute_export_observed_with_hub_v1, execute_task_observed_v1, run_update_observed_v1,
@@ -484,11 +482,9 @@ impl UpdateTaskExecutor for CoreUpdateTaskExecutor {
                 select_managed_update_failure(outcome.receipt.failure.as_ref(), step_failure);
             return Err(anyhow::Error::new(failure));
         }
+        let freshness = select_managed_update_freshness(outcome.freshness, request.game)
+            .map_err(anyhow::Error::new)?;
         let output_root = request.output_root();
-        let freshness = fs::read(output_root.join("data_quality.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<DataQualityReportV1>(&bytes).ok())
-            .map(|report| TaskFreshnessSummaryV1::from(&report));
         Ok(TaskReceiptV1 {
             schema_version: TASK_RECEIPT_SCHEMA_V1.to_owned(),
             operation: request.operation(),
@@ -501,9 +497,29 @@ impl UpdateTaskExecutor for CoreUpdateTaskExecutor {
                 .to_string(),
             outputs: vec![output_root.join("artifact_manifest.json")],
             notices: Vec::new(),
-            freshness,
+            freshness: Some(freshness),
         })
     }
+}
+
+fn select_managed_update_freshness(
+    freshness: Option<
+        Result<BTreeMap<miho_core::contract::Game, TaskFreshnessSummaryV1>, UpdateStepFailureV1>,
+    >,
+    game: miho_core::contract::Game,
+) -> Result<TaskFreshnessSummaryV1, UpdateStepFailureV1> {
+    let mut freshness = freshness.ok_or_else(managed_update_freshness_failure)??;
+    freshness
+        .remove(&game)
+        .ok_or_else(managed_update_freshness_failure)
+}
+
+fn managed_update_freshness_failure() -> UpdateStepFailureV1 {
+    UpdateStepFailureV1::safe(
+        "update.health_freshness_invalid",
+        "the committed update generation failed freshness verification",
+        true,
+    )
 }
 
 fn select_managed_update_failure(
@@ -968,6 +984,70 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn freshness_at(sample_date: &str) -> TaskFreshnessSummaryV1 {
+        TaskFreshnessSummaryV1 {
+            status: "ok".to_owned(),
+            modes: BTreeMap::from([(
+                "moc".to_owned(),
+                crate::TaskModeFreshnessV1 {
+                    status: "active".to_owned(),
+                    sample_date: sample_date.to_owned(),
+                    start_date: "2026-07-01".to_owned(),
+                    end_date: "2026-07-31".to_owned(),
+                },
+            )]),
+        }
+    }
+
+    #[test]
+    fn managed_update_freshness_selection_does_not_reread_a_next_generation() {
+        let root = std::env::temp_dir().join(format!(
+            "miho-managed-freshness-selection-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let output = root.join("out/data_quality.json");
+        std::fs::create_dir_all(output.parent().unwrap()).unwrap();
+        std::fs::write(&output, br#"{"generation":"attempt-a"}"#).unwrap();
+        let attempt_a = freshness_at("2026-07-19");
+        let captured = Some(Ok(BTreeMap::from([(
+            miho_core::contract::Game::Hsr,
+            attempt_a.clone(),
+        )])));
+
+        std::fs::write(&output, br#"{"generation":"attempt-b"}"#).unwrap();
+        let selected =
+            select_managed_update_freshness(captured, miho_core::contract::Game::Hsr).unwrap();
+
+        assert_eq!(selected, attempt_a);
+        assert_eq!(selected.modes["moc"].sample_date, "2026-07-19");
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            br#"{"generation":"attempt-b"}"#
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn managed_update_invalid_freshness_preserves_the_typed_failure() {
+        let failure = UpdateStepFailureV1::safe(
+            "update.health_freshness_invalid",
+            "the committed update generation failed freshness verification",
+            true,
+        );
+
+        assert_eq!(
+            select_managed_update_freshness(
+                Some(Err(failure.clone())),
+                miho_core::contract::Game::Zzz,
+            ),
+            Err(failure)
+        );
+    }
 
     #[test]
     fn receipt_commit_failure_outranks_the_original_step_failure() {
