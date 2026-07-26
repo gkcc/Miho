@@ -639,6 +639,13 @@
 - **真实更新入口**：Windows PowerShell 5.1 隐藏产品探针实际点击 ZZZ、HSR 两个“更新数据”按钮，两次任务均 `succeeded`；两个游戏都发布新 terminal revision，卡池页的 iframe URL/revision/loaded revision 一致，官方卡池 `fetchedAt` 分别更新到本次按钮运行，六个终局模式及 860 px 布局均通过。探针 stdout 改为有界 ASCII 紧凑回执，完整 DOM 仍用于内部 fail-closed 断言；桌面进程正常退出 0、其 stdout/stderr 为空、无残留桌面进程。
 - **无黑框直接交付**：完整 `pnpm run tauri:build` 已验证 Desktop `WINDOWS_GUI`、人工 CLI `WINDOWS_CUI`、任务 CLI `WINDOWS_GUI`，并对三份 EXE 执行 7 项 Visualizer 字节 exact-once。正式 Desktop/CLI SHA-256 已更新为 `88D6032C6854C4F9F8DC7F3E1EF552708B2A648A83F77884B6EAAAC5B0F92F68` / `37AC1A7C730E180CB739AB05C1CC7AC9B0DF2DC5A847E4B46308A001B515E1E3`；owner-aware attempt `installer-d465f3c797f647c19b5bfdf7cb1a2a09` 将任务切到无窗 generation `miho-0.1.0-b0100087394fb612c6b55231d15ea75a14f01c459e46581de6b47b550a526ba9`。任务保持 Ready/Enabled、`LastTaskResult=0`、仅一个 generation 且无 candidate/journal；HSR/ZZZ Box SHA-256 仍为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。Rust、Node、TypeScript/Vite、PowerShell GUI contract、Rust fmt、diff check、完整构建及独立复审均通过；未进入 NSIS、portable 或旧安装器链。
 
+### 外层健康卡样本年龄与跨日刷新（2026-07-27，已交付）
+
+- **周期与样本年龄解耦**：桌面健康卡不再只用“当前/历史”周期状态暗示数据新鲜度。严格日历日算法现逐游戏、逐模式显示样本年龄；截至 2026-07-27，HSR 明确显示 `2026-06-25（已 32 天未更新） · 当前 1 / 历史 3`，ZZZ 显示 `2026-07-19（8 天前） · 当前 1 / 历史 1`。任一模式样本达到 15 天即进入“样本陈旧” warning，但仍明确说明本机产物校验成功、上游停更不等于本机刷新失败；周期状态继续独立显示。
+- **日期边界与可访问性**：日期解析拒绝非法闰日、越界日期和非规范格式，以 UTC civil-day 做差避免 DST 的 23/25 小时误差；显示使用本地日。健康卡始终安排下一个本地午夜重读，因此程序持续打开时年龄会自动递增；可见 summary、逐模式详情和读屏 `aria-label` 均包含年龄，只有真正达到阈值的卡片与模式使用 warning 色。
+- **验证与直接交付**：Node 前端/推荐/关闭/探针契约 132/132、独立日期行为 5/5、TypeScript/Vite、PowerShell GUI/no-window contract、`git diff --check` 与完整 `pnpm run tauri:build` 均通过；三份最终 EXE 的 7 项 Visualizer 字节继续 exact-once，PE 子系统保持 Desktop `WINDOWS_GUI`、人工 CLI `WINDOWS_CUI`、任务 CLI `WINDOWS_GUI`。候选及正式安装路径均以隐藏 CDP 真实走完 `ZZZ → HSR → ZZZ`，860 px 两卡完整可见，HSR 精确显示 32 天、ZZZ 不误报，Box 回执前后不变；进程正常退出 0、stdout/stderr 为空、调试端口与子进程清理完成。
+- **正式状态**：`D:\Miho Endgame\miho-desktop.exe` 已更新为 `1141548ADF40B36A16EE32DFE8F974A8615205254BAABA7BC40D04AA52A6EF30`；人工 CLI 保持 `37AC1A7C730E180CB739AB05C1CC7AC9B0DF2DC5A847E4B46308A001B515E1E3`，每日任务继续使用无窗 generation `miho-0.1.0-b0100087394fb612c6b55231d15ea75a14f01c459e46581de6b47b550a526ba9`。任务 `Ready / Enabled / LastTaskResult=0`，临时候选与回滚副本已清理；未进入 NSIS、portable 或旧安装器链。
+
 ## 恢复入口
 
 - 项目状态：本文件。

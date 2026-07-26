@@ -114,7 +114,12 @@ test('update health explains artifact integrity, per-game success times, stalene
   const rendering = section('function setUpdateHealthView(', 'async function refreshUpdateHealth(');
 
   assert.match(source, /const UPDATE_HEALTH_STALE_AFTER_MS = 36 \* 60 \* 60 \* 1_000/);
+  assert.match(source, /ENDGAME_SAMPLE_STALE_AFTER_DAYS/);
   assert.match(rendering, />= UPDATE_HEALTH_STALE_AFTER_MS/);
+  assert.match(rendering, /const staleSampleGames = GAMES\.filter/);
+  assert.match(rendering, /summary\.staleSamples/);
+  assert.match(rendering, /"样本陈旧"/);
+  assert.match(rendering, /存在已超过 \$\{ENDGAME_SAMPLE_STALE_AFTER_DAYS - 1\} 天未更新的终局样本/);
   assert.match(rendering, /本机产物校验通过/);
   assert.match(rendering, /\$\{gameShortLabel\(targetGame\)\} 最近成功/);
   assert.match(rendering, /终局最新采样/);
@@ -146,16 +151,21 @@ test('per-mode update health is keyboard and touch expandable without relying on
   assert.match(rendering, /item\.dataset\.game = targetGame/);
   assert.match(rendering, /item\.dataset\.completedAtUtc = entry\.completed_at_utc/);
   assert.match(rendering, /const itemSummary = element\("summary", "update-health-game-summary"\)/);
-  assert.match(rendering, /itemSummary\.setAttribute\([\s\S]*?"aria-label"[\s\S]*?各模式状态、采样日与周期边界/);
+  assert.match(rendering, /itemSummary\.setAttribute\([\s\S]*?"aria-label"[\s\S]*?各模式状态、采样日、样本年龄与周期边界/);
   assert.match(rendering, /element\("span", "update-health-toggle", "各模式详情"\)/);
   assert.match(rendering, /modeList\.setAttribute\("aria-label", `\$\{gameShortLabel\(targetGame\)\} 各模式终局数据时效`\)/);
   assert.match(rendering, /freshnessLabel\(effectiveFreshnessStatus\(modeFreshness\)\)/);
+  assert.match(rendering, /sampleAgeSuffix\(summary\.latestSampleDate, today\)/);
+  assert.match(rendering, /sampleAgeSuffix\(modeFreshness\.sample_date, today\)/);
+  assert.match(rendering, /item\.classList\.add\("has-stale-sample"\)/);
+  assert.match(rendering, /modeItem\.classList\.add\("has-stale-sample"\)/);
   assert.match(rendering, /采样日未知/);
   assert.match(rendering, /freshnessPeriodLabel\(modeFreshness\)/);
   assert.doesNotMatch(rendering, /item\.title\s*=/);
 
   assert.match(styles, /\.update-health-game-summary:focus-visible\s*\{[^}]*outline:/);
   assert.match(styles, /\.update-health-game\[open\] > \.update-health-game-summary::after/);
+  assert.match(styles, /\.update-health-game\.has-stale-sample \.update-health-sample,[\s\S]*?\.update-health-mode\.has-stale-sample \.update-health-mode-dates/);
   assert.match(styles, /\.update-health-mode-dates\s*\{[^}]*overflow-wrap:\s*anywhere/);
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.update-health-game\s*\{[^}]*min-width:\s*0;[^}]*flex-basis:\s*100%/);
 });
@@ -172,6 +182,8 @@ test('update health retries busy workspaces with bounded backoff and rechecks at
   assert.match(scheduling, /Date\.parse\(entry\.completed_at_utc\) \+ UPDATE_HEALTH_STALE_AFTER_MS/);
   assert.match(scheduling, /\[\[mode\.start_date, 0\], \[mode\.end_date, 1\]\]/);
   assert.match(scheduling, /new Date\(year, month - 1, day \+ dayOffset\)\.getTime\(\)/);
+  assert.match(scheduling, /nextLocalDateBoundary\(new Date\(now\)\)/);
+  assert.match(scheduling, /nextDateBoundary === null \? \[\] : \[nextDateBoundary\]/);
   assert.match(scheduling, /Math\.min\(Math\.max\(1, Math\.min\(\.\.\.futureDeadlines\) - now\), MAX_BROWSER_TIMER_DELAY_MS\)/);
   assert.match(scheduling, /workspaceId !== capabilities\?\.workspace\.workspace_id/);
   assert.match(request, /clearUpdateHealthTimers\(!fromBusyRetry\)/);

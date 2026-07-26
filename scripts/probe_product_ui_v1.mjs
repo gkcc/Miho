@@ -10,6 +10,11 @@ import {
   waitForVisualizerStartupStage,
 } from "./visualizer_startup_probe_v1.mjs";
 import { serializeProductUiProbeReceipt } from "./product_ui_probe_receipt_v1.mjs";
+import {
+  ENDGAME_SAMPLE_STALE_AFTER_DAYS,
+  localDateKey,
+  sampleAgeDays,
+} from "../crates/miho-desktop/src/freshness-age.js";
 
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
@@ -67,6 +72,35 @@ function normalizeSourceDate(value) {
   return named && month
     ? `${named[3]}-${month}-${named[1].padStart(2, "0")}`
     : "";
+}
+
+function verifyVisibleUpdateHealthSampleAges(snapshot) {
+  const cards = snapshot.updateHealthSampleCards ?? [];
+  assert(cards.length === 2
+    && new Set(cards.map((card) => card.game)).size === 2
+    && cards.some((card) => card.game === "hsr")
+    && cards.some((card) => card.game === "zzz"),
+  "update-health sample cards are not uniquely bound to both games", cards);
+  let hasStaleSample = false;
+  for (const card of cards) {
+    assert(card.visible, "update-health latest sample is not visibly rendered", card);
+    const match = card.sample.match(/终局最新采样\s+(\d{4}-\d{2}-\d{2})/u);
+    assert(match, "update-health card is missing its latest sample date", card);
+    const age = sampleAgeDays(match[1], localDateKey());
+    assert(age !== null, "update-health card exposes an invalid latest sample date", card);
+    if (age >= ENDGAME_SAMPLE_STALE_AFTER_DAYS) {
+      hasStaleSample = true;
+      assert(card.sample.includes(`已 ${age} 天未更新`) && card.stale,
+        "update-health card hides the exact stale sample age or warning state", { card, age });
+    } else {
+      assert(!/已\s+\d+\s+天未更新/u.test(card.sample),
+        "update-health card incorrectly marks a recent sample as stale", { card, age });
+    }
+  }
+  if (hasStaleSample) {
+    assert(snapshot.updateHealthState === "warning",
+      "stale endgame samples do not put update health into warning state", snapshot);
+  }
 }
 
 if (!webSocketUrl) throw new Error("--ws is required");
@@ -221,6 +255,15 @@ const outerExpression = `(() => {
   const utilities = document.querySelector('details.utilities');
   const updateHealthPanel = document.querySelector('.update-health');
   const updateHealthGameItems = [...(updateHealthPanel?.querySelectorAll('.update-health-game') ?? [])];
+  const updateHealthSampleCards = updateHealthGameItems.map((item) => {
+    const sample = item.querySelector('.update-health-game-summary .update-health-sample');
+    return {
+      game: item.dataset.game ?? '',
+      sample: sample?.textContent?.trim() ?? '',
+      visible: visible(sample),
+      stale: item.classList.contains('has-stale-sample'),
+    };
+  });
   const updateHealthState = ['loading', 'healthy', 'warning', 'busy', 'error']
     .find((value) => updateHealthPanel?.classList.contains(value)) ?? '';
   const activeGame = [...document.querySelectorAll('.game-button')]
@@ -239,6 +282,7 @@ const outerExpression = `(() => {
     updateHealthSummary: updateHealthPanel?.querySelector('.update-health-summary')?.textContent?.trim() ?? '',
     updateHealthDetail: updateHealthPanel?.querySelector('.update-health-detail')?.textContent?.trim() ?? '',
     updateHealthGames: updateHealthGameItems.map((item) => item.textContent?.trim() ?? ''),
+    updateHealthSampleCards,
     updateHealthGameCompletedAtUtc: updateHealthGameItems.map((item) => item.dataset.completedAtUtc ?? ''),
     firstPanel: document.querySelector('main.dashboard')?.firstElementChild?.className ?? '',
     visualizerTitle: document.querySelector('.visualizer-panel h2')?.textContent?.trim() ?? '',
@@ -687,6 +731,7 @@ function verifyOuter(snapshot, game, expectedPage = "box") {
     && snapshot.updateHealthGames.some((value) => value.includes("ZZZ 最近成功"))
     && snapshot.updateHealthGames.every((value) => /终局最新采样\s+\d{4}-\d{2}-\d{2}/u.test(value)),
   "automatic update health does not show both per-game success times and sample dates", snapshot);
+  verifyVisibleUpdateHealthSampleAges(snapshot);
   assert(snapshot.firstPanel.includes("visualizer-panel"), "Visualizer is not the first product panel", snapshot);
   assert(snapshot.visualizerTitle.includes(gameLabel) && snapshot.visualizerTitle.includes("我的 Box"), "Visualizer title does not describe the selected Box", snapshot);
   assert(snapshot.frameCount === 2 && snapshot.activeFrameCount === 1, "desktop does not retain exactly two Visualizer frames with one active", snapshot);

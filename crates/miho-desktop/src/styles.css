@@ -313,7 +313,8 @@ h1, h2, h3, h4, p { margin: 0; }
 .update-health-game-summary strong { color: var(--muted); font-size: 10px; }
 .update-health-completed { color: var(--ink-soft); }
 .update-health-sample { color: var(--muted); font-size: 10px; }
-.update-health-game.has-history .update-health-sample { color: var(--warning); font-weight: 650; }
+.update-health-game.has-stale-sample .update-health-sample,
+.update-health-mode.has-stale-sample .update-health-mode-dates { color: var(--warning); font-weight: 650; }
 .update-health-toggle { color: var(--accent); font-size: 10px; font-weight: 650; }
 .update-health-mode-list {
   display: grid;

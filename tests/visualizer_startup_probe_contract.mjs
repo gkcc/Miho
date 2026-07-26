@@ -110,6 +110,13 @@ test('the product probe gates the real ZZZ to HSR to ZZZ sequence and emits exac
   assert.match(productProbeSource, /终局最新采样\\s\+\\d\{4\}-\\d\{2\}-\\d\{2\}/u);
   assert.match(productProbeSource, /value\.includes\("HSR 最近成功"\)/u);
   assert.match(productProbeSource, /value\.includes\("ZZZ 最近成功"\)/u);
+  assert.match(productProbeSource, /updateHealthSampleCards = updateHealthGameItems\.map/u);
+  assert.match(productProbeSource, /\.update-health-game-summary \.update-health-sample/u);
+  assert.match(productProbeSource, /visible: visible\(sample\)/u);
+  assert.match(productProbeSource, /stale: item\.classList\.contains\('has-stale-sample'\)/u);
+  assert.match(productProbeSource, /sampleAgeDays\(match\[1\], localDateKey\(\)\)/u);
+  assert.match(productProbeSource, /card\.sample\.includes\(`已 \$\{age\} 天未更新`\) && card\.stale/u);
+  assert.match(productProbeSource, /snapshot\.updateHealthState === "warning"/u);
   assert.match(productProbeSource, /internals\.invoke\('get_update_health'\)/u);
   assert.match(productProbeSource, /afterTarget\.attempt_id === beforeTarget\.attempt_id/u);
   assert.match(productProbeSource, /afterOther\.attempt_id === beforeOther\.attempt_id/u);

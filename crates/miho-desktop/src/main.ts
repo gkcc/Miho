@@ -24,6 +24,14 @@ import {
   type VisualizerStartupIdentity,
   type VisualizerStartupState,
 } from "./visualizer-startup-state.js";
+import {
+  ENDGAME_SAMPLE_STALE_AFTER_DAYS,
+  localDateKey,
+  nextLocalDateBoundary,
+  sampleAgeDays,
+  sampleAgeSuffix,
+  staleSampleAgeDays,
+} from "./freshness-age.js";
 import "./styles.css";
 
 type Game = "hsr" | "zzz";
@@ -403,14 +411,6 @@ function freshnessPeriodLabel(freshness: TaskModeFreshness): string {
   return "周期边界未知";
 }
 
-function localDateKey(now = new Date()): string {
-  return [
-    now.getFullYear().toString().padStart(4, "0"),
-    (now.getMonth() + 1).toString().padStart(2, "0"),
-    now.getDate().toString().padStart(2, "0"),
-  ].join("-");
-}
-
 function effectiveFreshnessStatus(freshness: TaskModeFreshness, today = localDateKey()): string {
   const hasStart = /^\d{4}-\d{2}-\d{2}$/.test(freshness.start_date);
   const hasEnd = /^\d{4}-\d{2}-\d{2}$/.test(freshness.end_date);
@@ -420,8 +420,11 @@ function effectiveFreshnessStatus(freshness: TaskModeFreshness, today = localDat
   return freshness.status;
 }
 
-function summarizeFreshness(freshness: TaskFreshnessSummary): {
+function summarizeFreshness(freshness: TaskFreshnessSummary, today = localDateKey()): {
   latestSampleDate: string | null;
+  staleSamples: number;
+  futureSamples: number;
+  missingSamples: number;
   active: number;
   stale: number;
   future: number;
@@ -429,14 +432,19 @@ function summarizeFreshness(freshness: TaskFreshnessSummary): {
 } {
   const modes = Object.values(freshness.modes).map((mode) => ({
     ...mode,
-    effectiveStatus: effectiveFreshnessStatus(mode),
+    effectiveStatus: effectiveFreshnessStatus(mode, today),
+    sampleAgeDays: sampleAgeDays(mode.sample_date, today),
   }));
   const sampleDates = modes
+    .filter((mode) => mode.sampleAgeDays !== null)
     .map((mode) => mode.sample_date)
-    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
     .sort();
+  const latestSampleDate = sampleDates.at(-1) ?? null;
   return {
-    latestSampleDate: sampleDates.at(-1) ?? null,
+    latestSampleDate,
+    staleSamples: modes.filter((mode) => staleSampleAgeDays(mode.sample_date, today) !== null).length,
+    futureSamples: modes.filter((mode) => mode.sampleAgeDays !== null && mode.sampleAgeDays < 0).length,
+    missingSamples: modes.filter((mode) => mode.sampleAgeDays === null).length,
     active: modes.filter((mode) => mode.effectiveStatus === "active").length,
     stale: modes.filter((mode) => mode.effectiveStatus === "stale").length,
     future: modes.filter((mode) => mode.effectiveStatus === "future").length,
@@ -1287,7 +1295,12 @@ function scheduleUpdateHealthStaleDeadline(health: DesktopUpdateHealth): void {
       }
       return deadlines;
     }));
-  const futureDeadlines = [...localUpdateDeadlines, ...freshnessDeadlines];
+  const nextDateBoundary = nextLocalDateBoundary(new Date(now));
+  const futureDeadlines = [
+    ...localUpdateDeadlines,
+    ...freshnessDeadlines,
+    ...(nextDateBoundary === null ? [] : [nextDateBoundary]),
+  ];
   if (!futureDeadlines.length) return;
   const workspaceId = health.workspace_id;
   const delay = Math.min(Math.max(1, Math.min(...futureDeadlines) - now), MAX_BROWSER_TIMER_DELAY_MS);
@@ -1333,43 +1346,70 @@ function formatUpdateHealthTime(completedAtUtc: string): string {
 
 function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
   const games = new Map(health.games.map((entry) => [entry.game, entry]));
+  const today = localDateKey();
+  const freshnessSummaries = new Map(GAMES.flatMap((targetGame) => {
+    const entry = games.get(targetGame);
+    return entry ? [[targetGame, summarizeFreshness(entry.freshness, today)] as const] : [];
+  }));
   const staleLocalGames = GAMES.filter((targetGame) => {
     const entry = games.get(targetGame);
     return entry && Date.now() - Date.parse(entry.completed_at_utc) >= UPDATE_HEALTH_STALE_AFTER_MS;
   });
+  const staleSampleGames = GAMES.filter((targetGame) => (
+    (freshnessSummaries.get(targetGame)?.staleSamples ?? 0) > 0
+  ));
   const historicalSampleGames = GAMES.filter((targetGame) => {
-    const entry = games.get(targetGame);
-    return entry && summarizeFreshness(entry.freshness).stale > 0;
+    return (freshnessSummaries.get(targetGame)?.stale ?? 0) > 0;
   });
   const qualityWarningGames = GAMES.filter((targetGame) => {
     const entry = games.get(targetGame);
     if (!entry) return false;
-    const summary = summarizeFreshness(entry.freshness);
-    return entry.freshness.status === "warning" || summary.latestSampleDate === null || summary.unknown > 0;
+    const summary = freshnessSummaries.get(targetGame);
+    if (!summary) return false;
+    return entry.freshness.status === "warning"
+      || summary.latestSampleDate === null
+      || summary.unknown > 0
+      || summary.futureSamples > 0
+      || summary.missingSamples > 0;
   });
   const localStale = staleLocalGames.length > 0;
+  const hasStaleSamples = staleSampleGames.length > 0;
   const hasHistoricalSamples = historicalSampleGames.length > 0;
   const hasQualityWarnings = qualityWarningGames.length > 0;
   setUpdateHealthView(
-    localStale || hasHistoricalSamples || hasQualityWarnings ? "warning" : "healthy",
-    localStale ? "计划待查" : hasHistoricalSamples ? "本机正常" : hasQualityWarnings ? "数据待查" : "正常",
+    localStale || hasStaleSamples || hasHistoricalSamples || hasQualityWarnings ? "warning" : "healthy",
+    localStale
+      ? "计划待查"
+      : hasStaleSamples
+        ? "样本陈旧"
+        : hasHistoricalSamples
+          ? "本机正常"
+          : hasQualityWarnings
+            ? "数据待查"
+            : "正常",
     localStale
       ? `本机产物校验通过，但 ${staleLocalGames.map(gameShortLabel).join("、")} 的成功记录已超过 36 小时。`
-      : hasHistoricalSamples
-        ? `本机产物校验通过；${historicalSampleGames.map(gameShortLabel).join("、")} 上游仍有历史终局样本。`
-        : hasQualityWarnings
-          ? `本机产物校验通过；${qualityWarningGames.map(gameShortLabel).join("、")} 上游数据质量有告警。`
-          : "本机产物校验通过。",
+      : hasStaleSamples
+        ? `本机产物校验通过；${staleSampleGames.map(gameShortLabel).join("、")} 存在已超过 ${ENDGAME_SAMPLE_STALE_AFTER_DAYS - 1} 天未更新的终局样本。`
+        : hasHistoricalSamples
+          ? `本机产物校验通过；${historicalSampleGames.map(gameShortLabel).join("、")} 上游仍有历史终局样本。`
+          : hasQualityWarnings
+            ? `本机产物校验通过；${qualityWarningGames.map(gameShortLabel).join("、")} 上游数据质量有告警。`
+            : "本机产物校验通过。",
     localStale
       ? "计划任务可能未运行；请手动更新对应游戏并检查每日计划任务。终局采样取决于上游发布，历史样本不等于本机刷新失败。"
-      : hasQualityWarnings && !hasHistoricalSamples
+      : hasQualityWarnings && !hasHistoricalSamples && !hasStaleSamples
         ? "最近更新记录正常，但上游数据质量需留意；终局分析继续使用已校验产物。"
-        : "最近更新记录正常。终局采样取决于上游发布；历史样本不等于本机刷新失败。",
+        : "最近更新记录正常。终局采样取决于上游发布；历史样本不等于本机刷新失败，具体样本年龄见游戏卡。",
   );
   for (const targetGame of GAMES) {
     const entry = games.get(targetGame);
     if (!entry) continue;
-    const summary = summarizeFreshness(entry.freshness);
+    const summary = freshnessSummaries.get(targetGame);
+    if (!summary) continue;
+    const latestSampleAgeSuffix = summary.latestSampleDate
+      ? sampleAgeSuffix(summary.latestSampleDate, today)
+      : "";
     const modeStates = [
       summary.active ? `当前 ${summary.active}` : "",
       summary.stale ? `历史 ${summary.stale}` : "",
@@ -1380,10 +1420,11 @@ function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
     item.dataset.game = targetGame;
     item.dataset.completedAtUtc = entry.completed_at_utc;
     if (summary.stale) item.classList.add("has-history");
+    if (summary.staleSamples) item.classList.add("has-stale-sample");
     const itemSummary = element("summary", "update-health-game-summary");
     itemSummary.setAttribute(
       "aria-label",
-      `${gameShortLabel(targetGame)} 最近成功 ${formatUpdateHealthTime(entry.completed_at_utc)}；终局最新采样 ${summary.latestSampleDate ?? "未知"}${modeStates.length ? `；${modeStates.join("，")}` : ""}；各模式状态、采样日与周期边界`,
+      `${gameShortLabel(targetGame)} 最近成功 ${formatUpdateHealthTime(entry.completed_at_utc)}；终局最新采样 ${summary.latestSampleDate ?? "未知"}${latestSampleAgeSuffix}${modeStates.length ? `；${modeStates.join("，")}` : ""}；各模式状态、采样日、样本年龄与周期边界`,
     );
     itemSummary.append(
       element("strong", undefined, `${gameShortLabel(targetGame)} 最近成功`),
@@ -1391,7 +1432,7 @@ function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
       element(
         "span",
         "update-health-sample",
-        `终局最新采样 ${summary.latestSampleDate ?? "未知"}${modeStates.length ? ` · ${modeStates.join(" / ")}` : ""}`,
+        `终局最新采样 ${summary.latestSampleDate ?? "未知"}${latestSampleAgeSuffix}${modeStates.length ? ` · ${modeStates.join(" / ")}` : ""}`,
       ),
       element("span", "update-health-toggle", "各模式详情"),
     );
@@ -1400,6 +1441,12 @@ function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
     for (const [mode, modeFreshness] of Object.entries(entry.freshness.modes)
       .sort(([left], [right]) => left.localeCompare(right))) {
       const modeItem = element("li", "update-health-mode");
+      const modeSampleAgeSuffix = modeFreshness.sample_date
+        ? sampleAgeSuffix(modeFreshness.sample_date, today)
+        : "";
+      if (staleSampleAgeDays(modeFreshness.sample_date, today) !== null) {
+        modeItem.classList.add("has-stale-sample");
+      }
       const modeHeading = element("span", "update-health-mode-heading");
       modeHeading.append(
         element("strong", "update-health-mode-name", modeLabel(mode)),
@@ -1414,7 +1461,7 @@ function renderHealthyUpdateHealth(health: DesktopUpdateHealth): void {
         element(
           "span",
           "update-health-mode-dates",
-          `${modeFreshness.sample_date ? `采样 ${modeFreshness.sample_date}` : "采样日未知"} · ${freshnessPeriodLabel(modeFreshness)}`,
+          `${modeFreshness.sample_date ? `采样 ${modeFreshness.sample_date}${modeSampleAgeSuffix}` : "采样日未知"} · ${freshnessPeriodLabel(modeFreshness)}`,
         ),
       );
       modeList.append(modeItem);

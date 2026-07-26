@@ -10,7 +10,7 @@
     "deps:install": "pnpm install --frozen-lockfile",
     "build": "pnpm --filter miho-desktop build",
     "build:automation-cli": "cargo build --locked --release -p miho-cli --features automation-no-window --target-dir target/automation-no-window",
-    "test:recommender": "node --test tests/recommender_logic_contract.mjs tests/visualizer_runtime_contract.mjs tests/desktop_visualizer_refresh_contract.mjs tests/desktop_close_coordinator_contract.mjs tests/visualizer_startup_state_contract.mjs tests/visualizer_startup_probe_contract.mjs tests/product_ui_probe_receipt_contract.mjs tests/verify_embedded_visualizer_bytes_v1.test.mjs",
+    "test:recommender": "node --test tests/recommender_logic_contract.mjs tests/visualizer_runtime_contract.mjs tests/desktop_visualizer_refresh_contract.mjs tests/desktop_close_coordinator_contract.mjs tests/freshness_age_contract.mjs tests/visualizer_startup_state_contract.mjs tests/visualizer_startup_probe_contract.mjs tests/product_ui_probe_receipt_contract.mjs tests/verify_embedded_visualizer_bytes_v1.test.mjs",
     "test:live": "python -m pytest -q -o addopts= -m live",
     "verify:fast": "python -m pytest -q && pnpm run test:recommender && cargo test --workspace --locked && pnpm run build",
     "tauri:build": "pnpm run build && cargo build --locked --release -p miho-cli && pnpm run build:automation-cli && cargo build --locked --release -p miho-desktop --features custom-protocol && node scripts/verify_embedded_visualizer_bytes_v1.mjs",
