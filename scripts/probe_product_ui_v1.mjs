@@ -30,6 +30,38 @@ const expectedNames = (value) => String(value ?? "")
   .map((name) => name.trim())
   .filter(Boolean);
 
+function selectUniquePhaseMetadata(rows, sample) {
+  const identityFields = [
+    "mode",
+    "collect_date",
+    "phase_ver",
+    "snapshot_id",
+    "phase_name",
+    "start_date",
+    "end_date",
+  ];
+  const identityValue = (row, field) => String(field === "mode"
+    ? (row?.tier_mode ?? row?.mode ?? "")
+    : (row?.[field] ?? "")).trim();
+  const providedIdentity = identityFields
+    .map((field) => [field, identityValue(sample, field)])
+    .filter(([, value]) => value);
+  if (providedIdentity.length === 0) return null;
+  const candidates = (rows ?? []).filter((row) => providedIdentity.every(
+    ([field, value]) => identityValue(row, field) === value,
+  ));
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function completeZzzPhasePresentation(phase) {
+  const phaseName = String(phase?.phaseName ?? "").trim();
+  const mechanicName = String(phase?.mechanicName ?? "").trim();
+  return Boolean(phaseName
+    && phaseName !== "期名未提供"
+    && mechanicName
+    && mechanicName !== "机制未提供");
+}
+
 const webSocketUrl = args.get("ws");
 const expectedOwned = {
   hsr: Number(args.get("expected-hsr-owned")),
@@ -330,6 +362,7 @@ const outerExpression = `(() => {
 })()`;
 
 const productExpression = `(async () => {
+  const selectUniquePhaseMetadata = ${selectUniquePhaseMetadata.toString()};
   const visualState = (element) => {
     if (!element) return { visible: false, display: '', visibility: '', opacity: null, rectCount: 0 };
     const own = getComputedStyle(element);
@@ -413,18 +446,8 @@ const productExpression = `(async () => {
   const phaseRows = typeof DATA === 'object' && Array.isArray(DATA?.phaseInfoRows)
     ? DATA.phaseInfoRows.filter((row) => row?.mode === analysisMode)
     : [];
-  const phaseCandidates = analysisSampleDate && analysisSamplePhase
-    ? phaseRows.filter((row) => row?.collect_date === analysisSampleDate
-      && row?.phase_ver === analysisSamplePhase
-      && (!analysisSampleSnapshot || row?.snapshot_id === analysisSampleSnapshot))
-    : [];
-  const exactPhase = phaseCandidates.length === 1
-    ? phaseCandidates[0]
-    : analysisSamplePhaseName
-      ? phaseCandidates.find((row) => row?.phase_name === analysisSamplePhaseName)
-      : null;
-  const sameDatePhase = analysisSampleDate && !analysisSamplePhase
-    ? phaseRows.find((row) => row?.collect_date === analysisSampleDate)
+  const exactPhase = analysisSampleDate
+    ? selectUniquePhaseMetadata(phaseRows, latestAnalysisRow)
     : null;
   const latestPhase = !analysisSampleDate
     ? phaseRows.slice().sort((left, right) => (
@@ -433,19 +456,34 @@ const productExpression = `(async () => {
       String(right?.collect_date ?? '') + '|' + String(right?.phase_ver ?? '') + '|' + String(right?.snapshot_id ?? ''),
     ))[phaseRows.length - 1]
     : null;
-  const matchedPhase = exactPhase || sameDatePhase || latestPhase || null;
+  const matchedPhase = exactPhase || latestPhase || null;
   const analysisPhaseInfo = matchedPhase || latestAnalysisRow;
   const phaseNameCn = String(analysisPhaseInfo?.phase_name_cn ?? '').trim();
   const phaseNameRaw = String(analysisPhaseInfo?.phase_name ?? '').trim();
-  const expectedPhaseName = phaseNameCn && phaseNameCn !== '中文期名待维护'
-    ? phaseNameCn
-    : phaseNameRaw || phaseNameCn;
+  const compactPhaseLabel = (value) => String(value || '').replace(/[\\s·:_-]+/gu, '').toLowerCase();
+  const zzzPhaseNamePlaceholders = new Set([
+    analysisSamplePhase,
+    analysisSamplePhase + ' ' + analysisMode,
+    analysisMode + ' ' + analysisSamplePhase,
+    (analysisMode === 'sd' ? '式舆防卫 ' : '危局强袭 ') + analysisSamplePhase,
+    (analysisMode === 'sd' ? '式舆防卫战 ' : '危局强袭战 ') + analysisSamplePhase,
+  ].map(compactPhaseLabel).filter(Boolean));
+  const expectedPhaseName = [phaseNameCn, phaseNameRaw].find((name) => name
+    && name !== '中文期名待维护'
+    && (!(analysisMode === 'sd' || analysisMode === 'da')
+      || !zzzPhaseNamePlaceholders.has(compactPhaseLabel(name)))) ?? '';
+  const mechanicNameRaw = String(analysisPhaseInfo?.mechanic_name ?? '').trim();
+  const expectedMechanicName = mechanicNameRaw
+    && !['当期数据', '机制效果待维护'].includes(mechanicNameRaw)
+    ? mechanicNameRaw
+    : '';
   const analysisExpectedPhase = {
     matched: Boolean(matchedPhase),
     sampleDate: analysisSampleDate || String(analysisPhaseInfo?.collect_date ?? '').trim(),
     phaseVer: String(analysisPhaseInfo?.phase_ver ?? analysisSamplePhase).trim(),
     snapshotId: String(analysisPhaseInfo?.snapshot_id ?? analysisSampleSnapshot).trim(),
     phaseName: expectedPhaseName,
+    mechanicName: expectedMechanicName,
     startDate: String(analysisPhaseInfo?.start_date ?? latestAnalysisRow?.start_date ?? '').trim(),
     endDate: String(analysisPhaseInfo?.end_date ?? latestAnalysisRow?.end_date ?? '').trim(),
     status: String(analysisPhaseInfo?.phase_status ?? latestAnalysisRow?.phase_status ?? '').trim(),
@@ -1980,18 +2018,23 @@ function verifyAnalysis(
       expected: phase.phaseVer,
       subtitle: snapshot.analysisSubtitle,
     });
-    const compact = (value) => String(value || "").replace(/[\s·:_-]+/gu, "").toLowerCase();
-    const genericZzzTheme = game === "zzz" && new Set([
-      phase.phaseVer,
-      `${mode} ${phase.phaseVer}`,
-      `${mode === "sd" ? "式舆防卫" : "危局强袭"} ${phase.phaseVer}`,
-      `${mode === "sd" ? "式舆防卫" : "危局强袭战"} ${phase.phaseVer}`,
-    ].map(compact)).has(compact(phase.phaseName));
-    if (genericZzzTheme) {
-      assert(snapshot.analysisSubtitle.includes("主题：主题未提供"), `${game} ${mode} generic version label was presented as a theme`, snapshot);
+    if (game === "zzz") {
+      assert(completeZzzPhasePresentation(phase), `${game} ${mode} latest phase name or mechanic is absent`, phase);
+      const phaseName = phase.phaseName;
+      const mechanicName = phase.mechanicName;
+      assert(snapshot.analysisSubtitle.includes(`期名：${phaseName}`), `${game} ${mode} endgame phase name is not displayed independently`, {
+        expected: phaseName,
+        subtitle: snapshot.analysisSubtitle,
+      });
+      assert(snapshot.analysisSubtitle.includes(`机制：${mechanicName}`), `${game} ${mode} endgame mechanic is not displayed independently`, {
+        expected: mechanicName,
+        subtitle: snapshot.analysisSubtitle,
+      });
+      assert(!["期名未提供", "机制未提供", "中文期名待维护", "当期数据", "机制效果待维护"].some((placeholder) => (
+        snapshot.analysisSubtitle.includes(placeholder)
+      )), `${game} ${mode} endgame subtitle exposes a metadata placeholder`, snapshot);
     } else {
       assert(phase.phaseName
-        && !["中文期名待维护", "当期数据", "机制效果待维护"].includes(phase.phaseName)
         && snapshot.analysisSubtitle.includes(`主题：${phase.phaseName}`), `${game} ${mode} endgame phase theme is not displayed`, {
         expected: phase.phaseName,
         subtitle: snapshot.analysisSubtitle,
@@ -2047,9 +2090,10 @@ function verifyAnalysis(
     unknown: "周期未知",
   }[effectivePhaseStatus];
   if (requirePhaseMatch && requirePhasePresentation) {
-    assert(expectedStatus && snapshot.analysisSubtitle.includes(expectedStatus),
+    const expectedStatusText = game === "zzz" ? `状态：${expectedStatus}` : expectedStatus;
+    assert(expectedStatus && snapshot.analysisSubtitle.includes(expectedStatusText),
       `${game} ${mode} endgame freshness label does not match phase status`, {
-        expectedStatus,
+        expectedStatus: expectedStatusText,
         phase,
         subtitle: snapshot.analysisSubtitle,
       });

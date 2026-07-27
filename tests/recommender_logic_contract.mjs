@@ -435,8 +435,17 @@ const ZZZ_HARNESS = String.raw`
   sampleText(sample, today = '2026-07-10') {
     return analysisPhaseText(sample, today);
   },
-  phaseTheme(row) {
-    return phaseTheme(row);
+  phaseName(row) {
+    return phaseName(row);
+  },
+  phaseMechanic(row) {
+    return phaseMechanicName(row);
+  },
+  mechanicBody(row) {
+    return phaseMechanicBody(row);
+  },
+  recommenderPresentation(row, freshness, mode = rec.mode, today = '2026-07-10') {
+    return recommenderPhasePresentation(row, freshness, mode, today);
   },
   recommenderPhase() {
     return phaseInfo();
@@ -2584,33 +2593,97 @@ test('analysis subtitles identify the exact sampled phase without borrowing meta
       {
         id: 'exact',
         mode: 'sd',
-        collect_date: '2026-07-08',
-        phase_ver: 'repeat',
-        phase_name: '式舆防卫 repeat',
-        mechanic_name: '当期数据',
-        start_date: '2026-07-02',
-        end_date: '2026-07-16',
+        collect_date: '2026-07-19',
+        phase_ver: '7',
+        phase_name: '式舆防卫 7',
+        phase_name_cn: '26.7.10式舆防卫战关卡阵容',
+        mechanic_name: '全期增益',
+        mechanic_text: '风/冰伤害提升，命中异常敌人后增伤并无视全属性抗性。',
+        start_date: '2026-07-10',
+        end_date: '2026-07-24',
         phase_status: 'current',
       },
     ],
   });
   const zzzExact = plain(zzz.sampleMeta(
-    [{collect_date: '2026-07-08', phase_ver: 'repeat', phase_name: 'usage'}],
+    [{collect_date: '2026-07-19', phase_ver: '7', phase_name: '式舆防卫 7'}],
     'sd',
+    '2026-07-20',
   ));
   assert.deepEqual(zzzExact, {
-    date: '2026-07-08',
-    phase: 'repeat',
-    theme: '主题未提供',
-    period: '2026-07-02 至 2026-07-16',
+    date: '2026-07-19',
+    phase: '7',
+    phaseName: '26.7.10式舆防卫战关卡阵容',
+    mechanicName: '全期增益',
+    period: '2026-07-10 至 2026-07-24',
     label: '当前周期',
   });
-  assert.equal(zzz.phaseTheme({mechanic_name: '真实环境效果', phase_name: '期名'}), '真实环境效果');
-  assert.equal(zzz.phaseTheme({mechanic_name: '当期数据', phase_name: '期名'}), '期名');
-  assert.equal(zzz.phaseTheme({mode: 'sd', phase_ver: '3.0.2', mechanic_name: '当期数据', phase_name: '式舆防卫 3.0.2'}), '');
+  assert.equal(zzz.phaseName({phase_name_cn: '正式中文期名', phase_name: 'raw identity'}), '正式中文期名');
+  assert.equal(zzz.phaseName({phase_name_cn: '中文期名待维护', phase_name: 'raw identity'}), 'raw identity');
+  assert.equal(zzz.phaseName({mode: 'sd', phase_ver: '3.0.2', phase_name: '式舆防卫 3.0.2'}), '');
+  assert.equal(zzz.phaseName({mode: 'sd', phase_ver: '3.0.2', phase_name: '式舆防卫战 3.0.2'}), '');
+  assert.equal(zzz.phaseMechanic({mechanic_name: '全期增益'}), '全期增益');
+  assert.equal(zzz.phaseMechanic({mechanic_name: '当期数据'}), '');
+  assert.equal(zzz.phaseMechanic({mechanic_name: '机制效果待维护'}), '');
   assert.equal(
-    zzz.sampleText(zzzExact),
-    '期次：repeat · 主题：主题未提供 · 周期：2026-07-02 至 2026-07-16 · 最新采样：2026-07-08（2 天前） · 当前周期',
+    zzz.sampleText(zzzExact, '2026-07-20'),
+    '期次：7 · 期名：26.7.10式舆防卫战关卡阵容 · 机制：全期增益 · 周期：2026-07-10 至 2026-07-24 · 最新采样：2026-07-19（1 天前） · 状态：当前周期',
+  );
+  const historicalPresentation = plain(zzz.recommenderPresentation(
+    {
+      mode: 'sd',
+      phase_ver: '7',
+      phase_name_cn: '26.7.10式舆防卫战关卡阵容',
+      mechanic_name: '全期增益',
+      mechanic_text: '风/冰伤害提升，命中异常敌人后增伤并无视全属性抗性。',
+      phase_status: 'expired',
+      end_date: '2026-07-24',
+    },
+    {status: 'stale', sampleDate: '2026-07-19', startDate: '2026-07-10', endDate: '2026-07-24', source: '官方与统计样本'},
+    'sd',
+    '2026-07-27',
+  ));
+  assert.equal(historicalPresentation.title, '式舆防卫 · 期次 7');
+  assert.match(historicalPresentation.dates, /期名：26\.7\.10式舆防卫战关卡阵容 · 机制：全期增益 · 状态：历史样本/u);
+  assert.match(historicalPresentation.dates, /最新采样：2026-07-19（8 天前） · 周期：2026-07-10 至 2026-07-24/u);
+  assert.match(historicalPresentation.text, /以下队伍仅作历史参考。 全期增益：风\/冰伤害提升，命中异常敌人后增伤并无视全属性抗性。$/u);
+
+  zzz.reset({
+    rosterRows: [],
+    bannerRows: [],
+    teamTemplates: [],
+    tierRows: [],
+    usageRows: [],
+    phaseInfoRows: [{
+      snapshot_id: 'da-41',
+      mode: 'da',
+      collect_date: '2026-07-19',
+      phase_ver: '41',
+      phase_name: '危局强袭 41',
+      phase_name_cn: '危局强袭战（第41期）',
+      mechanic_name: '凛息 / 溃亡 / 构析',
+      mechanic_text: '三项当期增益按首领分别生效。',
+      start_date: '2026-07-17',
+      end_date: '2026-07-31',
+      phase_status: 'current',
+    }],
+  });
+  const daExact = plain(zzz.sampleMeta(
+    [{snapshot_id: 'da-41', collect_date: '2026-07-19', phase_ver: '41', phase_name: '危局强袭 41'}],
+    'da',
+    '2026-07-20',
+  ));
+  assert.deepEqual(daExact, {
+    date: '2026-07-19',
+    phase: '41',
+    phaseName: '危局强袭战（第41期）',
+    mechanicName: '凛息 / 溃亡 / 构析',
+    period: '2026-07-17 至 2026-07-31',
+    label: '当前周期',
+  });
+  assert.equal(
+    zzz.sampleText(daExact, '2026-07-20'),
+    '期次：41 · 期名：危局强袭战（第41期） · 机制：凛息 / 溃亡 / 构析 · 周期：2026-07-17 至 2026-07-31 · 最新采样：2026-07-19（1 天前） · 状态：当前周期',
   );
 
   zzz.reset({
@@ -2655,10 +2728,12 @@ test('analysis subtitles identify the exact sampled phase without borrowing meta
     {
       date: '2026-07-08',
       phase: 'repeat',
-      theme: '正确主题',
-      period: '2026-07-02 至 2026-07-16',
-      label: '当前周期',
+      phaseName: 'usage',
+      mechanicName: '机制未提供',
+      period: '未知 至 未知',
+      label: '周期未知',
     },
+    'a sole phase row with the wrong supplied phase_name must not be borrowed',
   );
   zzz.reset({
     rosterRows: [],
@@ -2720,11 +2795,70 @@ test('analysis subtitles identify the exact sampled phase without borrowing meta
     {
       date: '2026-07-08',
       phase: 'repeat',
-      theme: '式舆防卫 usage',
+      phaseName: '式舆防卫 usage',
+      mechanicName: '机制未提供',
       period: '未知 至 未知',
       label: '当前周期',
     },
   );
+});
+
+test('ZZZ phase metadata uses every supplied identity field and rejects ambiguous matches', () => {
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const sample = {
+    mode: 'sd',
+    collect_date: '2026-07-19',
+    phase_ver: 'repeat',
+    snapshot_id: 'snapshot-current',
+    phase_name: 'Usage identity',
+    start_date: '2026-07-10',
+    end_date: '2026-07-24',
+    phase_status: 'current',
+  };
+  const expectedUsageFallback = {
+    date: '2026-07-19',
+    phase: 'repeat',
+    phaseName: 'Usage identity',
+    mechanicName: '机制未提供',
+    period: '2026-07-10 至 2026-07-24',
+    label: '当前周期',
+  };
+  const reset = (phaseInfoRows) => zzz.reset({
+    rosterRows: [], bannerRows: [], teamTemplates: [], tierRows: [], usageRows: [], phaseInfoRows,
+  });
+
+  reset([{
+    ...sample,
+    start_date: '2026-07-09',
+    phase_name_cn: '不应借用的期名',
+    mechanic_name: '不应借用的机制',
+  }]);
+  assert.deepEqual(
+    plain(zzz.sampleMeta([sample], 'sd', '2026-07-20')),
+    expectedUsageFallback,
+    'a start_date mismatch must reject an otherwise matching phase row',
+  );
+
+  reset([
+    {...sample, phase_name_cn: '重复候选一', mechanic_name: '机制一'},
+    {...sample, phase_name_cn: '重复候选二', mechanic_name: '机制二'},
+  ]);
+  assert.deepEqual(
+    plain(zzz.sampleMeta([sample], 'sd', '2026-07-20')),
+    expectedUsageFallback,
+    'multiple candidates remaining after full identity filtering must not be resolved with find()',
+  );
+
+  reset([{
+    ...sample,
+    phase_name_cn: '唯一官方期名',
+    mechanic_name: '唯一官方机制',
+  }]);
+  assert.deepEqual(plain(zzz.sampleMeta([sample], 'sd', '2026-07-20')), {
+    ...expectedUsageFallback,
+    phaseName: '唯一官方期名',
+    mechanicName: '唯一官方机制',
+  });
 });
 
 test('banner refresh labels expose the managed official snapshot timestamp', () => {

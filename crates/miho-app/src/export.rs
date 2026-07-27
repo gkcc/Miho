@@ -18,8 +18,9 @@ use anyhow::{bail, Context};
 use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, Utc};
 use miho_core::{
     contract::{
-        DatasetRef, DateRange, Diagnostic, ExportContext, FeatureFlags, FetchPolicy, GameMode,
-        HistoryPolicy, WorkbookPolicy, EXPORT_REQUEST_SCHEMA_VERSION,
+        diagnostic_code, DatasetRef, DateRange, Diagnostic, DiagnosticSeverity, DiagnosticSource,
+        ExportContext, FeatureFlags, FetchPolicy, GameMode, HistoryPolicy, WorkbookPolicy,
+        EXPORT_REQUEST_SCHEMA_VERSION,
     },
     data_quality::{attach_data_quality_v1, validate_data_quality_report_v1},
     hf::HuggingFaceRepo,
@@ -44,8 +45,10 @@ use crate::{
         fetch_hsr_official_banner_phases, fetch_zzz_official_banner_phases,
         merge_banner_plan_snapshot, BannerNameMapV1, BannerRefreshMetadataV1,
     },
-    bundled_avatars, AppInvocation, ExecutionControlError, ResolvedUpdateConfigV1,
-    TaskFreshnessSummaryV1, TaskOperationV1,
+    bundled_avatars,
+    zzz_phase_refresh::refresh_official_phases,
+    AppInvocation, ExecutionControlError, ResolvedUpdateConfigV1, TaskFreshnessSummaryV1,
+    TaskOperationV1,
 };
 
 /// One wall-clock observation shared by source metadata, default ranges, and
@@ -427,6 +430,16 @@ pub async fn execute_export_observed_with_hub_v1(
         }
         attach_official_banner_snapshot(&mut run.bundle, task.game, &output_root, invocation)
             .await?;
+        if task.game == Game::Zzz {
+            attach_official_zzz_phase_snapshot(
+                &mut run.bundle,
+                &mut run.diagnostics,
+                task,
+                &output_root,
+                invocation,
+            )
+            .await?;
+        }
     }
     match task.game {
         Game::Hsr => attach_hsr_visualizer_from_output(&mut run.bundle, &output_root, invocation)?,
@@ -447,6 +460,64 @@ pub async fn execute_export_observed_with_hub_v1(
         diagnostics: run.diagnostics,
         freshness,
     })
+}
+
+async fn attach_official_zzz_phase_snapshot(
+    bundle: &mut miho_core::output::ArtifactBundle,
+    diagnostics: &mut Vec<Diagnostic>,
+    task: &ExportTaskV1,
+    output_root: &Path,
+    invocation: &ExportInvocation,
+) -> anyhow::Result<()> {
+    let cache_root = match &task.source {
+        ExportSourceV1::Online { cache_root }
+        | ExportSourceV1::OnlineHfFreshnessRequired { cache_root, .. } => {
+            invocation.resolve(cache_root).join("supplemental")
+        }
+        ExportSourceV1::Fixture { .. } => {
+            bail!("official phase refresh is not available in fixture exports")
+        }
+    };
+    let previous = match fs::read(output_root.join("zzz_official_endgame_phases.json")) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            diagnostics.push(Diagnostic {
+                severity: DiagnosticSeverity::Warning,
+                code: diagnostic_code::PIPELINE_WARNING.to_owned(),
+                source: DiagnosticSource::Hoyowiki,
+                game: Game::Zzz,
+                snapshot: None,
+                mode: None,
+                path: Some("zzz_official_endgame_phases.json".to_owned()),
+                message: format!("cannot reuse previous official phase metadata: {error}"),
+            });
+            None
+        }
+    };
+    let refresh = refresh_official_phases(
+        bundle,
+        HttpClient::new(StdDuration::from_secs(60), 2)?,
+        &cache_root,
+        previous.as_deref(),
+        invocation.observed_at(),
+    )
+    .await?;
+    for (path, bytes) in refresh.raw_artifacts {
+        bundle.add_bytes(path, bytes)?;
+    }
+    bundle.add_bytes("zzz_official_endgame_phases.json", refresh.normalized)?;
+    diagnostics.extend(refresh.warnings.into_iter().map(|message| Diagnostic {
+        severity: DiagnosticSeverity::Warning,
+        code: diagnostic_code::PIPELINE_WARNING.to_owned(),
+        source: DiagnosticSource::Hoyowiki,
+        game: Game::Zzz,
+        snapshot: None,
+        mode: None,
+        path: Some("zzz_official_endgame_phases.json".to_owned()),
+        message,
+    }));
+    Ok(())
 }
 
 async fn attach_official_banner_snapshot(
@@ -1120,6 +1191,7 @@ fn is_legacy_managed_artifact(game: Game, path: &Path) -> bool {
                     | "prydwen_tier_changelog.csv"
                     | "prydwen_tier_changelog_history.csv"
                     | "prydwen_tier_usage_trend.csv"
+                    | "zzz_official_endgame_phases.json"
                     | "data_quality.json"
                     | "export_report.md"
                     | "zzz_endgame_dataset.xlsx"
@@ -1158,6 +1230,8 @@ fn is_legacy_raw_artifact(game: Game, path: &Path) -> bool {
             ]
             .into_iter()
             .any(|candidate| path == Path::new(candidate))
+                || (path.starts_with("raw/hoyowiki/endgame")
+                    && path != Path::new("raw/hoyowiki/endgame"))
                 || is_prydwen_tier_snapshot(path)
         }
     }

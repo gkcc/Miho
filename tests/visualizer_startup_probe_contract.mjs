@@ -15,6 +15,22 @@ const productProbeSource = readFileSync(
   'utf8',
 );
 
+function extractNamedFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} is absent`);
+  const bodyStart = source.indexOf('{', start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') depth -= 1;
+    if (depth === 0) {
+      const declaration = source.slice(start, index + 1);
+      return Function(`"use strict"; return (${declaration});`)();
+    }
+  }
+  throw new Error(`${name} is incomplete`);
+}
+
 function snapshot(game, state = 'ready', code = '') {
   return {
     visualizerStartupState: state,
@@ -159,4 +175,47 @@ test('the product probe gates the real ZZZ to HSR to ZZZ sequence and emits exac
   assert.match(productProbeSource, /snapshot\.bannerCardNames.*snapshot\.bannerDataNextNames/su);
   assert.match(productProbeSource, /next banner images are broken or mismatched/u);
   assert.match(productProbeSource, /next banner dates are not visibly rendered/u);
+});
+
+test('the product probe rejects partial or ambiguous phase metadata identities', () => {
+  const selectUniquePhaseMetadata = extractNamedFunction(productProbeSource, 'selectUniquePhaseMetadata');
+  const sample = {
+    mode: 'sd',
+    collect_date: '2026-07-19',
+    phase_ver: '3.0.2',
+    snapshot_id: 'snapshot-current',
+    phase_name: 'Usage identity',
+    start_date: '2026-07-10',
+    end_date: '2026-07-24',
+  };
+  const exact = {...sample, id: 'exact'};
+
+  assert.equal(selectUniquePhaseMetadata([
+    {...exact, phase_name: 'Wrong identity', id: 'wrong-name'},
+    exact,
+  ], sample)?.id, 'exact');
+  assert.equal(selectUniquePhaseMetadata([
+    {...exact, start_date: '2026-07-09', id: 'wrong-start'},
+  ], sample), null);
+  assert.equal(selectUniquePhaseMetadata([
+    {...exact, id: 'duplicate-a'},
+    {...exact, id: 'duplicate-b'},
+  ], sample), null);
+  assert.equal(selectUniquePhaseMetadata([exact], {
+    mode: sample.mode,
+    collect_date: sample.collect_date,
+    phase_ver: sample.phase_ver,
+    phase_name: sample.phase_name,
+  })?.id, 'exact', 'identity fields omitted by usage must remain optional');
+  assert.match(productProbeSource, /selectUniquePhaseMetadata\(phaseRows, latestAnalysisRow\)/u);
+});
+
+test('the product probe fails closed on missing ZZZ phase presentation', () => {
+  const complete = extractNamedFunction(productProbeSource, 'completeZzzPhasePresentation');
+  assert.equal(complete({phaseName: '官方期名', mechanicName: '官方机制'}), true);
+  assert.equal(complete({phaseName: '', mechanicName: '官方机制'}), false);
+  assert.equal(complete({phaseName: '期名未提供', mechanicName: '官方机制'}), false);
+  assert.equal(complete({phaseName: '官方期名', mechanicName: ''}), false);
+  assert.equal(complete({phaseName: '官方期名', mechanicName: '机制未提供'}), false);
+  assert.match(productProbeSource, /assert\(completeZzzPhasePresentation\(phase\)/u);
 });

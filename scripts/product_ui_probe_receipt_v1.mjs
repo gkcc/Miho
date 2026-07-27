@@ -15,6 +15,7 @@ function phaseReceipt(phaseLike) {
     sampleDate: phase.sampleDate ?? "",
     phaseVersion: phase.phaseVer ?? phase.phaseVersion ?? "",
     theme: phase.phaseName ?? phase.theme ?? "",
+    mechanic: phase.mechanicName ?? phase.mechanic ?? "",
     startDate: phase.startDate ?? "",
     endDate: phase.endDate ?? "",
     status: phase.status ?? "",

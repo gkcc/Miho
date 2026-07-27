@@ -43,6 +43,7 @@ mod update;
 mod update_config;
 mod workspace_bootstrap;
 mod workspace_write_lease;
+mod zzz_phase_refresh;
 
 pub use export::{
     execute_export_observed_v1, execute_export_observed_with_hub_v1, execute_export_v1,

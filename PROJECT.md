@@ -684,6 +684,12 @@
 - **刷新链与门禁**：官方阶段合并会保留 `start_at / end_at`，长期池会删除遗留结束时间。产品探针逐行验证结构化边界格式，并要求运行时 `current / next / previous` 与排他边界一致。日期/分钟/秒、精确起止、跨池共享角色、别名合并、静态状态和长期池均有回归反例。
 - **验证与部署**：Rust Visualizer 36/36、卡池刷新 21 passed / 1 live ignored、Python 68 passed / 2 live deselected、CLI 73 项与 Node 71/71 通过；Rust fmt、Python 语法、diff check 和完整 `pnpm run tauri:build` 通过。隐藏正式产品深测覆盖双游戏当前/下一期、六个终局模式、结构化时钟、Box 保存桥和正常退出。正式 Desktop/人工 CLI SHA-256 为 `E7396886F2EA63141F6FDAD6E22C3458E0C77CC7420F1C746869811A49B49EF0` / `82684B58F3083EDA1AF98B639A98D7004CAFDF018C6828DA2414112E6CDBF55E`；owner-aware attempt `installer-6839f12ec143404da005ce04c165e6e0` 已切到唯一无窗 generation `miho-0.1.0-de56474e7516ee6dfedf0e3d3813f8603a32f336ab33a609dca166d408e108ec`，任务 `Ready / Enabled / LastTaskResult=0`。HSR/ZZZ Box SHA-256 继续保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
 
+### ZZZ 官方期名与机制动态绑定（2026-07-27，已交付）
+
+- 官方百科 sidecar 按 `mode + snapshot_id + phase_ver + start_date + end_date` 精确绑定，只覆盖期名/机制展示；DA 同日候选必须唯一。正式 SD 为 `26.7.10式舆防卫战关卡阵容 / 全期增益 / 2026-07-10～07-24`，DA 为 `危局强袭战（第41期） / 凛息·溃亡·构析 / 2026-07-17～07-29`，两者采样仍为 `2026-07-19`。
+- ZZZ 分析与推荐页已拆分显示期次、期名、机制、周期、采样和状态；身份不唯一或官方字段缺失时产品探针失败关闭。隐藏真实产品路径完成 `ZZZ 更新 → HSR 更新 → ZZZ`，正常退出且 Box 未变。
+- Rust 三 crate、Python ZZZ+dense 10 项、Node 136 项、fmt/diff check 与完整 release 构建通过；终审新增 DA 歧义反例后定点 7/7。正式 Desktop/人工 CLI SHA-256 为 `D67CF6961694779630410BECBB243D8F9AD0BF916680CC91B9464D0EB6F4B1F9` / `4AC29196B3E0AC95C50187EBAB0521338318EBA1E4E2FE0EADC42EC077AB8583`；每日任务已切到唯一无窗 generation `miho-0.1.0-81d527effac5a320526d33b52c75d3872f271d102d96c365e646ac9c47f2f0d3`。
+
 ## 恢复入口
 
 - 项目状态：本文件。

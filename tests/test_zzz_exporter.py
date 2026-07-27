@@ -6,7 +6,12 @@ from miho_core.visualizer_data import expand_visualizer_data
 from zzz_endgame_exporter.official_names import official_name_map
 from zzz_endgame_exporter.parsers import make_phase_row, parse_team_rows, scope_label
 from zzz_endgame_exporter.prydwen import _date_from_prydwen_date, build_tier_rows
-from zzz_endgame_exporter.visualizer import _avatar_crop_box, write_visualizer_app
+from zzz_endgame_exporter.visualizer import (
+    _avatar_crop_box,
+    _build_phase_info_rows,
+    _sanitize_output_urls,
+    write_visualizer_app,
+)
 
 
 def test_zzz_scope_label_matches_processed_files():
@@ -388,3 +393,162 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
     assert data["teamTemplates"][0]["phase_ver"] == "3.0.2"
     assert data["teamTemplates"][0]["collect_date"] == "2026-07-06"
     assert "nom" in data["teamTemplates"][0]["chars"]
+
+
+def test_zzz_phase_override_uses_snapshot_and_available_date_identity(tmp_path):
+    (tmp_path / "phase_index.csv").write_text(
+        (
+            "snapshot_id,collect_date,mode,mode_cn,phase_ver,phase_name,start_date,end_date,note\n"
+            "snapshot-old,2026-07-01,sd,式舆防卫,repeat,Old phase,,,historical\n"
+            "snapshot-current,2026-07-19,sd,式舆防卫,repeat,Current phase,,,current\n"
+            "snapshot-ambiguous,,sd,式舆防卫,repeat,Ambiguous phase,,,missing date\n"
+            "snapshot-unlisted,2026-07-19,sd,式舆防卫,repeat,Unlisted phase,,,no override\n"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "zzz_endgame_phase_overrides.json").write_text(
+        json.dumps(
+            {
+                "phases": [
+                    {
+                        "mode": "sd",
+                        "snapshot_id": "snapshot-old",
+                        "phase_ver": "repeat",
+                        "collect_date": "2026-07-01",
+                        "start_date": "2026-06-26",
+                        "end_date": "2026-07-09",
+                        "source_label": "old exact",
+                    },
+                    {
+                        "mode": "sd",
+                        "snapshot_id": "snapshot-current",
+                        "phase_ver": "repeat",
+                        "collect_date": "2026-07-18",
+                        "start_date": "2026-07-04",
+                        "end_date": "2026-07-18",
+                        "source_label": "wrong date",
+                    },
+                    {
+                        "mode": "sd",
+                        "snapshot_id": "snapshot-current",
+                        "phase_ver": "repeat",
+                        "collect_date": "2026-07-19",
+                        "start_date": "2026-07-10",
+                        "end_date": "2026-07-24",
+                        "source_label": "current exact",
+                    },
+                    {
+                        "mode": "sd",
+                        "snapshot_id": "snapshot-ambiguous",
+                        "phase_ver": "repeat",
+                        "collect_date": "2026-07-18",
+                        "start_date": "2026-07-04",
+                        "end_date": "2026-07-18",
+                    },
+                    {
+                        "mode": "sd",
+                        "snapshot_id": "snapshot-ambiguous",
+                        "phase_ver": "repeat",
+                        "collect_date": "2026-07-19",
+                        "start_date": "2026-07-10",
+                        "end_date": "2026-07-24",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    rows = {
+        row["snapshot_id"]: row for row in _build_phase_info_rows(tmp_path)
+    }
+
+    assert rows["snapshot-old"]["start_date"] == "2026-06-26"
+    assert rows["snapshot-old"]["mechanic_source"] == "old exact"
+    assert rows["snapshot-current"]["start_date"] == "2026-07-10"
+    assert rows["snapshot-current"]["mechanic_source"] == "current exact"
+    assert rows["snapshot-ambiguous"]["start_date"] == ""
+    assert rows["snapshot-ambiguous"]["mechanic_source"] == "ShiyuDataProcessed config.json"
+    assert rows["snapshot-unlisted"]["start_date"] == ""
+
+
+def test_zzz_official_phase_metadata_requires_exact_identity_and_preserves_evidence(tmp_path):
+    (tmp_path / "phase_index.csv").write_text(
+        (
+            "snapshot_id,collect_date,mode,mode_cn,phase_ver,phase_name,start_date,end_date,note\n"
+            "snapshot-current,2026-07-12,sd,式舆防卫,3.2,式舆防卫 3.2,2026-07-10,2026-07-24,hf identity\n"
+            "snapshot-history,2026-06-26,sd,式舆防卫,3.1,式舆防卫 3.1,2026-06-26,2026-07-09,historical\n"
+        ),
+        encoding="utf-8",
+    )
+    baseline = _build_phase_info_rows(tmp_path)
+    exact_identity = {
+        "mode": "sd",
+        "snapshot_id": "snapshot-current",
+        "phase_ver": "3.2",
+        "start_date": "2026-07-10",
+        "end_date": "2026-07-24",
+    }
+
+    def official_row(identity):
+        return {
+            "identity": identity,
+            "phase_name_cn": "26.7.10 式舆防卫战",
+            "mechanic_name": "本期增益",
+            "mechanic_text": "风/冰属性伤害提升；命中异常敌人时增伤并无视全抗。",
+            "source_label": "绝区零官方 HoYoWiki",
+            "source_url": "javascript:alert(1)",
+        }
+
+    sidecar = tmp_path / "zzz_official_endgame_phases.json"
+    for field, mismatch in {
+        "mode": "da",
+        "snapshot_id": "snapshot-other",
+        "phase_ver": "3.2.1",
+        "start_date": "2026-07-11",
+        "end_date": "2026-07-25",
+    }.items():
+        identity = {**exact_identity, field: mismatch}
+        sidecar.write_text(
+            json.dumps({"phases": [official_row(identity)]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        rows = _build_phase_info_rows(tmp_path)
+        assert rows[0] == baseline[0], f"mismatch in {field} must not bind"
+
+    invalid = official_row(exact_identity)
+    invalid["phase_name_cn"] = 123
+    sidecar.write_text(
+        json.dumps({"phases": [invalid]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assert _build_phase_info_rows(tmp_path)[0] == baseline[0]
+
+    sidecar.write_text(
+        json.dumps({"phases": [official_row(exact_identity)]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    enriched = _build_phase_info_rows(tmp_path)
+    for field in (
+        "snapshot_id",
+        "collect_date",
+        "mode",
+        "phase_ver",
+        "phase_name",
+        "start_date",
+        "end_date",
+        "phase_status",
+        "source_limited",
+        "source_note",
+    ):
+        assert enriched[0][field] == baseline[0][field]
+    assert enriched[0]["phase_name_cn"] == "26.7.10 式舆防卫战"
+    assert enriched[0]["mechanic_name"] == "本期增益"
+    assert enriched[0]["mechanic_text"] == "风/冰属性伤害提升；命中异常敌人时增伤并无视全抗。"
+    assert enriched[0]["mechanic_source"] == "绝区零官方 HoYoWiki"
+    assert enriched[0]["mechanic_url"] == "javascript:alert(1)"
+    assert enriched[1] == baseline[1]
+
+    sanitized = _sanitize_output_urls({"phaseInfoRows": enriched})
+    assert sanitized["phaseInfoRows"][0]["mechanic_url"] == ""

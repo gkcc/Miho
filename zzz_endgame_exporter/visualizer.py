@@ -158,12 +158,14 @@ def _build_phase_info_rows(out_dir: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     prydwen_updates = _load_prydwen_phase_updates(out_dir)
     overrides = _load_phase_overrides(out_dir)
+    official_phases = _load_official_endgame_phases(out_dir)
     for row in read_csv(out_dir / "phase_index.csv"):
         mode = str(row.get("mode") or "")
         mode_cn = str(row.get("mode_cn") or MODE_CN.get(mode, mode))
         phase_ver = str(row.get("phase_ver") or "")
+        snapshot_id = str(row.get("snapshot_id") or "")
         prydwen_update = prydwen_updates.get((mode, phase_ver), {})
-        override = overrides.get((mode, phase_ver), {})
+        override = _match_phase_override(overrides, row)
         collect_date = str(row.get("collect_date") or override.get("collect_date") or prydwen_update.get("collect_date") or "")
         start = str(row.get("start_date") or override.get("start_date") or "")
         end = str(row.get("end_date") or override.get("end_date") or "")
@@ -186,21 +188,23 @@ def _build_phase_info_rows(out_dir: Path) -> list[dict[str, Any]]:
                 "推荐只使用同模式、同关卡的当前最新队伍模板。"
             )
             mechanic_source = "ShiyuDataProcessed config.json"
+        phase_name = str(row.get("phase_name") or f"{mode_cn} {phase_ver}".strip())
+        official = official_phases.get((mode, snapshot_id, phase_ver, start, end), {})
         rows.append(
             {
-                "snapshot_id": row.get("snapshot_id", ""),
+                "snapshot_id": snapshot_id,
                 "collect_date": collect_date,
                 "mode": mode,
                 "mode_cn": mode_cn,
                 "phase_ver": phase_ver,
-                "phase_name": row.get("phase_name", "") or f"{mode_cn} {phase_ver}".strip(),
-                "phase_name_cn": row.get("phase_name", "") or f"{mode_cn} {phase_ver}".strip(),
+                "phase_name": phase_name,
+                "phase_name_cn": official.get("phase_name_cn") or phase_name,
                 "start_date": start,
                 "end_date": end,
-                "mechanic_name": "当期数据",
-                "mechanic_text": mechanic_text,
-                "mechanic_source": mechanic_source,
-                "mechanic_url": override.get("source_url", ""),
+                "mechanic_name": official.get("mechanic_name") or "当期数据",
+                "mechanic_text": official.get("mechanic_text") or mechanic_text,
+                "mechanic_source": official.get("source_label") or mechanic_source,
+                "mechanic_url": official.get("source_url") or override.get("source_url", ""),
                 "phase_status": _phase_status({"start_date": start, "end_date": end}),
                 "source_limited": source_limited,
                 "source_note": override.get("note") or row.get("note", ""),
@@ -247,7 +251,10 @@ def _load_prydwen_phase_updates(out_dir: Path) -> dict[tuple[str, str], dict[str
     return updates
 
 
-def _load_phase_overrides(out_dir: Path) -> dict[tuple[str, str], dict[str, Any]]:
+PhaseOverrideIndex = dict[tuple[str, str, str], list[dict[str, Any]]]
+
+
+def _load_phase_overrides(out_dir: Path) -> PhaseOverrideIndex:
     for path in (
         out_dir / "zzz_endgame_phase_overrides.json",
         out_dir.parent / "configs" / "zzz_endgame_phase_overrides.json",
@@ -262,11 +269,84 @@ def _load_phase_overrides(out_dir: Path) -> dict[tuple[str, str], dict[str, Any]
         rows = value.get("phases") if isinstance(value, dict) else value
         if not isinstance(rows, list):
             continue
-        return {
-            (str(row.get("mode") or ""), str(row.get("phase_ver") or "")): row
-            for row in rows
-            if isinstance(row, dict) and row.get("mode") and row.get("phase_ver")
-        }
+        overrides: PhaseOverrideIndex = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            mode = str(row.get("mode") or "").strip()
+            phase_ver = str(row.get("phase_ver") or "").strip()
+            snapshot_id = str(row.get("snapshot_id") or "").strip()
+            if not mode or not phase_ver:
+                continue
+            overrides.setdefault((mode, phase_ver, snapshot_id), []).append(row)
+        return overrides
+    return {}
+
+
+def _match_phase_override(
+    overrides: PhaseOverrideIndex,
+    phase_row: dict[str, Any],
+) -> dict[str, Any]:
+    mode = str(phase_row.get("mode") or "").strip()
+    phase_ver = str(phase_row.get("phase_ver") or "").strip()
+    snapshot_id = str(phase_row.get("snapshot_id") or "").strip()
+    exact = overrides.get((mode, phase_ver, snapshot_id), []) if snapshot_id else []
+    candidates = exact or overrides.get((mode, phase_ver, ""), [])
+    compatible = [
+        candidate
+        for candidate in candidates
+        if all(
+            not str(candidate.get(field) or "").strip()
+            or not str(phase_row.get(field) or "").strip()
+            or str(candidate.get(field) or "").strip()
+            == str(phase_row.get(field) or "").strip()
+            for field in ("phase_name", "collect_date", "start_date", "end_date")
+        )
+    ]
+    return compatible[0] if len(compatible) == 1 else {}
+
+
+def _load_official_endgame_phases(
+    out_dir: Path,
+) -> dict[tuple[str, str, str, str, str], dict[str, str]]:
+    for path in (
+        out_dir / "zzz_official_endgame_phases.json",
+        out_dir.parent / "configs" / "zzz_official_endgame_phases.json",
+        Path("configs") / "zzz_official_endgame_phases.json",
+    ):
+        if not path.exists():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        rows = value.get("phases") if isinstance(value, dict) else None
+        if not isinstance(rows, list):
+            continue
+        phases: dict[tuple[str, str, str, str, str], dict[str, str]] = {}
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("identity"), dict):
+                continue
+            identity = row["identity"]
+            identity_fields = ("mode", "snapshot_id", "phase_ver", "start_date", "end_date")
+            presentation_fields = (
+                "phase_name_cn",
+                "mechanic_name",
+                "mechanic_text",
+                "source_label",
+                "source_url",
+            )
+            if any(
+                not isinstance(identity.get(field), str) or not identity[field]
+                for field in identity_fields
+            ) or any(
+                not isinstance(row.get(field), str) or not row[field].strip()
+                for field in presentation_fields
+            ):
+                continue
+            key = tuple(identity[field] for field in identity_fields)
+            phases[key] = {field: row[field] for field in presentation_fields}
+        return phases
     return {}
 
 

@@ -409,6 +409,7 @@ fn build_phase_info(
         }
     }
     let overrides = phase_overrides(bundle, context)?;
+    let official_phases = official_endgame_phases(bundle, context)?;
     Ok(phases
         .iter()
         .map(|row| {
@@ -445,13 +446,41 @@ fn build_phase_info(
                 nonempty(row, "phase_name"),
                 Some(format!("{mode_cn_value} {version}").trim()),
             ]);
+            let official = official_phases.get(&(
+                mode.to_owned(),
+                snapshot_id.to_owned(),
+                version.to_owned(),
+                start.clone(),
+                end.clone(),
+            ));
+            let official_str = |key| {
+                official
+                    .and_then(|value| value.get(key))
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+            };
+            let phase_name_cn = first(&[official_str("phase_name_cn"), Some(&phase_name)]);
+            let mechanic_name = first(&[official_str("mechanic_name"), Some("当期数据")]);
+            let mechanic_text = first(&[official_str("mechanic_text"), Some(&mechanic_text)]);
+            let mechanic_source = first(&[
+                official_str("source_label"),
+                Some(&mechanic_source),
+            ]);
+            let mechanic_url = official_str("source_url")
+                .map(|value| Value::String(value.to_owned()))
+                .unwrap_or_else(|| {
+                    override_row
+                        .and_then(|value| value.get("source_url"))
+                        .cloned()
+                        .unwrap_or_else(|| Value::String(String::new()))
+                });
             json!({
                 "snapshot_id": get(row,"snapshot_id"), "collect_date":collect_date,
                 "mode":mode, "mode_cn":mode_cn_value, "phase_ver":version,
-                "phase_name":phase_name, "phase_name_cn":phase_name,
-                "start_date":start, "end_date":end, "mechanic_name":"当期数据",
+                "phase_name":phase_name, "phase_name_cn":phase_name_cn,
+                "start_date":start, "end_date":end, "mechanic_name":mechanic_name,
                 "mechanic_text":mechanic_text, "mechanic_source":mechanic_source,
-                "mechanic_url":override_row.and_then(|value|value.get("source_url")).cloned().unwrap_or_else(||Value::String(String::new())),
+                "mechanic_url":mechanic_url,
                 "phase_status":phase_status(&start,&end,context),
                 "source_limited":source_limited,
                 "source_note":first(&[(!override_str("note").is_empty()).then(||override_str("note")), nonempty(row,"note")]),
@@ -502,6 +531,54 @@ fn phase_overrides(bundle: &ArtifactBundle, context: &VisualizerContext) -> Resu
         }
     }
     Ok(overrides)
+}
+
+type OfficialPhaseIdentity = (String, String, String, String, String);
+
+fn official_endgame_phases(
+    bundle: &ArtifactBundle,
+    context: &VisualizerContext,
+) -> Result<HashMap<OfficialPhaseIdentity, Value>> {
+    let Some(value) = read_json_value(bundle, context, "zzz_official_endgame_phases.json")? else {
+        return Ok(HashMap::new());
+    };
+    let Some(rows) = value.get("phases").and_then(Value::as_array) else {
+        return Ok(HashMap::new());
+    };
+    let mut phases = HashMap::new();
+    for row in rows {
+        let Some(identity) = row.get("identity").filter(|value| value.is_object()) else {
+            continue;
+        };
+        let key = (
+            value_str(identity, "mode").to_owned(),
+            value_str(identity, "snapshot_id").to_owned(),
+            value_str(identity, "phase_ver").to_owned(),
+            value_str(identity, "start_date").to_owned(),
+            value_str(identity, "end_date").to_owned(),
+        );
+        if [&key.0, &key.1, &key.2, &key.3, &key.4]
+            .into_iter()
+            .any(|value| value.is_empty())
+            || [
+                "phase_name_cn",
+                "mechanic_name",
+                "mechanic_text",
+                "source_label",
+                "source_url",
+            ]
+            .into_iter()
+            .any(|field| {
+                row.get(field)
+                    .and_then(Value::as_str)
+                    .is_none_or(|value| value.trim().is_empty())
+            })
+        {
+            continue;
+        }
+        phases.insert(key, row.clone());
+    }
+    Ok(phases)
 }
 
 fn unknown(value: &str) -> &str {
@@ -1365,6 +1442,7 @@ mod tests {
         let bundle = ArtifactBundle::default();
         for path in [
             "zzz_endgame_phase_overrides.json",
+            "zzz_official_endgame_phases.json",
             "zzz_banner_plan.json",
             "decision_cards.json",
         ] {
@@ -1460,6 +1538,125 @@ mod tests {
         let mut data = json!({"phaseInfoRows": rows});
         sanitize_urls(&mut data, "");
         assert_eq!(data["phaseInfoRows"][1]["mechanic_url"], "123");
+    }
+
+    #[test]
+    fn official_phase_metadata_requires_full_identity_and_only_changes_presentation() {
+        let local_date = chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap();
+        let bundle = ArtifactBundle::default();
+        let target = row(&[
+            ("snapshot_id", "snapshot-current"),
+            ("collect_date", "2026-07-12"),
+            ("mode", "sd"),
+            ("mode_cn", "式舆防卫"),
+            ("phase_ver", "3.2"),
+            ("phase_name", "式舆防卫 3.2"),
+            ("start_date", "2026-07-10"),
+            ("end_date", "2026-07-24"),
+            ("note", "hf identity"),
+        ]);
+        let historical = row(&[
+            ("snapshot_id", "snapshot-history"),
+            ("collect_date", "2026-06-26"),
+            ("mode", "sd"),
+            ("mode_cn", "式舆防卫"),
+            ("phase_ver", "3.1"),
+            ("phase_name", "式舆防卫 3.1"),
+            ("start_date", "2026-06-26"),
+            ("end_date", "2026-07-09"),
+        ]);
+        let baseline = build_phase_info(
+            &bundle,
+            &[target.clone(), historical.clone()],
+            &VisualizerContext::new(local_date),
+        )
+        .unwrap();
+        let exact_identity = json!({
+            "mode":"sd",
+            "snapshot_id":"snapshot-current",
+            "phase_ver":"3.2",
+            "start_date":"2026-07-10",
+            "end_date":"2026-07-24"
+        });
+        let official_row = |identity: Value| {
+            json!({
+                "identity": identity,
+                "phase_name_cn":"26.7.10 式舆防卫战",
+                "mechanic_name":"本期增益",
+                "mechanic_text":"风/冰属性伤害提升；命中异常敌人时增伤并无视全抗。",
+                "source_label":"绝区零官方 HoYoWiki",
+                "source_url":"javascript:alert(1)"
+            })
+        };
+
+        for (field, mismatch) in [
+            ("mode", "da"),
+            ("snapshot_id", "snapshot-other"),
+            ("phase_ver", "3.2.1"),
+            ("start_date", "2026-07-11"),
+            ("end_date", "2026-07-25"),
+        ] {
+            let mut identity = exact_identity.clone();
+            identity[field] = mismatch.into();
+            let mut context = VisualizerContext::new(local_date);
+            context
+                .add_sidecar_json(
+                    "zzz_official_endgame_phases.json",
+                    &json!({"phases":[official_row(identity)]}),
+                )
+                .unwrap();
+            let rows = build_phase_info(&bundle, std::slice::from_ref(&target), &context).unwrap();
+            assert_eq!(rows[0], baseline[0], "mismatch in {field} must not bind");
+        }
+
+        let mut invalid = official_row(exact_identity.clone());
+        invalid["phase_name_cn"] = json!(123);
+        let mut invalid_context = VisualizerContext::new(local_date);
+        invalid_context
+            .add_sidecar_json(
+                "zzz_official_endgame_phases.json",
+                &json!({"phases":[invalid]}),
+            )
+            .unwrap();
+        let invalid_rows =
+            build_phase_info(&bundle, std::slice::from_ref(&target), &invalid_context).unwrap();
+        assert_eq!(invalid_rows[0], baseline[0]);
+
+        let mut context = VisualizerContext::new(local_date);
+        context
+            .add_sidecar_json(
+                "zzz_official_endgame_phases.json",
+                &json!({"phases":[official_row(exact_identity)]}),
+            )
+            .unwrap();
+        let enriched = build_phase_info(&bundle, &[target, historical], &context).unwrap();
+        for field in [
+            "snapshot_id",
+            "collect_date",
+            "mode",
+            "phase_ver",
+            "phase_name",
+            "start_date",
+            "end_date",
+            "phase_status",
+            "source_limited",
+            "source_note",
+        ] {
+            assert_eq!(enriched[0][field], baseline[0][field], "changed {field}");
+        }
+        assert_eq!(enriched[0]["phase_name_cn"], "26.7.10 式舆防卫战");
+        assert_eq!(enriched[0]["mechanic_name"], "本期增益");
+        assert_eq!(
+            enriched[0]["mechanic_text"],
+            "风/冰属性伤害提升；命中异常敌人时增伤并无视全抗。"
+        );
+        assert_eq!(enriched[0]["mechanic_source"], "绝区零官方 HoYoWiki");
+        assert_eq!(enriched[0]["mechanic_url"], "javascript:alert(1)");
+        assert_eq!(enriched[1], baseline[1]);
+
+        let mut output = json!({"phaseInfoRows": enriched});
+        sanitize_urls(&mut output, "");
+        assert_eq!(output["phaseInfoRows"][0]["mechanic_url"], "");
     }
 
     #[test]

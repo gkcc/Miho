@@ -16,6 +16,7 @@ function fixtureReceipt() {
       sampleDate,
       phaseVer: phaseVersion,
       phaseName: "终局主题",
+      mechanicName: "终局机制",
       startDate: "2026-07-01",
       endDate: "2026-07-31",
       status: "current",
@@ -88,8 +89,8 @@ function fixtureReceipt() {
         },
         bannerCurrentNames: ["爱丽丝", "仪玄"],
         analyses: [
-          { sampleDate: "2026-07-19", phaseVer: "7", phaseName: "终局主题", startDate: "2026-07-01", endDate: "2026-07-31", status: "current" },
-          { sampleDate: "2026-07-19", phaseVer: "8", phaseName: "终局主题", startDate: "2026-07-01", endDate: "2026-07-31", status: "current" },
+          { sampleDate: "2026-07-19", phaseVer: "7", phaseName: "终局主题", mechanicName: "终局机制", startDate: "2026-07-01", endDate: "2026-07-31", status: "current" },
+          { sampleDate: "2026-07-19", phaseVer: "8", phaseName: "终局主题", mechanicName: "终局机制", startDate: "2026-07-01", endDate: "2026-07-31", status: "current" },
         ],
         updateHealth: {
           state: "healthy",
@@ -107,8 +108,8 @@ function fixtureReceipt() {
           bannerRefresh: { status: "fresh", fetchedAt: "2026-07-27T00:00:00Z", sourceLabel: "官方卡池" },
           bannerCurrentNames: ["爱丽丝", "仪玄"],
           analyses: [
-            { sampleDate: "2026-07-19", phaseVer: "7", phaseName: "终局主题", startDate: "2026-07-01", endDate: "2026-07-31", status: "current" },
-            { sampleDate: "2026-07-19", phaseVer: "8", phaseName: "终局主题", startDate: "2026-07-01", endDate: "2026-07-31", status: "current" },
+            { sampleDate: "2026-07-19", phaseVer: "7", phaseName: "终局主题", mechanicName: "终局机制", startDate: "2026-07-01", endDate: "2026-07-31", status: "current" },
+            { sampleDate: "2026-07-19", phaseVer: "8", phaseName: "终局主题", mechanicName: "终局机制", startDate: "2026-07-01", endDate: "2026-07-31", status: "current" },
           ],
         },
       },
@@ -138,6 +139,7 @@ test("product UI probe compacts full assertion snapshots into necessary evidence
   assert.equal(receipt.sequence[0].revision, "a".repeat(64));
   assert.equal(receipt.sequence[0].analysis.modes.sd.sampleDate, "2026-07-19");
   assert.equal(receipt.sequence[0].analysis.modes.da.theme, "终局主题");
+  assert.equal(receipt.sequence[0].analysis.modes.da.mechanic, "终局机制");
   assert.deepEqual(receipt.sequence[0].banner.currentNames, ["爱丽丝", "仪玄"]);
   assert.equal(receipt.publicDataUpdates.updates[0].revision.after, "e".repeat(64));
   assert.equal(receipt.publicDataUpdates.updates[0].game, "zzz");
