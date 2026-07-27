@@ -16,7 +16,7 @@ use crate::evidence::{
     build_evidence_bundle_v1, canonical_slug, field, parse_account, parse_config, parse_csv,
     parse_name_index, push_unique, python_general_number, AccountStateV1, EvidenceConfidenceV1,
     EvidenceContextV1, EvidenceError, EvidenceGameV1, EvidenceInputsV1, EvidenceRecordV1,
-    EvidenceRequestV1, NameIndexV1, EVIDENCE_METHOD_VERSION,
+    EvidenceRequestV1, NameIndexV1, TeamSignatureAggregateV1, EVIDENCE_METHOD_VERSION,
 };
 use crate::normalize::{character_slug, parse_percent};
 use crate::visualizer::{
@@ -48,6 +48,14 @@ pub enum PullValueError {
 pub type PullValueResult<T> = Result<T, PullValueError>;
 type CandidateMap = Map<String, Value>;
 type CandidateList = Vec<CandidateMap>;
+type ObservationIndex = BTreeMap<String, BTreeSet<ObservationDescriptor>>;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ObservationDescriptor {
+    snapshot_id: String,
+    collect_date: String,
+    phase: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PullValueInputsV1 {
@@ -209,6 +217,21 @@ struct UsageSummary {
 struct UsageIndex {
     summaries: BTreeMap<String, UsageSummary>,
     raw_slugs: BTreeSet<String>,
+    observations: ObservationIndex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NewObservationState {
+    Unobserved,
+    FirstCycle,
+    Repeated,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NewObservationSummary {
+    state: NewObservationState,
+    snapshot_count: usize,
+    best_team_confidence: Option<EvidenceConfidenceV1>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -305,7 +328,9 @@ pub fn build_pull_value_bundle_v1(
         },
     )?;
 
-    let usage = parse_usage(inputs.usage_csv.as_deref())?;
+    let usage = parse_usage(inputs.usage_csv.as_deref(), &names)?;
+    let team_observations =
+        parse_team_observations(&inputs.evidence.team_rank_dedup_unordered_csv, &names)?;
     let tiers = parse_tiers(inputs.evidence.tier_csv.as_deref())?;
     let (review_candidates, filtered_candidates) = filter_review_candidates(candidates, &tiers);
     let mechanisms = parse_mechanism_notes(&inputs.mechanism_notes, &review_candidates)?;
@@ -319,6 +344,8 @@ pub fn build_pull_value_bundle_v1(
                 &account,
                 &evidence.current.records,
                 &evidence.target.records,
+                &team_observations,
+                &evidence.current.aggregates,
                 &usage,
                 &tiers,
                 &mechanisms,
@@ -406,7 +433,8 @@ pub fn render_gpt_review_packet_v1(bundle: &PullValueBundleV1) -> PullValueResul
         String::new(),
         "- 不要只按 target coverage 定性；复刻角色必须同时看历史走势、全局出场、T 榜定位、current/target 覆盖和 X+X 必要性。".to_owned(),
         "- 必须把 historical_usage、target_coverage、mechanism_review 三类证据分开列出，再综合判断。".to_owned(),
-        "- 新角色没有历史队伍记录只能标记为未实测，不能作为负面扣分。".to_owned(),
+        "- 新角色观测状态必须由全局 usage 与完整真实队伍记录共同判断，不能依赖目标 Box 是否可组。".to_owned(),
+        "- 新角色观测按 snapshot 去重；同一 snapshot 的 SD/DA 只算一次。first_cycle 表示首轮已到但仍需跨期复测，不能自动升级抽取结论或推荐档位。".to_owned(),
         "- A 级 / 四星角色默认不作为独立抽取价值候选；它们只作为队友、陪跑顺带收益或 coverage 证据。".to_owned(),
         "- 如果 Evidence Payload 含 prior_final_stage / final_stage，最终档位先沿用 baseline；local_rule_stage 只能触发 delta review，不能直接覆盖既有结论。".to_owned(),
         "- C 档或 theoretical-only 不能作为抽取/档位主依据。".to_owned(),
@@ -516,7 +544,8 @@ pub fn render_pull_value_markdown_v1(bundle: &PullValueBundleV1) -> String {
         "## 口径".to_owned(),
         String::new(),
         "- 复刻角色：按历史走势、全局出场、队伍覆盖、T 榜定位和 X+X 档位必要性评估。".to_owned(),
-        "- 新角色：按机制信息完整度、拼图关系、售后确定性和替代风险评估；没有历史队伍记录是未实测状态，不作为负面扣分。".to_owned(),
+        "- 新角色：按机制信息完整度、拼图关系、售后确定性和替代风险评估；观测状态由全局 usage 与完整真实队伍记录共同判断，不依赖 Box 是否可组。".to_owned(),
+        "- 新角色观测按 snapshot 去重；同一 snapshot 的 SD/DA 只算一次。0 次为 unobserved，1 次为 first_cycle，2 次及以上为 repeated。".to_owned(),
         "- A 级 / 四星角色默认不作为独立抽取价值候选；只作为陪跑顺带收益、队友或 coverage 证据保留。".to_owned(),
         "- target coverage 只说明加入计划角色后的队伍覆盖，不单独决定抽取价值。".to_owned(),
         "- mechanism_review 来自 `configs/zzz_mechanism_notes/*.yaml`，用于判断 0+0、0+1、1+0、1+1、2+1 等档位断点。".to_owned(),
@@ -841,26 +870,35 @@ fn is_low_rarity(candidate: &Map<String, Value>, tier: Option<&TierMeta>) -> boo
         .any(|marker| text.contains(marker))
 }
 
-fn parse_usage(bytes: Option<&[u8]>) -> PullValueResult<UsageIndex> {
+fn parse_usage(bytes: Option<&[u8]>, names: &NameIndexV1) -> PullValueResult<UsageIndex> {
     let Some(bytes) = bytes else {
         return Ok(UsageIndex::default());
     };
     let table = parse_csv(bytes, "character_usage_long.csv")?;
     let mut grouped = BTreeMap::<String, BTreeMap<String, Vec<(String, f64)>>>::new();
     let mut mode_order_by_slug = BTreeMap::<String, Vec<String>>::new();
+    let mut observation_descriptors_by_slug =
+        BTreeMap::<String, BTreeSet<ObservationDescriptor>>::new();
     let mut raw_slugs = BTreeSet::new();
     for row in table.rows {
-        let slug = character_slug(field(&row, "character_slug"));
+        let slug = canonical_slug(field(&row, "character_slug"), names);
         if !slug.is_empty() {
             raw_slugs.insert(slug.clone());
         }
-        if field(&row, "sub_mode") != "all" {
+        let rate = parse_percent(field(&row, "app_rate")).filter(|rate| rate.is_finite());
+        let is_all = field(&row, "sub_mode").trim().eq_ignore_ascii_case("all");
+        if is_all && rate.is_some() {
+            if let Some(descriptor) = observation_descriptor(&row) {
+                observation_descriptors_by_slug
+                    .entry(slug.clone())
+                    .or_default()
+                    .insert(descriptor);
+            }
+        }
+        if !is_all {
             continue;
         }
-        let Some(rate) = parse_percent(field(&row, "app_rate")).filter(|rate| rate.is_finite())
-        else {
-            continue;
-        };
+        let Some(rate) = rate else { continue };
         let mode = field(&row, "mode").to_owned();
         push_unique(
             mode_order_by_slug.entry(slug.clone()).or_default(),
@@ -927,7 +965,54 @@ fn parse_usage(bytes: Option<&[u8]>) -> PullValueResult<UsageIndex> {
     Ok(UsageIndex {
         summaries: output,
         raw_slugs,
+        observations: observation_descriptors_by_slug,
     })
+}
+
+fn parse_team_observations(bytes: &[u8], names: &NameIndexV1) -> PullValueResult<ObservationIndex> {
+    let table = parse_csv(bytes, "team_rank_dedup_unordered.csv")?;
+    let char_columns = table
+        .headers
+        .iter()
+        .filter(|header| header.starts_with("char_") && header.ends_with("_slug"))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !matches!(char_columns.len(), 3 | 4) {
+        return Ok(BTreeMap::new());
+    }
+    let mut observations = ObservationIndex::new();
+    for row in table.rows {
+        if !matches!(
+            field(&row, "mode").trim().to_ascii_lowercase().as_str(),
+            "sd" | "da"
+        ) {
+            continue;
+        }
+        let Some(_app_rate) = parse_percent(field(&row, "app_rate"))
+            .filter(|value| value.is_finite() && *value > 0.0)
+        else {
+            continue;
+        };
+        let team = char_columns
+            .iter()
+            .map(|column| canonical_slug(field(&row, column), names))
+            .collect::<Vec<_>>();
+        if team.iter().any(String::is_empty)
+            || team.iter().collect::<BTreeSet<_>>().len() != team.len()
+        {
+            continue;
+        }
+        let Some(descriptor) = observation_descriptor(&row) else {
+            continue;
+        };
+        for slug in team {
+            observations
+                .entry(slug)
+                .or_default()
+                .insert(descriptor.clone());
+        }
+    }
+    Ok(observations)
 }
 
 fn parse_tiers(bytes: Option<&[u8]>) -> PullValueResult<BTreeMap<String, TierMeta>> {
@@ -1160,6 +1245,8 @@ fn build_card(
     account: &AccountStateV1,
     current_pool: &[EvidenceRecordV1],
     target_pool: &[EvidenceRecordV1],
+    team_observations: &ObservationIndex,
+    global_aggregates: &[TeamSignatureAggregateV1],
     usage_index: &UsageIndex,
     tier_index: &BTreeMap<String, TierMeta>,
     mechanism_notes: &BTreeMap<String, Map<String, Value>>,
@@ -1174,6 +1261,12 @@ fn build_card(
     let tier = tier_index.get(&slug).cloned().unwrap_or_default();
     let mechanism = mechanism_notes.get(&slug).cloned().unwrap_or_default();
     let candidate_type = candidate_type(candidate, &slug, usage_index, tier_index);
+    let observation = new_observation_summary(
+        &slug,
+        &usage_index.observations,
+        team_observations,
+        global_aggregates,
+    );
     let current_records = records_for_slug(current_pool, &slug);
     let target_records = records_for_slug(target_pool, &slug);
     let dependent_records = target_records
@@ -1224,24 +1317,7 @@ fn build_card(
 
     let coverage_summary = coverage_text(&current_records, &target_records, &dependent_records);
     let (pull_value, stage, basis, mut risks) = if candidate_type == "new" {
-        (
-            "等实测".to_owned(),
-            stage_from_mechanism(&candidate_type, &mechanism, ""),
-            vec![
-                "新角色没有历史队伍记录属于正常未实测状态，不作为负面".to_owned(),
-                mechanism_text(candidate, &tier, &mechanism),
-                "先验证是否补当前 Box 拼图，还是要求后续售后队友".to_owned(),
-            ],
-            vec![
-                if mechanism.is_empty() {
-                    "等技能/影画/专武/首轮数据".to_owned()
-                } else {
-                    nonempty_value(&mechanism, "missing_data")
-                        .unwrap_or_else(|| "机制、倍率、专属收益和售后环境尚未落地".to_owned())
-                },
-                "替代风险无法从当前历史数据判断".to_owned(),
-            ],
-        )
+        new_value(candidate, &tier, &mechanism, observation)
     } else {
         rerun_value(
             candidate,
@@ -1271,6 +1347,11 @@ fn build_card(
             .unwrap_or_default(),
         slug.clone(),
     ]);
+    let history_summary = history_text_for_observation(&candidate_type, &usage, observation);
+    let mechanism_review_summary =
+        mechanism_review_text_for_observation(&candidate_type, &mechanism, observation);
+    let mechanism_summary =
+        mechanism_text(candidate, &tier, &mechanism, &candidate_type, observation);
     Ok(PullValueCardV1 {
         slug,
         name_cn,
@@ -1290,12 +1371,12 @@ fn build_card(
         delta_reason: baseline_fields.delta_reason,
         change_allowed_reason: baseline_fields.change_allowed_reason,
         new_evidence_categories: baseline_fields.new_evidence_categories,
-        history_summary: history_text(&usage),
+        history_summary,
         global_usage_summary: global_usage_text(&usage),
         team_coverage_summary: coverage_summary,
-        mechanism_review_summary: mechanism_review_text(&mechanism),
+        mechanism_review_summary,
         mechanism_notes: Value::Object(mechanism.clone()),
-        mechanism_summary: mechanism_text(candidate, &tier, &mechanism),
+        mechanism_summary,
         replacement_risk: replacement_text(candidate, &tier, &mechanism),
         decision_basis: basis,
         risk_notes: risks,
@@ -1380,6 +1461,259 @@ fn evidence_ref(record: &EvidenceRecordV1) -> PullEvidenceRefV1 {
         scopes: record.scopes.clone(),
         observation_keys: record.observation_keys.clone(),
     }
+}
+
+fn observation_descriptor(row: &BTreeMap<String, String>) -> Option<ObservationDescriptor> {
+    let snapshot_id = observation_identity_part(field(row, "snapshot_id"));
+    let collect_date = observation_identity_part(field(row, "collect_date"));
+    let phase_ver = field(row, "phase_ver").trim();
+    let phase = if phase_ver.is_empty() {
+        field(row, "phase_name")
+    } else {
+        phase_ver
+    };
+    let phase = observation_identity_part(phase);
+    if snapshot_id.is_empty() && collect_date.is_empty() && phase.is_empty() {
+        None
+    } else {
+        Some(ObservationDescriptor {
+            snapshot_id,
+            collect_date,
+            phase,
+        })
+    }
+}
+
+fn observation_identity_part(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+#[derive(Debug, Clone, Default)]
+struct ObservationCluster {
+    collect_dates: BTreeSet<String>,
+    phases: BTreeSet<String>,
+}
+
+impl ObservationCluster {
+    fn add(&mut self, descriptor: &ObservationDescriptor) {
+        if !descriptor.collect_date.is_empty() {
+            self.collect_dates.insert(descriptor.collect_date.clone());
+        }
+        if !descriptor.phase.is_empty() {
+            self.phases.insert(descriptor.phase.clone());
+        }
+    }
+
+    fn matches(&self, descriptor: &ObservationDescriptor) -> bool {
+        let mut matched = false;
+        if !descriptor.collect_date.is_empty() && !self.collect_dates.is_empty() {
+            if !self.collect_dates.contains(&descriptor.collect_date) {
+                return false;
+            }
+            matched = true;
+        }
+        if !descriptor.phase.is_empty() && !self.phases.is_empty() {
+            if !self.phases.contains(&descriptor.phase) {
+                return false;
+            }
+            matched = true;
+        }
+        matched
+    }
+}
+
+fn observation_cycle_count(descriptors: &BTreeSet<ObservationDescriptor>) -> usize {
+    let mut snapshot_clusters = BTreeMap::<String, ObservationCluster>::new();
+    let mut fallback_descriptors = BTreeSet::new();
+    for descriptor in descriptors {
+        if descriptor.snapshot_id.is_empty() {
+            fallback_descriptors
+                .insert((descriptor.collect_date.clone(), descriptor.phase.clone()));
+        } else {
+            snapshot_clusters
+                .entry(descriptor.snapshot_id.clone())
+                .or_default()
+                .add(descriptor);
+        }
+    }
+
+    let mut fallback_by_phase = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut fallback_date_only = BTreeSet::new();
+    for (collect_date, phase) in fallback_descriptors {
+        let descriptor = ObservationDescriptor {
+            snapshot_id: String::new(),
+            collect_date: collect_date.clone(),
+            phase: phase.clone(),
+        };
+        if snapshot_clusters
+            .values()
+            .any(|cluster| cluster.matches(&descriptor))
+        {
+            // A unique match attaches to that explicit snapshot. An ambiguous
+            // match is also excluded from fallback counting, but never merges
+            // the distinct explicit snapshot clusters.
+            continue;
+        }
+        if phase.is_empty() {
+            fallback_date_only.insert(collect_date);
+        } else {
+            let dates = fallback_by_phase.entry(phase).or_default();
+            if !collect_date.is_empty() {
+                dates.insert(collect_date);
+            }
+        }
+    }
+
+    let covered_dates = fallback_by_phase
+        .values()
+        .flatten()
+        .collect::<BTreeSet<_>>();
+    let standalone_date_count = fallback_date_only
+        .iter()
+        .filter(|collect_date| !covered_dates.contains(collect_date))
+        .count();
+
+    snapshot_clusters.len() + fallback_by_phase.len() + standalone_date_count
+}
+
+fn new_observation_summary(
+    slug: &str,
+    usage_observations: &ObservationIndex,
+    team_observations: &ObservationIndex,
+    global_aggregates: &[TeamSignatureAggregateV1],
+) -> NewObservationSummary {
+    let mut observation_descriptors = usage_observations.get(slug).cloned().unwrap_or_default();
+    if let Some(team_descriptors) = team_observations.get(slug) {
+        observation_descriptors.extend(team_descriptors.iter().cloned());
+    }
+    let best_team_confidence = global_aggregates
+        .iter()
+        .filter(|aggregate| aggregate.team_slugs.iter().any(|value| value == slug))
+        .map(|aggregate| aggregate.confidence)
+        .min_by_key(|confidence| confidence_rank(*confidence));
+    let snapshot_count = observation_cycle_count(&observation_descriptors);
+    let state = match snapshot_count {
+        0 => NewObservationState::Unobserved,
+        1 => NewObservationState::FirstCycle,
+        _ => NewObservationState::Repeated,
+    };
+    NewObservationSummary {
+        state,
+        snapshot_count,
+        best_team_confidence,
+    }
+}
+
+fn new_value(
+    candidate: &Map<String, Value>,
+    tier: &TierMeta,
+    mechanism: &Map<String, Value>,
+    observation: NewObservationSummary,
+) -> (String, StageRecommendationV1, Vec<String>, Vec<String>) {
+    let evidence_level = observation
+        .best_team_confidence
+        .map(EvidenceConfidenceV1::as_str)
+        .unwrap_or("usage");
+    let mut stage = stage_from_mechanism("new", mechanism, "");
+    if mechanism.is_empty() && observation.state == NewObservationState::FirstCycle {
+        stage.recommended_stage = "等实测".to_owned();
+        stage.reason = format!(
+            "首轮实测已到，但当前仅 {} 个 snapshot 的单期/{evidence_level} 证据，不能据此预设 X+X 档位",
+            observation.snapshot_count
+        );
+        stage.missing_data = "技能机制、影画、专武、跨期高难复测".to_owned();
+    } else if mechanism.is_empty() && observation.state == NewObservationState::Repeated {
+        stage.recommended_stage = "等实测".to_owned();
+        stage.reason = format!(
+            "已有 {} 个 snapshot 的跨期实测，但缺少 mechanism_notes，不能据此自动升级 X+X 档位",
+            observation.snapshot_count
+        );
+        stage.missing_data = "技能机制、影画、专武、跨期高难复测".to_owned();
+    }
+    let observation_basis = match observation.state {
+        NewObservationState::Unobserved => {
+            "新角色尚无全局 usage 或完整队伍实测，属于正常未实测状态，不作为负面"
+                .to_owned()
+        }
+        NewObservationState::FirstCycle => format!(
+            "新角色首轮实测已到：1 个 snapshot，当前仅单期/{} 证据；等待跨期复测，不自动提升推荐档位",
+            evidence_level
+        ),
+        NewObservationState::Repeated => format!(
+            "新角色已有跨期实测：{} 个 snapshot；仍需结合机制与账号价值复核，不自动提升推荐档位",
+            observation.snapshot_count
+        ),
+    };
+    let missing_data = nonempty_value(mechanism, "missing_data");
+    let risks = if observation.state == NewObservationState::FirstCycle {
+        vec![
+            "首轮数据不能替代跨期稳定性验证；SD/DA 同 snapshot 只计一次".to_owned(),
+            missing_data.unwrap_or_else(|| "首轮已到，仍需跨期 SD/DA 复测和机制资料".to_owned()),
+        ]
+    } else if observation.state == NewObservationState::Repeated {
+        vec![
+            "已有跨期记录不等于推荐档位自动升级，仍需复核证据质量与机制必要性".to_owned(),
+            missing_data
+                .unwrap_or_else(|| "已有跨期数据，仍需补齐机制、专属收益和替代关系".to_owned()),
+        ]
+    } else {
+        vec![
+            missing_data.unwrap_or_else(|| "机制、倍率、专属收益和售后环境尚未落地".to_owned()),
+            "替代风险无法从当前历史数据判断".to_owned(),
+        ]
+    };
+    (
+        "等实测".to_owned(),
+        stage,
+        vec![
+            observation_basis,
+            mechanism_text(candidate, tier, mechanism, "new", observation),
+            "先验证是否补当前 Box 拼图，还是要求后续售后队友".to_owned(),
+        ],
+        risks,
+    )
+}
+
+fn history_text_for_observation(
+    candidate_type: &str,
+    usage: &UsageSummary,
+    observation: NewObservationSummary,
+) -> String {
+    if candidate_type == "new" && usage.points == 0 {
+        match observation.state {
+            NewObservationState::FirstCycle => {
+                return "暂无全局 usage 出场点；完整真实队伍表已有首轮实测（1 snapshot）"
+                    .to_owned();
+            }
+            NewObservationState::Repeated => {
+                return format!(
+                    "暂无全局 usage 出场点；完整真实队伍表已有跨期实测（{} snapshots）",
+                    observation.snapshot_count
+                );
+            }
+            NewObservationState::Unobserved => {}
+        }
+    }
+    history_text(usage)
+}
+
+fn mechanism_review_text_for_observation(
+    candidate_type: &str,
+    mechanism: &Map<String, Value>,
+    observation: NewObservationSummary,
+) -> String {
+    if candidate_type == "new" && mechanism.is_empty() {
+        match observation.state {
+            NewObservationState::FirstCycle => {
+                return "暂无 mechanism_notes；首轮已到，等待机制资料与跨期复测".to_owned();
+            }
+            NewObservationState::Repeated => {
+                return "暂无 mechanism_notes；已有跨期实测，等待机制资料与证据质量复核".to_owned();
+            }
+            NewObservationState::Unobserved => {}
+        }
+    }
+    mechanism_review_text(mechanism)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1661,6 +1995,8 @@ fn mechanism_text(
     candidate: &Map<String, Value>,
     tier: &TierMeta,
     mechanism: &Map<String, Value>,
+    candidate_type: &str,
+    observation: NewObservationSummary,
 ) -> String {
     let identity = mechanism.get("identity").and_then(Value::as_object);
     let role = first_nonempty_owned([
@@ -1684,11 +2020,13 @@ fn mechanism_text(
         pull_or_text(identity.and_then(|identity| identity.get("style_cn"))),
         "未知特性".to_owned(),
     ]);
-    let focus = first_nonempty_owned([
-        pull_or_text(candidate.get("focus")),
-        pull_or_text(mechanism.get("mechanism_status")),
-        "暂无机制文本".to_owned(),
-    ]);
+    let candidate_focus = pull_or_text(candidate.get("focus"));
+    let mechanism_status = pull_or_text(mechanism.get("mechanism_status"));
+    let focus = if candidate_type == "new" && observation.state != NewObservationState::Unobserved {
+        first_nonempty_owned([mechanism_status, candidate_focus, "暂无机制文本".to_owned()])
+    } else {
+        first_nonempty_owned([candidate_focus, mechanism_status, "暂无机制文本".to_owned()])
+    };
     let rarity = first_nonempty_owned([
         pull_or_text(candidate.get("rarity")),
         pull_or_text(identity.and_then(|identity| identity.get("rarity"))),

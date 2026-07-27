@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-09",
+  "updated_at": "2026-07-28",
   "notes": "卡池与卫星信息用于可视化分析输入，不作为自动抽卡结论。若官方后续公告变更，以最新公告为准。",
   "sources": [
     {
@@ -11,7 +11,7 @@
       "url": "https://zzz.mihoyo.com/news/164747"
     },
     {
-      "label": "3.0版本限时频段（下期）",
+      "label": "3.0版本限时频段（下半）",
       "url": "https://zzz.mihoyo.com/news/165152"
     },
     {
@@ -61,7 +61,7 @@
       "title": "3.0 下半调频",
       "subtitle": "当期 UP",
       "date_range": "2026-07-08 12:00 至 2026-07-28 14:59",
-      "source_label": "3.0版本限时频段（下期）",
+      "source_label": "3.0版本限时频段（下半）",
       "source_url": "https://zzz.mihoyo.com/news/165152",
       "characters": [
         {
@@ -77,8 +77,8 @@
           "icon_url": "https://bbs-static.miyoushe.com/static/2026/04/29/372741cd9b0acdec2a8fa7495e96d69c_4245038187283874940.png",
           "icon_source_label": "米游社官方话题头像",
           "icon_source_url": "https://www.miyoushe.com/zzz/article/75009674",
-          "analysis_tags": ["新角色", "下期", "火", "击破", "机制未实测"],
-          "focus": "新 S 火属性击破；技能、专武、影画和首轮高难数据未落地，先只做关系识别。"
+          "analysis_tags": ["新角色", "当期", "火", "击破", "已有实测"],
+          "focus": "新 S 火属性击破；终局观测状态以当次全局 usage 与完整真实队伍表为准，技能、专武、影画和跨期稳定性仍需复核。"
         },
         {
           "slug": "sunna",

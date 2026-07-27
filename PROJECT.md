@@ -696,6 +696,12 @@
 - **正式数据结果**：三张队伍表均为 105,680 行；Visualizer 队伍模板由 8,602 恢复至 19,311，当前 Box 可完整组成的 AA/AS/MoC/PF 模板分别为 258/260/120/275。正式模板全部绑定 `4.3.2 / 2026-06-25`；四模式综合榜各 100 队且均保留 `hf_comps;prydwen_page` 双来源。
 - **验证与部署**：Rust core 179 项、受影响 Python 86 项（2 项 live deselected）、此前完整 Python/Node 契约、格式/语法/diff check 与完整 Tauri 构建通过；本机 Rust 1.97 未安装 clippy component，未改动工具链。隐藏正式路径完成 `ZZZ → HSR → ZZZ`，19,311 模板、六模式期次、Box 保存和正常退出均通过。正式 Desktop/人工 CLI SHA-256 为 `AE295C36F35D2CD1F34369D70C2DCD8766AE8FD168ECD0732A475F84E760E51A` / `390CBD6C37692B0685806716304A25933B33C6E26B048FCD5F0831544EB68558`；owner-aware attempt `installer-941e3fc287ea49b3838907e3ee488bcf` 已切到唯一无窗 generation `miho-0.1.0-1bd2a1d8072aafc536ee6c8d1f57211ba56f1cd220b3aeb9574cf2f3d94c4a2b`，任务 `Ready / Enabled / LastTaskResult=0`。HSR/ZZZ Box SHA-256 保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
 
+### ZZZ 新角色首轮观测与卡池生命周期收口（2026-07-28，已交付）
+
+- **观测口径**：Python/Rust 统一以 canonical slug 汇总全局 usage、候选历史与观测身份；任意 usage presence 仍区分复刻候选，但只有 `ALL` 的有限数值进入历史与新角色观测。完整真实队伍与 usage 按 snapshot 去重，同 snapshot 的 SD/DA 只计一次；无 snapshot 时保守使用日期或期次。Norma 正式报告现为 `new / 等实测 / first_cycle / 1 snapshot / B-`，SD/DA 为 `11.7% / 14.94%`，不再出现“首轮高难数据未落地”“机制未实测”或 `first_cycle_only`。
+- **卡池呈现**：`已有实测` 只接受与 core 一致的有效 usage 或三人真实队伍，不再由趋势点或队友关系误判；当期、下期、已结束标签与区块副标题全部由运行时 `phase_status` 派生，跨过边界后不会残留静态“当期 / 当期 UP”。
+- **验证与正式状态**：Python 220 项（2 live deselected）、`miho-core` 全包、Node 138/138、Rust fmt、定点 Ruff、JS syntax、diff check 与完整 `pnpm run tauri:build` 通过；三份 EXE 的 7 项 Visualizer 字节 exact-once，PE 子系统为 `WINDOWS_GUI / WINDOWS_CUI / WINDOWS_GUI`。正式 Desktop/人工 CLI SHA-256 为 `BE5D10AF1422AA806A8F91497B3A80970EAB481B0AD5F45A0FEEFF98B6ABEF03` / `0C34DCEFE6ED201A00F392A265126EBB34FEBA852F68C12DFA97FFB1AC1C4B65`；owner-aware attempt `installer-0b6263ff3b6a4cb48940b1ed7121335d` 已切到唯一无窗 generation `miho-0.1.0-53b2a41c1905184ec6cddd924b59e89f4bb7d53ff6f7687452e95d3aea810898`，任务 `Ready / Enabled / LastTaskResult=0`，无 candidate/journal。隐藏产品路径完成 `ZZZ → HSR → ZZZ` 并正常退出 0，stdout/stderr 为空、无 Python 或 WindowsTerminal/OpenConsole；HSR/ZZZ Box 哈希保持不变，4 份临时 EXE 回滚副本在验收后精确删除。未进入 NSIS、portable 或旧安装器链。
+
 ## 恢复入口
 
 - 项目状态：本文件。

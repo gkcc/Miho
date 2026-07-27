@@ -9,7 +9,8 @@
 
 - 不要只按 target coverage 定性；复刻角色必须同时看历史走势、全局出场、T 榜定位、current/target 覆盖和 X+X 必要性。
 - 必须把 historical_usage、target_coverage、mechanism_review 三类证据分开列出，再综合判断。
-- 新角色没有历史队伍记录只能标记为未实测，不能作为负面扣分。
+- 新角色观测状态必须由全局 usage 与完整真实队伍记录共同判断，不能依赖目标 Box 是否可组。
+- 新角色观测按 snapshot 去重；同一 snapshot 的 SD/DA 只算一次。first_cycle 表示首轮已到但仍需跨期复测，不能自动升级抽取结论或推荐档位。
 - A 级 / 四星角色默认不作为独立抽取价值候选；它们只作为队友、陪跑顺带收益或 coverage 证据。
 - 如果 Evidence Payload 含 prior_final_stage / final_stage，最终档位先沿用 baseline；local_rule_stage 只能触发 delta review，不能直接覆盖既有结论。
 - C 档或 theoretical-only 不能作为抽取/档位主依据。
@@ -318,41 +319,41 @@
       "status": "next",
       "local_rule_pull_value": "等实测",
       "stage_recommendation": {
-        "recommended_stage": "等技能/影画/专武/首轮数据",
+        "recommended_stage": "等实测",
         "acceptable_stage": "暂不预设",
         "unresolved_stage": "0+0 / 0+1 / 1+0 / 1+1 / 2+1",
         "stage_confidence": "low",
         "not_recommended_stage": "暂不判断",
-        "reason": "缺少 mechanism_notes，不能把 coverage=0 当负面，也不能凭模板推 X+X",
-        "missing_data": "技能机制、影画、专武、实战队伍、首轮高难数据"
+        "reason": "已有 6 个 snapshot 的跨期实测，但缺少 mechanism_notes，不能据此自动升级 X+X 档位",
+        "missing_data": "技能机制、影画、专武、跨期高难复测"
       },
       "prior_final_stage": "",
       "prior_decision_status": "",
       "prior_confidence": "",
       "prior_reason": "",
-      "local_rule_stage": "等技能/影画/专武/首轮数据",
-      "recommended_stage_for_review": "等技能/影画/专武/首轮数据",
-      "final_stage": "等技能/影画/专武/首轮数据",
+      "local_rule_stage": "等实测",
+      "recommended_stage_for_review": "等实测",
+      "final_stage": "等实测",
       "stage_delta": "none",
       "delta_requires_review": false,
       "delta_reason": "无 prior baseline；沿用本地规则建议，仍需 GPT/人工评审。",
       "change_allowed_reason": "no_prior_baseline",
       "new_evidence_categories": [],
-      "history_summary": "暂无历史出场；若为新角色，这是未实测状态，不作为负面",
+      "history_summary": "暂无全局 usage 出场点；完整真实队伍表已有跨期实测（6 snapshots）",
       "global_usage_summary": "best_latest=0%；best_avg_last3=0%；worst_trend=0",
       "team_coverage_summary": "current 0(0)；target 1(B+ 1)；新增依赖 1(B+ 1)",
-      "mechanism_review_summary": "暂无 mechanism_notes；等技能/影画/专武/首轮数据",
+      "mechanism_review_summary": "暂无 mechanism_notes；已有跨期实测，等待机制资料与证据质量复核",
       "mechanism_notes": {},
       "mechanism_summary": "未知属性 / 未知特性 / 未知定位；暂无机制文本",
       "replacement_risk": "机制未知，替代风险无法判定",
       "decision_basis": [
-        "新角色没有历史队伍记录属于正常未实测状态，不作为负面",
+        "新角色已有跨期实测：6 个 snapshot；仍需结合机制与账号价值复核，不自动提升推荐档位",
         "未知属性 / 未知特性 / 未知定位；暂无机制文本",
         "先验证是否补当前 Box 拼图，还是要求后续售后队友"
       ],
       "risk_notes": [
-        "等技能/影画/专武/首轮数据",
-        "替代风险无法从当前历史数据判断",
+        "已有跨期记录不等于推荐档位自动升级，仍需复核证据质量与机制必要性",
+        "已有跨期数据，仍需补齐机制、专属收益和替代关系",
         "1 条候选相关队伍同时依赖其他计划角色，只作为 conditional risk，不作为抽取主证据"
       ],
       "evidence_ids": [],

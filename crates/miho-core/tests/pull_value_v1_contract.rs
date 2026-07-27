@@ -264,6 +264,383 @@ fn raw_usage_presence_marks_rerun_without_creating_valid_history() {
 }
 
 #[test]
+fn alias_only_usage_is_canonicalized_into_rerun_history_and_medium_value() {
+    let mut inputs = inputs();
+    inputs
+        .evidence
+        .name_map_csv
+        .as_mut()
+        .unwrap()
+        .extend_from_slice(b"alias-medium,Alias Medium,Alias Medium,medium-usage-alias,agent\n");
+    inputs.usage_csv = Some(
+        b"collect_date,mode,sub_mode,phase_ver,character_slug,app_rate\n2026-07-12,sd,all,3.0,medium-usage-alias,7.5\n"
+            .to_vec(),
+    );
+
+    let bundle = build_pull_value_bundle_v1(
+        &inputs,
+        &PullValueRequestV1 {
+            explicit_planned_slugs: vec!["alias-medium".to_owned()],
+            plan_statuses: vec!["absent-status".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let candidate = bundle
+        .cards
+        .iter()
+        .find(|card| card.slug == "alias-medium")
+        .unwrap();
+
+    assert_eq!(candidate.candidate_type, "rerun");
+    assert_eq!(candidate.pull_value, "中");
+    assert_eq!(
+        candidate.history_summary,
+        "sd: points 1 / latest 7.5% / avg_last3 7.5% / trend 0"
+    );
+    assert_eq!(
+        candidate.global_usage_summary,
+        "best_latest=7.5%；best_avg_last3=7.5%；worst_trend=0"
+    );
+}
+
+#[test]
+fn first_cycle_uses_global_complete_teams_without_box_coverage_or_usage() {
+    let bundle = build_pull_value_bundle_v1(
+        &inputs(),
+        &PullValueRequestV1 {
+            plan_statuses: vec!["current".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let nova = bundle
+        .cards
+        .iter()
+        .find(|card| card.slug == "nova")
+        .unwrap();
+
+    assert_eq!(nova.candidate_type, "new");
+    assert_eq!(nova.pull_value, "等实测");
+    assert_eq!(
+        nova.history_summary,
+        "暂无全局 usage 出场点；完整真实队伍表已有首轮实测（1 snapshot）"
+    );
+    assert!(nova.evidence_ids.is_empty());
+    assert_eq!(
+        nova.team_coverage_summary,
+        "current 0(0)；target 0(0)；新增依赖 0(0)"
+    );
+    assert_eq!(
+        nova.decision_basis[0],
+        "新角色首轮实测已到：1 个 snapshot，当前仅单期/B- 证据；等待跨期复测，不自动提升推荐档位"
+    );
+    assert_eq!(
+        nova.risk_notes[0],
+        "首轮数据不能替代跨期稳定性验证；SD/DA 同 snapshot 只计一次"
+    );
+    assert_eq!(
+        nova.risk_notes[1],
+        "首轮已到，仍需跨期 SD/DA 复测和机制资料"
+    );
+    assert!(!nova
+        .risk_notes
+        .iter()
+        .any(|risk| risk.contains("等技能/影画/专武/首轮数据")));
+    assert_eq!(nova.stage_recommendation.recommended_stage, "等实测");
+    assert_eq!(
+        nova.stage_recommendation.reason,
+        "首轮实测已到，但当前仅 1 个 snapshot 的单期/B- 证据，不能据此预设 X+X 档位"
+    );
+    assert_eq!(
+        nova.stage_recommendation.missing_data,
+        "技能机制、影画、专武、跨期高难复测"
+    );
+    assert_eq!(
+        nova.mechanism_review_summary,
+        "暂无 mechanism_notes；首轮已到，等待机制资料与跨期复测"
+    );
+    assert!(!nova
+        .decision_basis
+        .iter()
+        .any(|basis| basis.contains("没有历史队伍记录")));
+}
+
+#[test]
+fn alias_only_complete_team_is_a_first_cycle_observation() {
+    let mut inputs = inputs();
+    inputs.usage_csv = None;
+    inputs
+        .evidence
+        .name_map_csv
+        .as_mut()
+        .unwrap()
+        .extend_from_slice(b"nova,Nova,Nova,nova-alias,agent\n");
+    inputs.evidence.team_rank_dedup_unordered_csv = b"snapshot_id,collect_date,mode,phase_ver,app_rate,avg_score,char_1_slug,char_2_slug,char_3_slug\nalias-cycle,2026-07-01,sd,3.0.1,1.5,50101,nova-alias,anchor-uno,support-alias\n".to_vec();
+
+    let bundle = build_pull_value_bundle_v1(
+        &inputs,
+        &PullValueRequestV1 {
+            plan_statuses: vec!["current".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let nova = bundle
+        .cards
+        .iter()
+        .find(|card| card.slug == "nova")
+        .unwrap();
+
+    assert_eq!(nova.candidate_type, "new");
+    assert_eq!(
+        nova.history_summary,
+        "暂无全局 usage 出场点；完整真实队伍表已有首轮实测（1 snapshot）"
+    );
+    assert!(nova.decision_basis[0].contains("1 个 snapshot"));
+    assert!(!nova.decision_basis[0].contains("跨期实测："));
+}
+
+#[test]
+fn usage_snapshot_and_snapshotless_team_on_same_date_and_phase_are_one_cycle() {
+    let mut inputs = inputs();
+    inputs.usage_csv = Some(
+        b"snapshot_id,collect_date,mode,sub_mode,phase_ver,character_slug,app_rate\nusage-cycle,2026-07-01,sd,all,3.0.1,nova,11.7\n"
+            .to_vec(),
+    );
+    inputs.evidence.team_rank_dedup_unordered_csv = b"snapshot_id,collect_date,mode,phase_ver,app_rate,avg_score,char_1_slug,char_2_slug,char_3_slug\n,2026-07-01,da,3.0.1,14.94,60101,nova,offbox-one,offbox-two\n".to_vec();
+
+    let bundle = build_pull_value_bundle_v1(
+        &inputs,
+        &PullValueRequestV1 {
+            plan_statuses: vec!["current".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let nova = bundle
+        .cards
+        .iter()
+        .find(|card| card.slug == "nova")
+        .unwrap();
+
+    assert!(nova.decision_basis[0].contains("1 个 snapshot"));
+    assert!(!nova.decision_basis[0].contains("新角色已有跨期实测"));
+}
+
+#[test]
+fn distinct_snapshots_in_the_same_phase_remain_repeated_observations() {
+    let mut inputs = inputs();
+    inputs.usage_csv = Some(
+        b"snapshot_id,collect_date,mode,sub_mode,phase_ver,character_slug,app_rate\ncycle-a,2026-07-01,sd,all,3.0.1,nova,11.7\ncycle-b,2026-07-01,da,all,3.0.1,nova,14.94\n,2026-07-01,sd,all,3.0.1,nova,12.5\n"
+            .to_vec(),
+    );
+    inputs.evidence.team_rank_dedup_unordered_csv = b"snapshot_id,collect_date,mode,phase_ver,app_rate,avg_score,char_1_slug,char_2_slug,char_3_slug\n".to_vec();
+
+    let bundle = build_pull_value_bundle_v1(
+        &inputs,
+        &PullValueRequestV1 {
+            plan_statuses: vec!["current".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let nova = bundle
+        .cards
+        .iter()
+        .find(|card| card.slug == "nova")
+        .unwrap();
+
+    assert!(nova.decision_basis[0].contains("新角色已有跨期实测：2 个 snapshot"));
+}
+
+#[test]
+fn padded_case_insensitive_all_keeps_usage_and_observation_state_consistent() {
+    let mut inputs = inputs();
+    inputs.usage_csv = Some(
+        b"snapshot_id,collect_date,mode,sub_mode,phase_ver,character_slug,app_rate\nspace-all-cycle,2026-07-01,sd, ALL ,3.0.1,nova,11.7\n"
+            .to_vec(),
+    );
+    inputs.evidence.team_rank_dedup_unordered_csv = b"snapshot_id,collect_date,mode,phase_ver,app_rate,avg_score,char_1_slug,char_2_slug,char_3_slug\n".to_vec();
+
+    let bundle = build_pull_value_bundle_v1(
+        &inputs,
+        &PullValueRequestV1 {
+            plan_statuses: vec!["current".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let nova = bundle
+        .cards
+        .iter()
+        .find(|card| card.slug == "nova")
+        .unwrap();
+
+    assert!(nova.history_summary.starts_with("sd: points 1"));
+    assert!(nova.decision_basis[0].contains("1 个 snapshot"));
+    assert!(!nova.decision_basis[0].contains("尚无全局 usage"));
+}
+
+#[test]
+fn new_observation_states_keep_unobserved_and_repeated_distinct() {
+    let repeated = build_pull_value_bundle_v1(
+        &inputs(),
+        &PullValueRequestV1 {
+            plan_statuses: vec!["next".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let zeta = repeated
+        .cards
+        .iter()
+        .find(|card| card.slug == "zeta")
+        .unwrap();
+    assert_eq!(zeta.candidate_type, "new");
+    assert_eq!(zeta.pull_value, "等实测");
+    assert_eq!(
+        zeta.decision_basis[0],
+        "新角色已有跨期实测：6 个 snapshot；仍需结合机制与账号价值复核，不自动提升推荐档位"
+    );
+    assert_eq!(
+        zeta.risk_notes[0],
+        "已有跨期记录不等于推荐档位自动升级，仍需复核证据质量与机制必要性"
+    );
+    assert_eq!(
+        zeta.risk_notes[1],
+        "已有跨期数据，仍需补齐机制、专属收益和替代关系"
+    );
+    assert_eq!(
+        zeta.history_summary,
+        "暂无全局 usage 出场点；完整真实队伍表已有跨期实测（6 snapshots）"
+    );
+    assert_eq!(zeta.stage_recommendation.recommended_stage, "等实测");
+    assert_eq!(
+        zeta.stage_recommendation.reason,
+        "已有 6 个 snapshot 的跨期实测，但缺少 mechanism_notes，不能据此自动升级 X+X 档位"
+    );
+    assert_eq!(
+        zeta.mechanism_review_summary,
+        "暂无 mechanism_notes；已有跨期实测，等待机制资料与证据质量复核"
+    );
+
+    let unobserved = build_pull_value_bundle_v1(
+        &inputs(),
+        &PullValueRequestV1 {
+            explicit_planned_slugs: vec!["unseen-new".to_owned()],
+            plan_statuses: vec!["absent-status".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let unseen = unobserved
+        .cards
+        .iter()
+        .find(|card| card.slug == "unseen-new")
+        .unwrap();
+    assert_eq!(unseen.candidate_type, "new");
+    assert_eq!(
+        unseen.decision_basis[0],
+        "新角色尚无全局 usage 或完整队伍实测，属于正常未实测状态，不作为负面"
+    );
+    assert_eq!(
+        unseen.stage_recommendation.recommended_stage,
+        "等技能/影画/专武/首轮数据"
+    );
+}
+
+#[test]
+fn observed_new_mechanism_status_overrides_stale_focus_only_for_observed_new_characters() {
+    let mut inputs = inputs();
+    inputs.evidence.banner_plan_json = Some(
+        r#"{
+            "phases": [{
+                "status": "current",
+                "characters": [
+                    {
+                        "slug": "nova",
+                        "banner_role": "限定 S 级新角色",
+                        "focus": "首轮旧 focus"
+                    },
+                    {
+                        "slug": "zeta",
+                        "banner_role": "限定 S 级新角色",
+                        "focus": "跨期旧 focus"
+                    },
+                    {
+                        "slug": "unseen-new",
+                        "banner_role": "限定 S 级新角色",
+                        "focus": "未观测旧 focus"
+                    },
+                    {
+                        "slug": "beta",
+                        "banner_role": "限定 S 级复刻",
+                        "focus": "复刻旧 focus"
+                    }
+                ]
+            }]
+        }"#
+        .as_bytes()
+        .to_vec(),
+    );
+    for (slug, status) in [
+        ("nova", "首轮新机制摘要"),
+        ("zeta", "跨期新机制摘要"),
+        ("unseen-new", "未观测新机制摘要"),
+        ("beta", "复刻新机制摘要"),
+    ] {
+        inputs.mechanism_notes.insert(
+            slug.to_owned(),
+            format!("mechanism_status: {status}\n").into_bytes(),
+        );
+    }
+
+    let bundle = build_pull_value_bundle_v1(
+        &inputs,
+        &PullValueRequestV1 {
+            plan_statuses: vec!["current".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let card = |slug: &str| bundle.cards.iter().find(|card| card.slug == slug).unwrap();
+
+    let nova = card("nova");
+    assert_eq!(nova.candidate_type, "new");
+    assert!(nova.mechanism_summary.contains("首轮新机制摘要"));
+    assert!(!nova.mechanism_summary.contains("首轮旧 focus"));
+    assert!(nova
+        .decision_basis
+        .iter()
+        .any(|basis| basis.contains("首轮新机制摘要")));
+
+    let zeta = card("zeta");
+    assert_eq!(zeta.candidate_type, "new");
+    assert!(zeta.mechanism_summary.contains("跨期新机制摘要"));
+    assert!(!zeta.mechanism_summary.contains("跨期旧 focus"));
+
+    let unseen = card("unseen-new");
+    assert_eq!(unseen.candidate_type, "new");
+    assert!(unseen.mechanism_summary.contains("未观测旧 focus"));
+    assert!(!unseen.mechanism_summary.contains("未观测新机制摘要"));
+
+    let beta = card("beta");
+    assert_eq!(beta.candidate_type, "rerun");
+    assert!(beta.mechanism_summary.contains("复刻旧 focus"));
+    assert!(!beta.mechanism_summary.contains("复刻新机制摘要"));
+}
+
+#[test]
 fn usage_history_keeps_first_seen_mode_order() {
     let mut inputs = inputs();
     inputs

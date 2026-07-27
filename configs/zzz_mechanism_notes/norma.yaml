@@ -6,36 +6,36 @@ identity:
   style_cn: 击破
   role_group_cn: 击破
   rarity: S
-mechanism_status: 新 S 火属性击破；机制未实测，技能、专武、影画和首轮高难队伍记录等待正式数据。
+mechanism_status: 新 S 火属性击破；终局观测状态由当次全局 usage 与完整真实队伍表动态判断，技能、专武、影画和跨期稳定性仍待验证。
 
 source_quality:
   identity: official_profile
-  historical_usage: none_new_character
-  target_coverage: not_applicable_until_release
+  historical_usage: dynamic_report_only
+  target_coverage: dynamic_report_only
   guide_consensus: missing
   skill_text: missing
   cinema_signature_breakpoints: missing
 stage_confidence: low
 
-body_completeness_0_0: 已知身份为火 / 击破 / 新 S；本体机制完整度等待正式技能与首轮实战。
+body_completeness_0_0: 已知身份为火 / 击破 / 新 S；终局观测以动态报告为准，本体机制完整度仍需正式技能与跨期复测确认。
 signature_value_0_1: 未知；等待专武数值、触发条件和替代音擎对比。
 cinema_value_1_0: 未知；等待影画文本和实战收益。
 combo_value_1_1: 未知；等待本体、专武、影画组合收益。
-necessity_2_1: 未知；新角色实测前不能预设高档位必要性。
+necessity_2_1: 未知；终局观测记录不能单独预设高档位必要性。
 higher_stage_note: 高档位不预设；只在正式机制、指南和高难数据证明长期收益时再考虑。
 
-recommended_stage: 等技能/影画/专武/首轮数据
-acceptable_stage: 暂不预设；若机制与 Box 拼图高度吻合，首轮数据后再评估 0+0 / 0+1。
+recommended_stage: 等实测
+acceptable_stage: 暂不预设；若机制与 Box 拼图高度吻合，结合跨期复测再评估 0+0 / 0+1。
 unresolved_stage: 0+0 / 0+1 / 1+0 / 1+1 / 2+1
 not_recommended_stage: 暂不判断；资料不足阶段不规划高档位
-stage_reason: 新角色没有历史队伍记录是未实测状态，不是负面；目前只确认火、击破、新 S 身份，不能根据 coverage=0 或模板规则下 X+X 结论。
-missing_data: 正式技能、专武、影画、核心队友、首轮 SD/DA 队伍记录、替代关系、是否要求后续售后队友。
+stage_reason: 终局观测状态由当次全局 usage 与完整真实队伍表动态判断；即使已有记录，也要等待跨期稳定性和机制证据，不能自动下 X+X 结论。
+missing_data: 正式技能、专武、影画、核心队友、后续 SD/DA 跨期复测、替代关系、是否要求后续售后队友。
 
 stage_notes:
   "0+0":
     value_type: 本体完整度
-    evidence: 已知身份信息为火属性、击破、新 S；机制未实测。
-    missing_data: 正式技能组、击破定位细节、站场/速切需求、首轮高难表现。
+    evidence: 已知身份信息为火属性、击破、新 S；全局 usage、完整真实队伍和证据等级由当次动态报告提供。
+    missing_data: 正式技能组、击破定位细节、站场/速切需求、后续期数高难复测。
   "0+1":
     value_type: 专武价值
     evidence: 暂无可评估资料。
@@ -54,7 +54,7 @@ stage_notes:
     missing_data: 2 影文本、2+1 是否有长期 auto 必要性、指南与实战共识。
 
 key_teammates: []
-archetypes: [火击破, 新 S, 机制未实测]
-risks_and_counterevidence: 目前只能确认身份信息；任何 X+X 结论都应等待正式技能、专武、影画和首轮数据。
+archetypes: [火击破, 新 S, 动态观测]
+risks_and_counterevidence: 终局观测状态和证据等级以动态报告为准；任何 X+X 结论都应等待正式技能、专武、影画和跨期复测，当前 Box coverage 不单独决定抽取档位。
 source_url: https://www.miyoushe.com/zzz/article/75009674
-source_summary: 官方代理人档案足以确认角色身份和卡池计划，但不足以评估抽取档位；X+X 暂停在资料等待状态。
+source_summary: 官方代理人档案确认角色身份；终局观测、队伍证据等级与跨期状态由当次动态报告提供，静态机制笔记不固化某一期结论。

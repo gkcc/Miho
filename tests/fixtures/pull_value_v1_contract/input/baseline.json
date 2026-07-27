@@ -26,8 +26,8 @@
       "final_stage": "0+1",
       "decision_status": "soft_locked",
       "confidence": "low",
-      "reason": "新角色仅作 delta 审核反例",
-      "change_policy": "wait_for_release_data"
+      "reason": "新角色首轮单快照 B- 证据仅作 delta 审核反例",
+      "change_policy": "wait_for_repeated_data"
     }
   ]
 }

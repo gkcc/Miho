@@ -108,6 +108,16 @@ def test_dense_packet_oracle_freezes_current_next_trace_and_decision_semantics(t
     assert nova["local_rule_pull_value"] == "等实测"
     assert nova["final_stage"] == "0+1"
     assert nova["delta_requires_review"] is True
+    assert nova["change_allowed_reason"] == "wait_for_repeated_data"
+    assert nova["history_summary"] == "暂无全局 usage 出场点；完整真实队伍表已有首轮实测（1 snapshot）"
+    assert nova["team_coverage_summary"] == "current 0(0)；target 0(0)；新增依赖 0(0)"
+    assert nova["stage_recommendation"]["recommended_stage"] == "等实测"
+    assert nova["decision_basis"][0] == (
+        "新角色首轮实测已到：1 个 snapshot，当前仅单期/B- 证据；等待跨期复测，不自动提升推荐档位"
+    )
+    assert nova["risk_notes"][0] == "首轮数据不能替代跨期稳定性验证；SD/DA 同 snapshot 只计一次"
+    assert nova["evidence_ids"] == []
+    assert nova["risk_evidence_ids"] == []
 
     delta = next_cards["delta"]
     assert [ref["confidence"] for ref in delta["evidence_refs"]] == ["B", "B"]

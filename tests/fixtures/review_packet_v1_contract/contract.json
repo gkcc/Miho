@@ -101,8 +101,8 @@
     }
   },
   "normalized_sha256": {
-    "current_gpt_pull_reviewer_packet.md": "893ee23ebc38135482165fbfda5c9cead737b35cab16734babfc8b0c7bde5461",
-    "next_gpt_pull_reviewer_packet.md": "3dd1e707fd8d1f5ec801dfc5d2a241a669bf9468c7416a0f33e452ecb19886de"
+    "current_gpt_pull_reviewer_packet.md": "bbdeaf455efde819882fd47c828cf7849e959547c822c5488ffb3dfbfe2bb703",
+    "next_gpt_pull_reviewer_packet.md": "186965cd4ac005f3541ba018b7bc6745b553546fb6d59de50739e57ab41925b1"
   },
   "stable_evidence_ids": {
     "sd|alpha|anchor-one|support": "E-SD-078BE089A7",

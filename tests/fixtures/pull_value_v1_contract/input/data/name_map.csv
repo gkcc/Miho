@@ -10,3 +10,5 @@ low-a,Low A,低稀有候选,,agent
 delta,Delta,德尔塔,,agent
 epsilon,Epsilon,伊普西龙,,agent
 zeta,Zeta,泽塔,,agent
+offbox-one,Offbox One,未持有队友一,,agent
+offbox-two,Offbox Two,未持有队友二,,agent

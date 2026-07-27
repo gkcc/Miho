@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-07",
+  "updated_at": "2026-07-28",
   "purpose": "Prior GPT/manual final-stage baseline for ZZZ pull-value delta review. Local deterministic rules may trigger review, but must not overwrite these final stages without new evidence.",
   "new_evidence_categories": [
     "新一期 SD/DA 出场率显著变化",
@@ -46,8 +46,8 @@
       "decision_status": "watch",
       "confidence": "low",
       "source": "manual_gpt_review",
-      "reason": "既有 GPT/人工复审基线：诺姆技能、专武、影画和首轮数据未落地，暂时等实测。",
-      "change_policy": "wait_for_release_data",
+      "reason": "既有 GPT/人工复审基线（记录于 2026-07-19 / 3.0.3）：当时只有单期单快照的全局 SD/DA usage 与高难队伍数据，队伍聚合最高 B-；保持等实测，后续跨期数据只触发复审，不自动改档。",
+      "change_policy": "wait_for_repeated_data",
       "new_evidence_categories": []
     }
   ]

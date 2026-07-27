@@ -464,7 +464,7 @@ const ZZZ_HARNESS = String.raw`
   },
   bannerInsight(row) {
     const insight = bannerInsight(row);
-    return {points: insight.points.map(point => ({...point})), histories: insight.histories.map(history => ({mode: history.mode, label: history.label, points: history.points.map(point => ({...point}))})), lines: [...insight.lines]};
+    return {points: insight.points.map(point => ({...point})), histories: insight.histories.map(history => ({mode: history.mode, label: history.label, points: history.points.map(point => ({...point}))})), relations: insight.relations.map(relation => ({...relation})), tags: [...bannerAnalysisTags(row, insight)], lifecycle: {...bannerLifecyclePresentation(row)}, lines: [...insight.lines]};
   },
   sampleAge(sampleDate, today = '2026-07-10') {
     return sampleAgeSummary(sampleDate, today);
@@ -2950,6 +2950,145 @@ test('banner insights calculate each mode independently instead of mixing same-d
   assert.ok(zzzInsight.lines.includes('趋势图 · 式舆防卫：最新采样 2026-07-19 为 11.70%；仅 1 期，暂无同模式趋势。'));
   assert.ok(zzzInsight.lines.includes('危局强袭：最新采样 2026-07-19 为 14.94%；仅 1 期，暂无同模式趋势。'));
   assert.ok(zzzInsight.lines.every(line => !line.includes('近三期均值 13.32%')));
+});
+
+test('ZZZ banner presentation derives lifecycle copy and observation labels from runtime evidence', () => {
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const staleFocus = '新 S 火属性击破；技能、专武、影画和首轮高难数据未落地，先只做关系识别。';
+  const row = {
+    character_slug: 'norma',
+    phase_status: 'current',
+    phase_subtitle: '下期 UP',
+    analysis_tags: ['新角色', '下期', '火', '击破', '机制未实测'],
+    focus: staleFocus,
+  };
+
+  zzz.reset({
+    ...zzzData([zzzCharacter('norma', 'support', 1)], []),
+    usageRows: [{character_slug: 'norma', mode: 'sd', sub_mode: ' ALL ', collect_date: '2026-07-19', phase_ver: '3.0', app_rate: '11.7%'}],
+  });
+  const usageObserved = plain(zzz.bannerInsight(row));
+  assert.deepEqual(usageObserved.tags, ['新角色', '当期', '火', '击破', '已有实测']);
+  assert.deepEqual(usageObserved.lifecycle, {tag: '当期', subtitle: '当期 UP'});
+  assert.ok(usageObserved.lines.includes('关注点：终局观测以当前刷新数据为准，机制与跨期稳定性仍需复核'));
+  assert.ok(usageObserved.lines.every(line => !line.includes('首轮高难数据未落地')));
+
+  const observedNext = plain(zzz.bannerInsight({...row, phase_status: 'next', focus: '等待首轮数据后再判断。'}));
+  assert.deepEqual(observedNext.tags, ['新角色', '下期', '火', '击破', '已有实测']);
+  assert.deepEqual(observedNext.lifecycle, {tag: '下期', subtitle: '下期 UP'});
+  assert.ok(observedNext.lines.includes('关注点：终局观测以当前刷新数据为准，机制与跨期稳定性仍需复核'));
+
+  zzz.reset(zzzData(
+    [zzzCharacter('norma', 'support', 1), zzzCharacter('ally-a', 'support', 2), zzzCharacter('ally-b', 'support', 3)],
+    [{...zzzTemplate('norma-real-team', 's1', ['norma', 'ally-a', 'ally-b'], 1, 10), snapshot_id: 'team-snapshot'}],
+  ));
+  const teamObserved = plain(zzz.bannerInsight(row));
+  assert.equal(teamObserved.points.length, 0);
+  assert.deepEqual(teamObserved.relations.map(relation => relation.slug), ['ally-a', 'ally-b']);
+  assert.deepEqual(teamObserved.tags, ['新角色', '当期', '火', '击破', '已有实测']);
+  assert.ok(teamObserved.lines.includes('关注点：终局观测以当前刷新数据为准，机制与跨期稳定性仍需复核'));
+
+  zzz.reset(zzzData([zzzCharacter('norma', 'support', 1)], []));
+  const unobservedCurrent = plain(zzz.bannerInsight(row));
+  assert.deepEqual(unobservedCurrent.tags, ['新角色', '当期', '火', '击破', '机制未实测']);
+  assert.ok(unobservedCurrent.lines.includes(`关注点：${staleFocus}`));
+  const unobservedNext = plain(zzz.bannerInsight({...row, phase_status: 'next'}));
+  assert.deepEqual(unobservedNext.tags, ['新角色', '下期', '火', '击破', '机制未实测']);
+  assert.ok(unobservedNext.lines.includes(`关注点：${staleFocus}`));
+
+  for (const status of ['previous', 'expired', 'past']) {
+    const ended = plain(zzz.bannerInsight({...row, phase_status: status, analysis_tags: ['新角色', '当期', '火', '击破', '已有实测']}));
+    assert.deepEqual(ended.tags, ['新角色', '已结束', '火', '击破', '机制未实测'], `${status} must not retain a static current or observed tag`);
+    assert.deepEqual(ended.lifecycle, {tag: '已结束', subtitle: '已结束'}, `${status} must not retain a static current subtitle`);
+  }
+
+  zzz.reset({
+    ...zzzData([zzzCharacter('norma', 'support', 1)], []),
+    usageRows: [{character_slug: 'norma', mode: 'sd', sub_mode: 'all', snapshot_id: 'usage-snapshot', app_rate: 11.7}],
+  });
+  const currentFocus = '关注专武价值与现有 Box 的适配。';
+  const currentFocusInsight = plain(zzz.bannerInsight({
+    ...row,
+    analysis_tags: ['新角色', '当期', '火', '击破', '公开档案'],
+    focus: currentFocus,
+  }));
+  assert.deepEqual(currentFocusInsight.tags.slice(0, 5), ['新角色', '当期', '火', '击破', '已有实测']);
+  assert.ok(currentFocusInsight.lines.includes(`关注点：${currentFocus}`));
+});
+
+test('ZZZ observed banner state rejects presentation-only points and relations at evidence boundaries', () => {
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const roster = [zzzCharacter('norma', 'support', 1), zzzCharacter('ally-a', 'support', 2), zzzCharacter('ally-b', 'support', 3)];
+  const row = {
+    character_slug: 'norma',
+    phase_status: 'current',
+    analysis_tags: ['新角色', '当期', '机制未实测'],
+    focus: '等待首轮数据后再判断。',
+  };
+  const observed = data => plain((zzz.reset(data), zzz.bannerInsight(row)));
+  const assertUnobserved = (data, message) => {
+    const insight = observed(data);
+    assert.ok(insight.tags.includes('机制未实测'), message);
+    assert.ok(!insight.tags.includes('已有实测'), message);
+    assert.ok(insight.lines.includes('关注点：等待首轮数据后再判断。'), message);
+    return insight;
+  };
+
+  const zeroUsage = observed({
+    ...zzzData(roster, []),
+    usageRows: [{character_slug: 'norma', mode: 'sd', sub_mode: ' ALL ', snapshot_id: 'usage-zero', app_rate: 0}],
+  });
+  assert.ok(zeroUsage.tags.includes('已有实测'), 'finite zero usage is still an observation');
+  assert.deepEqual(zeroUsage.points.map(point => point.value), [], 'a descriptor-only zero row without a date need not create a chart point');
+
+  const fallbackUsage = observed({
+    ...zzzData(roster, []),
+    usageRows: [{character_slug: 'norma', mode: 'sd', sub_mode: 'all', collect_date: '2026-07-19', phase_name: '3.0 下半', app_rate: 0}],
+  });
+  assert.ok(fallbackUsage.tags.includes('已有实测'), 'date plus phase fallback forms a usage descriptor');
+  assert.deepEqual(fallbackUsage.points.map(point => point.value), [0]);
+
+  for (const [label, identity] of [
+    ['date-only usage descriptor', {collect_date: '2026-07-19'}],
+    ['phase-only usage descriptor', {phase_name: '3.0 下半'}],
+  ]) {
+    const insight = observed({
+      ...zzzData(roster, []),
+      usageRows: [{character_slug: 'norma', mode: 'sd', sub_mode: 'all', app_rate: 9, ...identity}],
+    });
+    assert.ok(insight.tags.includes('已有实测'), label);
+  }
+
+  for (const [label, usage] of [
+    ['blank usage rate', {sub_mode: 'all', snapshot_id: 'blank-rate', app_rate: ' '}],
+    ['invalid usage rate', {sub_mode: 'all', snapshot_id: 'invalid-rate', app_rate: 'Infinity'}],
+    ['non-global usage', {sub_mode: 'detail', snapshot_id: 'detail-row', app_rate: 9}],
+    ['usage without descriptor', {sub_mode: 'all', app_rate: 9}],
+  ]) {
+    assertUnobserved({...zzzData(roster, []), usageRows: [{character_slug: 'norma', mode: 'sd', ...usage}]}, label);
+  }
+
+  const relationOnly = assertUnobserved(zzzData(
+    roster,
+    [{...zzzTemplate('zero-team', 's1', ['norma', 'ally-a', 'ally-b'], 1, 0), snapshot_id: 'team-zero'}],
+  ), 'zero-rate team relations are not observed evidence');
+  assert.deepEqual(relationOnly.relations.map(relation => relation.slug), ['ally-a', 'ally-b'], 'relations may still render without changing observation state');
+
+  for (const [label, team] of [
+    ['blank team rate', {...zzzTemplate('blank-team', 's1', ['norma', 'ally-a', 'ally-b'], 1, ' '), snapshot_id: 'blank-team'}],
+    ['invalid team rate', {...zzzTemplate('invalid-team', 's1', ['norma', 'ally-a', 'ally-b'], 1, 'NaN'), snapshot_id: 'invalid-team'}],
+    ['incomplete team', {...zzzTemplate('incomplete-team', 's1', ['norma', 'ally-a'], 1, 10), snapshot_id: 'incomplete-team'}],
+    ['duplicate team', {...zzzTemplate('duplicate-team', 's1', ['norma', 'ally-a', 'ally-a'], 1, 10), snapshot_id: 'duplicate-team'}],
+    ['team without descriptor', {...zzzTemplate('no-descriptor-team', 's1', ['norma', 'ally-a', 'ally-b'], 1, 10), phase_name: ''}],
+  ]) {
+    assertUnobserved(zzzData(roster, [team]), label);
+  }
+
+  const fallbackTeam = observed(zzzData(
+    roster,
+    [{...zzzTemplate('fallback-team', 's1', ['norma', 'ally-a', 'ally-b'], 1, 10), collect_date: '2026-07-19'}],
+  ));
+  assert.ok(fallbackTeam.tags.includes('已有实测'), 'date plus phase fallback forms a team descriptor');
 });
 
 test('runtime dates downgrade expired periods while preserving active periods and exposing sample age', () => {

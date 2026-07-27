@@ -35,3 +35,5 @@ epsilon-multi-p2-a,2026-05-01,sd,式舆防卫,boss-a,Boss A,2.0.2,SD 2.0.2,boss-
 epsilon-multi-p2-b,2026-05-01,sd,式舆防卫,boss-b,Boss B,2.0.2,SD 2.0.2,boss-b_combined.json,8,epsilon,zeta,support,,6,43202,hf_comps
 epsilon-multi-p3-a,2026-06-01,sd,式舆防卫,boss-a,Boss A,2.0.3,SD 2.0.3,boss-a_combined.json,7,epsilon,zeta,support,,5,43301,hf_comps
 epsilon-multi-p3-b,2026-06-01,sd,式舆防卫,boss-b,Boss B,2.0.3,SD 2.0.3,boss-b_combined.json,8,epsilon,zeta,support,,4,43302,hf_comps
+nova-first-cycle,2026-07-01,sd,式舆防卫,boss-a,Boss A,3.0.1,SD 3.0.1,boss-a_combined.json,9,nova,offbox-one,offbox-two,,1.5,50101,hf_comps
+nova-first-cycle,2026-07-01,da,危局强袭战,boss-a,Boss A,3.0.1,DA 3.0.1,boss-a_combined.json,9,nova,offbox-one,offbox-two,,1.5,60101,hf_comps

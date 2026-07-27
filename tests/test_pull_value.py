@@ -1,12 +1,16 @@
 import csv
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from miho_core.evidence import build_evidence_pool
+from miho_core.evidence import NameIndex, build_evidence_pool
 from miho_core.pull_value import (
     _build_card,
+    _candidate_type,
+    _history_text,
+    _new_character_observation_state,
     _rerun_value,
     _usage_summary,
     build_pull_value_cards,
@@ -41,8 +45,313 @@ def test_pull_value_distinguishes_rerun_and_new_character(tmp_path):
     assert isinstance(cards["sunna"].risk_evidence_ids, tuple)
     assert cards["nom"].candidate_type == "new"
     assert cards["nom"].pull_value == "等实测"
-    assert "没有历史队伍记录属于正常未实测状态" in "；".join(cards["nom"].decision_basis)
+    assert "尚无全局 usage 或完整队伍实测" in "；".join(cards["nom"].decision_basis)
     assert cards["nom"].stage_recommendation["recommended_stage"] == "等技能/影画/专武/首轮数据"
+
+
+def test_new_character_first_cycle_uses_global_complete_teams_without_box_coverage(tmp_path):
+    out = _write_pull_fixture(
+        tmp_path,
+        extra_teams=[
+            _team("3.0.3", "sd", "5-2", "nom", "future-a", "future-b", 3, 33000),
+            _team("3.0.3", "da", "1-2", "nom", "future-a", "future-b", 4, 34000),
+        ],
+    )
+    result = build_pull_value_cards(
+        out,
+        box_path=_write_box(tmp_path),
+        plan_path=_write_plan(tmp_path),
+        statuses=["next"],
+    )
+    card = next(card for card in result["cards"] if card.slug == "nom")
+
+    assert card.candidate_type == "new"
+    assert card.pull_value == "等实测"
+    assert card.evidence_ids == ()
+    assert card.team_coverage_summary.startswith("current 0(0)；target 0(0)")
+    assert card.decision_basis[0] == (
+        "新角色首轮实测已到：1 个 snapshot，当前仅单期/B- 证据；"
+        "等待跨期复测，不自动提升推荐档位"
+    )
+    assert card.risk_notes[0] == "首轮数据不能替代跨期稳定性验证；SD/DA 同 snapshot 只计一次"
+    assert card.risk_notes[1] == "首轮已到，仍需跨期 SD/DA 复测和机制资料"
+    assert card.stage_recommendation["recommended_stage"] == "等实测"
+    assert card.stage_recommendation["reason"] == (
+        "首轮实测已到，但当前仅 1 个 snapshot 的单期/B- 证据，不能据此预设 X+X 档位"
+    )
+    assert card.stage_recommendation["missing_data"] == "技能机制、影画、专武、跨期高难复测"
+    assert card.mechanism_review_summary == "暂无 mechanism_notes；首轮已到，等待机制资料与跨期复测"
+    assert card.history_summary == "暂无全局 usage 出场点；完整真实队伍表已有首轮实测（1 snapshot）"
+
+
+def test_new_character_observation_state_distinguishes_unobserved_and_repeated():
+    assert _new_character_observation_state("agent-a", [], []) == ("unobserved", 0)
+    usage_rows = [
+        {
+            "snapshot_id": snapshot,
+            "mode": mode,
+            "sub_mode": "all",
+            "character_slug": "agent-a",
+            "app_rate": "1",
+        }
+        for snapshot, mode in (("3.0.1", "sd"), ("3.0.1", "da"), ("3.0.2", "sd"))
+    ]
+
+    assert _new_character_observation_state("agent-a", usage_rows, []) == ("repeated", 2)
+
+
+def test_new_character_first_cycle_canonicalizes_alias_only_complete_team(tmp_path):
+    out = _write_pull_fixture(
+        tmp_path,
+        nom_aliases="nom-preview",
+        extra_teams=[
+            _team(
+                "3.0.3",
+                "sd",
+                "5-2",
+                "nom-preview",
+                "future-a",
+                "future-b",
+                3,
+                33000,
+            )
+        ],
+    )
+
+    result = build_pull_value_cards(
+        out,
+        box_path=_write_box(tmp_path),
+        plan_path=_write_plan(tmp_path),
+        statuses=["next"],
+    )
+    card = next(card for card in result["cards"] if card.slug == "nom")
+
+    assert card.decision_basis[0].startswith("新角色首轮实测已到：1 个 snapshot")
+
+
+def test_snapshotless_team_attaches_to_usage_snapshot_by_date_and_phase():
+    usage_rows = [
+        {
+            "snapshot_id": "3.0.3",
+            "collect_date": "2026-07-19",
+            "phase_ver": "3.0",
+            "mode": "sd",
+            "sub_mode": "all",
+            "character_slug": "agent-a",
+            "app_rate": "1",
+        }
+    ]
+    team_row = _team(
+        "3.0",
+        "da",
+        "1-1",
+        "agent-a",
+        "agent-b",
+        "agent-c",
+        1,
+        30000,
+    )
+    team_row.update(snapshot_id="", collect_date="2026-07-19", phase_ver="3.0")
+
+    assert _new_character_observation_state("agent-a", usage_rows, [team_row]) == (
+        "first_cycle",
+        1,
+    )
+
+
+def test_snapshotless_records_cluster_by_date_and_phase_descriptors():
+    usage_rows = [
+        {
+            "snapshot_id": "",
+            "collect_date": collect_date,
+            "phase_ver": "3.0",
+            "mode": mode,
+            "sub_mode": "all",
+            "character_slug": "agent-a",
+            "app_rate": "1",
+        }
+        for collect_date, mode in (("2026-07-19", "sd"), ("2026-07-20", "da"))
+    ]
+
+    assert _new_character_observation_state("agent-a", usage_rows, []) == (
+        "first_cycle",
+        1,
+    )
+
+    usage_rows[1]["phase_ver"] = "   "
+    usage_rows[1]["phase_name"] = "3.0"
+    assert _new_character_observation_state("agent-a", usage_rows, []) == (
+        "first_cycle",
+        1,
+    )
+
+
+def test_different_snapshots_remain_repeated_when_fallback_descriptor_matches_both():
+    usage_rows = [
+        {
+            "snapshot_id": snapshot,
+            "collect_date": "2026-07-19",
+            "phase_ver": "3.0",
+            "mode": "sd",
+            "sub_mode": "all",
+            "character_slug": "agent-a",
+            "app_rate": "1",
+        }
+        for snapshot in ("3.0.3-a", "3.0.3-b")
+    ]
+    team_row = _team(
+        "3.0",
+        "da",
+        "1-1",
+        "agent-a",
+        "agent-b",
+        "agent-c",
+        1,
+        30000,
+    )
+    team_row.update(snapshot_id="", collect_date="2026-07-19", phase_ver="3.0")
+
+    assert _new_character_observation_state("agent-a", usage_rows, [team_row]) == (
+        "repeated",
+        2,
+    )
+
+
+def test_global_usage_normalizes_sub_mode_for_state_history_and_candidate_type():
+    usage_rows = [
+        {
+            "snapshot_id": "3.0.3",
+            "collect_date": "2026-07-19",
+            "phase_ver": "3.0",
+            "mode": "sd",
+            "sub_mode": " ALL ",
+            "character_slug": "agent-a",
+            "app_rate": "12.5",
+        }
+    ]
+
+    assert _new_character_observation_state("agent-a", usage_rows, []) == (
+        "first_cycle",
+        1,
+    )
+    assert _usage_summary("agent-a", usage_rows)["points"] == 1
+    assert _candidate_type({}, "agent-a", usage_rows, {}) == "rerun"
+
+
+def test_candidate_type_uses_any_usage_presence_but_history_stays_global_only():
+    usage_rows = [
+        {
+            "snapshot_id": "3.0.3",
+            "mode": "sd",
+            "sub_mode": "5-1",
+            "character_slug": "agent-a",
+            "app_rate": "12.5",
+        }
+    ]
+
+    assert _candidate_type({}, "agent-a", usage_rows, {}) == "rerun"
+    assert _usage_summary("agent-a", usage_rows)["points"] == 0
+    assert _new_character_observation_state("agent-a", usage_rows, []) == (
+        "unobserved",
+        0,
+    )
+
+
+def test_alias_only_global_usage_populates_summary_history_and_candidate_index():
+    names = NameIndex(
+        aliases={"agent-a": "agent-a", "agent-preview": "agent-a"},
+        names_cn={},
+        kinds={},
+    )
+    usage_rows = [
+        {
+            "collect_date": "2026-07-19",
+            "mode": "sd",
+            "sub_mode": "all",
+            "character_slug": "agent-preview",
+            "app_rate": "12.5",
+        }
+    ]
+
+    usage = _usage_summary("agent-a", usage_rows, names=names)
+
+    assert usage["points"] == 1
+    assert _history_text(usage).startswith("sd: points 1 / latest 12.5%")
+    assert _candidate_type({}, "agent-a", usage_rows, {}, names=names) == "rerun"
+
+
+def test_only_observed_new_character_prefers_fresh_mechanism_status_over_stale_focus(tmp_path):
+    def build(case, *, observed):
+        case.mkdir()
+        extra_teams = (
+            [_team("3.0.3", "sd", "5-2", "nom", "future-a", "future-b", 3, 33000)]
+            if observed
+            else []
+        )
+        out = _write_pull_fixture(case, extra_teams=extra_teams)
+        notes = case / "notes"
+        notes.mkdir()
+        (notes / "nom.yaml").write_text(
+            "mechanism_status: 首轮 SD/DA 数据已到\n"
+            "recommended_stage: 等实测\n"
+            "missing_data: 跨期复测\n",
+            encoding="utf-8",
+        )
+        result = build_pull_value_cards(
+            out,
+            box_path=_write_box(case),
+            plan_path=_write_plan(case, nom_focus="首轮数据尚未落地"),
+            statuses=["next"],
+            mechanism_notes_dir=notes,
+        )
+        return next(card for card in result["cards"] if card.slug == "nom")
+
+    observed = build(tmp_path / "observed", observed=True)
+    unobserved = build(tmp_path / "unobserved", observed=False)
+
+    assert observed.mechanism_summary.endswith("首轮 SD/DA 数据已到")
+    assert observed.decision_basis[1] == observed.mechanism_summary
+    assert "首轮数据尚未落地" not in "；".join(observed.decision_basis)
+    assert unobserved.mechanism_summary.endswith("首轮数据尚未落地")
+    assert unobserved.decision_basis[1] == unobserved.mechanism_summary
+
+
+def test_production_norma_copy_matches_first_cycle_state():
+    root = Path(__file__).resolve().parents[1]
+    plan = json.loads((root / "configs" / "zzz_banner_plan.json").read_text(encoding="utf-8"))
+    norma = next(
+        character
+        for phase in plan["phases"]
+        for character in phase["characters"]
+        if character.get("slug") == "norma"
+    )
+    assert "首轮高难数据未落地" not in norma["focus"]
+    assert "当次全局 usage 与完整真实队伍表" in norma["focus"]
+
+    notes = load_mechanism_notes(
+        root / "configs" / "zzz_mechanism_notes",
+        candidates=["norma"],
+    )["norma"]
+    assert notes["recommended_stage"] == "等实测"
+    assert notes["source_quality"]["historical_usage"] == "dynamic_report_only"
+    assert "当次全局 usage 与完整真实队伍表动态判断" in notes["stage_reason"]
+    assert "跨期复测" in notes["missing_data"]
+    assert "2026-07-19 / 3.0.3" not in json.dumps(notes, ensure_ascii=False)
+
+    velina = load_mechanism_notes(
+        root / "configs" / "zzz_mechanism_notes",
+        candidates=["velina"],
+    )["velina"]
+    assert velina["source_quality"]["historical_usage"] == "dynamic_report_only"
+    assert "首轮" not in json.dumps(velina, ensure_ascii=False)
+
+    baseline = json.loads(
+        (root / "configs" / "zzz_decision_baseline.json").read_text(encoding="utf-8")
+    )
+    decision = next(row for row in baseline["decisions"] if row.get("slug") == "norma")
+    assert decision["final_stage"] == "等实测"
+    assert decision["change_policy"] == "wait_for_repeated_data"
+    assert "单期单快照" in decision["reason"]
 
 
 @pytest.mark.parametrize(
@@ -226,7 +535,8 @@ def test_pull_value_cli_writes_report(tmp_path):
     assert "# 绝区零 Pull Value Report" in text
     assert "千夏 `sunna`" in text
     assert "诺姆 `nom`" in text
-    assert "没有历史队伍记录是未实测状态，不作为负面扣分" in text
+    assert "观测状态由全局 usage 与完整真实队伍记录共同判断" in text
+    assert "同一 snapshot 的 SD/DA 只算一次" in text
     assert "recommended_stage" in text
     assert "unresolved_stage" in text
     assert "stage_confidence" in text
@@ -254,7 +564,8 @@ def test_gpt_review_packet_writes_no_key_prompt(tmp_path):
     assert '"evidence_refs"' in text
     assert '"final_stage"' in text
     assert '"local_rule_stage"' in text
-    assert "新角色没有历史队伍记录只能标记为未实测" in text
+    assert "新角色观测状态必须由全局 usage 与完整真实队伍记录共同判断" in text
+    assert "同一 snapshot 的 SD/DA 只算一次" in text
 
 
 def test_low_rarity_plan_candidates_are_filtered_but_kept_in_coverage(tmp_path):
@@ -436,7 +747,7 @@ def test_review_packet_cli_writes_current_and_next_packets_by_default(tmp_path):
     assert not (out / "gpt_pull_reviewer_packet.md").exists()
 
 
-def _write_pull_fixture(tmp_path):
+def _write_pull_fixture(tmp_path, *, extra_teams=(), nom_aliases=""):
     out = tmp_path / "out"
     out.mkdir()
     _write_csv(
@@ -446,7 +757,7 @@ def _write_pull_fixture(tmp_path):
             {"character_slug": "miyabi", "character_name_en": "Miyabi", "character_name_cn": "星见雅", "aliases": "", "kind": "agent"},
             {"character_slug": "lucy", "character_name_en": "Lucy", "character_name_cn": "露西", "aliases": "", "kind": "agent"},
             {"character_slug": "sunna", "character_name_en": "Sunna", "character_name_cn": "千夏", "aliases": "", "kind": "agent"},
-            {"character_slug": "nom", "character_name_en": "Nom", "character_name_cn": "诺姆", "aliases": "", "kind": "agent"},
+            {"character_slug": "nom", "character_name_en": "Nom", "character_name_cn": "诺姆", "aliases": nom_aliases, "kind": "agent"},
             {"character_slug": "piper", "character_name_en": "Piper", "character_name_cn": "派派", "aliases": "", "kind": "agent"},
             {"character_slug": "nicole-demara", "character_name_en": "Nicole Demara", "character_name_cn": "妮可", "aliases": "", "kind": "agent"},
             {"character_slug": "ye-shunguang", "character_name_en": "Ye Shunguang", "character_name_cn": "叶瞬光", "aliases": "", "kind": "agent"},
@@ -509,6 +820,7 @@ def _write_pull_fixture(tmp_path):
             _team("2.8.3", "sd", "5-2", "miyabi", "lucy", "sunna", 8, 33500),
             _team("2.8.3", "sd", "5-3", "miyabi", "piper", "sunna", 2, 31000),
             _team("2.8.3", "sd", "5-4", "miyabi", "nicole-demara", "sunna", 2, 30900),
+            *extra_teams,
         ],
     )
     return out
@@ -520,7 +832,7 @@ def _write_box(tmp_path):
     return box
 
 
-def _write_plan(tmp_path, *, piper_extra=None):
+def _write_plan(tmp_path, *, piper_extra=None, nom_focus="机制未知，等实测"):
     plan = tmp_path / "plan.json"
     piper = {"slug": "piper", "name_cn": "派派", "banner_role": "A 级陪跑", "analysis_tags": ["A 级", "物理", "异常"]}
     if piper_extra:
@@ -542,7 +854,7 @@ def _write_plan(tmp_path, *, piper_extra=None):
                     {
                         "status": "next",
                         "characters": [
-                            {"slug": "nom", "name_cn": "诺姆", "banner_role": "限定 S 级 UP", "analysis_tags": ["新角色"], "focus": "机制未知，等实测"},
+                            {"slug": "nom", "name_cn": "诺姆", "banner_role": "限定 S 级 UP", "analysis_tags": ["新角色"], "focus": nom_focus},
                             {"slug": "sunna", "name_cn": "千夏", "banner_role": "限定 S 级复刻", "analysis_tags": ["复刻", "辅助"]},
                         ],
                     }

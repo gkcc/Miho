@@ -13,7 +13,8 @@
 ## 口径
 
 - 复刻角色：按历史走势、全局出场、队伍覆盖、T 榜定位和 X+X 档位必要性评估。
-- 新角色：按机制信息完整度、拼图关系、售后确定性和替代风险评估；没有历史队伍记录是未实测状态，不作为负面扣分。
+- 新角色：按机制信息完整度、拼图关系、售后确定性和替代风险评估；观测状态由全局 usage 与完整真实队伍记录共同判断，不依赖 Box 是否可组。
+- 新角色观测按 snapshot 去重；同一 snapshot 的 SD/DA 只算一次。0 次为 unobserved，1 次为 first_cycle，2 次及以上为 repeated。
 - A 级 / 四星角色默认不作为独立抽取价值候选；只作为陪跑顺带收益、队友或 coverage 证据保留。
 - target coverage 只说明加入计划角色后的队伍覆盖，不单独决定抽取价值。
 - mechanism_review 来自 `configs/zzz_mechanism_notes/*.yaml`，用于判断 0+0、0+1、1+0、1+1、2+1 等档位断点。
@@ -27,7 +28,7 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 德尔塔 `delta` | rerun | 中高 | - | 0+0 | 0+0 | none | no | no_prior_baseline | 0+0 |  | medium | 高档位暂不判断；只在机制/指南/实战证明必要时考虑 | 高档位收益 | E-SD-49044A37B0, E-SD-C4150B39C3 | sd\|anchor-one\|delta\|support, sd\|anchor-two\|delta\|support | - | - | T 榜最好评级 T0.5 / rating 10；历史出场点 3，近三期最高均值 20%；目标 Box 新增依赖队伍 2 条，其中 A/B+ 0 条、A/B+/B 2 条 | 新增覆盖来自 target scenario，需和历史全局强度一起看，不能单靠 target coverage 定性 |
 | 伊普西龙 `epsilon` | rerun | 中 | - | 0+0 | 0+0 | none | no | no_prior_baseline | 0+0 |  | medium | 高档位暂不判断；只在机制/指南/实战证明必要时考虑 | 与 zeta 捆绑的多候选队伍不能当单抽主证据 | E-SD-12A6377412 | sd\|anchor-one\|epsilon\|support | E-SD-46AB991DE4 | sd\|epsilon\|support\|zeta | T 榜最好评级 T0.5 / rating 10；历史出场点 3，近三期最高均值 20%；目标 Box 新增依赖队伍 1 条，其中 A/B+ 0 条、A/B+/B 1 条 | 同 mode 主证据仅支持中优先级；新增覆盖来自 target scenario，需和历史全局强度一起看，不能单靠 target coverage 定性；1 条候选相关队伍同时依赖其他计划角色，只作为 conditional risk，不作为抽取主证据 |
-| 泽塔 `zeta` | new | 等实测 | - | 等技能/影画/专武/首轮数据 | 等技能/影画/专武/首轮数据 | none | no | no_prior_baseline | 暂不预设 | 0+0 / 0+1 / 1+0 / 1+1 / 2+1 | low | 暂不判断 | 技能机制、影画、专武、实战队伍、首轮高难数据 | - | - | E-SD-46AB991DE4 | sd\|epsilon\|support\|zeta | 新角色没有历史队伍记录属于正常未实测状态，不作为负面；未知属性 / 未知特性 / 未知定位；暂无机制文本；先验证是否补当前 Box 拼图，还是要求后续售后队友 | 等技能/影画/专武/首轮数据；替代风险无法从当前历史数据判断；1 条候选相关队伍同时依赖其他计划角色，只作为 conditional risk，不作为抽取主证据 |
+| 泽塔 `zeta` | new | 等实测 | - | 等实测 | 等实测 | none | no | no_prior_baseline | 暂不预设 | 0+0 / 0+1 / 1+0 / 1+1 / 2+1 | low | 暂不判断 | 技能机制、影画、专武、跨期高难复测 | - | - | E-SD-46AB991DE4 | sd\|epsilon\|support\|zeta | 新角色已有跨期实测：6 个 snapshot；仍需结合机制与账号价值复核，不自动提升推荐档位；未知属性 / 未知特性 / 未知定位；暂无机制文本；先验证是否补当前 Box 拼图，还是要求后续售后队友 | 已有跨期记录不等于推荐档位自动升级，仍需复核证据质量与机制必要性；已有跨期数据，仍需补齐机制、专属收益和替代关系；1 条候选相关队伍同时依赖其他计划角色，只作为 conditional risk，不作为抽取主证据 |
 
 ## 角色明细
 
@@ -107,34 +108,34 @@
 - prior_final_stage：-
 - prior_decision_status：-；prior_confidence：-
 - prior_reason：-
-- local_rule_stage：等技能/影画/专武/首轮数据
-- recommended_stage_for_review：等技能/影画/专武/首轮数据
-- final_stage：等技能/影画/专武/首轮数据
+- local_rule_stage：等实测
+- recommended_stage_for_review：等实测
+- final_stage：等实测
 - stage_delta：none；delta_requires_review：no
 - delta_reason：无 prior baseline；沿用本地规则建议，仍需 GPT/人工评审。
 - change_allowed_reason：no_prior_baseline
 - new_evidence_categories：-
-- recommended_stage(local_rule)：等技能/影画/专武/首轮数据
+- recommended_stage(local_rule)：等实测
 - acceptable_stage：暂不预设
 - unresolved_stage：0+0 / 0+1 / 1+0 / 1+1 / 2+1
 - stage_confidence：low
 - not_recommended_stage：暂不判断
-- stage_reason：缺少 mechanism_notes，不能把 coverage=0 当负面，也不能凭模板推 X+X
-- missing_data：技能机制、影画、专武、实战队伍、首轮高难数据
+- stage_reason：已有 6 个 snapshot 的跨期实测，但缺少 mechanism_notes，不能据此自动升级 X+X 档位
+- missing_data：技能机制、影画、专武、跨期高难复测
 - source_quality：-
 - stage_notes：-
-- 历史走势：暂无历史出场；若为新角色，这是未实测状态，不作为负面
+- 历史走势：暂无全局 usage 出场点；完整真实队伍表已有跨期实测（6 snapshots）
 - 全局出场：best_latest=0%；best_avg_last3=0%；worst_trend=0
 - 队伍覆盖：current 0(0)；target 1(B+ 1)；新增依赖 1(B+ 1)
-- mechanism_review：暂无 mechanism_notes；等技能/影画/专武/首轮数据
+- mechanism_review：暂无 mechanism_notes；已有跨期实测，等待机制资料与证据质量复核
 - 机制/拼图：未知属性 / 未知特性 / 未知定位；暂无机制文本
 - 替代风险：机制未知，替代风险无法判定
 - 证据：-
 - 稳定证据键：-
 - 风险/条件证据（conditional 或 B-/C）：E-SD-46AB991DE4
 - 风险证据键：sd|epsilon|support|zeta
-- 依据：新角色没有历史队伍记录属于正常未实测状态，不作为负面；未知属性 / 未知特性 / 未知定位；暂无机制文本；先验证是否补当前 Box 拼图，还是要求后续售后队友
-- 风险：等技能/影画/专武/首轮数据；替代风险无法从当前历史数据判断；1 条候选相关队伍同时依赖其他计划角色，只作为 conditional risk，不作为抽取主证据
+- 依据：新角色已有跨期实测：6 个 snapshot；仍需结合机制与账号价值复核，不自动提升推荐档位；未知属性 / 未知特性 / 未知定位；暂无机制文本；先验证是否补当前 Box 拼图，还是要求后续售后队友
+- 风险：已有跨期记录不等于推荐档位自动升级，仍需复核证据质量与机制必要性；已有跨期数据，仍需补齐机制、专属收益和替代关系；1 条候选相关队伍同时依赖其他计划角色，只作为 conditional risk，不作为抽取主证据
 
 ## 本地 GPT 评判接入状态
 

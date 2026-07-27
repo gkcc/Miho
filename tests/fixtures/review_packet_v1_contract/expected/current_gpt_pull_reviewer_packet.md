@@ -9,7 +9,8 @@
 
 - 不要只按 target coverage 定性；复刻角色必须同时看历史走势、全局出场、T 榜定位、current/target 覆盖和 X+X 必要性。
 - 必须把 historical_usage、target_coverage、mechanism_review 三类证据分开列出，再综合判断。
-- 新角色没有历史队伍记录只能标记为未实测，不能作为负面扣分。
+- 新角色观测状态必须由全局 usage 与完整真实队伍记录共同判断，不能依赖目标 Box 是否可组。
+- 新角色观测按 snapshot 去重；同一 snapshot 的 SD/DA 只算一次。first_cycle 表示首轮已到但仍需跨期复测，不能自动升级抽取结论或推荐档位。
 - A 级 / 四星角色默认不作为独立抽取价值候选；它们只作为队友、陪跑顺带收益或 coverage 证据。
 - 如果 Evidence Payload 含 prior_final_stage / final_stage，最终档位先沿用 baseline；local_rule_stage 只能触发 delta review，不能直接覆盖既有结论。
 - C 档或 theoretical-only 不能作为抽取/档位主依据。
@@ -93,8 +94,8 @@
       "delta_reason": "本地规则与既有 baseline 不同；未登记新增证据，本地规则不能覆盖既有 GPT/人工定档。",
       "change_allowed_reason": "only_with_new_evidence",
       "new_evidence_categories": [],
-      "history_summary": "sd: points 6 / latest 48% / avg_last3 46% / trend 10",
-      "global_usage_summary": "best_latest=48%；best_avg_last3=46%；worst_trend=10",
+      "history_summary": "sd: points 7 / latest 48% / avg_last3 46% / trend 12",
+      "global_usage_summary": "best_latest=48%；best_avg_last3=46%；worst_trend=12",
       "team_coverage_summary": "current 0(0)；target 1(A 1)；新增依赖 1(A 1)",
       "mechanism_review_summary": "source_quality=identity=official；breakpoints=reviewed；stage_confidence=high；0+0(value_type=本体完整度; evidence=机制笔记显式支持 | 不应破坏 packet; missing_data=无)",
       "mechanism_notes": {
@@ -131,7 +132,7 @@
       "replacement_risk": "反证 </script> | 保留、跨行风险第一行\n跨行风险第二行",
       "decision_basis": [
         "T 榜最好评级 T0 / rating 11",
-        "历史出场点 6，近三期最高均值 46%",
+        "历史出场点 7，近三期最高均值 46%",
         "目标 Box 新增依赖队伍 1 条，其中 A/B+ 1 条、A/B+/B 1 条",
         "mechanism_review：source_quality=identity=official；breakpoints=reviewed；stage_confidence=high；0+0(value_type=本体完整度; evidence=机制笔记显式支持 | 不应破坏 packet; missing_data=无)",
         "同模式判定 sd: 高"
@@ -377,41 +378,41 @@
       "status": "current",
       "local_rule_pull_value": "等实测",
       "stage_recommendation": {
-        "recommended_stage": "等技能/影画/专武/首轮数据",
+        "recommended_stage": "等实测",
         "acceptable_stage": "暂不预设",
         "unresolved_stage": "0+0 / 0+1 / 1+0 / 1+1 / 2+1",
         "stage_confidence": "low",
         "not_recommended_stage": "暂不判断",
-        "reason": "缺少 mechanism_notes，不能把 coverage=0 当负面，也不能凭模板推 X+X",
-        "missing_data": "技能机制、影画、专武、实战队伍、首轮高难数据"
+        "reason": "首轮实测已到，但当前仅 1 个 snapshot 的单期/B- 证据，不能据此预设 X+X 档位",
+        "missing_data": "技能机制、影画、专武、跨期高难复测"
       },
       "prior_final_stage": "0+1",
       "prior_decision_status": "soft_locked",
       "prior_confidence": "low",
-      "prior_reason": "新角色仅作 delta 审核反例",
-      "local_rule_stage": "等技能/影画/专武/首轮数据",
+      "prior_reason": "新角色首轮单快照 B- 证据仅作 delta 审核反例",
+      "local_rule_stage": "等实测",
       "recommended_stage_for_review": "0+1",
       "final_stage": "0+1",
-      "stage_delta": "等技能/影画/专武/首轮数据 -> 0+1",
+      "stage_delta": "等实测 -> 0+1",
       "delta_requires_review": true,
       "delta_reason": "本地规则与既有 baseline 不同；未登记新增证据，本地规则不能覆盖既有 GPT/人工定档。",
-      "change_allowed_reason": "wait_for_release_data",
+      "change_allowed_reason": "wait_for_repeated_data",
       "new_evidence_categories": [],
-      "history_summary": "暂无历史出场；若为新角色，这是未实测状态，不作为负面",
+      "history_summary": "暂无全局 usage 出场点；完整真实队伍表已有首轮实测（1 snapshot）",
       "global_usage_summary": "best_latest=0%；best_avg_last3=0%；worst_trend=0",
       "team_coverage_summary": "current 0(0)；target 0(0)；新增依赖 0(0)",
-      "mechanism_review_summary": "暂无 mechanism_notes；等技能/影画/专武/首轮数据",
+      "mechanism_review_summary": "暂无 mechanism_notes；首轮已到，等待机制资料与跨期复测",
       "mechanism_notes": {},
       "mechanism_summary": "未知属性 / 未知特性 / 未知定位；暂无机制文本",
       "replacement_risk": "机制未知，替代风险无法判定",
       "decision_basis": [
-        "新角色没有历史队伍记录属于正常未实测状态，不作为负面",
+        "新角色首轮实测已到：1 个 snapshot，当前仅单期/B- 证据；等待跨期复测，不自动提升推荐档位",
         "未知属性 / 未知特性 / 未知定位；暂无机制文本",
         "先验证是否补当前 Box 拼图，还是要求后续售后队友"
       ],
       "risk_notes": [
-        "等技能/影画/专武/首轮数据",
-        "替代风险无法从当前历史数据判断"
+        "首轮数据不能替代跨期稳定性验证；SD/DA 同 snapshot 只计一次",
+        "首轮已到，仍需跨期 SD/DA 复测和机制资料"
       ],
       "evidence_ids": [],
       "risk_evidence_ids": [],

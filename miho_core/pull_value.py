@@ -22,7 +22,6 @@ from .evidence import (
     load_name_index,
     load_built_slugs,
     load_owned_slugs,
-    load_planned_slugs_from_banner_plan,
     EVIDENCE_METHOD_VERSION,
 )
 
@@ -172,6 +171,7 @@ def build_pull_value_cards(
         build_state_known=build_known,
     )
     usage_rows = _read_csv(out / "character_usage_long.csv")
+    team_rows = _read_csv(out / "team_rank_dedup_unordered.csv")
     tier_rows = _read_csv(out / "prydwen_tier_current.csv")
     tier_index = _tier_index(tier_rows)
     review_candidates, filtered_candidates = _filter_review_candidates(candidates, tier_index)
@@ -192,6 +192,8 @@ def build_pull_value_cards(
             tier_index=tier_index,
             mechanism_notes=mechanism_notes,
             decision_baseline=decision_baseline,
+            team_rows=team_rows,
+            name_index=names,
         )
         for candidate in review_candidates
     ]
@@ -295,7 +297,8 @@ def format_pull_value_report(result: dict[str, Any]) -> str:
         "## 口径",
         "",
         "- 复刻角色：按历史走势、全局出场、队伍覆盖、T 榜定位和 X+X 档位必要性评估。",
-        "- 新角色：按机制信息完整度、拼图关系、售后确定性和替代风险评估；没有历史队伍记录是未实测状态，不作为负面扣分。",
+        "- 新角色：按机制信息完整度、拼图关系、售后确定性和替代风险评估；观测状态由全局 usage 与完整真实队伍记录共同判断，不依赖 Box 是否可组。",
+        "- 新角色观测按 snapshot 去重；同一 snapshot 的 SD/DA 只算一次。0 次为 unobserved，1 次为 first_cycle，2 次及以上为 repeated。",
         "- A 级 / 四星角色默认不作为独立抽取价值候选；只作为陪跑顺带收益、队友或 coverage 证据保留。",
         "- target coverage 只说明加入计划角色后的队伍覆盖，不单独决定抽取价值。",
         "- mechanism_review 来自 `configs/zzz_mechanism_notes/*.yaml`，用于判断 0+0、0+1、1+0、1+1、2+1 等档位断点。",
@@ -406,7 +409,8 @@ def format_gpt_review_packet(result: dict[str, Any]) -> str:
         "",
         "- 不要只按 target coverage 定性；复刻角色必须同时看历史走势、全局出场、T 榜定位、current/target 覆盖和 X+X 必要性。",
         "- 必须把 historical_usage、target_coverage、mechanism_review 三类证据分开列出，再综合判断。",
-        "- 新角色没有历史队伍记录只能标记为未实测，不能作为负面扣分。",
+        "- 新角色观测状态必须由全局 usage 与完整真实队伍记录共同判断，不能依赖目标 Box 是否可组。",
+        "- 新角色观测按 snapshot 去重；同一 snapshot 的 SD/DA 只算一次。first_cycle 表示首轮已到但仍需跨期复测，不能自动升级抽取结论或推荐档位。",
         "- A 级 / 四星角色默认不作为独立抽取价值候选；它们只作为队友、陪跑顺带收益或 coverage 证据。",
         "- 如果 Evidence Payload 含 prior_final_stage / final_stage，最终档位先沿用 baseline；local_rule_stage 只能触发 delta review，不能直接覆盖既有结论。",
         "- C 档或 theoretical-only 不能作为抽取/档位主依据。",
@@ -445,12 +449,23 @@ def _build_card(
     tier_index: dict[str, dict[str, Any]],
     mechanism_notes: dict[str, dict[str, Any]],
     decision_baseline: dict[str, dict[str, Any]],
+    team_rows: Sequence[dict[str, Any]] = (),
+    name_index: NameIndex | None = None,
 ) -> PullValueCard:
     slug = candidate["slug"]
-    candidate_type = _candidate_type(candidate, slug, usage_rows, tier_index)
-    usage = _usage_summary(slug, usage_rows)
+    candidate_type = _candidate_type(
+        candidate,
+        slug,
+        usage_rows,
+        tier_index,
+        names=name_index,
+    )
+    usage = _usage_summary(slug, usage_rows, names=name_index)
+    history_summary = _history_text(usage)
     tier = tier_index.get(slug, {})
     mechanism = mechanism_notes.get(slug, {})
+    mechanism_review_summary = _mechanism_review_text(mechanism)
+    mechanism_summary = _mechanism_text(candidate, tier, mechanism)
     current_records = _records_for_slug(current_pool, slug)
     target_records = _records_for_slug(target_pool, slug)
     dependent_records = [record for record in target_records if slug in record.plan_dependency]
@@ -472,17 +487,87 @@ def _build_card(
     risk_evidence_refs = tuple(_evidence_ref(record) for record in _top_records(risk_records))
     coverage_summary = _coverage_text(current_records, target_records, dependent_records)
     if candidate_type == "new":
+        observation_state, observation_count = _new_character_observation_state(
+            slug,
+            usage_rows,
+            team_rows,
+            names=name_index,
+        )
+        team_confidence = _global_team_confidence(
+            slug,
+            getattr(target_pool, "aggregates", ()),
+        )
+        evidence_level = team_confidence or "usage"
+        if observation_state in {"first_cycle", "repeated"} and str(
+            mechanism.get("mechanism_status") or ""
+        ).strip():
+            mechanism_summary = _mechanism_text(
+                candidate,
+                tier,
+                mechanism,
+                prefer_mechanism_status=True,
+            )
+        if not usage.get("points") and observation_state == "first_cycle":
+            history_summary = "暂无全局 usage 出场点；完整真实队伍表已有首轮实测（1 snapshot）"
+        elif not usage.get("points") and observation_state == "repeated":
+            history_summary = (
+                f"暂无全局 usage 出场点；完整真实队伍表已有跨期实测（{observation_count} snapshots）"
+            )
         pull_value = "等实测"
         stage = _stage_from_mechanism(candidate_type, mechanism)
-        basis = [
-            "新角色没有历史队伍记录属于正常未实测状态，不作为负面",
-            _mechanism_text(candidate, tier, mechanism),
-            "先验证是否补当前 Box 拼图，还是要求后续售后队友",
-        ]
-        risks = [
-            _missing_mechanism_data(mechanism) or "机制、倍率、专属收益和售后环境尚未落地",
-            "替代风险无法从当前历史数据判断",
-        ]
+        if not mechanism and observation_state == "first_cycle":
+            stage = {
+                **stage,
+                "recommended_stage": "等实测",
+                "reason": (
+                    f"首轮实测已到，但当前仅 {observation_count} 个 snapshot 的单期/{evidence_level} 证据，"
+                    "不能据此预设 X+X 档位"
+                ),
+                "missing_data": "技能机制、影画、专武、跨期高难复测",
+            }
+            mechanism_review_summary = "暂无 mechanism_notes；首轮已到，等待机制资料与跨期复测"
+        elif not mechanism and observation_state == "repeated":
+            stage = {
+                **stage,
+                "recommended_stage": "等实测",
+                "reason": (
+                    f"已有 {observation_count} 个 snapshot 的跨期实测，但缺少 mechanism_notes，"
+                    "不能据此自动升级 X+X 档位"
+                ),
+                "missing_data": "技能机制、影画、专武、跨期高难复测",
+            }
+            mechanism_review_summary = "暂无 mechanism_notes；已有跨期实测，等待机制资料与证据质量复核"
+        observed_missing_data = str(mechanism.get("missing_data") or "") if mechanism else ""
+        if observation_state == "first_cycle":
+            basis = [
+                f"新角色首轮实测已到：{observation_count} 个 snapshot，当前仅单期/{evidence_level} 证据；等待跨期复测，不自动提升推荐档位",
+                mechanism_summary,
+                "先验证是否补当前 Box 拼图，还是要求后续售后队友",
+            ]
+            risks = [
+                "首轮数据不能替代跨期稳定性验证；SD/DA 同 snapshot 只计一次",
+                observed_missing_data or "首轮已到，仍需跨期 SD/DA 复测和机制资料",
+            ]
+        elif observation_state == "repeated":
+            basis = [
+                f"新角色已有跨期实测：{observation_count} 个 snapshot；仍需结合机制与账号价值复核，不自动提升推荐档位",
+                mechanism_summary,
+                "先验证是否补当前 Box 拼图，还是要求后续售后队友",
+            ]
+            risks = [
+                "已有跨期记录不等于推荐档位自动升级，仍需复核证据质量与机制必要性",
+                observed_missing_data or "已有跨期数据，仍需补齐机制、专属收益和替代关系",
+            ]
+        else:
+            basis = [
+                "新角色尚无全局 usage 或完整队伍实测，属于正常未实测状态，不作为负面",
+                mechanism_summary,
+                "先验证是否补当前 Box 拼图，还是要求后续售后队友",
+            ]
+            risks = [
+                _missing_mechanism_data(mechanism) or "机制、倍率、专属收益和售后环境尚未落地",
+                "替代风险无法从当前历史数据判断",
+            ]
     else:
         pull_value, stage, basis, risks = _rerun_value(
             candidate,
@@ -519,12 +604,12 @@ def _build_card(
         delta_reason=baseline["delta_reason"],
         change_allowed_reason=baseline["change_allowed_reason"],
         new_evidence_categories=baseline["new_evidence_categories"],
-        history_summary=_history_text(usage),
+        history_summary=history_summary,
         global_usage_summary=_global_usage_text(usage),
         team_coverage_summary=coverage_summary,
-        mechanism_review_summary=_mechanism_review_text(mechanism),
+        mechanism_review_summary=mechanism_review_summary,
         mechanism_notes=dict(mechanism) if isinstance(mechanism, dict) else {},
-        mechanism_summary=_mechanism_text(candidate, tier, mechanism),
+        mechanism_summary=mechanism_summary,
         replacement_risk=_replacement_text(candidate, tier, owned, mechanism),
         decision_basis=tuple(basis),
         risk_notes=tuple(risks),
@@ -691,8 +776,174 @@ def _rarity_text(value: Any) -> str:
     return normalize_character_id(value).replace("-", "")
 
 
-def _usage_summary(slug: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
-    matched = [row for row in rows if normalize_character_id(row.get("character_slug")) == slug and str(row.get("sub_mode") or "") == "all"]
+def _new_character_observation_state(
+    slug: str,
+    usage_rows: Sequence[dict[str, Any]],
+    team_rows: Sequence[dict[str, Any]],
+    *,
+    names: NameIndex | None = None,
+) -> tuple[str, int]:
+    descriptors: list[tuple[str, str, str]] = []
+    normalized_slug = _canonical_character_slug(slug, names)
+    for row in usage_rows:
+        if _canonical_character_slug(row.get("character_slug"), names) != normalized_slug:
+            continue
+        if not _is_global_usage_row(row):
+            continue
+        app_rate = parse_percent(row.get("app_rate"))
+        if app_rate is None or not math.isfinite(float(app_rate)):
+            continue
+        descriptor = _new_character_observation_descriptor(row)
+        if any(descriptor):
+            descriptors.append(descriptor)
+    for row in team_rows:
+        if str(row.get("mode") or "").strip().lower() not in {"sd", "da"}:
+            continue
+        app_rate = parse_percent(row.get("app_rate"))
+        if app_rate is None or not math.isfinite(float(app_rate)) or app_rate <= 0:
+            continue
+        char_columns = sorted(
+            key
+            for key in row
+            if key.startswith("char_") and key.endswith("_slug")
+        )
+        if len(char_columns) not in {3, 4}:
+            continue
+        team = tuple(
+            _canonical_character_slug(row.get(column), names)
+            for column in char_columns
+        )
+        if any(not member for member in team) or len(set(team)) != len(team):
+            continue
+        if normalized_slug not in team:
+            continue
+        descriptor = _new_character_observation_descriptor(row)
+        if any(descriptor):
+            descriptors.append(descriptor)
+    count = _new_character_observation_count(descriptors)
+    if count == 0:
+        return "unobserved", 0
+    if count == 1:
+        return "first_cycle", 1
+    return "repeated", count
+
+
+def _new_character_observation_descriptor(
+    row: dict[str, Any],
+) -> tuple[str, str, str]:
+    phase_ver = _observation_identity_part(row.get("phase_ver"))
+    return (
+        _observation_identity_part(row.get("snapshot_id")),
+        _observation_identity_part(row.get("collect_date")),
+        phase_ver or _observation_identity_part(row.get("phase_name")),
+    )
+
+
+def _new_character_observation_count(
+    descriptors: Sequence[tuple[str, str, str]],
+) -> int:
+    snapshot_clusters: dict[str, dict[str, set[str]]] = {}
+    fallback_descriptors: set[tuple[str, str]] = set()
+    for snapshot, collect_date, phase in descriptors:
+        if snapshot:
+            cluster = snapshot_clusters.setdefault(
+                snapshot,
+                {"dates": set(), "phases": set()},
+            )
+            if collect_date:
+                cluster["dates"].add(collect_date)
+            if phase:
+                cluster["phases"].add(phase)
+        elif collect_date or phase:
+            fallback_descriptors.add((collect_date, phase))
+
+    unmatched_fallbacks = [
+        descriptor
+        for descriptor in fallback_descriptors
+        if not any(
+            _fallback_matches_snapshot_cluster(descriptor, cluster)
+            for cluster in snapshot_clusters.values()
+        )
+    ]
+
+    phase_dates: dict[str, set[str]] = defaultdict(set)
+    date_only: set[str] = set()
+    for collect_date, phase in unmatched_fallbacks:
+        if phase:
+            phase_dates.setdefault(phase, set())
+            if collect_date:
+                phase_dates[phase].add(collect_date)
+        elif collect_date:
+            date_only.add(collect_date)
+
+    covered_dates = {
+        collect_date
+        for dates in phase_dates.values()
+        for collect_date in dates
+    }
+    fallback_count = len(phase_dates) + len(date_only - covered_dates)
+    return len(snapshot_clusters) + fallback_count
+
+
+def _fallback_matches_snapshot_cluster(
+    descriptor: tuple[str, str],
+    cluster: dict[str, set[str]],
+) -> bool:
+    collect_date, phase = descriptor
+    comparable = False
+    if collect_date and cluster["dates"]:
+        comparable = True
+        if collect_date not in cluster["dates"]:
+            return False
+    if phase and cluster["phases"]:
+        comparable = True
+        if phase not in cluster["phases"]:
+            return False
+    return comparable
+
+
+def _observation_identity_part(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _canonical_character_slug(value: Any, names: NameIndex | None) -> str:
+    if names is not None:
+        return canonical_slug(str(value or ""), names)
+    return normalize_character_id(value)
+
+
+def _is_global_usage_row(row: dict[str, Any]) -> bool:
+    return str(row.get("sub_mode") or "").strip().lower() == "all"
+
+
+def _global_team_confidence(slug: str, aggregates: Sequence[Any]) -> str:
+    normalized_slug = normalize_character_id(slug)
+    confidences = [
+        str(aggregate.confidence)
+        for aggregate in aggregates
+        if normalized_slug in {
+            normalize_character_id(member)
+            for member in getattr(aggregate, "team_slugs", ())
+        }
+        and str(getattr(aggregate, "confidence", "")) in CONFIDENCE_ORDER
+    ]
+    return min(confidences, key=lambda value: CONFIDENCE_ORDER[value]) if confidences else ""
+
+
+def _usage_summary(
+    slug: str,
+    rows: list[dict[str, Any]],
+    *,
+    names: NameIndex | None = None,
+) -> dict[str, Any]:
+    normalized_slug = _canonical_character_slug(slug, names)
+    matched = [
+        row
+        for row in rows
+        if _canonical_character_slug(row.get("character_slug"), names)
+        == normalized_slug
+        and _is_global_usage_row(row)
+    ]
     by_mode: dict[str, list[tuple[str, float]]] = defaultdict(list)
     for row in matched:
         app = parse_percent(row.get("app_rate"))
@@ -789,7 +1040,14 @@ def _coverage_text(current_records: list[Any], target_records: list[Any], depend
     return f"current {len(current_records)}({counts(current_records)})；target {len(target_records)}({counts(target_records)})；新增依赖 {len(dependent_records)}({counts(dependent_records)})"
 
 
-def _candidate_type(candidate: dict[str, Any], slug: str, usage_rows: list[dict[str, Any]], tier_index: dict[str, dict[str, Any]]) -> str:
+def _candidate_type(
+    candidate: dict[str, Any],
+    slug: str,
+    usage_rows: list[dict[str, Any]],
+    tier_index: dict[str, dict[str, Any]],
+    *,
+    names: NameIndex | None = None,
+) -> str:
     text = " ".join(
         [
             str(candidate.get("banner_role") or ""),
@@ -801,7 +1059,12 @@ def _candidate_type(candidate: dict[str, Any], slug: str, usage_rows: list[dict[
         return "new"
     if "复刻" in text or "rerun" in text.lower() or slug in tier_index:
         return "rerun"
-    if any(normalize_character_id(row.get("character_slug")) == slug for row in usage_rows):
+    normalized_slug = _canonical_character_slug(slug, names)
+    if any(
+        _canonical_character_slug(row.get("character_slug"), names)
+        == normalized_slug
+        for row in usage_rows
+    ):
         return "rerun"
     return "new"
 
@@ -819,12 +1082,23 @@ def _global_usage_text(usage: dict[str, Any]) -> str:
     return f"best_latest={_number_text(usage.get('best_latest'))}%；best_avg_last3={_number_text(usage.get('best_avg_last3'))}%；worst_trend={_number_text(usage.get('worst_trend_delta'))}"
 
 
-def _mechanism_text(candidate: dict[str, Any], tier: dict[str, Any], mechanism: dict[str, Any]) -> str:
+def _mechanism_text(
+    candidate: dict[str, Any],
+    tier: dict[str, Any],
+    mechanism: dict[str, Any],
+    *,
+    prefer_mechanism_status: bool = False,
+) -> str:
     identity = mechanism.get("identity") if isinstance(mechanism.get("identity"), dict) else {}
     role = candidate.get("role_group_cn") or tier.get("role_group_cn") or identity.get("role_group_cn") or "未知定位"
     element = candidate.get("element_cn") or tier.get("element_cn") or identity.get("element_cn") or "未知属性"
     style = candidate.get("style_cn") or tier.get("style_cn") or identity.get("style_cn") or "未知特性"
-    focus = candidate.get("focus") or mechanism.get("mechanism_status") or "暂无机制文本"
+    mechanism_status = str(mechanism.get("mechanism_status") or "").strip()
+    focus = (
+        mechanism_status
+        if prefer_mechanism_status and mechanism_status
+        else candidate.get("focus") or mechanism_status or "暂无机制文本"
+    )
     rarity = candidate.get("rarity") or identity.get("rarity")
     archetypes = _list_text(mechanism.get("archetypes"))
     teammates = _list_text(mechanism.get("key_teammates"))
