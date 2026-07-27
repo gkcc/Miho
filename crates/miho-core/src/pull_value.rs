@@ -1348,8 +1348,14 @@ fn build_card(
         slug.clone(),
     ]);
     let history_summary = history_text_for_observation(&candidate_type, &usage, observation);
-    let mechanism_review_summary =
-        mechanism_review_text_for_observation(&candidate_type, &mechanism, observation);
+    let has_historical_evidence =
+        usage.points > 0 || !current_records.is_empty() || !target_records.is_empty();
+    let mechanism_review_summary = mechanism_review_text_for_observation(
+        &candidate_type,
+        &mechanism,
+        observation,
+        has_historical_evidence,
+    );
     let mechanism_summary =
         mechanism_text(candidate, &tier, &mechanism, &candidate_type, observation);
     Ok(PullValueCardV1 {
@@ -1614,7 +1620,7 @@ fn new_value(
         .best_team_confidence
         .map(EvidenceConfidenceV1::as_str)
         .unwrap_or("usage");
-    let mut stage = stage_from_mechanism("new", mechanism, "");
+    let mut stage = stage_from_mechanism("new", mechanism, "", false);
     if mechanism.is_empty() && observation.state == NewObservationState::FirstCycle {
         stage.recommended_stage = "等实测".to_owned();
         stage.reason = format!(
@@ -1701,6 +1707,7 @@ fn mechanism_review_text_for_observation(
     candidate_type: &str,
     mechanism: &Map<String, Value>,
     observation: NewObservationSummary,
+    has_historical_evidence: bool,
 ) -> String {
     if candidate_type == "new" && mechanism.is_empty() {
         match observation.state {
@@ -1713,7 +1720,7 @@ fn mechanism_review_text_for_observation(
             NewObservationState::Unobserved => {}
         }
     }
-    mechanism_review_text(mechanism)
+    mechanism_review_text(mechanism, candidate_type, has_historical_evidence)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1848,10 +1855,12 @@ fn rerun_value(
             .unwrap_or_default(),
         pull_or_text(candidate.get("role_group_cn")),
     ]);
-    let stage = stage_from_mechanism("rerun", mechanism, &role);
+    let has_historical_evidence =
+        usage.points > 0 || !current_records.is_empty() || !target_records.is_empty();
+    let stage = stage_from_mechanism("rerun", mechanism, &role, has_historical_evidence);
     basis.push(format!(
         "mechanism_review：{}",
-        mechanism_review_text(mechanism)
+        mechanism_review_text(mechanism, "rerun", has_historical_evidence)
     ));
     for (value, mode) in mode_results {
         basis.push(format!("同模式判定 {mode}: {value}"));
@@ -2076,8 +2085,20 @@ fn replacement_text(
     }
 }
 
-fn mechanism_review_text(mechanism: &Map<String, Value>) -> String {
+fn mechanism_review_text(
+    mechanism: &Map<String, Value>,
+    candidate_type: &str,
+    has_historical_evidence: bool,
+) -> String {
     if mechanism.is_empty() {
+        if candidate_type == "rerun" {
+            return if has_historical_evidence {
+                "暂无 mechanism_notes；已有历史实战仅支持本体价值，X+X 档位等待机制评审"
+            } else {
+                "暂无 mechanism_notes；复刻角色档位等待机制评审与历史实战复核"
+            }
+            .to_owned();
+        }
         return "暂无 mechanism_notes；等技能/影画/专武/首轮数据".to_owned();
     }
     let mut parts = Vec::new();
@@ -2113,8 +2134,30 @@ fn stage_from_mechanism(
     candidate_type: &str,
     mechanism: &Map<String, Value>,
     role: &str,
+    has_historical_evidence: bool,
 ) -> StageRecommendationV1 {
     if mechanism.is_empty() {
+        if candidate_type == "rerun" {
+            return StageRecommendationV1 {
+                recommended_stage: "等机制档位评审".to_owned(),
+                acceptable_stage: "暂不预设".to_owned(),
+                unresolved_stage: "0+0 / 0+1 / 1+0 / 1+1 / 2+1".to_owned(),
+                stage_confidence: "low".to_owned(),
+                not_recommended_stage: "暂不判断".to_owned(),
+                reason: if has_historical_evidence {
+                    "已有历史 usage/队伍证据，但缺少 mechanism_notes，不能据此推导 X+X 档位"
+                } else {
+                    "复刻角色缺少 mechanism_notes，不能据此推导 X+X 档位"
+                }
+                .to_owned(),
+                missing_data: if has_historical_evidence {
+                    "mechanism_notes、专武与影画断点、攻略共识、当前版本档位收益对比"
+                } else {
+                    "mechanism_notes、专武与影画断点、历史实战与攻略共识、当前版本档位收益对比"
+                }
+                .to_owned(),
+            };
+        }
         return StageRecommendationV1 {
             recommended_stage: "等技能/影画/专武/首轮数据".to_owned(),
             acceptable_stage: "暂不预设".to_owned(),
@@ -2151,7 +2194,9 @@ fn stage_from_mechanism(
         .unwrap_or_else(|| "高档位暂不判断；只在机制/指南/实战证明必要时考虑".to_owned());
     let reason = nonempty_value(mechanism, "stage_reason")
         .or_else(|| nonempty_value(mechanism, "reason"))
-        .unwrap_or_else(|| mechanism_review_text(mechanism));
+        .unwrap_or_else(|| {
+            mechanism_review_text(mechanism, candidate_type, has_historical_evidence)
+        });
     let missing_data = nonempty_value(mechanism, "missing_data")
         .or_else(|| {
             let value = stage_missing_data_text(mechanism.get("stage_notes"));

@@ -10,8 +10,10 @@ from miho_core.pull_value import (
     _build_card,
     _candidate_type,
     _history_text,
+    _mechanism_review_text,
     _new_character_observation_state,
     _rerun_value,
+    _stage_from_mechanism,
     _usage_summary,
     build_pull_value_cards,
     load_mechanism_notes,
@@ -47,6 +49,56 @@ def test_pull_value_distinguishes_rerun_and_new_character(tmp_path):
     assert cards["nom"].pull_value == "等实测"
     assert "尚无全局 usage 或完整队伍实测" in "；".join(cards["nom"].decision_basis)
     assert cards["nom"].stage_recommendation["recommended_stage"] == "等技能/影画/专武/首轮数据"
+
+
+def test_rerun_without_mechanism_notes_does_not_claim_first_cycle_is_missing(tmp_path):
+    out = _write_pull_fixture(tmp_path)
+    result = build_pull_value_cards(
+        out,
+        box_path=_write_box(tmp_path),
+        plan_path=_write_plan(tmp_path),
+        statuses=["next"],
+    )
+    card = next(card for card in result["cards"] if card.slug == "sunna")
+
+    assert card.candidate_type == "rerun"
+    assert card.history_summary.startswith("sd: points 3")
+    assert card.stage_recommendation == {
+        "recommended_stage": "等机制档位评审",
+        "acceptable_stage": "暂不预设",
+        "unresolved_stage": "0+0 / 0+1 / 1+0 / 1+1 / 2+1",
+        "stage_confidence": "low",
+        "not_recommended_stage": "暂不判断",
+        "reason": "已有历史 usage/队伍证据，但缺少 mechanism_notes，不能据此推导 X+X 档位",
+        "missing_data": "mechanism_notes、专武与影画断点、攻略共识、当前版本档位收益对比",
+    }
+    assert card.mechanism_review_summary == (
+        "暂无 mechanism_notes；已有历史实战仅支持本体价值，X+X 档位等待机制评审"
+    )
+    copy = json.dumps(
+        {
+            "stage": card.stage_recommendation,
+            "mechanism_review": card.mechanism_review_summary,
+            "basis": card.decision_basis,
+        },
+        ensure_ascii=False,
+    )
+    assert "首轮" not in copy
+    assert "实战队伍" not in copy
+
+
+def test_rerun_without_historical_evidence_does_not_invent_it():
+    stage = _stage_from_mechanism("rerun", {}, has_historical_evidence=False)
+    review = _mechanism_review_text(
+        {},
+        candidate_type="rerun",
+        has_historical_evidence=False,
+    )
+
+    assert "已有历史" not in json.dumps(stage, ensure_ascii=False)
+    assert "首轮" not in json.dumps(stage, ensure_ascii=False)
+    assert "历史实战" in stage["missing_data"]
+    assert review == "暂无 mechanism_notes；复刻角色档位等待机制评审与历史实战复核"
 
 
 def test_new_character_first_cycle_uses_global_complete_teams_without_box_coverage(tmp_path):

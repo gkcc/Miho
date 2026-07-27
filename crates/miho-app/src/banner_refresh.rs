@@ -345,8 +345,9 @@ pub fn merge_banner_plan_snapshot(
     let mut confirmed_slugs = BTreeSet::new();
     for official in &official_phases {
         validate_official_phase(official)?;
-        let resolved_characters =
+        let mut resolved_characters =
             resolve_official_characters(official, name_map, &existing_character_index)?;
+        clear_confirmed_phase_metadata(&mut resolved_characters);
         confirmed_slugs.extend(
             resolved_characters
                 .iter()
@@ -1156,6 +1157,42 @@ fn index_existing_characters(phases: &[Value]) -> BTreeMap<String, Value> {
         }
     }
     output
+}
+
+fn clear_confirmed_phase_metadata(characters: &mut [Value]) {
+    for character in characters {
+        let Some(object) = character.as_object_mut() else {
+            continue;
+        };
+        if let Some(tags) = object
+            .get_mut("analysis_tags")
+            .and_then(Value::as_array_mut)
+        {
+            tags.retain(|tag| {
+                !tag.as_str()
+                    .is_some_and(|tag| remove_whitespace(tag).contains("卫星"))
+                    && !tag.as_str().is_some_and(is_waiting_for_banner_confirmation)
+            });
+        }
+        if object
+            .get("focus")
+            .and_then(Value::as_str)
+            .is_some_and(|focus| {
+                remove_whitespace(focus).contains("卫星阶段")
+                    || is_waiting_for_banner_confirmation(focus)
+            })
+        {
+            object.remove("focus");
+        }
+    }
+}
+
+fn is_waiting_for_banner_confirmation(value: &str) -> bool {
+    let compact = remove_whitespace(value);
+    compact.contains("等待调频确认")
+        || compact.contains("待调频确认")
+        || compact.contains("等待官方调频确认")
+        || compact.contains("待官方调频确认")
 }
 
 fn merge_character_metadata(existing: &mut Value, additional: &Value) {
@@ -2029,8 +2066,8 @@ mod tests {
             .find(|character| character["slug"] == "norma")
             .unwrap();
         assert_eq!(norma["name_cn"], "诺姆·霍洛维尔");
-        assert_eq!(norma["analysis_tags"], json!(["人工卫星标签"]));
-        assert_eq!(norma["focus"], "等待调频确认");
+        assert_eq!(norma["analysis_tags"], json!([]));
+        assert!(norma.get("focus").is_none());
 
         let second = merge_banner_plan_snapshot(&snapshot, &phases, &name_map, &refresh).unwrap();
         let second: Value = serde_json::from_slice(&second).unwrap();
@@ -2187,7 +2224,7 @@ mod tests {
     }
 
     #[test]
-    fn official_short_name_promotes_unique_named_satellite_to_next_phase() {
+    fn official_short_name_promotes_unique_named_satellite_and_clears_phase_metadata() {
         let existing = r#"{
           "phases": [{
             "id": "announced-satellites",
@@ -2197,7 +2234,11 @@ mod tests {
             "characters": [{
               "slug": "remiel",
               "name_cn": "蕾米埃尔·丹",
-              "analysis_tags": ["卫星"]
+              "analysis_tags": ["卫星", "等待调频确认", "官方档案", "缺少实测"],
+              "focus": "卫星阶段只记录公开属性/特性和潜在队友，不做强度判断。",
+              "element_cn": "风",
+              "rarity": "S",
+              "icon_url": "./assets/avatars/remiel.webp"
             }]
           }]
         }"#;
@@ -2218,7 +2259,7 @@ mod tests {
         };
         let snapshot = merge_banner_plan_snapshot(
             existing.as_bytes(),
-            &[official],
+            &[official.clone()],
             &BTreeMap::new(),
             &BannerRefreshMetadataV1 {
                 fetched_at: "2026-07-27T12:00:00+08:00".to_owned(),
@@ -2232,7 +2273,40 @@ mod tests {
         assert_eq!(phases[0]["status"], "next");
         assert_eq!(phases[0]["characters"][0]["slug"], "remiel");
         assert_eq!(phases[0]["characters"][0]["name_cn"], "蕾米埃尔·丹");
-        assert_eq!(phases[0]["characters"][0]["analysis_tags"], json!(["卫星"]));
+        assert_eq!(
+            phases[0]["characters"][0]["analysis_tags"],
+            json!(["官方档案", "缺少实测"])
+        );
+        assert!(phases[0]["characters"][0].get("focus").is_none());
+        assert_eq!(phases[0]["characters"][0]["element_cn"], "风");
+        assert_eq!(phases[0]["characters"][0]["rarity"], "S");
+        assert_eq!(
+            phases[0]["characters"][0]["icon_url"],
+            "./assets/avatars/remiel.webp"
+        );
+
+        let mut stale_promoted = value;
+        stale_promoted["phases"][0]["characters"][0]["analysis_tags"] =
+            json!(["卫星", "官方档案", "缺少实测"]);
+        stale_promoted["phases"][0]["characters"][0]["focus"] =
+            json!("卫星阶段只记录公开属性/特性和潜在队友，不做强度判断。");
+        let repaired = merge_banner_plan_snapshot(
+            &serde_json::to_vec(&stale_promoted).unwrap(),
+            &[official],
+            &BTreeMap::new(),
+            &BannerRefreshMetadataV1 {
+                fetched_at: "2026-07-28T12:00:00+08:00".to_owned(),
+                source_label: "《绝区零》官方网站".to_owned(),
+            },
+        )
+        .unwrap();
+        let repaired: Value = serde_json::from_slice(&repaired).unwrap();
+        let repaired_character = &repaired["phases"][0]["characters"][0];
+        assert_eq!(
+            repaired_character["analysis_tags"],
+            json!(["官方档案", "缺少实测"])
+        );
+        assert!(repaired_character.get("focus").is_none());
     }
 
     #[test]

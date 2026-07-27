@@ -141,6 +141,20 @@ test("product UI probe compacts full assertion snapshots into necessary evidence
   assert.equal(receipt.sequence[0].analysis.modes.da.theme, "终局主题");
   assert.equal(receipt.sequence[0].analysis.modes.da.mechanic, "终局机制");
   assert.deepEqual(receipt.sequence[0].banner.currentNames, ["爱丽丝", "仪玄"]);
+
+  const gapRaw = fixtureReceipt();
+  Object.assign(gapRaw.sequence[0].banner, {
+    bannerPhase: "next",
+    bannerCurrentRowCount: 0,
+    bannerDataCurrentNames: [],
+    bannerCardNames: ["蕾米埃尔·丹"],
+  });
+  const gapBanner = compactProductUiProbeReceipt(gapRaw).sequence[0].banner;
+  assert.equal(gapBanner.selectedPhase, "next");
+  assert.equal(gapBanner.currentCount, 0);
+  assert.deepEqual(gapBanner.currentNames, []);
+  assert.deepEqual(gapBanner.visibleNames, ["蕾米埃尔·丹"]);
+
   assert.equal(receipt.publicDataUpdates.updates[0].revision.after, "e".repeat(64));
   assert.equal(receipt.publicDataUpdates.updates[0].game, "zzz");
   assert.equal(receipt.publicDataUpdates.boxProtection.zzz.diskUnchanged, true);

@@ -18,6 +18,7 @@ const COLORS=['#2563eb','#dc2626','#16a34a','#9333ea','#ea580c','#0891b2','#be12
 const BOX_KEY='hsr_endgame_box_v1';
 const BOX_UNDO_LIMIT=20;
 const REC_KEY='hsr_endgame_recommender_v1';
+const BANNER_PHASE_KEY='hsr_endgame_banner_phase_v1';
 const PAGES=new Set(['analysis','banner','box','recommender']);
 const desktopMode=globalThis.__MIHO_DESKTOP__===true;
 let DATA=null,DATA_INDEX=null,dataEpoch=0,boxStateRevision=0;
@@ -28,7 +29,7 @@ const BANNER_PHASES=[['current','当期UP'],['next','后续卡池'],['recent','�
 const DATE_DRIVEN_BANNER_STATUSES=new Set(['current','next','previous','expired','past']);
 const BANNER_STATUS_ORDER={current:0,next:1,satellite:2,recent:3,previous:4,expired:5,past:6};
 const MAX_BANNER_TIMER_DELAY=2_147_000_000;
-let banner={phase:'current',search:''};
+let banner={phase:loadBannerPhasePreference(),search:''};
 let bannerBoundaryTimer=null;
 let boxSaveTimer=null,boxSaveRevision=0,boxSaveChain=Promise.resolve(),boxPendingSave=null;
 let boxUndoStack=[];
@@ -186,6 +187,9 @@ let renderedLocalDate='';
 function parseBannerBoundary(value){const text=String(value||'').trim();if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00$/.test(text))return null;const parsed=Date.parse(text);return Number.isFinite(parsed)?parsed:null}
 function effectiveBannerPhaseStatus(row,now=Date.now()){const current=String(row?.phase_status||''),declared=String(row?.declared_phase_status||current).trim().toLowerCase();if(!DATE_DRIVEN_BANNER_STATUSES.has(declared))return declared||current;const start=parseBannerBoundary(row?.phase_starts_at),endExclusive=parseBannerBoundary(row?.phase_ends_at_exclusive);if(start==null&&endExclusive==null)return current;if(start!=null&&now<start)return'next';if(endExclusive!=null&&now>=endExclusive)return'previous';return'current'}
 function syncRosterBannerStatuses(){const statuses=new Map(),dynamicSlugs=new Set();for(const row of DATA?.bannerRows||[]){const slug=String(row.character_slug||'');if(!slug)continue;const declared=String(row?.declared_phase_status||row?.phase_status||'').trim().toLowerCase(),hasBoundary=parseBannerBoundary(row?.phase_starts_at)!=null||parseBannerBoundary(row?.phase_ends_at_exclusive)!=null;if(DATE_DRIVEN_BANNER_STATUSES.has(declared)&&hasBoundary)dynamicSlugs.add(slug);const values=statuses.get(slug)||new Set();if(row.phase_status)values.add(row.phase_status);statuses.set(slug,values);}for(const row of DATA?.rosterRows||[]){const slug=String(row.character_slug||'');if(!dynamicSlugs.has(slug))continue;const values=new Set(String(row.banner_statuses||'').split(';').map(status=>status.trim()).filter(status=>status&&!DATE_DRIVEN_BANNER_STATUSES.has(status)));for(const status of statuses.get(slug)||[])values.add(status);row.banner_statuses=[...values].sort((left,right)=>(BANNER_STATUS_ORDER[left]??99)-(BANNER_STATUS_ORDER[right]??99)).join(';');}}
+function normalizeBannerPhasePreference(value){const phase=String(value||'');return BANNER_PHASES.some(([candidate])=>candidate===phase)?phase:'current'}
+function loadBannerPhasePreference(){try{return normalizeBannerPhasePreference(globalThis.sessionStorage?.getItem(BANNER_PHASE_KEY))}catch{return'current'}}
+function saveBannerPhasePreference(value){const phase=normalizeBannerPhasePreference(value);try{globalThis.sessionStorage?.setItem(BANNER_PHASE_KEY,phase)}catch{}return phase}
 function refreshBannerPhaseStatuses(now=Date.now()){let changed=false;for(const row of DATA?.bannerRows||[]){const status=effectiveBannerPhaseStatus(row,now);if(status&&status!==row.phase_status){row.phase_status=status;changed=true;}}syncRosterBannerStatuses();return changed}
 function nextBannerBoundary(now=Date.now()){let next=null;for(const row of DATA?.bannerRows||[]){const declared=String(row?.declared_phase_status||row?.phase_status||'').trim().toLowerCase();if(!DATE_DRIVEN_BANNER_STATUSES.has(declared))continue;for(const value of [row.phase_starts_at,row.phase_ends_at_exclusive]){const boundary=parseBannerBoundary(value);if(boundary!=null&&boundary>now&&(next==null||boundary<next))next=boundary;}}return next}
 function syncBannerPhaseControl(){const root=$('bannerPhaseControl');if(root)syncPressedChildren(root,button=>button.dataset.value===banner.phase)}
@@ -218,7 +222,7 @@ function init(){
 
 function initBannerControls(){
   ensureBannerPhase();
-  makeButtons('bannerPhaseControl',BANNER_PHASES,banner.phase,v=>{banner.phase=v;renderBanner();});
+  makeButtons('bannerPhaseControl',BANNER_PHASES,banner.phase,v=>{banner.phase=saveBannerPhasePreference(v);renderBanner();});
   $('bannerSearchInput').oninput=e=>{banner.search=e.target.value.trim().toLowerCase();renderBanner();};
 }
 
@@ -291,7 +295,7 @@ function makeButtons(id,items,current,onClick){
 
 function resetCurrentPage(){
   if(state.page==='banner'){
-    banner={phase:'current',search:''};
+    banner={phase:saveBannerPhasePreference('current'),search:''};
     ensureBannerPhase();
     syncPressedChildren($('bannerPhaseControl'),b=>b.dataset.value===banner.phase);
     $('bannerSearchInput').value='';
@@ -516,7 +520,7 @@ function renderCharacters(series){
 function renderChangelog(series){const slugs=new Set(series.map(s=>s.slug));const boxEl=$('changelogList');boxEl.innerHTML='';const related=DATA.changelogRows.filter(r=>String(r.character_slugs||'').split(';').some(s=>slugs.has(s)));const rows=(related.length?related:DATA.changelogRows).slice(0,8);rows.forEach(r=>{const item=document.createElement('div');item.className='changelog-item';const text=String(r.text||'');item.innerHTML=`<time>${esc(r.changelog_date)}</time><p>${esc(text).slice(0,420)}${text.length>420?'...':''}</p>`;boxEl.appendChild(item);});}
 
 function bannerPhaseMatches(status,phase){return phase==='all'||(phase==='recent'?status==='recent'||status==='previous':status===phase)}
-function ensureBannerPhase(){const rows=DATA.bannerRows||[];if(!rows.length)return;if(!rows.some(r=>bannerPhaseMatches(r.phase_status,banner.phase)))banner.phase=BANNER_PHASES.map(([value])=>value).find(value=>value!=='all'&&rows.some(r=>bannerPhaseMatches(r.phase_status,value)))||'all';}
+function ensureBannerPhase(){const rows=DATA.bannerRows||[];if(!rows.length)return;if(!rows.some(r=>bannerPhaseMatches(r.phase_status,banner.phase))){banner.phase=BANNER_PHASES.map(([value])=>value).find(value=>value!=='all'&&rows.some(r=>bannerPhaseMatches(r.phase_status,value)))||'all';saveBannerPhasePreference(banner.phase);}}
 function bannerRows(){const q=banner.search;return (DATA.bannerRows||[]).filter(r=>bannerPhaseMatches(r.phase_status,banner.phase)&&(!q||[r.character_slug,r.character_name_cn,r.character_name_en,r.banner_role,r.element_cn,r.path_cn,r.role_group_cns,...(r.analysis_tags||[])].some(x=>String(x||'').toLowerCase().includes(q))));}
 function formatBannerRefreshTime(value){const date=new Date(value);if(!Number.isFinite(date.getTime()))return String(value||'').replace('T',' ').replace(/Z$/,'').slice(0,16);const china=new Date(date.getTime()+8*60*60*1000),pad=n=>String(n).padStart(2,'0');return`${china.getUTCFullYear()}-${pad(china.getUTCMonth()+1)}-${pad(china.getUTCDate())} ${pad(china.getUTCHours())}:${pad(china.getUTCMinutes())}`}
 function bannerRefreshText(){const refresh=DATA.bannerRefresh;if(!refresh||typeof refresh!=='object'||Array.isArray(refresh))return'官方刷新状态未知（旧格式数据）';if(!refresh.fetched_at)return'';const time=formatBannerRefreshTime(refresh.fetched_at);if(refresh.status==='fresh')return`官方卡池资料上次刷新：${time}`;if(refresh.status==='no_current')return`官方卡池资料已于 ${time} 检查，但官方响应未覆盖当前或下一期`;return''}

@@ -191,7 +191,7 @@ test('update health retries busy workspaces with bounded backoff and rechecks at
   assert.match(unload, /clearUpdateHealthTimers\(\)/);
 });
 
-test('update health refreshes on meaningful lifecycle events without hashing every stable focus check', () => {
+test('update health refreshes on every visible revision check and meaningful lifecycle event', () => {
   const reloadButton = section('const reloadVisualizerButton', 'visualizerHeading.append(');
   const revisions = section('async function checkVisualizerRevisions()', 'function handleWindowFocus()');
   const focusWatchers = section('function handleWindowFocus()', 'function setNotice(');
@@ -199,18 +199,46 @@ test('update health refreshes on meaningful lifecycle events without hashing eve
   const taskQuery = section('async function queryTask(', 'async function refreshTasks()');
   const taskRefresh = section('async function refreshTasks()', 'async function cancelTask(');
 
-  assert.match(reloadButton, /Promise\.all\(\[loadVisualizer\(true\), refreshUpdateHealth\(\)\]\)/);
+  assert.match(reloadButton, /await loadVisualizer\(true\);\s*await refreshUpdateHealth\(\)/);
   assert.match(reloadWorkspace, /invalidateUpdateHealth\("正在读取当前工作区的自动更新记录…"\)/);
   assert.match(reloadWorkspace, /refreshTasks\(\), loadVisualizer\(false\), refreshUpdateHealth\(\)/);
-  assert.match(revisions, /const previousObservedRevision = observedVisualizerRevisions\.get\(targetGame\)/);
-  assert.match(revisions, /previousObservedRevision !== descriptor\.data_revision/);
-  assert.match(revisions, /if \(observedRevisionChanged\) await refreshUpdateHealth\(\)/);
+  assert.match(revisions, /await refreshUpdateHealth\(\)/);
+  assert.doesNotMatch(revisions, /observedRevisionChanged/);
   assert.equal((revisions.match(/refreshUpdateHealth\(\)/g) ?? []).length, 1);
   assert.doesNotMatch(focusWatchers, /refreshUpdateHealth\(\)/);
+  assert.match(focusWatchers, /function handleWindowFocus\(\): void \{\s*requestVisualizerRevisionCheck\(\)/);
+  assert.match(focusWatchers, /function handleVisibilityChange\(\): void \{\s*if \(!document\.hidden\) requestVisualizerRevisionCheck\(\)/);
+  assert.match(focusWatchers, /window\.setInterval\(\(\) => \{\s*if \(!document\.hidden\) requestVisualizerRevisionCheck\(\)/);
   assert.match(taskQuery, /TERMINAL_STATUSES\.has\(snapshot\.status\)/);
   assert.match(taskQuery, /updateHealthRefreshedTaskIds\.add\(snapshot\.task_id\);\s*await refreshUpdateHealth\(\)/);
   assert.match(taskRefresh, /!TERMINAL_STATUSES\.has\(previous\.status\)[\s\S]*?TERMINAL_STATUSES\.has\(snapshot\.status\)/);
   assert.match(taskRefresh, /if \(updateHealthAfterTerminalExport\) await refreshUpdateHealth\(\)/);
+});
+
+test('descriptor read failures fail update health closed until the next complete revision check', () => {
+  const revisions = section('async function checkVisualizerRevisions()', 'function handleWindowFocus()');
+  const healthRequest = section('async function refreshUpdateHealth(', 'function updateWorkspaceControls()');
+  const failureView = section('function renderVisualizerDescriptorHealthFailure()', 'function clearUpdateHealthTimers(');
+  const reset = section('function resetVisualizerFrames()', 'async function loadVisualizer(');
+
+  assert.match(source, /const visualizerDescriptorFailures = new Set<Game>\(\)/);
+  assert.match(revisions, /catch \{\s*return \[targetGame, null\] as const;/);
+  assert.match(revisions, /visualizerDescriptorFailures\.clear\(\)/);
+  assert.match(revisions, /if \(!descriptor\) \{\s*visualizerDescriptorFailures\.add\(targetGame\);\s*continue;/);
+  assert.match(revisions, /await refreshUpdateHealth\(\)/);
+  assert.match(
+    healthRequest,
+    /if \(health\.healthy\) \{\s*if \(visualizerDescriptorFailures\.size > 0\) \{\s*renderVisualizerDescriptorHealthFailure\(\);\s*return;/,
+  );
+  assert.match(failureView, /clearUpdateHealthTimers\(\)/);
+  assert.match(failureView, /setUpdateHealthView\(\s*"error",\s*"需确认"/);
+  assert.match(failureView, /无法确认当前页面与最新更新记录一致/);
+  assert.match(failureView, /当前页面可能仍显示旧数据/);
+  assert.match(reset, /visualizerDescriptorFailures\.clear\(\)/);
+  const load = section('async function loadVisualizer(', 'async function refreshAll()');
+  assert.match(load, /if \(!descriptor\) \{\s*visualizerDescriptorFailures\.add\(targetGame\);\s*renderVisualizerDescriptorHealthFailure\(\)/);
+  assert.match(load, /visualizerDescriptorFailures\.delete\(targetGame\)/);
+  assert.match(load, /catch \(error\) \{[\s\S]*?visualizerDescriptorFailures\.add\(targetGame\);\s*renderVisualizerDescriptorHealthFailure\(\)/);
 });
 
 test('revision watchers check both games without navigating a stable revision', () => {

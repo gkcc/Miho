@@ -702,6 +702,11 @@
 - **卡池呈现**：`已有实测` 只接受与 core 一致的有效 usage 或三人真实队伍，不再由趋势点或队友关系误判；当期、下期、已结束标签与区块副标题全部由运行时 `phase_status` 派生，跨过边界后不会残留静态“当期 / 当期 UP”。
 - **验证与正式状态**：Python 220 项（2 live deselected）、`miho-core` 全包、Node 138/138、Rust fmt、定点 Ruff、JS syntax、diff check 与完整 `pnpm run tauri:build` 通过；三份 EXE 的 7 项 Visualizer 字节 exact-once，PE 子系统为 `WINDOWS_GUI / WINDOWS_CUI / WINDOWS_GUI`。正式 Desktop/人工 CLI SHA-256 为 `BE5D10AF1422AA806A8F91497B3A80970EAB481B0AD5F45A0FEEFF98B6ABEF03` / `0C34DCEFE6ED201A00F392A265126EBB34FEBA852F68C12DFA97FFB1AC1C4B65`；owner-aware attempt `installer-0b6263ff3b6a4cb48940b1ed7121335d` 已切到唯一无窗 generation `miho-0.1.0-53b2a41c1905184ec6cddd924b59e89f4bb7d53ff6f7687452e95d3aea810898`，任务 `Ready / Enabled / LastTaskResult=0`，无 candidate/journal。隐藏产品路径完成 `ZZZ → HSR → ZZZ` 并正常退出 0，stdout/stderr 为空、无 Python 或 WindowsTerminal/OpenConsole；HSR/ZZZ Box 哈希保持不变，4 份临时 EXE 回滚副本在验收后精确删除。未进入 NSIS、portable 或旧安装器链。
 
+### 卡池刷新状态保持与正式数据收口（2026-07-28，已交付）
+
+- 双游戏卡池子 TAB 在 revision 重载后保持，失效阶段安全回退；ZZZ 同名双池同时显示生命周期与官方日期组。官方确认角色会清除遗留卫星/待调频阶段文案，即使旧快照已先晋升为 `next`；爱芮复刻缺机制资料时改为“等机制档位评审”。桌面在 focus、重新可见及 60 秒轮询时重读 health，descriptor 失败保持 fail-closed；隐藏产品复验确认六种终局模式均展示采样、期次、主题、机制和周期。
+- 完整 Tauri 构建与嵌入资源/PE 门禁通过；正式 Desktop、人工 CLI、无窗任务 CLI SHA-256 为 `7356FE31B63F47217202E754EA1918649ADB1B9365E34821C3347F940537A70B`、`7FDB5A317D833C001D4F468A545A6F98E90E5EF0FD3BC259E8158B2E9D7FAAA3`、`0114D3788214D88B7EF40E1B5B9B6B4EED3C5B25D804C1FD99EE6E7527EF09A8`。owner-aware attempt `installer-eab31bc97d5540dd89dc37b1e7356ee2` 已切到唯一 generation，任务 `Ready / Enabled / LastTaskResult=0`，无 candidate/journal；正式 GUI 隐藏复验退出 0、stdout/stderr 为空，HSR/ZZZ Box 哈希保持不变，6 份临时 EXE 回滚副本已精确删除。
+
 ## 恢复入口
 
 - 项目状态：本文件。

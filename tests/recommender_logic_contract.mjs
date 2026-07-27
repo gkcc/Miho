@@ -232,6 +232,10 @@ const HSR_HARNESS = String.raw`
   postPage(page) {
     return postVisualizerPage(page);
   },
+  bannerPhasePreference(value) {
+    if (value !== undefined) banner.phase = saveBannerPhasePreference(value);
+    return {phase: banner.phase, stored: loadBannerPhasePreference()};
+  },
   postReady(search) {
     location.search = search;
     return postVisualizerReady();
@@ -466,6 +470,9 @@ const ZZZ_HARNESS = String.raw`
     const insight = bannerInsight(row);
     return {points: insight.points.map(point => ({...point})), histories: insight.histories.map(history => ({mode: history.mode, label: history.label, points: history.points.map(point => ({...point}))})), relations: insight.relations.map(relation => ({...relation})), tags: [...bannerAnalysisTags(row, insight)], lifecycle: {...bannerLifecyclePresentation(row)}, lines: [...insight.lines]};
   },
+  bannerSectionSubtitle(row) {
+    return bannerSectionSubtitle(row);
+  },
   sampleAge(sampleDate, today = '2026-07-10') {
     return sampleAgeSummary(sampleDate, today);
   },
@@ -477,6 +484,10 @@ const ZZZ_HARNESS = String.raw`
   },
   postPage(page) {
     return postVisualizerPage(page);
+  },
+  bannerPhasePreference(value) {
+    if (value !== undefined) banner.phase = saveBannerPhasePreference(value);
+    return {phase: banner.phase, stored: loadBannerPhasePreference()};
   },
   postReady(search) {
     location.search = search;
@@ -521,8 +532,9 @@ const ZZZ_HARNESS = String.raw`
 };
 `;
 
-function loadContract(appPath, harness, {desktopMode = false, search = '', fetchImpl = null} = {}) {
+function loadContract(appPath, harness, {desktopMode = false, search = '', fetchImpl = null, sessionStorageEntries = []} = {}) {
   const storage = new Map();
+  const session = new Map(sessionStorageEntries);
   const parentMessages = [];
   const document = {
     body: {innerHTML: ''},
@@ -544,6 +556,11 @@ function loadContract(appPath, harness, {desktopMode = false, search = '', fetch
       getItem: key => storage.get(String(key)) ?? null,
       setItem: (key, value) => storage.set(String(key), String(value)),
       removeItem: key => storage.delete(String(key)),
+    },
+    sessionStorage: {
+      getItem: key => session.get(String(key)) ?? null,
+      setItem: (key, value) => session.set(String(key), String(value)),
+      removeItem: key => session.delete(String(key)),
     },
   });
   context.global = context;
@@ -3014,6 +3031,34 @@ test('ZZZ banner presentation derives lifecycle copy and observation labels from
   }));
   assert.deepEqual(currentFocusInsight.tags.slice(0, 5), ['新角色', '当期', '火', '击破', '已有实测']);
   assert.ok(currentFocusInsight.lines.includes(`关注点：${currentFocus}`));
+});
+
+test('banner phase subtabs survive data revision reloads within the desktop session', () => {
+  const hsr = loadContract(HSR_APP, HSR_HARNESS, {
+    sessionStorageEntries: [['hsr_endgame_banner_phase_v1', 'next']],
+  });
+  assert.deepEqual(plain(hsr.bannerPhasePreference()), {phase: 'next', stored: 'next'});
+  assert.deepEqual(plain(hsr.bannerPhasePreference('all')), {phase: 'all', stored: 'all'});
+  assert.deepEqual(plain(hsr.bannerPhasePreference('not-a-phase')), {phase: 'current', stored: 'current'});
+  const hsrSource = readFileSync(HSR_APP, 'utf8');
+  const resetStart = hsrSource.indexOf('function resetCurrentPage()');
+  const resetEnd = hsrSource.indexOf('function syncAnalysisControls()', resetStart);
+  assert.match(hsrSource.slice(resetStart, resetEnd),
+    /banner=\{phase:saveBannerPhasePreference\('current'\),search:''\}/u);
+
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS, {
+    sessionStorageEntries: [['zzz_endgame_banner_phase_v1', 'satellite']],
+  });
+  assert.deepEqual(plain(zzz.bannerPhasePreference()), {phase: 'satellite', stored: 'satellite'});
+  assert.deepEqual(plain(zzz.bannerPhasePreference('next')), {phase: 'next', stored: 'next'});
+});
+
+test('ZZZ banner sections preserve official group labels alongside runtime lifecycle', () => {
+  const zzz = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  assert.equal(zzz.bannerSectionSubtitle({phase_status: 'next', phase_subtitle: '官方日期组 1'}), '下期 UP · 官方日期组 1');
+  assert.equal(zzz.bannerSectionSubtitle({phase_status: 'current', phase_subtitle: '官方日期组 2'}), '当期 UP · 官方日期组 2');
+  assert.equal(zzz.bannerSectionSubtitle({phase_status: 'previous', phase_subtitle: '当期 UP'}), '已结束');
+  assert.equal(zzz.bannerSectionSubtitle({phase_status: 'satellite', phase_subtitle: '官方已公开代理人档案'}), '官方已公开代理人档案');
 });
 
 test('ZZZ observed banner state rejects presentation-only points and relations at evidence boundaries', () => {

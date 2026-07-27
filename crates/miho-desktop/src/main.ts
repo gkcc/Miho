@@ -288,7 +288,7 @@ let updateHealthRequestGeneration = 0;
 let updateHealthBusyRetryTimer: number | null = null;
 let updateHealthStaleTimer: number | null = null;
 let updateHealthBusyRetryAttempt = 0;
-const observedVisualizerRevisions = new Map<Game, string>();
+const visualizerDescriptorFailures = new Set<Game>();
 const updateHealthRefreshedTaskIds = new Set<string>();
 
 const tasks = new Map<string, PublicTaskSnapshot>();
@@ -637,7 +637,8 @@ const reloadVisualizerButton = makeButton("重新载入", "button secondary", as
   updateWorkspaceControls();
   try {
     if (await ensureVisualizerBoxesSaved([game], "重新载入")) {
-      await Promise.all([loadVisualizer(true), refreshUpdateHealth()]);
+      await loadVisualizer(true);
+      await refreshUpdateHealth();
     }
   } finally {
     setBoxTransitionBusy(false);
@@ -1179,13 +1180,11 @@ async function checkVisualizerRevisions(): Promise<void> {
     }));
     if (isWindowClosing()) return;
     if (workspaceId !== (capabilities?.workspace.workspace_id ?? "")) return;
-    let observedRevisionChanged = false;
+    visualizerDescriptorFailures.clear();
     for (const [targetGame, descriptor] of descriptors) {
-      if (!descriptor) continue;
-      const previousObservedRevision = observedVisualizerRevisions.get(targetGame);
-      observedVisualizerRevisions.set(targetGame, descriptor.data_revision);
-      if (previousObservedRevision !== descriptor.data_revision) {
-        observedRevisionChanged = true;
+      if (!descriptor) {
+        visualizerDescriptorFailures.add(targetGame);
+        continue;
       }
       const visualizerState = visualizerFrames.get(targetGame);
       if (!visualizerState) continue;
@@ -1193,7 +1192,7 @@ async function checkVisualizerRevisions(): Promise<void> {
       if (displayedRevision === descriptor.data_revision) continue;
       markVisualizerDirty(targetGame, targetGame === game);
     }
-    if (observedRevisionChanged) await refreshUpdateHealth();
+    await refreshUpdateHealth();
   } finally {
     visualizerRevisionCheckRunning = false;
     if (visualizerRevisionCheckQueued) {
@@ -1250,6 +1249,18 @@ function setUpdateHealthView(
 
 function renderUpdateHealthLoading(detail = "完成后会显示 HSR 与 ZZZ 的本机成功时间和终局最新采样。"): void {
   setUpdateHealthView("loading", "读取中", "正在读取最近自动更新记录…", detail);
+}
+
+function renderVisualizerDescriptorHealthFailure(): void {
+  const failedGames = GAMES.filter((targetGame) => visualizerDescriptorFailures.has(targetGame));
+  if (!failedGames.length) return;
+  clearUpdateHealthTimers();
+  setUpdateHealthView(
+    "error",
+    "需确认",
+    "无法确认当前页面与最新更新记录一致。",
+    `${failedGames.map(gameShortLabel).join("、")} 的 Visualizer 数据版本读取失败；当前页面可能仍显示旧数据。请点击顶部“刷新”重试。`,
+  );
 }
 
 function clearUpdateHealthTimers(resetBusyAttempt = true): void {
@@ -1533,6 +1544,10 @@ async function refreshUpdateHealth(fromBusyRetry = false): Promise<void> {
       return;
     }
     if (health.healthy) {
+      if (visualizerDescriptorFailures.size > 0) {
+        renderVisualizerDescriptorHealthFailure();
+        return;
+      }
       renderHealthyUpdateHealth(health);
       return;
     }
@@ -2361,7 +2376,7 @@ function resetVisualizerFrames(): void {
   visualizerDirty.clear();
   visualizerLoading.clear();
   pendingVisualizerRefreshes.clear();
-  observedVisualizerRevisions.clear();
+  visualizerDescriptorFailures.clear();
   for (const [targetGame, visualizerState] of visualizerFrames) {
     const { frame } = visualizerState;
     rejectFrameFlushes(frame);
@@ -2418,12 +2433,14 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
       || workspaceId !== (capabilities?.workspace.workspace_id ?? "")) return;
     const descriptor = backendVisualizerDescriptor(result, targetGame);
     if (!descriptor) {
+      visualizerDescriptorFailures.add(targetGame);
+      renderVisualizerDescriptorHealthFailure();
       if (targetGame === game) {
         setNotice(visualizerMessage, "Visualizer 暂不可用；后端未返回受支持的版本描述。", "error");
       }
       return;
     }
-    observedVisualizerRevisions.set(targetGame, descriptor.data_revision);
+    visualizerDescriptorFailures.delete(targetGame);
     if (!force
       && frame.dataset.loaded === "true"
       && visualizerState.loadedRevision === descriptor.data_revision) {
@@ -2478,6 +2495,8 @@ async function loadVisualizer(force = false, targetGame: Game = game): Promise<v
     }
   } catch (error) {
     if (request !== visualizerState.requestGeneration) return;
+    visualizerDescriptorFailures.add(targetGame);
+    renderVisualizerDescriptorHealthFailure();
     const failure = safeError(error);
     if (targetGame === game) {
       utilities.open = true;

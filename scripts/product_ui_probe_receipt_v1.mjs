@@ -33,14 +33,21 @@ function analysesReceipt(snapshots, game) {
 function bannerReceipt(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return null;
   const refresh = definedObject(snapshot.bannerRefresh);
-  const currentNames = snapshot.bannerCardNames ?? snapshot.bannerCurrentNames ?? [];
+  const selectedPhase = snapshot.bannerSelectedPhase ?? snapshot.bannerPhase ?? "";
+  const currentNames = snapshot.bannerDataCurrentNames
+    ?? snapshot.bannerCurrentNames
+    ?? (selectedPhase === "" || selectedPhase === "current" ? snapshot.bannerCardNames : [])
+    ?? [];
+  const visibleNames = snapshot.bannerVisibleNames ?? snapshot.bannerCardNames ?? [];
   return {
     status: snapshot.bannerRefreshStatus ?? refresh.status ?? "",
     fetchedAt: snapshot.bannerRefreshFetchedAt ?? refresh.fetchedAt ?? "",
     sourceLabel: snapshot.bannerRefreshSourceLabel ?? refresh.sourceLabel ?? "",
+    selectedPhase,
     currentCount: snapshot.bannerCurrentRowCount
       ?? (Array.isArray(currentNames) ? currentNames.length : 0),
     currentNames: Array.isArray(currentNames) ? currentNames : [],
+    visibleNames: Array.isArray(visibleNames) ? visibleNames : [],
   };
 }
 

@@ -306,6 +306,100 @@ fn alias_only_usage_is_canonicalized_into_rerun_history_and_medium_value() {
 }
 
 #[test]
+fn rerun_without_mechanism_notes_uses_history_aware_stage_copy() {
+    let mut inputs = inputs();
+    inputs.usage_csv = Some(
+        b"collect_date,mode,sub_mode,phase_ver,character_slug,app_rate\n2026-07-12,sd,all,3.0,history-only,7.5\n"
+            .to_vec(),
+    );
+
+    let bundle = build_pull_value_bundle_v1(
+        &inputs,
+        &PullValueRequestV1 {
+            explicit_planned_slugs: vec!["history-only".to_owned()],
+            plan_statuses: vec!["absent-status".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let candidate = bundle
+        .cards
+        .iter()
+        .find(|card| card.slug == "history-only")
+        .unwrap();
+
+    assert_eq!(candidate.candidate_type, "rerun");
+    assert_eq!(
+        candidate.mechanism_review_summary,
+        "暂无 mechanism_notes；已有历史实战仅支持本体价值，X+X 档位等待机制评审"
+    );
+    assert_eq!(
+        candidate.stage_recommendation.recommended_stage,
+        "等机制档位评审"
+    );
+    assert_eq!(candidate.stage_recommendation.acceptable_stage, "暂不预设");
+    assert_eq!(
+        candidate.stage_recommendation.unresolved_stage,
+        "0+0 / 0+1 / 1+0 / 1+1 / 2+1"
+    );
+    assert_eq!(candidate.stage_recommendation.stage_confidence, "low");
+    assert_eq!(
+        candidate.stage_recommendation.not_recommended_stage,
+        "暂不判断"
+    );
+    assert_eq!(
+        candidate.stage_recommendation.reason,
+        "已有历史 usage/队伍证据，但缺少 mechanism_notes，不能据此推导 X+X 档位"
+    );
+    assert_eq!(
+        candidate.stage_recommendation.missing_data,
+        "mechanism_notes、专武与影画断点、攻略共识、当前版本档位收益对比"
+    );
+    assert!(candidate.decision_basis.iter().any(|basis| basis
+        == "mechanism_review：暂无 mechanism_notes；已有历史实战仅支持本体价值，X+X 档位等待机制评审"));
+}
+
+#[test]
+fn tier_only_rerun_without_mechanism_notes_does_not_invent_history() {
+    let mut inputs = inputs();
+    inputs
+        .evidence
+        .tier_csv
+        .as_mut()
+        .unwrap()
+        .extend_from_slice(b"sd,tier-only,\xe5\x8f\xaa\xe6\x9c\x89T\xe6\xa6\x9c,\xe5\xbc\xba\xe6\x94\xbb,T1,8,\xe7\x81\xab,\xe5\xbc\xba\xe6\x94\xbb,S\n");
+
+    let bundle = build_pull_value_bundle_v1(
+        &inputs,
+        &PullValueRequestV1 {
+            explicit_planned_slugs: vec!["tier-only".to_owned()],
+            plan_statuses: vec!["absent-status".to_owned()],
+            ..PullValueRequestV1::default()
+        },
+        &context(),
+    )
+    .unwrap();
+    let candidate = bundle
+        .cards
+        .iter()
+        .find(|card| card.slug == "tier-only")
+        .unwrap();
+
+    assert_eq!(candidate.candidate_type, "rerun");
+    assert!(!candidate.stage_recommendation.reason.contains("已有历史"));
+    assert!(!candidate.stage_recommendation.reason.contains("首轮"));
+    assert!(candidate
+        .stage_recommendation
+        .missing_data
+        .contains("历史实战"));
+    assert_eq!(
+        candidate.mechanism_review_summary,
+        "暂无 mechanism_notes；复刻角色档位等待机制评审与历史实战复核"
+    );
+}
+
+#[test]
 fn first_cycle_uses_global_complete_teams_without_box_coverage_or_usage() {
     let bundle = build_pull_value_bundle_v1(
         &inputs(),

@@ -464,10 +464,15 @@ def _build_card(
     history_summary = _history_text(usage)
     tier = tier_index.get(slug, {})
     mechanism = mechanism_notes.get(slug, {})
-    mechanism_review_summary = _mechanism_review_text(mechanism)
     mechanism_summary = _mechanism_text(candidate, tier, mechanism)
     current_records = _records_for_slug(current_pool, slug)
     target_records = _records_for_slug(target_pool, slug)
+    has_historical_evidence = bool(usage.get("points") or current_records or target_records)
+    mechanism_review_summary = _mechanism_review_text(
+        mechanism,
+        candidate_type=candidate_type,
+        has_historical_evidence=has_historical_evidence,
+    )
     dependent_records = [record for record in target_records if slug in record.plan_dependency]
     exact_dependent = [record for record in dependent_records if tuple(record.plan_dependency) == (slug,)]
     conditional_dependent = [record for record in dependent_records if tuple(record.plan_dependency) != (slug,)]
@@ -684,8 +689,21 @@ def _rerun_value(
     else:
         pull_value = "等实测"
         risks.append("复刻角色在本地历史样本不足")
-    stage = _stage_from_mechanism("rerun", mechanism, role=str(tier.get("role_group_cn") or candidate.get("role_group_cn") or ""))
-    basis.append("mechanism_review：" + _mechanism_review_text(mechanism))
+    has_historical_evidence = bool(usage.get("points") or current_records or target_records)
+    stage = _stage_from_mechanism(
+        "rerun",
+        mechanism,
+        role=str(tier.get("role_group_cn") or candidate.get("role_group_cn") or ""),
+        has_historical_evidence=has_historical_evidence,
+    )
+    basis.append(
+        "mechanism_review："
+        + _mechanism_review_text(
+            mechanism,
+            candidate_type="rerun",
+            has_historical_evidence=has_historical_evidence,
+        )
+    )
     for value, mode in mode_results:
         basis.append(f"同模式判定 {mode}: {value}")
     if owned:
@@ -1113,8 +1131,17 @@ def _mechanism_text(
     return f"{element} / {style} / {role}；{focus}{suffix}"
 
 
-def _mechanism_review_text(mechanism: dict[str, Any]) -> str:
+def _mechanism_review_text(
+    mechanism: dict[str, Any],
+    *,
+    candidate_type: str = "",
+    has_historical_evidence: bool = False,
+) -> str:
     if not mechanism:
+        if candidate_type == "rerun":
+            if has_historical_evidence:
+                return "暂无 mechanism_notes；已有历史实战仅支持本体价值，X+X 档位等待机制评审"
+            return "暂无 mechanism_notes；复刻角色档位等待机制评审与历史实战复核"
         return "暂无 mechanism_notes；等技能/影画/专武/首轮数据"
     parts = []
     source_quality = _source_quality_text(mechanism.get("source_quality"))
@@ -1138,8 +1165,32 @@ def _mechanism_review_text(mechanism: dict[str, Any]) -> str:
     return "；".join(str(part) for part in parts)
 
 
-def _stage_from_mechanism(candidate_type: str, mechanism: dict[str, Any], *, role: str = "") -> dict[str, str]:
+def _stage_from_mechanism(
+    candidate_type: str,
+    mechanism: dict[str, Any],
+    *,
+    role: str = "",
+    has_historical_evidence: bool = False,
+) -> dict[str, str]:
     if not mechanism:
+        if candidate_type == "rerun":
+            return {
+                "recommended_stage": "等机制档位评审",
+                "acceptable_stage": "暂不预设",
+                "unresolved_stage": "0+0 / 0+1 / 1+0 / 1+1 / 2+1",
+                "stage_confidence": "low",
+                "not_recommended_stage": "暂不判断",
+                "reason": (
+                    "已有历史 usage/队伍证据，但缺少 mechanism_notes，不能据此推导 X+X 档位"
+                    if has_historical_evidence
+                    else "复刻角色缺少 mechanism_notes，不能据此推导 X+X 档位"
+                ),
+                "missing_data": (
+                    "mechanism_notes、专武与影画断点、攻略共识、当前版本档位收益对比"
+                    if has_historical_evidence
+                    else "mechanism_notes、专武与影画断点、历史实战与攻略共识、当前版本档位收益对比"
+                ),
+            }
         return {
             "recommended_stage": "等技能/影画/专武/首轮数据",
             "acceptable_stage": "暂不预设",
@@ -1170,7 +1221,15 @@ def _stage_from_mechanism(candidate_type: str, mechanism: dict[str, Any], *, rol
         "unresolved_stage": unresolved,
         "stage_confidence": confidence,
         "not_recommended_stage": not_recommended,
-        "reason": str(mechanism.get("stage_reason") or mechanism.get("reason") or _mechanism_review_text(mechanism)),
+        "reason": str(
+            mechanism.get("stage_reason")
+            or mechanism.get("reason")
+            or _mechanism_review_text(
+                mechanism,
+                candidate_type=candidate_type,
+                has_historical_evidence=has_historical_evidence,
+            )
+        ),
         "missing_data": str(mechanism.get("missing_data") or _stage_missing_data_text(mechanism) or "持续观察后续版本实战、队友和环境变化"),
     }
 

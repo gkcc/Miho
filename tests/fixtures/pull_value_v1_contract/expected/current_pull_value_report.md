@@ -28,7 +28,7 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 阿尔法候选名 `alpha` | rerun | 高 | 1+1 | 0+0 | 1+1 | 0+0 -> 1+1 | yes | only_with_new_evidence | 0+0 | 0+1 / 1+0 / 1+1 / 2+1 | high | 2+1 以上缺少收益证据 | 1+1 与 2+1 的长线收益 | E-SD-078BE089A7 | sd\|alpha\|anchor-one\|support | - | - | T 榜最好评级 T0 / rating 11；历史出场点 7，近三期最高均值 46%；目标 Box 新增依赖队伍 1 条，其中 A/B+ 1 条、A/B+/B 1 条 | 新增覆盖来自 target scenario，需和历史全局强度一起看，不能单靠 target coverage 定性 |
 | 贝塔 `beta` | rerun | 中高 | 0+0 | 0+0 | 0+0 | none | no | baseline_consistent | 0+0 / 0+1 |  | medium | 高档位暂不判断；只在机制/指南/实战证明必要时考虑 | 专武对比 | E-SD-A412C67114 | sd\|anchor-one\|beta\|support | - | - | T 榜最好评级 T0.5 / rating 10；历史出场点 3，近三期最高均值 20%；目标 Box 新增依赖队伍 1 条，其中 A/B+ 1 条、A/B+/B 1 条 | 新增覆盖来自 target scenario，需和历史全局强度一起看，不能单靠 target coverage 定性 |
-| 伽马 `gamma` | rerun | 中 | - | 等技能/影画/专武/首轮数据 | 等技能/影画/专武/首轮数据 | none | no | no_prior_baseline | 暂不预设 | 0+0 / 0+1 / 1+0 / 1+1 / 2+1 | low | 暂不判断 | 技能机制、影画、专武、实战队伍、首轮高难数据 | E-SD-FCD5C791C5 | sd\|anchor-one\|gamma\|support | - | - | T 榜最好评级 T0.5 / rating 10；历史出场点 3，近三期最高均值 20%；目标 Box 新增依赖队伍 1 条，其中 A/B+ 0 条、A/B+/B 1 条 | 同 mode 主证据仅支持中优先级；新增覆盖来自 target scenario，需和历史全局强度一起看，不能单靠 target coverage 定性 |
+| 伽马 `gamma` | rerun | 中 | - | 等机制档位评审 | 等机制档位评审 | none | no | no_prior_baseline | 暂不预设 | 0+0 / 0+1 / 1+0 / 1+1 / 2+1 | low | 暂不判断 | mechanism_notes、专武与影画断点、攻略共识、当前版本档位收益对比 | E-SD-FCD5C791C5 | sd\|anchor-one\|gamma\|support | - | - | T 榜最好评级 T0.5 / rating 10；历史出场点 3，近三期最高均值 20%；目标 Box 新增依赖队伍 1 条，其中 A/B+ 0 条、A/B+/B 1 条 | 同 mode 主证据仅支持中优先级；新增覆盖来自 target scenario，需和历史全局强度一起看，不能单靠 target coverage 定性 |
 | 新星 `nova` | new | 等实测 | 0+1 | 等实测 | 0+1 | 等实测 -> 0+1 | yes | wait_for_repeated_data | 暂不预设 | 0+0 / 0+1 / 1+0 / 1+1 / 2+1 | low | 暂不判断 | 技能机制、影画、专武、跨期高难复测 | - | - | - | - | 新角色首轮实测已到：1 个 snapshot，当前仅单期/B- 证据；等待跨期复测，不自动提升推荐档位；未知属性 / 未知特性 / 未知定位；暂无机制文本；先验证是否补当前 Box 拼图，还是要求后续售后队友 | 首轮数据不能替代跨期稳定性验证；SD/DA 同 snapshot 只计一次；首轮已到，仍需跨期 SD/DA 复测和机制资料 |
 
 ## 角色明细
@@ -109,33 +109,33 @@
 - prior_final_stage：-
 - prior_decision_status：-；prior_confidence：-
 - prior_reason：-
-- local_rule_stage：等技能/影画/专武/首轮数据
-- recommended_stage_for_review：等技能/影画/专武/首轮数据
-- final_stage：等技能/影画/专武/首轮数据
+- local_rule_stage：等机制档位评审
+- recommended_stage_for_review：等机制档位评审
+- final_stage：等机制档位评审
 - stage_delta：none；delta_requires_review：no
 - delta_reason：无 prior baseline；沿用本地规则建议，仍需 GPT/人工评审。
 - change_allowed_reason：no_prior_baseline
 - new_evidence_categories：-
-- recommended_stage(local_rule)：等技能/影画/专武/首轮数据
+- recommended_stage(local_rule)：等机制档位评审
 - acceptable_stage：暂不预设
 - unresolved_stage：0+0 / 0+1 / 1+0 / 1+1 / 2+1
 - stage_confidence：low
 - not_recommended_stage：暂不判断
-- stage_reason：缺少 mechanism_notes，不能把 coverage=0 当负面，也不能凭模板推 X+X
-- missing_data：技能机制、影画、专武、实战队伍、首轮高难数据
+- stage_reason：已有历史 usage/队伍证据，但缺少 mechanism_notes，不能据此推导 X+X 档位
+- missing_data：mechanism_notes、专武与影画断点、攻略共识、当前版本档位收益对比
 - source_quality：-
 - stage_notes：-
 - 历史走势：sd: points 3 / latest 22% / avg_last3 20% / trend 4
 - 全局出场：best_latest=22%；best_avg_last3=20%；worst_trend=4
 - 队伍覆盖：current 0(0)；target 1(B 1)；新增依赖 1(B 1)
-- mechanism_review：暂无 mechanism_notes；等技能/影画/专武/首轮数据
+- mechanism_review：暂无 mechanism_notes；已有历史实战仅支持本体价值，X+X 档位等待机制评审
 - 机制/拼图：电 / 强攻 / 强攻；暂无机制文本
 - 替代风险：主C/输出位需和 Box 已有同定位输出比较；当前报告不把未知新角色缺历史视为负面
 - 证据：E-SD-FCD5C791C5
 - 稳定证据键：sd|anchor-one|gamma|support
 - 风险/条件证据（conditional 或 B-/C）：-
 - 风险证据键：-
-- 依据：T 榜最好评级 T0.5 / rating 10；历史出场点 3，近三期最高均值 20%；目标 Box 新增依赖队伍 1 条，其中 A/B+ 0 条、A/B+/B 1 条；mechanism_review：暂无 mechanism_notes；等技能/影画/专武/首轮数据；同模式判定 sd: 中
+- 依据：T 榜最好评级 T0.5 / rating 10；历史出场点 3，近三期最高均值 20%；目标 Box 新增依赖队伍 1 条，其中 A/B+ 0 条、A/B+/B 1 条；mechanism_review：暂无 mechanism_notes；已有历史实战仅支持本体价值，X+X 档位等待机制评审；同模式判定 sd: 中
 - 风险：同 mode 主证据仅支持中优先级；新增覆盖来自 target scenario，需和历史全局强度一起看，不能单靠 target coverage 定性
 
 ### 新星 `nova`：等实测

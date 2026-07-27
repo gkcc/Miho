@@ -117,8 +117,8 @@
     }
   },
   "normalized_sha256": {
-    "current_pull_cards.json": "5fe50a5ae80c43630bc7f6e182a1ba749ace05f848c2c41dbc8df792fd81b407",
-    "current_pull_value_report.md": "c57a77ddbb1752ef173825d4440a15ad6f035eb707c22b1a1a9dcb81447e333e",
+    "current_pull_cards.json": "ddfffecd88c5def6987858c9a4e379de12afbe42bd39dcb46cac7fdfe30f6bdd",
+    "current_pull_value_report.md": "3cf5abcb11ffae8cd25b89789579972130c459d5b785b7d5b3645b4389f14cf9",
     "next_pull_cards.json": "967c121f731880db98371b328d70dbbc75e6ea40f9286292de852cb833c1bd86",
     "next_pull_value_report.md": "b2a3db8fe9aadc6b2ae0dc3a16ab993a41e12f37baa92265d572224fa76e6b90"
   },

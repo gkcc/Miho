@@ -2147,10 +2147,24 @@ async function verifyAnalysisModes(context, game, initialSnapshot, options = {})
   return snapshots;
 }
 
+function primaryBannerPhase(snapshot, game) {
+  if (snapshot.bannerCurrentRowCount > 0) return "current";
+  const verifiedBoundaryGap = snapshot.bannerCurrentRowCount === 0
+    && snapshot.bannerNextRowCount > 0
+    && Array.isArray(snapshot.bannerBoundaryFieldErrors)
+    && snapshot.bannerBoundaryFieldErrors.length === 0
+    && Array.isArray(snapshot.bannerClockStatusErrors)
+    && snapshot.bannerClockStatusErrors.length === 0;
+  assert(verifiedBoundaryGap,
+    `${game} has neither a current banner nor a structurally verified next-banner gap`, snapshot);
+  return "next";
+}
+
 function verifyBanner(snapshot, game, {
   requireFresh = true,
   requireExpected = true,
   requireCurrent = true,
+  requireData = true,
 } = {}) {
   assert(snapshot.statePage === "banner" && snapshot.bannerVisible, `${game} banner page is not visible`, snapshot);
   assert(snapshot.bannerTitle === "卡池情报", `${game} banner title is absent`, snapshot);
@@ -2159,8 +2173,8 @@ function verifyBanner(snapshot, game, {
     `${game} banner rows do not expose valid structured China-time boundaries`, snapshot.bannerBoundaryFieldErrors);
   assert(Array.isArray(snapshot.bannerClockStatusErrors) && snapshot.bannerClockStatusErrors.length === 0,
     `${game} banner status disagrees with the structured boundary clock`, snapshot.bannerClockStatusErrors);
+  if (requireData) assert(snapshot.bannerAllRowCount > 0, `${game} banner data is absent`, snapshot);
   if (requireCurrent) {
-    assert(snapshot.bannerAllRowCount > 0, `${game} banner data is absent`, snapshot);
     assert(snapshot.visibleMissingMessages.length === 0, `${game} banner page exposes a missing-data warning`, snapshot);
     assert(snapshot.bannerCurrentRowCount > 0, `${game} current banner data is absent`, snapshot);
     assert(snapshot.bannerPhase === "current", `${game} banner page did not select the current populated phase`, snapshot);
@@ -2181,6 +2195,29 @@ function verifyBanner(snapshot, game, {
     assert(snapshot.bannerImageCount === snapshot.bannerCardCount
       && snapshot.bannerBrokenImages.length === 0
       && snapshot.bannerMappingErrors.length === 0, `${game} current banner images are broken or mismatched`, snapshot);
+  } else if (requireData) {
+    assert(snapshot.bannerCardCount > 0 && snapshot.bannerCardNames.every(Boolean),
+      `${game} selected banner phase has no visible cards`, snapshot);
+    assert(snapshot.bannerCardRoles.every(Boolean),
+      `${game} selected banner phase has missing role labels`, snapshot);
+    assert(snapshot.bannerImageCount === snapshot.bannerCardCount
+      && snapshot.bannerBrokenImages.length === 0
+      && snapshot.bannerMappingErrors.length === 0,
+    `${game} selected banner phase has broken or mismatched images`, snapshot);
+    if (snapshot.bannerPhase === "next") {
+      assert(snapshot.bannerCardCount === snapshot.bannerNextRowCount,
+        `${game} next banner DOM does not render every next row`, snapshot);
+      assert(JSON.stringify([...snapshot.bannerCardNames].sort())
+          === JSON.stringify([...snapshot.bannerDataNextNames].sort()),
+      `${game} selected next banner DOM does not match DATA`, snapshot);
+      assert(JSON.stringify([...snapshot.bannerCardRoles].sort())
+          === JSON.stringify([...snapshot.bannerDataNextRoles].sort()),
+      `${game} selected next banner roles do not match DATA`, snapshot);
+      assert(snapshot.bannerDataNextDateRanges.length > 0
+        && snapshot.bannerDataNextDateRanges.every((dateRange) => (
+          snapshot.bannerSectionTexts.some((text) => text.includes(dateRange))
+        )), `${game} selected next banner dates are not visibly rendered`, snapshot);
+    }
   }
   if (requireFresh) {
     assert(snapshot.bannerRefreshStatus === "fresh", `${game} banner snapshot is not marked fresh`, snapshot);
@@ -2195,11 +2232,11 @@ function verifyBanner(snapshot, game, {
       subtitle: snapshot.bannerSubtitle,
     });
   }
-  if (requireExpected && expectedBannerCount[game] !== null) {
+  if (requireExpected && requireCurrent && expectedBannerCount[game] !== null) {
     assert(snapshot.bannerCurrentRowCount === expectedBannerCount[game], `${game} current banner data count changed`, snapshot);
     assert(snapshot.bannerCardCount === expectedBannerCount[game], `${game} rendered current banner count changed`, snapshot);
   }
-  if (requireExpected && expectedBannerNames[game].length > 0) {
+  if (requireExpected && requireCurrent && expectedBannerNames[game].length > 0) {
     const actual = [...snapshot.bannerCardNames].sort();
     const expected = [...expectedBannerNames[game]].sort();
     assert(JSON.stringify(actual) === JSON.stringify(expected), `${game} rendered current banner names changed`, { actual, expected });
@@ -2214,8 +2251,47 @@ function verifyBanner(snapshot, game, {
   }
 }
 
-async function verifyExpectedNextBanner(context, game) {
-  if (expectedNextBannerCount[game] === null) return null;
+async function verifyBannerForProbeState(context, snapshot, game, updating) {
+  if (updating) {
+    verifyBanner(snapshot, game, {
+      requireFresh: false,
+      requireExpected: false,
+      requireCurrent: false,
+      requireData: false,
+    });
+    return snapshot;
+  }
+  const selectedPhase = primaryBannerPhase(snapshot, game);
+  let selectedSnapshot = snapshot;
+  if (snapshot.bannerPhase !== selectedPhase) {
+    const clicked = await evaluate(context.id, `(() => {
+      const button = [...document.querySelectorAll('#bannerPhaseControl button')]
+        .find((candidate) => candidate.dataset.value === ${JSON.stringify(selectedPhase)});
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })()`, context.sessionId);
+    assert(clicked === true, `${game} could not select its verified primary banner phase`);
+    selectedSnapshot = await waitFor(`${game} verified primary banner phase`, async () => {
+      const value = await evaluate(context.id, productExpression, context.sessionId);
+      return value?.readyState === "complete"
+        && value?.statePage === "banner"
+        && value?.bannerVisible
+        && value?.bannerPhase === selectedPhase
+        ? value
+        : null;
+    });
+  }
+  verifyBanner(selectedSnapshot, game, {
+    requireCurrent: selectedPhase === "current",
+    requireExpected: true,
+    requireData: true,
+  });
+  return selectedSnapshot;
+}
+
+async function verifyExpectedNextBanner(context, game, restorePhase = "current", availableNextCount = 0) {
+  if (expectedNextBannerCount[game] === null && availableNextCount <= 0) return null;
   const clicked = await evaluate(context.id, `(() => {
     const button = [...document.querySelectorAll('#bannerPhaseControl button')]
       .find((candidate) => candidate.dataset.value === 'next');
@@ -2233,8 +2309,13 @@ async function verifyExpectedNextBanner(context, game) {
       ? value
       : null;
   });
-  assert(snapshot.bannerNextRowCount === expectedNextBannerCount[game],
-    `${game} next banner data count changed`, snapshot);
+  if (expectedNextBannerCount[game] !== null) {
+    assert(snapshot.bannerNextRowCount === expectedNextBannerCount[game],
+      `${game} next banner data count changed`, snapshot);
+  } else {
+    assert(snapshot.bannerNextRowCount === availableNextCount && snapshot.bannerNextRowCount > 0,
+      `${game} next banner rows changed while verifying the refreshed revision`, snapshot);
+  }
   assert(snapshot.bannerCardCount === snapshot.bannerNextRowCount,
     `${game} next banner DOM does not render every next snapshot row`, snapshot);
   assert(snapshot.bannerCardRoles.every(Boolean)
@@ -2267,24 +2348,34 @@ async function verifyExpectedNextBanner(context, game) {
       snapshot.bannerSectionTexts.some((text) => text.includes(dateRange))
     )), `${game} next banner dates are not visibly rendered`, snapshot);
 
+  if (restorePhase === "next") {
+    return {
+      count: snapshot.bannerCardCount,
+      names: snapshot.bannerCardNames,
+    };
+  }
+
   const restored = await evaluate(context.id, `(() => {
     const button = [...document.querySelectorAll('#bannerPhaseControl button')]
-      .find((candidate) => candidate.dataset.value === 'current');
+      .find((candidate) => candidate.dataset.value === ${JSON.stringify(restorePhase)});
     if (!button || button.disabled) return false;
     button.click();
     return true;
   })()`, context.sessionId);
-  assert(restored === true, `could not restore ${game} banner page to the current phase`);
-  const current = await waitFor(`${game} restored current banner DOM`, async () => {
+  assert(restored === true, `could not restore ${game} banner page to the ${restorePhase} phase`);
+  const restoredSnapshot = await waitFor(`${game} restored ${restorePhase} banner DOM`, async () => {
     const value = await evaluate(context.id, productExpression, context.sessionId);
     return value?.readyState === "complete"
       && value?.statePage === "banner"
       && value?.bannerVisible
-      && value?.bannerPhase === "current"
+      && value?.bannerPhase === restorePhase
       ? value
       : null;
   });
-  verifyBanner(current, game);
+  verifyBanner(restoredSnapshot, game, {
+    requireCurrent: restorePhase === "current",
+    requireExpected: restorePhase === "current",
+  });
   return {
     count: snapshot.bannerCardCount,
     names: snapshot.bannerCardNames,
@@ -2494,6 +2585,18 @@ async function verifyPublicDataUpdate(topId, game) {
   const beforeContext = await activeFrameContext(game);
   const beforeBanner = await switchProductPage(beforeContext, game, "banner");
   assert(beforeBanner.statePage === "banner", `${game} could not open the banner page before updating`, beforeBanner);
+  const selectedAll = await evaluate(beforeContext.id, `(() => {
+    const button = [...document.querySelectorAll('#bannerPhaseControl button')]
+      .find((candidate) => candidate.dataset.value === 'all');
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`, beforeContext.sessionId);
+  assert(selectedAll === true, `${game} could not select the all-banner subtab before updating`);
+  await waitFor(`${game} all-banner subtab before public-data update`, async () => {
+    const snapshot = await productSnapshot(game, "banner");
+    return snapshot?.bannerPhase === "all" ? snapshot : null;
+  });
   const beforeOuter = await waitFor(`${game} banner page bridge before public-data update`, async () => {
     const snapshot = await outerSnapshot(topId);
     return snapshot?.frameGame === game && snapshot?.framePage === "banner" ? snapshot : null;
@@ -2535,9 +2638,32 @@ async function verifyPublicDataUpdate(topId, game) {
     });
 
   const context = await activeFrameContext(game);
-  const bannerSnapshot = await productSnapshot(game, "banner");
-  verifyBanner(bannerSnapshot, game);
-  const nextBanner = await verifyExpectedNextBanner(context, game);
+  const preservedBannerSnapshot = await productSnapshot(game, "banner");
+  assert(preservedBannerSnapshot.bannerPhase === "all",
+    `${game} banner subtab was reset while loading the refreshed data revision`, preservedBannerSnapshot);
+  const restorePhase = primaryBannerPhase(preservedBannerSnapshot, game);
+  const restoredPhase = await evaluate(context.id, `(() => {
+    const button = [...document.querySelectorAll('#bannerPhaseControl button')]
+      .find((candidate) => candidate.dataset.value === ${JSON.stringify(restorePhase)});
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`, context.sessionId);
+  assert(restoredPhase === true, `${game} could not restore the ${restorePhase} banner subtab after updating`);
+  const bannerSnapshot = await waitFor(`${game} ${restorePhase} banner subtab after public-data update`, async () => {
+    const snapshot = await productSnapshot(game, "banner");
+    return snapshot?.bannerPhase === restorePhase ? snapshot : null;
+  });
+  verifyBanner(bannerSnapshot, game, {
+    requireCurrent: restorePhase === "current",
+    requireExpected: restorePhase === "current",
+  });
+  const nextBanner = await verifyExpectedNextBanner(
+    context,
+    game,
+    restorePhase,
+    preservedBannerSnapshot.bannerNextRowCount,
+  );
   const fetchedAtMs = Date.parse(bannerSnapshot.bannerRefreshFetchedAt);
   assert(fetchedAtMs >= task.startedAt - 300000 && fetchedAtMs <= Date.now() + 300000,
     `${game} refreshed banner timestamp does not belong to this update run`, {
@@ -2629,7 +2755,9 @@ async function verifyPublicDataUpdate(topId, game) {
       fetchedAt: bannerSnapshot.bannerRefreshFetchedAt,
       sourceLabel: bannerSnapshot.bannerRefreshSourceLabel,
     },
-    bannerCurrentNames: bannerSnapshot.bannerCardNames,
+    bannerSelectedPhase: bannerSnapshot.bannerPhase,
+    bannerVisibleNames: bannerSnapshot.bannerCardNames,
+    bannerCurrentNames: bannerSnapshot.bannerDataCurrentNames,
     bannerNext: nextBanner,
     analyses: analyses.map((snapshot) => snapshot.analysisExpectedPhase),
     updateHealth: {
@@ -2664,7 +2792,11 @@ async function verifyPublicDataUpdates(topId) {
     await ensureActiveGame(topId, game);
     const context = await activeFrameContext(game);
     const banner = await switchProductPage(context, game, "banner");
-    verifyBanner(banner, game);
+    const selectedPhase = primaryBannerPhase(banner, game);
+    assert(banner.bannerPhase === selectedPhase,
+      `${game} final banner view did not preserve the verified primary phase`, banner);
+    const requireCurrent = selectedPhase === "current";
+    verifyBanner(banner, game, { requireCurrent, requireExpected: requireCurrent });
     const analysis = await switchProductPage(context, game, "analysis");
     const analyses = await verifyAnalysisModes(context, game, analysis);
     finalVerification[game] = {
@@ -2673,7 +2805,9 @@ async function verifyPublicDataUpdates(topId) {
         fetchedAt: banner.bannerRefreshFetchedAt,
         sourceLabel: banner.bannerRefreshSourceLabel,
       },
-      bannerCurrentNames: banner.bannerCardNames,
+      bannerSelectedPhase: banner.bannerPhase,
+      bannerVisibleNames: banner.bannerCardNames,
+      bannerCurrentNames: banner.bannerDataCurrentNames,
       analyses: analyses.map((snapshot) => snapshot.analysisExpectedPhase),
     };
   }
@@ -2764,12 +2898,8 @@ try {
     },
   );
   const zzzCompactTooltip = await verifyZzzCompactTooltipLayout(top.id, zzzContext);
-  const zzzBanner = await switchProductPage(zzzContext, "zzz", "banner");
-  verifyBanner(zzzBanner, "zzz", {
-    requireFresh: !runUpdates,
-    requireExpected: !runUpdates,
-    requireCurrent: !runUpdates,
-  });
+  const zzzBannerInitial = await switchProductPage(zzzContext, "zzz", "banner");
+  const zzzBanner = await verifyBannerForProbeState(zzzContext, zzzBannerInitial, "zzz", runUpdates);
   receipt.sequence.push({
     game: "zzz",
     outer: initialOuter,
@@ -2808,12 +2938,8 @@ try {
       requirePhasePresentation: !runUpdates,
     },
   );
-  const hsrBanner = await switchProductPage(hsrContext, "hsr", "banner");
-  verifyBanner(hsrBanner, "hsr", {
-    requireFresh: !runUpdates,
-    requireExpected: !runUpdates,
-    requireCurrent: !runUpdates,
-  });
+  const hsrBannerInitial = await switchProductPage(hsrContext, "hsr", "banner");
+  const hsrBanner = await verifyBannerForProbeState(hsrContext, hsrBannerInitial, "hsr", runUpdates);
   receipt.sequence.push({ game: "hsr", outer: hsrOuter, product: hsrProduct, boxBatchPreview: hsrBoxBatchPreview, boxExport: hsrBoxExport, recommender: hsrRecommender, searchAndLock: hsrSearchAndLock, recommenderLayout: hsrRecommenderLayout, analyses: hsrAnalyses, banner: hsrBanner });
 
   await switchGame(top.id, "zzz");
@@ -2831,17 +2957,18 @@ try {
   assert(zzzReturnOuter.frameProbeLoadCount === initialOuter.frameProbeLoadCount,
     "ZZZ Visualizer navigated while its data revision was unchanged", { initialOuter, zzzReturnOuter });
   const zzzReturnContext = await activeFrameContext("zzz");
-  const zzzPreserved = await waitFor("returned ZZZ preserved product page", async () => {
+  const zzzPreservedInitial = await waitFor("returned ZZZ preserved product page", async () => {
     const value = await evaluate(zzzReturnContext.id, productExpression, zzzReturnContext.sessionId);
     return value?.readyState === "complete" && value?.statePage === "banner" && value?.bannerVisible
       ? value
       : null;
   });
-  verifyBanner(zzzPreserved, "zzz", {
-    requireFresh: !runUpdates,
-    requireExpected: !runUpdates,
-    requireCurrent: !runUpdates,
-  });
+  const zzzPreserved = await verifyBannerForProbeState(
+    zzzReturnContext,
+    zzzPreservedInitial,
+    "zzz",
+    runUpdates,
+  );
   assert(new URL(zzzPreserved.href).hash === "#banner"
     && JSON.stringify(zzzPreserved.bannerCardNames) === JSON.stringify(zzzBanner.bannerCardNames),
   "ZZZ iframe did not preserve its product page across game switches", {before: zzzBanner, after: zzzPreserved});
