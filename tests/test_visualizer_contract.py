@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from hsr_endgame_exporter.cli import run_visualizer as run_hsr_visualizer
+from hsr_endgame_exporter.parsers import attach_team_signatures
 from hsr_endgame_exporter.visualizer import (
     _safe_avatar_url as safe_hsr_avatar_url,
     _safe_link_url as safe_hsr_link_url,
@@ -157,7 +158,12 @@ def test_visualizer_distinguishes_stale_samples_from_missing_data(game: str) -> 
     assert "setInterval(refreshForDateBoundary,60_000)" in app
     assert "$('metaLine').textContent=sourceMetaLine(renderedLocalDate)" in app
     assert "syncFreshnessNavigation(rec.mode," in app
-    assert "期次：${sample.phase} · 主题：${sample.theme} · 周期：${sample.period}" in app
+    expected_phase_text = (
+        "期次：${sample.phase} · 主题：${sample.theme} · 周期：${sample.period}"
+        if game == "hsr"
+        else "期次：${sample.phase} · 期名：${sample.phaseName} · 机制：${sample.mechanicName} · 周期：${sample.period}"
+    )
+    assert expected_phase_text in app
     assert (
         "function freshnessStatusLabel(status){return "
         "status==='active'?'当前周期':status==='future'?'未来周期':"
@@ -1377,7 +1383,6 @@ def _densify_hsr_visualizer_csvs(out_dir: Path) -> None:
     teams = [
         {
             **team_seed,
-            "snapshot_id": "fixture-1-permuted",
             "rank": 2,
             "char_1_slug": team_seed["char_2_slug"],
             "char_2_slug": team_seed["char_1_slug"],
@@ -1411,6 +1416,11 @@ def _densify_hsr_visualizer_csvs(out_dir: Path) -> None:
             "raw_index": 4,
         },
     ]
+    for team in teams:
+        ordered, unordered = attach_team_signatures(team)
+        team["ordered_signature"] = ordered
+        team["unordered_signature"] = unordered
+        team["ordered_signature_examples"] = ordered
     _append_csv_rows(out_dir / "team_rank_dedup_unordered.csv", teams)
 
     tier_seed = _first_csv_row(out_dir / "prydwen_tier_current.csv")

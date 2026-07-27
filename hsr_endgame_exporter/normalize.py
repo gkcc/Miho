@@ -93,6 +93,18 @@ def parse_date(value: str | None) -> str:
     return text
 
 
+def natural_version_key(value: str | None) -> tuple[tuple[tuple[int, int, str], ...], str]:
+    text = str(value or "")
+    tokens: list[tuple[int, int, str]] = []
+    for token in re.findall(r"[0-9]+|[^0-9]+", text):
+        if token.isascii() and token.isdigit():
+            significant = token.lstrip("0") or "0"
+            tokens.append((1, len(significant), significant))
+        else:
+            tokens.append((0, 0, token.lower()))
+    return tuple(tokens), text
+
+
 def date_or_none(value: str | None) -> date | None:
     parsed = parse_date(value)
     if not parsed:
@@ -128,20 +140,34 @@ def parse_scope(mode: str, source_name: str | None) -> tuple[str, str]:
 
 
 def make_ordered_signature(
+    snapshot_id: str,
+    collect_date: str,
     mode: str,
     sub_mode: str,
+    scope: str,
     phase_ver: str,
+    phase_name: str,
     chars: Iterable[str],
 ) -> str:
     char_part = ">".join(normalize_character_id(char) for char in chars)
-    return f"{mode}|{sub_mode}|{phase_ver}|{char_part}"
+    return (
+        f"{snapshot_id}|{collect_date}|{mode}|{sub_mode}|{scope}|"
+        f"{phase_ver}|{phase_name}|{char_part}"
+    )
 
 
 def make_unordered_signature(
+    snapshot_id: str,
+    collect_date: str,
     mode: str,
     sub_mode: str,
+    scope: str,
     phase_ver: str,
+    phase_name: str,
     chars: Iterable[str],
 ) -> str:
     normalized = sorted(normalize_character_id(char) for char in chars)
-    return f"{mode}|{sub_mode}|{phase_ver}|{'>'.join(normalized)}"
+    return (
+        f"{snapshot_id}|{collect_date}|{mode}|{sub_mode}|{scope}|"
+        f"{phase_ver}|{phase_name}|{'>'.join(normalized)}"
+    )

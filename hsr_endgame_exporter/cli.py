@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from .constants import DEFAULT_MODES, DEFAULT_REPO_ID, MODE_CN, SUB_MODE_CN
+from .constants import DEFAULT_MODES, DEFAULT_REPO_ID, SUB_MODE_CN
 from .exporters import write_all_outputs
 from .hf_client import HuggingFaceClient
 from .name_map import (
@@ -37,7 +37,7 @@ from .prydwen_tier import (
     merge_tier_history,
 )
 from .report import write_report
-from .visualizer import write_visualizer_app
+from .visualizer import read_recommender_team_rows, write_visualizer_app
 
 VERSION_DIR_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -118,8 +118,6 @@ def run_visualizer(args: argparse.Namespace) -> None:
 
 
 def rebuild_visualizer_from_outputs(out_dir: Path) -> None:
-    dedup_team_path = out_dir / "team_rank_dedup_unordered.csv"
-    team_path = dedup_team_path if dedup_team_path.exists() else out_dir / "team_rank_raw.csv"
     write_visualizer_app(
         out_dir,
         trend_rows=read_csv(out_dir / "prydwen_tier_usage_trend.csv"),
@@ -127,7 +125,7 @@ def rebuild_visualizer_from_outputs(out_dir: Path) -> None:
         changelog_rows=read_csv(out_dir / "prydwen_tier_changelog_history.csv"),
         chart_rows=read_csv(out_dir / "prydwen_tier_charts.csv"),
         character_usage_rows=read_csv(out_dir / "character_usage_long.csv"),
-        team_rank_rows=read_csv(team_path),
+        team_rank_rows=read_recommender_team_rows(out_dir),
     )
 
 

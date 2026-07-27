@@ -65,6 +65,82 @@ def test_derived_table_headers_and_rows_are_frozen(tmp_path):
     assert len(ordered) == 1 and len(dedup_unordered_teams(ordered)) == 1
 
 
+def test_team_dedup_is_scoped_to_snapshot_collect_date_and_phase_identity():
+    base = {
+        "snapshot_id": "4.3.1",
+        "collect_date": "2026-06-11",
+        "mode": "moc",
+        "sub_mode": "all",
+        "scope": "top",
+        "phase_ver": "4.2.1",
+        "phase_name": "Duty Action",
+        "rank": 1,
+        "app_rate": 10,
+        "source_kind": "hf_comps",
+        "source_file": "4.3.1/moc/comps/top_combined.json",
+        "char_1_slug": "a",
+        "char_2_slug": "b",
+        "char_3_slug": "c",
+        "char_4_slug": "d",
+    }
+
+    exact_duplicate = {**base, "source_file": "4.3.1/moc/comps/12-1_combined.json"}
+    reordered = {
+        **base,
+        "source_file": "4.3.1/moc/comps/12-2_combined.json",
+        "char_1_slug": "b",
+        "char_2_slug": "a",
+    }
+    other_snapshot = {
+        **base,
+        "snapshot_id": "4.3.2",
+        "source_file": "4.3.2/moc/comps/top_combined.json",
+    }
+    other_collect_date = {
+        **base,
+        "collect_date": "2026-06-12",
+        "source_file": "late/moc/comps/top_combined.json",
+    }
+    other_phase_name = {
+        **base,
+        "phase_name": "Different Phase",
+        "source_file": "alternate/moc/comps/top_combined.json",
+    }
+    other_scope = {
+        **base,
+        "scope": "12-1",
+        "source_file": "4.3.1/moc/comps/12-1_combined.json",
+    }
+
+    ordered = dedup_ordered_teams(
+        [
+            base,
+            exact_duplicate,
+            reordered,
+            other_snapshot,
+            other_collect_date,
+            other_phase_name,
+            other_scope,
+        ]
+    )
+    unordered = dedup_unordered_teams(ordered)
+
+    assert len(ordered) == 6
+    assert sorted(row["duplicate_count"] for row in ordered) == [1, 1, 1, 1, 1, 2]
+    assert len(unordered) == 5
+    assert sorted(row["duplicate_count"] for row in unordered) == [1, 1, 1, 1, 3]
+    assert len({row["unordered_signature"] for row in unordered}) == 5
+    assert {
+        tuple(row["unordered_signature"].split("|", 7)[:7]) for row in unordered
+    } == {
+        ("4.3.1", "2026-06-11", "moc", "all", "top", "4.2.1", "Duty Action"),
+        ("4.3.2", "2026-06-11", "moc", "all", "top", "4.2.1", "Duty Action"),
+        ("4.3.1", "2026-06-12", "moc", "all", "top", "4.2.1", "Duty Action"),
+        ("4.3.1", "2026-06-11", "moc", "all", "top", "4.2.1", "Different Phase"),
+        ("4.3.1", "2026-06-11", "moc", "all", "12-1", "4.2.1", "Duty Action"),
+    }
+
+
 def test_python_oracle_aggregates_two_slices_without_overwrite():
     rows = [
         {"mode": "moc", "sub_mode": "all", "phase_ver": "4.2.1", "character_slug": "topaz", "collect_date": "2026-06-25"},
@@ -97,10 +173,79 @@ def test_python_latest_view_uses_newest_collect_date_per_mode():
 
 
 def test_python_top_teams_latest_nonempty_contract():
-    row = {"mode": "moc", "mode_cn": "混沌回忆", "sub_mode": "all", "sub_mode_cn": "全部", "phase_ver": "1", "collect_date": "2026-07-01", "rank": 1, "char_1_slug": "a", "char_2_slug": "b", "char_3_slug": "c", "char_4_slug": "d", "app_rate": 10, "avg_round": 3, "source_kind": "hf_comps", "duplicate_count": 1, "unordered_signature": "moc|all|1|a>b>c>d"}
+    row = {"snapshot_id": "1.0.1", "mode": "moc", "mode_cn": "混沌回忆", "sub_mode": "all", "sub_mode_cn": "全部", "scope": "top", "phase_ver": "1", "phase_name": "Phase 1", "collect_date": "2026-07-01", "rank": 1, "char_1_slug": "a", "char_2_slug": "b", "char_3_slug": "c", "char_4_slug": "d", "app_rate": 10, "avg_round": 3, "source_kind": "hf_comps", "duplicate_count": 1, "unordered_signature": "1.0.1|2026-07-01|moc|all|top|1|Phase 1|a>b>c>d"}
     view = _build_top_teams_latest({"team_rank_dedup_unordered": [row]})
     assert _columns_from_rows(view) == ["mode_cn", "mode", "sub_mode_cn", "sub_mode", "phase_ver", "rank", "team_cn", "app_rate", "avg_round", "source_kind", "duplicate_count", "unordered_signature"]
     assert view[0]["team_cn"] == "a / b / c / d"
+
+
+def test_python_top_teams_latest_merges_aggregate_sources_and_excludes_concrete_scopes():
+    def team(
+        *,
+        mode: str = "moc",
+        scope: str,
+        source_kind: str,
+        duplicate_count: int,
+        snapshot_id: str = "4.3.10",
+        collect_date: str = "2026-07-01",
+        rank: int = 1,
+        phase_name: str | None = None,
+    ) -> dict[str, object]:
+        sub_mode = "all_bosses" if mode == "aa" else "all"
+        phase_name = phase_name or ("The Humming Laughter" if mode == "aa" else "Duty Action")
+        chars = ["a", "b", "c", "d"]
+        return {
+            "snapshot_id": snapshot_id,
+            "collect_date": collect_date,
+            "mode": mode,
+            "mode_cn": {"moc": "混沌回忆", "aa": "异相仲裁"}[mode],
+            "sub_mode": sub_mode,
+            "sub_mode_cn": "全部",
+            "scope": scope,
+            "phase_ver": "4.3.1",
+            "phase_name": phase_name,
+            "rank": rank,
+            "app_rate": 10,
+            "avg_round": 3,
+            "source_kind": source_kind,
+            "source_file": f"{source_kind}/{scope}.json",
+            "duplicate_count": duplicate_count,
+            **{f"char_{index}_slug": slug for index, slug in enumerate(chars, start=1)},
+            "unordered_signature": (
+                f"{snapshot_id}|{collect_date}|{mode}|{sub_mode}|{scope}|"
+                f"4.3.1|{phase_name}|a>b>c>d"
+            ),
+        }
+
+    rows = [
+        team(
+            scope="top",
+            source_kind="hf_comps",
+            duplicate_count=2,
+            rank=1,
+            phase_name="Zulu metadata spelling",
+        ),
+        team(scope="all", source_kind="prydwen_page", duplicate_count=3, rank=9),
+        team(scope="12-1", source_kind="hf_comps", duplicate_count=50),
+        team(scope="1", source_kind="prydwen_page", duplicate_count=60),
+        team(scope="all", source_kind="prydwen_page", duplicate_count=70, snapshot_id="4.3.9"),
+        team(mode="aa", scope="all-bosses", source_kind="hf_comps", duplicate_count=4),
+        team(mode="aa", scope="all_bosses", source_kind="prydwen_page", duplicate_count=5, rank=8),
+        team(mode="aa", scope="1-1", source_kind="hf_comps", duplicate_count=80),
+    ]
+
+    view = _build_top_teams_latest({"team_rank_dedup_unordered": rows})
+    assert len(view) == 2
+    by_mode = {row["mode"]: row for row in view}
+    assert by_mode["moc"]["duplicate_count"] == 5
+    assert by_mode["moc"]["source_kind"] == "hf_comps;prydwen_page"
+    assert by_mode["moc"]["rank"] == 9
+    assert str(by_mode["moc"]["unordered_signature"]).startswith("4.3.10|")
+    assert "|all|" in str(by_mode["moc"]["unordered_signature"])
+    assert by_mode["aa"]["duplicate_count"] == 9
+    assert by_mode["aa"]["source_kind"] == "hf_comps;prydwen_page"
+    assert str(by_mode["aa"]["unordered_signature"]).startswith("4.3.10|")
+    assert "|all_bosses|" in str(by_mode["aa"]["unordered_signature"])
 
 
 def test_python_name_map_includes_team_only_characters():

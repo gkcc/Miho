@@ -690,6 +690,12 @@
 - ZZZ 分析与推荐页已拆分显示期次、期名、机制、周期、采样和状态；身份不唯一或官方字段缺失时产品探针失败关闭。隐藏真实产品路径完成 `ZZZ 更新 → HSR 更新 → ZZZ`，正常退出且 Box 未变。
 - Rust 三 crate、Python ZZZ+dense 10 项、Node 136 项、fmt/diff check 与完整 release 构建通过；终审新增 DA 歧义反例后定点 7/7。正式 Desktop/人工 CLI SHA-256 为 `D67CF6961694779630410BECBB243D8F9AD0BF916680CC91B9464D0EB6F4B1F9` / `4AC29196B3E0AC95C50187EBAB0521338318EBA1E4E2FE0EADC42EC077AB8583`；每日任务已切到唯一无窗 generation `miho-0.1.0-81d527effac5a320526d33b52c75d3872f271d102d96c365e646ac9c47f2f0d3`。
 
+### HSR 队伍观测身份与最新模板恢复（2026-07-27，已交付）
+
+- **根因与修复**：旧队伍签名只含模式、子模式、期次和角色，会把不同 snapshot、采样日、期名及具体关卡误并为一条，旧日较优 Rank 因而吞掉最新真实阵容。Rust/Python 现统一以 `snapshot_id + collect_date + mode + sub_mode + scope + phase_ver + phase_name + chars` 去重；最新观测按采样日及 snapshot/phase 自然版本选择，期名差异留给后续来源合并，不再用字典序丢弃整批数据。旧四段签名目录直接重建 Visualizer 时会回退 raw 恢复完整证据池。综合榜只接受综合 scope，合并 HF/Prydwen 来源并保持每模式 Top 100。
+- **正式数据结果**：三张队伍表均为 105,680 行；Visualizer 队伍模板由 8,602 恢复至 19,311，当前 Box 可完整组成的 AA/AS/MoC/PF 模板分别为 258/260/120/275。正式模板全部绑定 `4.3.2 / 2026-06-25`；四模式综合榜各 100 队且均保留 `hf_comps;prydwen_page` 双来源。
+- **验证与部署**：Rust core 179 项、受影响 Python 86 项（2 项 live deselected）、此前完整 Python/Node 契约、格式/语法/diff check 与完整 Tauri 构建通过；本机 Rust 1.97 未安装 clippy component，未改动工具链。隐藏正式路径完成 `ZZZ → HSR → ZZZ`，19,311 模板、六模式期次、Box 保存和正常退出均通过。正式 Desktop/人工 CLI SHA-256 为 `AE295C36F35D2CD1F34369D70C2DCD8766AE8FD168ECD0732A475F84E760E51A` / `390CBD6C37692B0685806716304A25933B33C6E26B048FCD5F0831544EB68558`；owner-aware attempt `installer-941e3fc287ea49b3838907e3ee488bcf` 已切到唯一无窗 generation `miho-0.1.0-1bd2a1d8072aafc536ee6c8d1f57211ba56f1cd220b3aeb9574cf2f3d94c4a2b`，任务 `Ready / Enabled / LastTaskResult=0`。HSR/ZZZ Box SHA-256 保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
+
 ## 恢复入口
 
 - 项目状态：本文件。

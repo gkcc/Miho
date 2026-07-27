@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde_json::{json, Map, Number, Value};
 
 use crate::{
-    normalize::character_slug,
+    normalize::{character_slug, natural_version_cmp},
     output::ArtifactBundle,
     visualizer::{
         attach_avatar_assets, attach_hsr_static_assets, attach_visualizer_data,
@@ -15,6 +15,7 @@ use crate::{
 };
 
 type Row = BTreeMap<String, String>;
+type TeamObservationIdentity = (String, String, String);
 
 const TIER_KEEP: &[&str] = &["T0", "T0.5", "T1", "T1.5", "T2"];
 
@@ -85,13 +86,32 @@ pub fn attach_hsr_visualizer(
 
 fn read_hsr_team_rows(bundle: &ArtifactBundle) -> Result<Vec<Row>> {
     if bundle.get("team_rank_dedup_unordered.csv").is_some() {
-        read_csv_rows(bundle, "team_rank_dedup_unordered.csv")
-    } else {
-        // Legacy bundles did not always contain the unordered table.  Raw is
-        // retained only as a compatibility/provenance fallback; current
-        // bundles must rank from the complete deduplicated evidence pool.
-        read_csv_rows(bundle, "team_rank_raw.csv")
+        let rows = read_csv_rows(bundle, "team_rank_dedup_unordered.csv")?;
+        if team_rows_use_current_signatures(&rows) || bundle.get("team_rank_raw.csv").is_none() {
+            return Ok(rows);
+        }
     }
+    // Old unordered signatures collapsed snapshots, dates, phases, and
+    // scopes. Raw preserves those rows and can rebuild the complete pool.
+    read_csv_rows(bundle, "team_rank_raw.csv")
+}
+
+fn team_rows_use_current_signatures(rows: &[Row]) -> bool {
+    !rows.is_empty()
+        && rows.iter().all(|row| {
+            let prefix = [
+                get(row, "snapshot_id"),
+                get(row, "collect_date"),
+                get(row, "mode"),
+                get(row, "sub_mode"),
+                get(row, "scope"),
+                get(row, "phase_ver"),
+                get(row, "phase_name"),
+            ]
+            .join("|")
+                + "|";
+            get(row, "unordered_signature").starts_with(&prefix)
+        })
 }
 
 fn read_data_quality(bundle: &ArtifactBundle) -> Result<(Value, Value)> {
@@ -1123,15 +1143,17 @@ fn build_teams(
     roster: &[Value],
     context: &VisualizerContext,
 ) -> Result<Vec<Value>> {
-    let mut latest = HashMap::<String, String>::new();
+    let mut latest = HashMap::<String, TeamObservationIdentity>::new();
     for row in teams {
         let mode = get(row, "mode");
-        let collect_date = get(row, "collect_date");
+        let identity = team_observation_identity(row);
         if !mode.is_empty()
-            && !collect_date.is_empty()
-            && collect_date >= latest.get(mode).map(String::as_str).unwrap_or("")
+            && !identity.0.is_empty()
+            && latest
+                .get(mode)
+                .is_none_or(|current| team_observation_cmp(&identity, current).is_gt())
         {
-            latest.insert(mode.into(), collect_date.into());
+            latest.insert(mode.into(), identity);
         }
     }
 
@@ -1141,8 +1163,7 @@ fn build_teams(
     let mut grouped_indices = HashMap::<String, usize>::new();
     for row in teams {
         let mode = get(row, "mode");
-        if mode.is_empty() || latest.get(mode).map(String::as_str) != Some(get(row, "collect_date"))
-        {
+        if mode.is_empty() || latest.get(mode) != Some(&team_observation_identity(row)) {
             continue;
         }
         let chars = (1..=4)
@@ -1265,6 +1286,24 @@ fn build_teams(
             .then_with(|| template_cmp(left, right))
     });
     Ok(output)
+}
+
+fn team_observation_identity(row: &Row) -> TeamObservationIdentity {
+    (
+        get(row, "collect_date").into(),
+        get(row, "snapshot_id").into(),
+        get(row, "phase_ver").into(),
+    )
+}
+
+fn team_observation_cmp(
+    left: &TeamObservationIdentity,
+    right: &TeamObservationIdentity,
+) -> std::cmp::Ordering {
+    left.0
+        .cmp(&right.0)
+        .then_with(|| natural_version_cmp(&left.1, &right.1))
+        .then_with(|| natural_version_cmp(&left.2, &right.2))
 }
 
 fn build_phase_lookup(phases: &[Value]) -> HashMap<(String, String, String), &Value> {
@@ -2182,6 +2221,132 @@ mod tests {
     }
 
     #[test]
+    fn teams_select_newest_observation_before_composition_dedupe() {
+        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let mut old = row(&[
+            ("snapshot_id", "4.3.1"),
+            ("collect_date", "2026-06-11"),
+            ("mode", "moc"),
+            ("scope", "all"),
+            ("phase_ver", "4.2.1"),
+            ("phase_name", "Duty Action"),
+            ("rank", "1"),
+            ("app_rate", "20"),
+            ("avg_round", "2"),
+            ("source_kind", "hf_comps"),
+            ("source_file", "4.3.1/moc/comps/top_combined.json"),
+        ]);
+        let mut new = old.clone();
+        new.insert("snapshot_id".into(), "4.3.2".into());
+        new.insert("collect_date".into(), "2026-06-25".into());
+        new.insert("rank".into(), "999".into());
+        new.insert("app_rate".into(), "1".into());
+        new.insert("avg_round".into(), "9".into());
+        new.insert(
+            "source_file".into(),
+            "4.3.2/moc/comps/top_combined.json".into(),
+        );
+        for (index, slug) in ["a", "b", "c", "d"].iter().enumerate() {
+            old.insert(format!("char_{}_slug", index + 1), (*slug).into());
+            new.insert(format!("char_{}_slug", index + 1), (*slug).into());
+        }
+
+        let templates = build_teams(&[old, new], &[], &[], &context).unwrap();
+        assert_eq!(templates.len(), 1);
+        assert_eq!(templates[0]["snapshot_id"], "4.3.2");
+        assert_eq!(templates[0]["collect_date"], "2026-06-25");
+        assert_eq!(templates[0]["rank"], 999);
+        assert_eq!(
+            templates[0]["source_file"],
+            "4.3.2/moc/comps/top_combined.json"
+        );
+    }
+
+    #[test]
+    fn teams_do_not_merge_same_day_snapshots_before_composition_dedupe() {
+        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let mut old = row(&[
+            ("snapshot_id", "4.3.9"),
+            ("collect_date", "2026-06-25"),
+            ("mode", "moc"),
+            ("scope", "all"),
+            ("phase_ver", "4.3.9"),
+            ("phase_name", "Old Phase"),
+            ("rank", "1"),
+            ("app_rate", "20"),
+            ("avg_round", "2"),
+            ("source_kind", "hf_comps"),
+            ("source_file", "4.3.9/moc/comps/top_combined.json"),
+        ]);
+        let mut new = old.clone();
+        new.insert("snapshot_id".into(), "4.3.10".into());
+        new.insert("phase_ver".into(), "4.3.10".into());
+        new.insert("phase_name".into(), "New Phase".into());
+        new.insert("rank".into(), "999".into());
+        new.insert("app_rate".into(), "1".into());
+        new.insert("avg_round".into(), "9".into());
+        new.insert(
+            "source_file".into(),
+            "4.3.10/moc/comps/top_combined.json".into(),
+        );
+        for (index, slug) in ["a", "b", "c", "d"].iter().enumerate() {
+            old.insert(format!("char_{}_slug", index + 1), (*slug).into());
+            new.insert(format!("char_{}_slug", index + 1), (*slug).into());
+        }
+
+        let templates = build_teams(&[old, new], &[], &[], &context).unwrap();
+
+        assert_eq!(templates.len(), 1);
+        assert_eq!(templates[0]["snapshot_id"], "4.3.10");
+        assert_eq!(templates[0]["phase_ver"], "4.3.10");
+        assert_eq!(templates[0]["phase_name"], "New Phase");
+        assert_eq!(templates[0]["rank"], 999);
+        assert_eq!(templates[0]["duplicate_count"], 1);
+        assert_eq!(
+            templates[0]["merged_source_files"],
+            "4.3.10/moc/comps/top_combined.json"
+        );
+    }
+
+    #[test]
+    fn teams_merge_same_observation_when_phase_names_disagree() {
+        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let mut base = row(&[
+            ("snapshot_id", "4.3.10"),
+            ("collect_date", "2026-06-25"),
+            ("mode", "moc"),
+            ("scope", "all"),
+            ("phase_ver", "4.3.10"),
+            ("phase_name", "Duty Action"),
+            ("rank", "9"),
+            ("app_rate", "10"),
+            ("avg_round", "3"),
+            ("source_kind", "hf_comps"),
+            ("source_file", "hf/top.json"),
+        ]);
+        for (index, slug) in ["a", "b", "c", "d"].iter().enumerate() {
+            base.insert(format!("char_{}_slug", index + 1), (*slug).into());
+        }
+        let mut alternate = base.clone();
+        alternate.insert(
+            "phase_name".into(),
+            "Duty Action (alternate metadata)".into(),
+        );
+        alternate.insert("source_kind".into(), "prydwen_page".into());
+        alternate.insert("source_file".into(), "prydwen/all.html".into());
+
+        let templates = build_teams(&[base, alternate], &[], &[], &context).unwrap();
+
+        assert_eq!(templates.len(), 1);
+        assert_eq!(templates[0]["duplicate_count"], 2);
+        assert_eq!(templates[0]["merged_source_kinds"], "hf_comps;prydwen_page");
+        assert_eq!(
+            templates[0]["merged_source_files"],
+            "hf/top.json;prydwen/all.html"
+        );
+    }
+
+    #[test]
     fn teams_keep_sentinel_performance_at_b_evidence() {
         let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
         let mut team = row(&[
@@ -2213,15 +2378,42 @@ mod tests {
             .add_text("team_rank_raw.csv", "mode,rank\nraw,9\n")
             .unwrap();
         bundle
-            .add_text("team_rank_dedup_unordered.csv", "mode,rank\ndedup,1\n")
+            .add_text(
+                "team_rank_dedup_unordered.csv",
+                "snapshot_id,collect_date,mode,sub_mode,scope,phase_ver,phase_name,rank,unordered_signature\n4.3.10,2026-06-25,dedup,all,all,4.3.1,Duty Action,1,4.3.10|2026-06-25|dedup|all|all|4.3.1|Duty Action|a>b>c>d\n",
+            )
             .unwrap();
         assert_eq!(read_hsr_team_rows(&bundle).unwrap()[0]["mode"], "dedup");
+
+        let mut old_signature = ArtifactBundle::default();
+        old_signature
+            .add_text("team_rank_raw.csv", "mode,rank\nraw,9\n")
+            .unwrap();
+        old_signature
+            .add_text(
+                "team_rank_dedup_unordered.csv",
+                "mode,rank,unordered_signature\ndedup,1,dedup|all|4.3.1|a>b>c>d\n",
+            )
+            .unwrap();
+        assert_eq!(
+            read_hsr_team_rows(&old_signature).unwrap()[0]["mode"],
+            "raw"
+        );
 
         let mut legacy = ArtifactBundle::default();
         legacy
             .add_text("team_rank_raw.csv", "mode,rank\nraw,9\n")
             .unwrap();
         assert_eq!(read_hsr_team_rows(&legacy).unwrap()[0]["mode"], "raw");
+
+        let mut dedup_only = ArtifactBundle::default();
+        dedup_only
+            .add_text(
+                "team_rank_dedup_unordered.csv",
+                "mode,rank,unordered_signature\ndedup,1,dedup|all|4.3.1|a>b>c>d\n",
+            )
+            .unwrap();
+        assert_eq!(read_hsr_team_rows(&dedup_only).unwrap()[0]["mode"], "dedup");
     }
 
     #[test]

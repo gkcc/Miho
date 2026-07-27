@@ -16,7 +16,7 @@ from miho_core.banner_plan import effective_banner_phases
 from miho_core.visualizer_data import compact_visualizer_data
 
 from .constants import MODE_CN
-from .normalize import normalize_character_id
+from .normalize import natural_version_key, normalize_character_id
 
 ELEMENT_CN = {
     "Physical": "物理",
@@ -180,6 +180,29 @@ def _http_avatar_source(value: Any) -> str:
     return text if scheme in {"http", "https"} else ""
 
 
+def read_recommender_team_rows(out_dir: Path) -> list[dict[str, Any]]:
+    dedup_path = out_dir / "team_rank_dedup_unordered.csv"
+    raw_path = out_dir / "team_rank_raw.csv"
+    dedup_rows = _read_csv(dedup_path) if dedup_path.exists() else []
+    if _team_rows_use_current_signatures(dedup_rows) or not raw_path.exists():
+        return dedup_rows
+    # Old unordered signatures collapsed snapshots, dates, phases, and
+    # scopes. Raw preserves those rows and can rebuild the complete pool.
+    return _read_csv(raw_path)
+
+
+def _team_rows_use_current_signatures(rows: list[dict[str, Any]]) -> bool:
+    if not rows:
+        return False
+    fields = ("snapshot_id", "collect_date", "mode", "sub_mode", "scope", "phase_ver", "phase_name")
+    return all(
+        str(row.get("unordered_signature") or "").startswith(
+            "|".join(str(row.get(field) or "") for field in fields) + "|"
+        )
+        for row in rows
+    )
+
+
 def write_visualizer_app(
     out_dir: Path,
     *,
@@ -203,16 +226,7 @@ def write_visualizer_app(
     safe_tier_rows = _sanitize_link_rows(_sanitize_avatar_rows(tier_rows, roster_rows), "source_url")
     safe_changelog_rows = _sanitize_link_rows(changelog_rows, "source_url")
     team_templates = _build_recommender_rows(
-        team_rank_rows
-        if team_rank_rows is not None
-        else _read_csv(
-            out_dir
-            / (
-                "team_rank_dedup_unordered.csv"
-                if (out_dir / "team_rank_dedup_unordered.csv").exists()
-                else "team_rank_raw.csv"
-            )
-        ),
+        team_rank_rows if team_rank_rows is not None else read_recommender_team_rows(out_dir),
         roster_rows,
         phase_info_rows,
     )
@@ -804,17 +818,20 @@ def _build_recommender_rows(
         return []
     roster_lookup = _build_roster_lookup(roster_rows)
     phase_lookup = _build_phase_lookup(phase_info_rows)
-    latest_collect_dates: dict[str, str] = {}
+    latest_observations: dict[str, tuple[str, str, str]] = {}
     for row in team_rows:
         mode = str(row.get("mode") or "")
-        collect_date = str(row.get("collect_date") or "")
-        if mode and collect_date and collect_date >= latest_collect_dates.get(mode, ""):
-            latest_collect_dates[mode] = collect_date
+        identity = _team_observation_identity(row)
+        current = latest_observations.get(mode)
+        if mode and identity[0] and (
+            current is None or _team_observation_sort_key(identity) > _team_observation_sort_key(current)
+        ):
+            latest_observations[mode] = identity
 
     grouped: dict[str, dict[str, Any]] = {}
     for row in team_rows:
         mode = str(row.get("mode") or "")
-        if not mode or str(row.get("collect_date") or "") != latest_collect_dates.get(mode, ""):
+        if not mode or _team_observation_identity(row) != latest_observations.get(mode):
             continue
         chars = [_canonical_slug(row.get(f"char_{index}_slug", "")) for index in range(1, 5)]
         chars = [str(roster_lookup.get(char, {}).get("character_slug") or char) for char in chars]
@@ -879,6 +896,18 @@ def _build_recommender_rows(
             _template_sort_key(row),
         ),
     )
+
+
+def _team_observation_identity(row: dict[str, Any]) -> tuple[str, str, str]:
+    return tuple(
+        str(row.get(field) or "")
+        for field in ("collect_date", "snapshot_id", "phase_ver")
+    )
+
+
+def _team_observation_sort_key(identity: tuple[str, str, str]) -> tuple[Any, ...]:
+    collect_date, snapshot_id, phase_ver = identity
+    return collect_date, natural_version_key(snapshot_id), natural_version_key(phase_ver)
 
 
 def _evidence_duplicate_count(value: Any) -> int:

@@ -20,6 +20,7 @@ from .constants import (
     TEAM_RAW_COLUMNS,
     TEAM_UNORDERED_COLUMNS,
 )
+from .normalize import natural_version_key
 from .parsers import attach_team_signatures
 
 DISPLAY_TOP_TEAMS_PER_MODE = 100
@@ -348,18 +349,45 @@ def _build_top_teams_latest(tables: dict[str, list[dict[str, Any]]]) -> list[dic
     rows = [
         row
         for row in tables.get("team_rank_dedup_unordered", [])
-        if row.get("sub_mode") in {"all", "all_bosses"} and row.get("rank") not in {"", None}
+        if _is_comprehensive_scope(row.get("scope")) and row.get("rank") not in {"", None}
     ]
-    latest_collect = {
-        mode: max(str(row.get("collect_date", "")) for row in rows if row.get("mode") == mode)
+    latest_observation = {
+        mode: max(
+            (_top_team_observation(row) for row in rows if row.get("mode") == mode),
+            key=_top_team_observation_sort_key,
+        )
         for mode in {row.get("mode") for row in rows}
+        if mode
     }
+    grouped: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        mode = str(row.get("mode") or "")
+        if _top_team_observation(row) != latest_observation.get(mode):
+            continue
+        chars = tuple(sorted(str(row.get(f"char_{index}_slug") or "") for index in range(1, 5)))
+        grouped[(mode, chars)].append(row)
+
+    selected: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for group in grouped.values():
+        representative = min(
+            group,
+            key=lambda row: (_team_sort_key(row), str(row.get("unordered_signature") or "")),
+        )
+        merged = dict(representative)
+        merged["duplicate_count"] = sum(_team_duplicate_count(row.get("duplicate_count")) for row in group)
+        merged["source_kind"] = _merged_team_values(row.get("source_kind") for row in group)
+        merged["merged_source_files"] = _merged_team_values(
+            row.get("merged_source_files") or row.get("source_file") for row in group
+        )
+        selected.append((representative, merged))
+
     output: list[dict[str, Any]] = []
     seen_per_mode: dict[str, int] = defaultdict(int)
-    for row in sorted(rows, key=_team_sort_key):
-        mode = row.get("mode", "")
-        if str(row.get("collect_date", "")) != latest_collect.get(mode):
-            continue
+    for _, row in sorted(
+        selected,
+        key=lambda pair: (_team_sort_key(pair[0]), str(pair[0].get("unordered_signature") or "")),
+    ):
+        mode = str(row.get("mode") or "")
         if seen_per_mode[mode] >= DISPLAY_TOP_TEAMS_PER_MODE:
             continue
         seen_per_mode[mode] += 1
@@ -381,6 +409,42 @@ def _build_top_teams_latest(tables: dict[str, list[dict[str, Any]]]) -> list[dic
             }
         )
     return output
+
+
+def _top_team_observation(row: dict[str, Any]) -> tuple[str, str, str]:
+    return tuple(
+        str(row.get(key) or "")
+        for key in ("collect_date", "snapshot_id", "phase_ver")
+    )
+
+
+def _top_team_observation_sort_key(identity: tuple[str, str, str]) -> tuple[Any, ...]:
+    collect_date, snapshot_id, phase_ver = identity
+    return collect_date, natural_version_key(snapshot_id), natural_version_key(phase_ver)
+
+
+def _is_comprehensive_scope(value: Any) -> bool:
+    return str(value or "").strip().lower().replace("_", "-") in {"", "all", "top", "all-bosses"}
+
+
+def _team_duplicate_count(value: Any) -> int:
+    try:
+        return max(1, int(str(value).strip()))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _merged_team_values(values: Any) -> str:
+    return ";".join(
+        sorted(
+            {
+                item.strip()
+                for value in values
+                for item in str(value or "").split(";")
+                if item.strip()
+            }
+        )
+    )
 
 
 def _fit_columns(worksheet, get_column_letter) -> None:

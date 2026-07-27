@@ -309,8 +309,17 @@ def parse_team_rows(
 
 def attach_team_signatures(row: dict[str, Any]) -> tuple[str, str]:
     chars = [row[f"char_{i}_slug"] for i in range(1, 5)]
-    ordered = make_ordered_signature(row["mode"], row["sub_mode"], row["phase_ver"], chars)
-    unordered = make_unordered_signature(row["mode"], row["sub_mode"], row["phase_ver"], chars)
+    identity = (
+        row["snapshot_id"],
+        row["collect_date"],
+        row["mode"],
+        row["sub_mode"],
+        row["scope"],
+        row["phase_ver"],
+        row["phase_name"],
+    )
+    ordered = make_ordered_signature(*identity, chars)
+    unordered = make_unordered_signature(*identity, chars)
     return ordered, unordered
 
 
@@ -319,4 +328,3 @@ def _scope_from_source(source_name: str | None) -> str:
     name = re.sub(r"\.json$", "", name)
     name = re.sub(r"_combined$", "", name)
     return name or "all"
-

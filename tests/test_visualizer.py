@@ -1,6 +1,11 @@
 import json
 
-from hsr_endgame_exporter.visualizer import _recommender_scope, write_visualizer_app
+from hsr_endgame_exporter.visualizer import (
+    _build_recommender_rows,
+    _recommender_scope,
+    read_recommender_team_rows,
+    write_visualizer_app,
+)
 from miho_core.visualizer_data import expand_visualizer_data
 
 
@@ -18,6 +23,100 @@ def test_recommender_scope_labels_nodes_and_aggregate_pool_precisely():
     )
     assert _recommender_scope("aa", "4") == ("2-1", "2-1 / 王棋", 4)
     assert _recommender_scope("as", "top") == ("all", "综合队伍池", 90)
+
+
+def test_recommender_selects_one_observation_for_same_day_snapshots_before_dedupe():
+    old = {
+        "snapshot_id": "4.3.9",
+        "collect_date": "2026-06-25",
+        "mode": "moc",
+        "scope": "all",
+        "phase_ver": "4.3.9",
+        "phase_name": "Old Phase",
+        "rank": "1",
+        "app_rate": "20",
+        "avg_round": "2",
+        "source_kind": "hf_comps",
+        "source_file": "4.3.9/moc/comps/top_combined.json",
+        **{f"char_{index}_slug": slug for index, slug in enumerate("abcd", start=1)},
+    }
+    new = {
+        **old,
+        "snapshot_id": "4.3.10",
+        "phase_ver": "4.3.10",
+        "phase_name": "New Phase",
+        "rank": "999",
+        "app_rate": "1",
+        "avg_round": "9",
+        "source_file": "4.3.10/moc/comps/top_combined.json",
+    }
+
+    templates = _build_recommender_rows([old, new], [], [])
+
+    assert len(templates) == 1
+    assert templates[0]["snapshot_id"] == "4.3.10"
+    assert templates[0]["phase_ver"] == "4.3.10"
+    assert templates[0]["phase_name"] == "New Phase"
+    assert templates[0]["rank"] == 999.0
+    assert templates[0]["duplicate_count"] == 1
+    assert templates[0]["merged_source_files"] == "4.3.10/moc/comps/top_combined.json"
+
+
+def test_recommender_merges_same_observation_when_phase_names_disagree():
+    base = {
+        "snapshot_id": "4.3.10",
+        "collect_date": "2026-06-25",
+        "mode": "moc",
+        "scope": "all",
+        "phase_ver": "4.3.10",
+        "phase_name": "Duty Action",
+        "rank": "9",
+        "app_rate": "10",
+        "avg_round": "3",
+        "source_kind": "hf_comps",
+        "source_file": "hf/top.json",
+        **{f"char_{index}_slug": slug for index, slug in enumerate("abcd", start=1)},
+    }
+    alternate = {
+        **base,
+        "phase_name": "Duty Action (alternate metadata)",
+        "source_kind": "prydwen_page",
+        "source_file": "prydwen/all.html",
+    }
+
+    templates = _build_recommender_rows([base, alternate], [], [])
+
+    assert len(templates) == 1
+    assert templates[0]["duplicate_count"] == 2
+    assert templates[0]["merged_source_kinds"] == "hf_comps;prydwen_page"
+    assert templates[0]["merged_source_files"] == "hf/top.json;prydwen/all.html"
+
+
+def test_recommender_team_reader_recovers_from_legacy_dedup_signatures(tmp_path):
+    raw = tmp_path / "team_rank_raw.csv"
+    dedup = tmp_path / "team_rank_dedup_unordered.csv"
+    raw.write_text("mode,rank\nraw,9\n", encoding="utf-8")
+    dedup.write_text(
+        "mode,rank,unordered_signature\ndedup,1,dedup|all|4.3.1|a>b>c>d\n",
+        encoding="utf-8",
+    )
+
+    assert read_recommender_team_rows(tmp_path)[0]["mode"] == "raw"
+
+    dedup.write_text(
+        "snapshot_id,collect_date,mode,sub_mode,scope,phase_ver,phase_name,rank,unordered_signature\n"
+        "4.3.10,2026-06-25,dedup,all,all,4.3.1,Duty Action,1,"
+        "4.3.10|2026-06-25|dedup|all|all|4.3.1|Duty Action|a>b>c>d\n",
+        encoding="utf-8",
+    )
+    assert read_recommender_team_rows(tmp_path)[0]["mode"] == "dedup"
+
+    raw.unlink()
+    dedup.write_text(
+        "mode,rank,unordered_signature\ndedup,1,dedup|all|4.3.1|a>b>c>d\n",
+        encoding="utf-8",
+    )
+    assert read_recommender_team_rows(tmp_path)[0]["mode"] == "dedup"
 
 
 def test_write_visualizer_app_outputs_interactive_files(tmp_path):

@@ -74,10 +74,28 @@ pub struct TeamRow {
 }
 
 impl TeamRow {
-    pub fn signatures(&self) -> (String, String) {
+    pub fn signatures(&self, phase: &PhaseRow) -> (String, String) {
         (
-            ordered_signature(&self.mode, &self.sub_mode, &self.phase_ver, &self.chars),
-            unordered_signature(&self.mode, &self.sub_mode, &self.phase_ver, &self.chars),
+            ordered_signature(
+                &phase.snapshot_id,
+                &phase.collect_date,
+                &self.mode,
+                &self.sub_mode,
+                &self.scope,
+                &self.phase_ver,
+                &phase.phase_name,
+                &self.chars,
+            ),
+            unordered_signature(
+                &phase.snapshot_id,
+                &phase.collect_date,
+                &self.mode,
+                &self.sub_mode,
+                &self.scope,
+                &self.phase_ver,
+                &phase.phase_name,
+                &self.chars,
+            ),
         )
     }
 }
@@ -480,10 +498,10 @@ mod tests {
         assert_eq!(teams.len(), 1);
         assert_eq!(teams[0].raw_index, 2);
         assert_eq!(
-            teams[0].signatures(),
+            teams[0].signatures(&phase),
             (
-                "moc|stage_stage_1|4.2.1|d>b>a>c".to_owned(),
-                "moc|stage_stage_1|4.2.1|a>b>c>d".to_owned()
+                "4.3.2|2026-06-25|moc|stage_stage_1|stage_1|4.2.1|Example Phase|d>b>a>c".to_owned(),
+                "4.3.2|2026-06-25|moc|stage_stage_1|stage_1|4.2.1|Example Phase|a>b>c>d".to_owned()
             )
         );
     }

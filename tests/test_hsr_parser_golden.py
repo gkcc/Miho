@@ -28,4 +28,7 @@ def test_minimal_hsr_parser_fixture_freezes_python_oracle():
     teams = parse_team_rows(snapshot_id="4.3.2", phase_row=phase, data=fixture["teams"], source_kind="fixture", source_file="teams.json", source_url="fixture://teams", scope_hint="stage_1_combined.json", top_n=2)
     assert len(teams) == 1
     assert teams[0]["raw_index"] == 2
-    assert attach_team_signatures(teams[0]) == ("moc|stage_stage_1|4.2.1|d>b>a>c", "moc|stage_stage_1|4.2.1|a>b>c>d")
+    assert attach_team_signatures(teams[0]) == (
+        "4.3.2|2026-06-25|moc|stage_stage_1|stage_1|4.2.1|Example Phase|d>b>a>c",
+        "4.3.2|2026-06-25|moc|stage_stage_1|stage_1|4.2.1|Example Phase|a>b>c>d",
+    )
