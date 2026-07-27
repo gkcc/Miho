@@ -7,9 +7,9 @@ use crate::{
     output::ArtifactBundle,
     visualizer::{
         attach_avatar_assets, attach_hsr_static_assets, attach_visualizer_data,
-        effective_banner_status as shared_effective_banner_status, local_avatar_url,
-        python_scalar_text, python_value_truthy, read_csv_rows, safe_link_url, safe_relative_url,
-        strict_utf8, validate_json_surrogate_escapes, VisualizerContext,
+        banner_phase_boundary_fields, effective_banner_status as shared_effective_banner_status,
+        local_avatar_url, python_scalar_text, python_value_truthy, read_csv_rows, safe_link_url,
+        safe_relative_url, strict_utf8, validate_json_surrogate_escapes, VisualizerContext,
     },
     MihoError, Result,
 };
@@ -964,7 +964,14 @@ fn build_banner(
         .into_iter()
         .flatten()
     {
+        let declared = phase
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
         let status = shared_effective_banner_status(phase, local_datetime)?;
+        let (phase_starts_at, phase_ends_at_exclusive) = banner_phase_boundary_fields(phase)?;
         for (index, ch) in phase
             .get("characters")
             .and_then(Value::as_array)
@@ -1003,7 +1010,7 @@ fn build_banner(
                     nonempty_text(&safe_relative_url(roster_icon)).as_deref(),
                 ])
             };
-            output.push(json!({"phase_id":pv("id"),"phase_status":status,"phase_title":pv("title"),"phase_subtitle":pv("subtitle"),"date_range":pv("date_range"),"source_label":source_label,"source_url":source_url,"slot":index+1,"character_slug":slug,"character_name_cn":first(&[Some(cv("name_cn")),r.and_then(|v|v.get("character_name_cn")).and_then(Value::as_str)]),"character_name_en":first(&[Some(cv("name_en")),r.and_then(|v|v.get("character_name_en")).and_then(Value::as_str)]),"banner_role":cv("banner_role"),"rarity":first(&[Some(cv("rarity")),r.and_then(|v|v.get("rarity")).and_then(Value::as_str)]),"element_cn":first(&[Some(cv("element_cn")),r.and_then(|v|v.get("element_cn")).and_then(Value::as_str)]),"path_cn":first(&[Some(cv("path_cn")),r.and_then(|v|v.get("path_cn")).and_then(Value::as_str)]),"role_group_cns":first(&[Some(cv("role_group_cns")),r.and_then(|v|v.get("role_group_cns")).and_then(Value::as_str)]),"icon_url":icon_url,"analysis_tags":ch.get("analysis_tags").cloned().unwrap_or_else(||json!([])),"focus":cv("focus")}));
+            output.push(json!({"phase_id":pv("id"),"phase_status":status,"declared_phase_status":declared,"phase_title":pv("title"),"phase_subtitle":pv("subtitle"),"date_range":pv("date_range"),"phase_starts_at":phase_starts_at,"phase_ends_at_exclusive":phase_ends_at_exclusive,"source_label":source_label,"source_url":source_url,"slot":index+1,"character_slug":slug,"character_name_cn":first(&[Some(cv("name_cn")),r.and_then(|v|v.get("character_name_cn")).and_then(Value::as_str)]),"character_name_en":first(&[Some(cv("name_en")),r.and_then(|v|v.get("character_name_en")).and_then(Value::as_str)]),"banner_role":cv("banner_role"),"rarity":first(&[Some(cv("rarity")),r.and_then(|v|v.get("rarity")).and_then(Value::as_str)]),"element_cn":first(&[Some(cv("element_cn")),r.and_then(|v|v.get("element_cn")).and_then(Value::as_str)]),"path_cn":first(&[Some(cv("path_cn")),r.and_then(|v|v.get("path_cn")).and_then(Value::as_str)]),"role_group_cns":first(&[Some(cv("role_group_cns")),r.and_then(|v|v.get("role_group_cns")).and_then(Value::as_str)]),"icon_url":icon_url,"analysis_tags":ch.get("analysis_tags").cloned().unwrap_or_else(||json!([])),"focus":cv("focus")}));
         }
     }
     Ok((output, refresh))
@@ -2028,6 +2035,12 @@ mod tests {
             }))
         );
         assert_eq!(banner[0]["phase_status"], "previous");
+        assert_eq!(banner[0]["declared_phase_status"], "current");
+        assert_eq!(banner[0]["phase_starts_at"], "1900-01-01T00:00:00+08:00");
+        assert_eq!(
+            banner[0]["phase_ends_at_exclusive"],
+            "1900-01-03T00:00:00+08:00"
+        );
         assert_eq!(banner[0]["source_url"], "1e-07");
         assert_eq!(banner[0]["icon_url"], "100000000000000000000000000000");
         assert_eq!(banner[1]["source_url"], "100000000000000000000000000001");

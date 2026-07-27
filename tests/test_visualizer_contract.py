@@ -26,7 +26,7 @@ from hsr_endgame_exporter.visualizer import (
     _safe_link_url as safe_hsr_link_url,
     write_visualizer_app as write_hsr_visualizer_app,
 )
-from miho_core.banner_plan import effective_phase_status
+from miho_core.banner_plan import effective_phase_status, with_effective_phase_status
 from tests.test_workbook_contract import (
     _write_hsr_oracle,
     _write_zzz_oracle,
@@ -774,7 +774,36 @@ def test_python_banner_clock_uses_time_of_day_for_same_date_window() -> None:
     }
     assert effective_phase_status(phase, now=datetime(2026, 7, 12, 10)) == "next"
     assert effective_phase_status(phase, now=datetime(2026, 7, 12, 13)) == "current"
+    assert effective_phase_status(phase, now=datetime(2026, 7, 12, 14)) == "current"
+    assert effective_phase_status(phase, now=datetime(2026, 7, 12, 14, 0, 1)) == "previous"
     assert effective_phase_status(phase, now=datetime(2026, 7, 12, 15)) == "previous"
+    structured = with_effective_phase_status(phase, now=datetime(2026, 7, 12, 13))
+    assert structured["declared_status"] == "current"
+    assert structured["phase_starts_at"] == "2026-07-12T12:00:00+08:00"
+    assert structured["phase_ends_at_exclusive"] == "2026-07-12T14:00:01+08:00"
+
+    minute_precision = {
+        "status": "current",
+        "start_at": "2026-07-12 12:00",
+        "end_at": "2026-07-12 14:00",
+    }
+    assert (
+        with_effective_phase_status(minute_precision, now=datetime(2026, 7, 12, 14))["phase_ends_at_exclusive"]
+        == "2026-07-12T14:01:00+08:00"
+    )
+    assert effective_phase_status(minute_precision, now=datetime(2026, 7, 12, 14, 0, 59)) == "current"
+    assert effective_phase_status(minute_precision, now=datetime(2026, 7, 12, 14, 1)) == "previous"
+
+    date_precision = {"status": "current", "end_at": "2026-07-12"}
+    assert effective_phase_status(date_precision, now=datetime(2026, 7, 12, 23, 59, 59)) == "current"
+    assert effective_phase_status(date_precision, now=datetime(2026, 7, 13)) == "previous"
+    assert (
+        with_effective_phase_status(date_precision, now=datetime(2026, 7, 12))["phase_ends_at_exclusive"]
+        == "2026-07-13T00:00:00+08:00"
+    )
+
+    static = {"status": "recent", "start_at": "2026-07-01", "end_at": "2026-07-02"}
+    assert effective_phase_status(static, now=datetime(2026, 7, 12)) == "recent"
 
     for separator in ("\u3000", "\u00a0"):
         unicode_whitespace = {
@@ -814,7 +843,7 @@ def test_python_banner_clock_uses_time_of_day_for_same_date_window() -> None:
     }
     assert (
         effective_phase_status(missing_whitespace, now=datetime(2026, 7, 12, 13))
-        == "previous"
+        == "current"
     )
 
 

@@ -25,7 +25,11 @@ let state={page:PAGES.has(location.hash.slice(1))?location.hash.slice(1):'box',m
 let box={owned:new Set(),builds:{},buildSlug:'',element:'all',path:'all',role:'all',rarity:'all',status:'all',search:'',saveStatus:'浏览器缓存',exportStatus:''};
 let rec={mode:'moc',scope:'',strategy:'final',sortMode:'balanced',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:{},constraints:{},locks:{},gap:'1',riskMode:'warn',limit:'8',search:''};
 const BANNER_PHASES=[['current','当期UP'],['next','后续卡池'],['recent','历史参考'],['all','全部含已结束']];
+const DATE_DRIVEN_BANNER_STATUSES=new Set(['current','next','previous','expired','past']);
+const BANNER_STATUS_ORDER={current:0,next:1,satellite:2,recent:3,previous:4,expired:5,past:6};
+const MAX_BANNER_TIMER_DELAY=2_147_000_000;
 let banner={phase:'current',search:''};
+let bannerBoundaryTimer=null;
 let boxSaveTimer=null,boxSaveRevision=0,boxSaveChain=Promise.resolve(),boxPendingSave=null;
 let boxUndoStack=[];
 let recConstraintMessage='';
@@ -133,6 +137,7 @@ function initializeVisualizerData(raw){
   const hydrated=runtime.hydrateVisualizerData(raw);
   if(!hydrated||typeof hydrated!=='object'||Array.isArray(hydrated))throw new Error('Visualizer 数据格式无效');
   DATA=hydrated;
+  refreshBannerPhaseStatuses();
   DATA_INDEX=runtime.buildDataIndex(DATA);
   dataEpoch+=1;
   boxStateRevision=0;
@@ -178,8 +183,15 @@ function sourceMetaLine(today=localToday()){
   return`终局统计最新采样：${sample}${sampleNotes.length?`（${sampleNotes.join('；')}）`:''} · Prydwen 榜单更新：${tier} · 本地生成：${generatedAtLabel(DATA?.meta?.generatedAt)} · Box 自动保存`;
 }
 let renderedLocalDate='';
-function refreshForDateBoundary(){const today=localToday();if(today===renderedLocalDate)return;renderedLocalDate=today;render()}
-function installDateBoundaryRefresh(){renderedLocalDate=localToday();setInterval(refreshForDateBoundary,60_000)}
+function parseBannerBoundary(value){const text=String(value||'').trim();if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00$/.test(text))return null;const parsed=Date.parse(text);return Number.isFinite(parsed)?parsed:null}
+function effectiveBannerPhaseStatus(row,now=Date.now()){const current=String(row?.phase_status||''),declared=String(row?.declared_phase_status||current).trim().toLowerCase();if(!DATE_DRIVEN_BANNER_STATUSES.has(declared))return declared||current;const start=parseBannerBoundary(row?.phase_starts_at),endExclusive=parseBannerBoundary(row?.phase_ends_at_exclusive);if(start==null&&endExclusive==null)return current;if(start!=null&&now<start)return'next';if(endExclusive!=null&&now>=endExclusive)return'previous';return'current'}
+function syncRosterBannerStatuses(){const statuses=new Map(),dynamicSlugs=new Set();for(const row of DATA?.bannerRows||[]){const slug=String(row.character_slug||'');if(!slug)continue;const declared=String(row?.declared_phase_status||row?.phase_status||'').trim().toLowerCase(),hasBoundary=parseBannerBoundary(row?.phase_starts_at)!=null||parseBannerBoundary(row?.phase_ends_at_exclusive)!=null;if(DATE_DRIVEN_BANNER_STATUSES.has(declared)&&hasBoundary)dynamicSlugs.add(slug);const values=statuses.get(slug)||new Set();if(row.phase_status)values.add(row.phase_status);statuses.set(slug,values);}for(const row of DATA?.rosterRows||[]){const slug=String(row.character_slug||'');if(!dynamicSlugs.has(slug))continue;const values=new Set(String(row.banner_statuses||'').split(';').map(status=>status.trim()).filter(status=>status&&!DATE_DRIVEN_BANNER_STATUSES.has(status)));for(const status of statuses.get(slug)||[])values.add(status);row.banner_statuses=[...values].sort((left,right)=>(BANNER_STATUS_ORDER[left]??99)-(BANNER_STATUS_ORDER[right]??99)).join(';');}}
+function refreshBannerPhaseStatuses(now=Date.now()){let changed=false;for(const row of DATA?.bannerRows||[]){const status=effectiveBannerPhaseStatus(row,now);if(status&&status!==row.phase_status){row.phase_status=status;changed=true;}}syncRosterBannerStatuses();return changed}
+function nextBannerBoundary(now=Date.now()){let next=null;for(const row of DATA?.bannerRows||[]){const declared=String(row?.declared_phase_status||row?.phase_status||'').trim().toLowerCase();if(!DATE_DRIVEN_BANNER_STATUSES.has(declared))continue;for(const value of [row.phase_starts_at,row.phase_ends_at_exclusive]){const boundary=parseBannerBoundary(value);if(boundary!=null&&boundary>now&&(next==null||boundary<next))next=boundary;}}return next}
+function syncBannerPhaseControl(){const root=$('bannerPhaseControl');if(root)syncPressedChildren(root,button=>button.dataset.value===banner.phase)}
+function scheduleBannerBoundaryRefresh(now=Date.now()){if(bannerBoundaryTimer!=null)clearTimeout(bannerBoundaryTimer);bannerBoundaryTimer=null;const boundary=nextBannerBoundary(now);if(boundary==null)return null;const delay=Math.min(Math.max(0,boundary-now)+25,MAX_BANNER_TIMER_DELAY);bannerBoundaryTimer=setTimeout(()=>{bannerBoundaryTimer=null;const changed=refreshBannerPhaseStatuses();scheduleBannerBoundaryRefresh();if(changed){ensureBannerPhase();syncBannerPhaseControl();render();}},delay);return boundary}
+function refreshForDateBoundary(){const today=localToday(),bannerChanged=refreshBannerPhaseStatuses();if(bannerChanged){ensureBannerPhase();syncBannerPhaseControl();scheduleBannerBoundaryRefresh();}if(today===renderedLocalDate&&!bannerChanged)return;renderedLocalDate=today;render()}
+function installDateBoundaryRefresh(){renderedLocalDate=localToday();scheduleBannerBoundaryRefresh();setInterval(refreshForDateBoundary,60_000)}
 
 function init(){
   installExternalLinkBridge();
@@ -339,6 +351,7 @@ function syncRecControls(){
 }
 
 function render(){
+  if(refreshBannerPhaseStatuses()){ensureBannerPhase();syncBannerPhaseControl();scheduleBannerBoundaryRefresh();}
   renderedLocalDate=localToday();
   $('metaLine').textContent=sourceMetaLine(renderedLocalDate);
   syncFreshnessNavigation(rec.mode,recommendationPhaseInfo());

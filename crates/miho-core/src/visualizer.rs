@@ -3,7 +3,7 @@ use std::{
     path::{Component, Path},
 };
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use unicode_normalization::UnicodeNormalization;
@@ -732,8 +732,8 @@ pub fn effective_banner_status(phase: &Value, now: NaiveDateTime) -> Result<Stri
     if declared == "satellite" {
         return Ok(declared);
     }
-    let (start, end) = phase_datetime_bounds(phase)?;
-    if start.is_none() && end.is_none() {
+    let (start, end_exclusive) = phase_datetime_bounds(phase)?;
+    if start.is_none() && end_exclusive.is_none() {
         return Ok(declared);
     }
     if !declared.is_empty()
@@ -746,11 +746,24 @@ pub fn effective_banner_status(phase: &Value, now: NaiveDateTime) -> Result<Stri
     }
     if start.is_some_and(|value| now < value) {
         Ok("next".into())
-    } else if end.is_some_and(|value| now > value) {
+    } else if end_exclusive.is_some_and(|value| now >= value) {
         Ok("previous".into())
     } else {
         Ok("current".into())
     }
+}
+
+/// Returns strict China Standard Time boundaries for runtime banner status
+/// refreshes. The end boundary is exclusive so a minute-only official end
+/// such as `14:59` remains current through `14:59:59`.
+pub fn banner_phase_boundary_fields(phase: &Value) -> Result<(String, String)> {
+    let (start, end_exclusive) = phase_datetime_bounds(phase)?;
+    let format = |value: Option<NaiveDateTime>| {
+        value
+            .map(|value| format!("{}+08:00", value.format("%Y-%m-%dT%H:%M:%S")))
+            .unwrap_or_default()
+    };
+    Ok((format(start), format(end_exclusive)))
 }
 
 fn phase_datetime_bounds(phase: &Value) -> Result<(Option<NaiveDateTime>, Option<NaiveDateTime>)> {
@@ -760,39 +773,37 @@ fn phase_datetime_bounds(phase: &Value) -> Result<(Option<NaiveDateTime>, Option
         .map(|value| first_datetime(&value, false))
         .transpose()?
         .flatten();
-    let end = ["end_at", "ends_at", "end_time", "end"]
+    let end_exclusive = ["end_at", "ends_at", "end_time", "end"]
         .iter()
         .find_map(|key| nonempty_python_text(phase.get(key)))
-        .map(|value| first_datetime(&value, false))
+        .map(|value| first_datetime(&value, true))
         .transpose()?
         .flatten();
-    if start.is_some() || end.is_some() {
-        return Ok((start, end));
+    if start.is_some() || end_exclusive.is_some() {
+        return Ok((start, end_exclusive));
     }
 
     let range = python_text(phase.get("date_range"));
     let matches = datetime_matches(&range, 2)?;
     let start = matches.first().map(|value| value.at_start);
-    let end = matches.get(1).map(|value| value.at_end);
-    Ok((start, end))
+    let end_exclusive = matches.get(1).map(|value| value.end_exclusive);
+    Ok((start, end_exclusive))
 }
 
 #[derive(Debug, Clone, Copy)]
 struct ParsedDateTime {
     at_start: NaiveDateTime,
-    at_end: NaiveDateTime,
+    end_exclusive: NaiveDateTime,
 }
 
 fn first_datetime(value: &str, is_end: bool) -> Result<Option<NaiveDateTime>> {
-    Ok(datetime_matches(value, 1)?.first().map(
-        |value| {
-            if is_end {
-                value.at_end
-            } else {
-                value.at_start
-            }
-        },
-    ))
+    Ok(datetime_matches(value, 1)?.first().map(|value| {
+        if is_end {
+            value.end_exclusive
+        } else {
+            value.at_start
+        }
+    }))
 }
 
 fn datetime_matches(value: &str, limit: usize) -> Result<Vec<ParsedDateTime>> {
@@ -810,19 +821,41 @@ fn datetime_matches(value: &str, limit: usize) -> Result<Vec<ParsedDateTime>> {
             .ok_or_else(|| {
                 MihoError::Visualizer(format!("invalid banner date near {:?}", &value[index..end]))
             })?;
-        let (at_start, at_end) = if let Some((hour, minute, second)) = parts.time {
+        let (at_start, end_exclusive) = if let Some((hour, minute, second, has_seconds)) =
+            parts.time
+        {
             let time = NaiveTime::from_hms_opt(hour, minute, second).ok_or_else(|| {
                 MihoError::Visualizer(format!("invalid banner time near {:?}", &value[index..end]))
             })?;
-            let value = date.and_time(time);
-            (value, value)
+            let date_time = date.and_time(time);
+            let resolution = if has_seconds {
+                Duration::seconds(1)
+            } else {
+                Duration::minutes(1)
+            };
+            let end_exclusive = date_time.checked_add_signed(resolution).ok_or_else(|| {
+                MihoError::Visualizer(format!(
+                    "banner time overflows near {:?}",
+                    &value[index..end]
+                ))
+            })?;
+            (date_time, end_exclusive)
         } else {
+            let next_date = date.succ_opt().ok_or_else(|| {
+                MihoError::Visualizer(format!(
+                    "banner date overflows near {:?}",
+                    &value[index..end]
+                ))
+            })?;
             (
                 date.and_time(NaiveTime::MIN),
-                date.and_time(NaiveTime::from_hms_micro_opt(23, 59, 59, 999_999).unwrap()),
+                next_date.and_time(NaiveTime::MIN),
             )
         };
-        output.push(ParsedDateTime { at_start, at_end });
+        output.push(ParsedDateTime {
+            at_start,
+            end_exclusive,
+        });
         if output.len() == limit {
             break;
         }
@@ -836,7 +869,7 @@ struct DateTimeParts {
     year: i32,
     month: u32,
     day: u32,
-    time: Option<(u32, u32, u32)>,
+    time: Option<(u32, u32, u32, bool)>,
 }
 
 fn datetime_at(value: &str, start: usize) -> Option<(usize, DateTimeParts)> {
@@ -878,20 +911,22 @@ fn datetime_at(value: &str, start: usize) -> Option<(usize, DateTimeParts)> {
                 return None;
             }
             let (minute, mut time_end) = unicode_digits_exact(value, minute_start, 2)?;
-            let second = if bytes.get(time_end) == Some(&b':') {
+            let (second, has_seconds) = if bytes.get(time_end) == Some(&b':') {
                 let (second, end) = unicode_digits_exact(value, time_end + 1, 2)?;
                 time_end = end;
-                second
+                (second, true)
             } else {
-                0
+                (0, false)
             };
-            Some((hour, minute, second, time_end))
+            Some((hour, minute, second, has_seconds, time_end))
         })()
     } else {
         None
     };
     let (time, end) = match time {
-        Some((hour, minute, second, end)) => (Some((hour, minute, second)), end),
+        Some((hour, minute, second, has_seconds, end)) => {
+            (Some((hour, minute, second, has_seconds)), end)
+        }
         None => (None, date_end),
     };
     Some((
@@ -1204,6 +1239,12 @@ mod tests {
                 .and_hms_opt(hour, minute, 0)
                 .unwrap()
         };
+        let at_second = |day, hour, minute, second| {
+            NaiveDate::from_ymd_opt(2026, 7, day)
+                .unwrap()
+                .and_hms_opt(hour, minute, second)
+                .unwrap()
+        };
         let context = VisualizerContext::new_with_local_datetime(at(13, 0));
         assert_eq!(context.require_local_datetime().unwrap(), at(13, 0));
         assert_eq!(context.local_date, at(13, 0).date());
@@ -1220,6 +1261,34 @@ mod tests {
         assert_eq!(
             effective_banner_status(&timed, at(15, 0)).unwrap(),
             "previous"
+        );
+        assert_eq!(
+            banner_phase_boundary_fields(&timed).unwrap(),
+            (
+                "2026-07-12T12:00:00+08:00".to_owned(),
+                "2026-07-12T14:01:00+08:00".to_owned(),
+            )
+        );
+
+        let second_precision = json!({
+            "status": "current",
+            "start_at": "2026-07-12 12:00:00",
+            "end_at": "2026-07-12 14:00:00",
+        });
+        assert_eq!(
+            effective_banner_status(&second_precision, at_second(12, 14, 0, 0)).unwrap(),
+            "current"
+        );
+        assert_eq!(
+            effective_banner_status(&second_precision, at_second(12, 14, 0, 1)).unwrap(),
+            "previous"
+        );
+        assert_eq!(
+            banner_phase_boundary_fields(&second_precision).unwrap(),
+            (
+                "2026-07-12T12:00:00+08:00".to_owned(),
+                "2026-07-12T14:00:01+08:00".to_owned(),
+            )
         );
 
         for separator in ["\u{3000}", "\u{00a0}"] {
@@ -1257,7 +1326,7 @@ mod tests {
         });
         assert_eq!(
             effective_banner_status(&missing_whitespace, at(13, 0)).unwrap(),
-            "previous"
+            "current"
         );
 
         let ignored_third_match = json!({
@@ -1277,10 +1346,30 @@ mod tests {
             effective_banner_status(&date_range, at(23, 59)).unwrap(),
             "current"
         );
+        assert_eq!(
+            effective_banner_status(&date_range, at_second(13, 0, 0, 0)).unwrap(),
+            "previous"
+        );
         let explicit_end = json!({"status":"current", "end_at":"2026-07-12"});
         assert_eq!(
             effective_banner_status(&explicit_end, at(13, 0)).unwrap(),
+            "current"
+        );
+        assert_eq!(
+            effective_banner_status(&explicit_end, at_second(13, 0, 0, 0)).unwrap(),
             "previous"
+        );
+        assert_eq!(
+            banner_phase_boundary_fields(&explicit_end).unwrap(),
+            (String::new(), "2026-07-13T00:00:00+08:00".to_owned())
+        );
+        assert_eq!(
+            effective_banner_status(
+                &json!({"status":"recent", "start_at":"2026-07-01", "end_at":"2026-07-02"}),
+                at(13, 0)
+            )
+            .unwrap(),
+            "recent"
         );
         assert!(effective_banner_status(
             &json!({"status":"current", "start_at":"2026-99-99"}),

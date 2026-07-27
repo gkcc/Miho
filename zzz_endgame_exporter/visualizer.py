@@ -298,6 +298,8 @@ def _load_banner_rows(out_dir: Path, roster_rows: list[dict[str, Any]]) -> list[
                     "phase_title": phase.get("title", ""),
                     "phase_subtitle": phase.get("subtitle", ""),
                     "date_range": phase.get("date_range", ""),
+                    "phase_starts_at": phase.get("phase_starts_at", ""),
+                    "phase_ends_at_exclusive": phase.get("phase_ends_at_exclusive", ""),
                     "source_label": char.get("source_label") or phase.get("source_label", ""),
                     "source_url": char.get("source_url") or phase.get("source_url", ""),
                     "slot": index,

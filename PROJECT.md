@@ -678,6 +678,12 @@
 - **正式产品证据**：产品探针新增可见 `.banner-kicker` 与刷新数据 `banner_role` 的逐阶段一致性门禁；隐藏正式 GUI 实际切换 HSR/ZZZ 当前与下一期卡池后通过，Visualizer ready、退出 0、stdout/stderr 为空。卡池 Rust 20 passed、1 live ignored，官方 live canary、`miho-app + miho-cli`、探针契约、Rust fmt、diff check 与完整 Tauri 构建均通过；独立复审无 Blocker/High/Medium。
 - **部署状态**：正式 Desktop/人工 CLI SHA-256 为 `E999907ECEE8071050E13262F425E28D4361D27D7835BA311748B8BB6A5068DA` / `DEB974D749E7DD064DC5E534F0A3E6D6490F1CEEC98F6520D56B14AFCB7F774A`。owner-aware candidate 对 HSR/ZZZ exact health 为 true，09:30 任务已切到唯一无窗 generation `miho-0.1.0-aaf70cdfdd5a45bd435d22a7cb50ad3b9dd27cf81b2d5449ee64e9576292b46d`，旧 generation 已清理；HSR/ZZZ Box 哈希保持不变。
 
+### 卡池精确时刻翻转与结构化边界（2026-07-27，已交付）
+
+- **时间语义**：双游戏 `bannerRows` 现携带绝对中国时区 `phase_starts_at / phase_ends_at_exclusive`；日期、分钟和秒精度结束值分别归一到次日零点、下一分钟和下一秒。页面加载即按本机时钟重算，并为最近边界设置单次定时器；每分钟检查只负责休眠唤醒和系统时钟变化兜底。Box 卡池状态随同一批角色即时同步，卫星、HSR `recent` 和旧格式行保持原语义。
+- **刷新链与门禁**：官方阶段合并会保留 `start_at / end_at`，长期池会删除遗留结束时间。产品探针逐行验证结构化边界格式，并要求运行时 `current / next / previous` 与排他边界一致。日期/分钟/秒、精确起止、跨池共享角色、别名合并、静态状态和长期池均有回归反例。
+- **验证与部署**：Rust Visualizer 36/36、卡池刷新 21 passed / 1 live ignored、Python 68 passed / 2 live deselected、CLI 73 项与 Node 71/71 通过；Rust fmt、Python 语法、diff check 和完整 `pnpm run tauri:build` 通过。隐藏正式产品深测覆盖双游戏当前/下一期、六个终局模式、结构化时钟、Box 保存桥和正常退出。正式 Desktop/人工 CLI SHA-256 为 `E7396886F2EA63141F6FDAD6E22C3458E0C77CC7420F1C746869811A49B49EF0` / `82684B58F3083EDA1AF98B639A98D7004CAFDF018C6828DA2414112E6CDBF55E`；owner-aware attempt `installer-6839f12ec143404da005ce04c165e6e0` 已切到唯一无窗 generation `miho-0.1.0-de56474e7516ee6dfedf0e3d3813f8603a32f336ab33a609dca166d408e108ec`，任务 `Ready / Enabled / LastTaskResult=0`。HSR/ZZZ Box SHA-256 继续保持 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
+
 ## 恢复入口
 
 - 项目状态：本文件。

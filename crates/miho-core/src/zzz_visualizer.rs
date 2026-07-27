@@ -7,9 +7,9 @@ use crate::{
     output::ArtifactBundle,
     visualizer::{
         attach_avatar_assets, attach_visualizer_data, attach_zzz_static_assets,
-        effective_banner_status as shared_effective_banner_status, local_avatar_url,
-        python_scalar_text, python_value_truthy as python_truthy, read_csv_rows, safe_link_url,
-        strict_utf8, validate_json_surrogate_escapes, VisualizerContext,
+        banner_phase_boundary_fields, effective_banner_status as shared_effective_banner_status,
+        local_avatar_url, python_scalar_text, python_value_truthy as python_truthy, read_csv_rows,
+        safe_link_url, strict_utf8, validate_json_surrogate_escapes, VisualizerContext,
     },
     zzz_sources::{extract_phase_updates_from_html, parse_official_agents},
     MihoError, Result,
@@ -1035,6 +1035,7 @@ fn build_banner(
     {
         let declared = value_str(phase, "status").trim().to_ascii_lowercase();
         let status = shared_effective_banner_status(phase, local_datetime)?;
+        let (phase_starts_at, phase_ends_at_exclusive) = banner_phase_boundary_fields(phase)?;
         for (index, ch) in phase
             .get("characters")
             .and_then(Value::as_array)
@@ -1052,6 +1053,7 @@ fn build_banner(
             output.push(json!({
                 "phase_id":pv("id"),"phase_status":status,"declared_phase_status":declared,
                 "phase_title":pv("title"),"phase_subtitle":pv("subtitle"),"date_range":pv("date_range"),
+                "phase_starts_at":phase_starts_at,"phase_ends_at_exclusive":phase_ends_at_exclusive,
                 "source_label":python_or_value(&[ch.get("source_label"),phase.get("source_label")]),
                 "source_url":python_or_value(&[ch.get("source_url"),phase.get("source_url")]),"slot":index+1,
                 "character_slug":slug,"character_name_cn":first(&[nonempty_value(ch,"name_cn"),info.and_then(|row|nonempty_value(row,"character_name_cn"))]),
@@ -1841,6 +1843,11 @@ mod tests {
         localize_icons(&mut banner, &context);
         assert_eq!(banner[0]["phase_status"], "previous");
         assert_eq!(banner[0]["declared_phase_status"], "current");
+        assert_eq!(banner[0]["phase_starts_at"], "1900-01-01T00:00:00+08:00");
+        assert_eq!(
+            banner[0]["phase_ends_at_exclusive"],
+            "1900-01-03T00:00:00+08:00"
+        );
         let mut sanitized_banner = Value::Array(banner.clone());
         sanitize_urls(&mut sanitized_banner, "");
         assert_eq!(sanitized_banner[0]["source_url"], "123");

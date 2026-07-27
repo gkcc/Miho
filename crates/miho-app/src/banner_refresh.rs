@@ -1434,6 +1434,15 @@ fn merge_one_phase(
         Value::String(official.date_range.clone()),
     );
     object.insert(
+        "start_at".to_owned(),
+        Value::String(official.start_at.clone()),
+    );
+    if let Some(end_at) = official.end_at.as_deref() {
+        object.insert("end_at".to_owned(), Value::String(end_at.to_owned()));
+    } else {
+        object.remove("end_at");
+    }
+    object.insert(
         "source_label".to_owned(),
         Value::String(official.source_label.clone()),
     );
@@ -2003,6 +2012,8 @@ mod tests {
         assert_eq!(current["title"], "3.0 下半调频");
         assert_eq!(current["source_url"], "https://zzz.mihoyo.com/news/165152");
         assert_eq!(current["status"], "current");
+        assert_eq!(current["start_at"], "2026-07-08 12:00");
+        assert_eq!(current["end_at"], "2026-07-28 14:59");
         let characters = current["characters"].as_array().unwrap();
         assert_eq!(characters.len(), 4);
         let sunna = characters
@@ -2025,6 +2036,26 @@ mod tests {
         let second: Value = serde_json::from_slice(&second).unwrap();
         assert_eq!(second["phases"].as_array().unwrap().len(), 2);
         assert_eq!(second["sources"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn merge_replaces_official_boundaries_and_removes_a_stale_long_term_end() {
+        let official = parse_hsr_get_post_full_json(HSR_COLLAB_FIXTURE)
+            .unwrap()
+            .remove(0);
+        let merged = merge_one_phase(
+            json!({
+                "id": "long-term",
+                "start_at": "2026-01-01 00:00",
+                "end_at": "2099-12-31 23:59",
+            }),
+            &official,
+            Vec::new(),
+            "current",
+        )
+        .unwrap();
+        assert_eq!(merged["start_at"], "2026-07-24 12:00");
+        assert!(merged.get("end_at").is_none());
     }
 
     #[test]

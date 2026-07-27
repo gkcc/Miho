@@ -492,6 +492,44 @@ const productExpression = `(async () => {
   const nextBannerRows = typeof DATA === 'object' && Array.isArray(DATA?.bannerRows)
     ? DATA.bannerRows.filter((row) => row?.phase_status === 'next')
     : [];
+  const dateDrivenBannerStatuses = new Set(['current', 'next', 'previous', 'expired', 'past']);
+  const strictBannerBoundary = (value) => {
+    const text = String(value ?? '').trim();
+    if (!text) return null;
+    if (!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\+08:00$/.test(text)) return Number.NaN;
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? parsed : Number.NaN;
+  };
+  const bannerBoundaryFieldErrors = [];
+  const bannerClockStatusErrors = [];
+  const bannerClockNow = Date.now();
+  for (const [index, row] of (typeof DATA === 'object' && Array.isArray(DATA?.bannerRows) ? DATA.bannerRows : []).entries()) {
+    for (const field of ['phase_starts_at', 'phase_ends_at_exclusive']) {
+      if (!Object.hasOwn(row ?? {}, field) || typeof row?.[field] !== 'string') {
+        bannerBoundaryFieldErrors.push({ index, phaseId: String(row?.phase_id ?? ''), field, value: row?.[field] });
+      }
+    }
+    const start = strictBannerBoundary(row?.phase_starts_at);
+    const endExclusive = strictBannerBoundary(row?.phase_ends_at_exclusive);
+    if (Number.isNaN(start)) bannerBoundaryFieldErrors.push({ index, phaseId: String(row?.phase_id ?? ''), field: 'phase_starts_at', value: row?.phase_starts_at });
+    if (Number.isNaN(endExclusive)) bannerBoundaryFieldErrors.push({ index, phaseId: String(row?.phase_id ?? ''), field: 'phase_ends_at_exclusive', value: row?.phase_ends_at_exclusive });
+    const declared = String(row?.declared_phase_status || row?.phase_status || '').trim().toLowerCase();
+    if (!dateDrivenBannerStatuses.has(declared) || (start === null && endExclusive === null)
+      || Number.isNaN(start) || Number.isNaN(endExclusive)) continue;
+    const expectedStatus = start !== null && bannerClockNow < start
+      ? 'next'
+      : endExclusive !== null && bannerClockNow >= endExclusive
+        ? 'previous'
+        : 'current';
+    if (row?.phase_status !== expectedStatus) {
+      bannerClockStatusErrors.push({
+        index,
+        phaseId: String(row?.phase_id ?? ''),
+        actual: String(row?.phase_status ?? ''),
+        expected: expectedStatus,
+      });
+    }
+  }
   const bannerPhaseValue = typeof banner === 'object' ? banner?.phase ?? '' : '';
   const renderedBannerRows = bannerPhaseValue === 'current'
     ? currentBannerRows
@@ -619,6 +657,8 @@ const productExpression = `(async () => {
     bannerDataNextDateRanges: [...new Set(nextBannerRows
       .map((row) => String(row?.date_range ?? '').trim())
       .filter(Boolean))],
+    bannerBoundaryFieldErrors,
+    bannerClockStatusErrors,
     bannerSectionTexts,
     bannerImageCount: bannerImages.length,
     bannerBrokenImages,
@@ -2071,6 +2111,10 @@ function verifyBanner(snapshot, game, {
   assert(snapshot.statePage === "banner" && snapshot.bannerVisible, `${game} banner page is not visible`, snapshot);
   assert(snapshot.bannerTitle === "卡池情报", `${game} banner title is absent`, snapshot);
   assert(snapshot.bannerBadges.includes(`Box ${expectedOwned[game]}`), `${game} banner page lost the current Box`, snapshot);
+  assert(Array.isArray(snapshot.bannerBoundaryFieldErrors) && snapshot.bannerBoundaryFieldErrors.length === 0,
+    `${game} banner rows do not expose valid structured China-time boundaries`, snapshot.bannerBoundaryFieldErrors);
+  assert(Array.isArray(snapshot.bannerClockStatusErrors) && snapshot.bannerClockStatusErrors.length === 0,
+    `${game} banner status disagrees with the structured boundary clock`, snapshot.bannerClockStatusErrors);
   if (requireCurrent) {
     assert(snapshot.bannerAllRowCount > 0, `${game} banner data is absent`, snapshot);
     assert(snapshot.visibleMissingMessages.length === 0, `${game} banner page exposes a missing-data warning`, snapshot);

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, time
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -13,6 +13,7 @@ DATE_TIME_RE = re.compile(
 )
 DATE_DRIVEN_STATUSES = {"current", "next", "previous", "expired", "past"}
 STATIC_STATUSES = {"satellite"}
+CHINA_STANDARD_TIME = timezone(timedelta(hours=8))
 
 
 def load_banner_plan(path: str | Path) -> dict[str, Any]:
@@ -34,24 +35,47 @@ def effective_banner_phases(
 def with_effective_phase_status(phase: dict[str, Any], *, now: datetime | None = None) -> dict[str, Any]:
     row = dict(phase)
     declared = str(row.get("status") or "").strip().lower()
+    start, end_exclusive = phase_date_bounds(row)
     row["declared_status"] = declared
-    row["status"] = effective_phase_status(row, now=now)
+    row["phase_starts_at"] = _format_boundary(start)
+    row["phase_ends_at_exclusive"] = _format_boundary(end_exclusive)
+    row["status"] = _effective_phase_status_from_bounds(
+        declared,
+        start,
+        end_exclusive,
+        now=now,
+    )
     return row
 
 
 def effective_phase_status(phase: dict[str, Any], *, now: datetime | None = None) -> str:
     declared = str(phase.get("status") or "").strip().lower()
+    start, end_exclusive = phase_date_bounds(phase)
+    return _effective_phase_status_from_bounds(
+        declared,
+        start,
+        end_exclusive,
+        now=now,
+    )
+
+
+def _effective_phase_status_from_bounds(
+    declared: str,
+    start: datetime | None,
+    end_exclusive: datetime | None,
+    *,
+    now: datetime | None,
+) -> str:
     if declared in STATIC_STATUSES:
         return declared
-    start, end = phase_date_bounds(phase)
-    if start is None and end is None:
+    if start is None and end_exclusive is None:
         return declared
     if declared and declared not in DATE_DRIVEN_STATUSES:
         return declared
     current = now or datetime.now()
     if start is not None and current < start:
         return "next"
-    if end is not None and current > end:
+    if end_exclusive is not None and current >= end_exclusive:
         return "previous"
     return "current"
 
@@ -63,14 +87,15 @@ def phase_date_bounds(phase: dict[str, Any]) -> tuple[datetime | None, datetime 
         or phase.get("start_time")
         or phase.get("start")
     )
-    end = _parse_datetime_value(
+    end_exclusive = _parse_datetime_value(
         phase.get("end_at")
         or phase.get("ends_at")
         or phase.get("end_time")
-        or phase.get("end")
+        or phase.get("end"),
+        is_end=True,
     )
-    if start is not None or end is not None:
-        return start, end
+    if start is not None or end_exclusive is not None:
+        return start, end_exclusive
     return _parse_date_range(str(phase.get("date_range") or ""))
 
 
@@ -84,22 +109,32 @@ def _parse_date_range(text: str) -> tuple[datetime | None, datetime | None]:
     return values[0], values[1]
 
 
-def _parse_datetime_value(value: Any) -> datetime | None:
+def _parse_datetime_value(value: Any, *, is_end: bool = False) -> datetime | None:
     text = str(value or "").strip()
     if not text:
         return None
     match = DATE_TIME_RE.search(text)
     if not match:
         return None
-    return _match_to_datetime(match, is_end=False)
+    return _match_to_datetime(match, is_end=is_end)
 
 
 def _match_to_datetime(match: re.Match[str], *, is_end: bool) -> datetime:
     year, month, day = (int(match.group(index)) for index in (1, 2, 3))
     hour_text = match.group(4)
     if hour_text is None:
-        return datetime.combine(datetime(year, month, day).date(), time.max if is_end else time.min)
+        value = datetime.combine(datetime(year, month, day).date(), time.min)
+        return value + timedelta(days=1) if is_end else value
     hour = int(hour_text)
     minute = int(match.group(5) or 0)
     second = int(match.group(6) or 0)
-    return datetime(year, month, day, hour, minute, second)
+    value = datetime(year, month, day, hour, minute, second)
+    if not is_end:
+        return value
+    return value + (timedelta(seconds=1) if match.group(6) is not None else timedelta(minutes=1))
+
+
+def _format_boundary(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    return value.replace(tzinfo=CHINA_STANDARD_TIME).isoformat(timespec="seconds")

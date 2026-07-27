@@ -207,6 +207,15 @@ const HSR_HARNESS = String.raw`
   bannerRefresh() {
     return bannerRefreshText();
   },
+  bannerClock(data, now) {
+    initializeVisualizerData(JSON.parse(JSON.stringify(data)));
+    refreshBannerPhaseStatuses(now);
+    return {
+      nextBoundary: nextBannerBoundary(now),
+      rows: DATA.bannerRows.map(row => ({slug: row.character_slug, status: row.phase_status})),
+      roster: DATA.rosterRows.map(row => ({slug: row.character_slug, statuses: row.banner_statuses || ''})),
+    };
+  },
   bannerInsight(row) {
     const insight = bannerInsight(row);
     return {points: insight.points.map(point => ({...point})), histories: insight.histories.map(history => ({mode: history.mode, label: history.label, points: history.points.map(point => ({...point}))})), lines: [...insight.lines]};
@@ -434,6 +443,15 @@ const ZZZ_HARNESS = String.raw`
   },
   bannerRefresh() {
     return bannerRefreshText();
+  },
+  bannerClock(data, now) {
+    installVisualizerData(JSON.parse(JSON.stringify(data)));
+    refreshBannerPhaseStatuses(now);
+    return {
+      nextBoundary: nextBannerBoundary(now),
+      rows: DATA.bannerRows.map(row => ({slug: row.character_slug, status: row.phase_status})),
+      roster: DATA.rosterRows.map(row => ({slug: row.character_slug, statuses: row.banner_statuses || ''})),
+    };
   },
   bannerInsight(row) {
     const insight = bannerInsight(row);
@@ -2103,6 +2121,68 @@ test('ZZZ normalizes the stale Nom alias and keeps Box cards in actual release o
     ['satellite-a', 'satellite-b'],
     'the existing banner stage filter must remain exact and stable',
   );
+});
+
+test('HSR and ZZZ banner clocks flip exact boundaries without another data refresh', () => {
+  const data = {
+    rosterRows: [
+      {character_slug: 'shared', character_name_cn: '共享角色', banner_statuses: 'current;next'},
+      {character_slug: 'satellite', character_name_cn: '卫星', banner_statuses: 'satellite'},
+      {character_slug: 'legacy', character_name_cn: '历史', banner_statuses: 'recent'},
+      {character_slug: 'old-format', character_name_cn: '旧格式', banner_statuses: 'current'},
+    ],
+    bannerRows: [
+      {
+        phase_id: 'old', character_slug: 'shared', phase_status: 'current',
+        declared_phase_status: 'current',
+        phase_starts_at: '2026-07-08T12:00:00+08:00',
+        phase_ends_at_exclusive: '2026-07-28T15:00:00+08:00',
+      },
+      {
+        phase_id: 'new', character_slug: 'shared', phase_status: 'next',
+        declared_phase_status: 'next',
+        phase_starts_at: '2026-07-29T11:00:00+08:00',
+        phase_ends_at_exclusive: '2026-09-08T15:00:00+08:00',
+      },
+      {
+        phase_id: 'satellite', character_slug: 'satellite', phase_status: 'satellite',
+        declared_phase_status: 'satellite',
+        phase_starts_at: '2026-07-01T00:00:00+08:00',
+        phase_ends_at_exclusive: '2026-07-02T00:00:00+08:00',
+      },
+      {
+        phase_id: 'legacy', character_slug: 'legacy', phase_status: 'recent',
+        declared_phase_status: 'recent',
+        phase_starts_at: '2026-07-01T00:00:00+08:00',
+        phase_ends_at_exclusive: '2026-07-02T00:00:00+08:00',
+      },
+      {phase_id: 'old-format', character_slug: 'old-format', phase_status: 'current'},
+    ],
+    teamTemplates: [], tierRows: [], usageRows: [], trendRows: [], phaseInfoRows: [],
+  };
+  const beforeEnd = Date.parse('2026-07-28T14:59:59+08:00');
+  const endBoundary = Date.parse('2026-07-28T15:00:00+08:00');
+  const beforeStart = Date.parse('2026-07-29T10:59:59+08:00');
+  const startBoundary = Date.parse('2026-07-29T11:00:00+08:00');
+
+  for (const [game, api] of [
+    ['hsr', loadContract(HSR_APP, HSR_HARNESS)],
+    ['zzz', loadContract(ZZZ_APP, ZZZ_HARNESS)],
+  ]) {
+    const before = plain(api.bannerClock(data, beforeEnd));
+    assert.equal(before.nextBoundary, endBoundary, `${game} must schedule the exact old-pool end`);
+    assert.deepEqual(before.rows.map(row => row.status), ['current', 'next', 'satellite', 'recent', 'current']);
+    assert.equal(before.roster.find(row => row.slug === 'shared').statuses, 'current;next');
+
+    const gap = plain(api.bannerClock(data, beforeStart));
+    assert.equal(gap.nextBoundary, startBoundary, `${game} must schedule the exact new-pool start`);
+    assert.deepEqual(gap.rows.map(row => row.status), ['previous', 'next', 'satellite', 'recent', 'current']);
+    assert.equal(gap.roster.find(row => row.slug === 'shared').statuses, 'next;previous');
+
+    const started = plain(api.bannerClock(data, startBoundary));
+    assert.deepEqual(started.rows.map(row => row.status), ['previous', 'current', 'satellite', 'recent', 'current']);
+    assert.equal(started.roster.find(row => row.slug === 'shared').statuses, 'current;previous');
+  }
 });
 
 test('ZZZ Box release ordering is numeric, stable, and independent of banner status', () => {
