@@ -672,6 +672,12 @@
 - **正式入口证据**：隐藏产品探针实际点击 ZZZ、HSR 两个更新按钮，并真实切换 ZZZ“下一期”后恢复“当前期”；正式快照为两条 next、6 张卡 `爱芮/派派/赛斯` 与 `蕾米埃尔·丹/派派/赛斯`，可见周期分别为 `2026-07-29 11:00 至 2026-08-19 11:59`、`2026-07-29 11:00 至 2026-09-08 14:59`，名称、图片、日期、revision 和六个终局模式均通过。程序退出 0、stdout/stderr 为空；HSR/ZZZ Box SHA-256 仍为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`。
 - **构建与无窗自动化**：计划任务安装、活动 generation、journal 恢复及任务恢复前均强制 PE `Subsystem=2`，CUI、损坏 PE 与恢复期篡改会 fail-closed；独立复审无 Blocker/High/Medium。卡池 Rust 20 passed、1 live ignored，官方 live canary、miho-core 171 项与配套 contracts、Node 132/132、PowerShell GUI/no-window contract、Rust fmt、diff check及完整 `pnpm run tauri:build` 通过；全量 PowerShell matrix 仅在本机已有 canonical task 的 fresh Claim wrapper 场景按设计拒绝。正式 Desktop/人工 CLI/任务 CLI SHA-256 分别为 `E78F92F537E3B8ACE35701F3FE80F0759A8FB0726326F2E68EC43A40884A6ACF`、`6C122A7ED96A9C63C16C49D7D702BCE38A833057859709745818685B4DE8205C`、`7DCF5F85F521001FDF439C9C73E9D2F6F426DF60AA41AABFA1D7F8076352057B`；owner-aware attempt `installer-86b79f78e6ff46c4a1bb5a6601799f50` 已切到唯一无窗 generation，任务 `Ready / LastTaskResult=0`，无 candidate/journal。未进入 NSIS、portable 或旧安装器链。
 
+### ZZZ 卡池等级就近解析与正式 generation 收口（2026-07-27，已交付）
+
+- **解析修复**：同一句公告包含多组等级声明时，角色改为匹配名字之前结束位置最近的完整声明；声明重叠则优先更具体的长标记，且继续排除后置光锥/音擎。官方公告 `165375` 的两组结果现稳定为 `爱芮 S / 派派 A / 赛斯 A` 与 `蕾米埃尔·丹 S / 派派 A / 赛斯 A`，3.0 的连续 `S/S/A/A` 也有回归断言。
+- **正式产品证据**：产品探针新增可见 `.banner-kicker` 与刷新数据 `banner_role` 的逐阶段一致性门禁；隐藏正式 GUI 实际切换 HSR/ZZZ 当前与下一期卡池后通过，Visualizer ready、退出 0、stdout/stderr 为空。卡池 Rust 20 passed、1 live ignored，官方 live canary、`miho-app + miho-cli`、探针契约、Rust fmt、diff check 与完整 Tauri 构建均通过；独立复审无 Blocker/High/Medium。
+- **部署状态**：正式 Desktop/人工 CLI SHA-256 为 `E999907ECEE8071050E13262F425E28D4361D27D7835BA311748B8BB6A5068DA` / `DEB974D749E7DD064DC5E534F0A3E6D6490F1CEEC98F6520D56B14AFCB7F774A`。owner-aware candidate 对 HSR/ZZZ exact health 为 true，09:30 任务已切到唯一无窗 generation `miho-0.1.0-aaf70cdfdd5a45bd435d22a7cb50ad3b9dd27cf81b2d5449ee64e9576292b46d`，旧 generation 已清理；HSR/ZZZ Box 哈希保持不变。
+
 ## 恢复入口
 
 - 项目状态：本文件。

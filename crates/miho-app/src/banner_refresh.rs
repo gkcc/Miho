@@ -896,31 +896,28 @@ fn classify_role_token(
     if name.is_empty() {
         return None;
     }
-    let context = tail_chars(&full_text[..token_start], 120);
-    let role = last_marker(&context, &["角色", "代理人"])?;
+    let context = remove_whitespace(&tail_chars(&full_text[..token_start], 120));
+    let (role_marker, role_position, banner_role) = [
+        ("联动限定5星角色", "联动限定 5 星 UP"),
+        ("限定5星角色", "限定 5 星 UP"),
+        ("5星角色", "5 星 UP"),
+        ("4星角色", "4 星 UP"),
+        ("限定S级代理人", "限定 S 级 UP"),
+        ("S级代理人", "S 级 UP"),
+        ("A级代理人", "A 级 UP"),
+    ]
+    .into_iter()
+    .filter_map(|(marker, label)| {
+        context
+            .rfind(marker)
+            .map(|position| (marker, position, label))
+    })
+    .max_by_key(|(marker, position, _)| (position + marker.len(), marker.len()))?;
     let equipment = last_marker(&context, &["光锥", "音擎"]);
-    if equipment.is_some_and(|(_, position)| position > role.1) {
+    if equipment.is_some_and(|(_, position)| position > role_position) {
         return None;
     }
-    let declaration_end = role.1 + role.0.len();
-    let declaration = remove_whitespace(&tail_chars(&context[..declaration_end], 28));
-    let banner_role = if declaration.contains("联动限定5星角色") {
-        "联动限定 5 星 UP"
-    } else if declaration.contains("限定5星角色") {
-        "限定 5 星 UP"
-    } else if declaration.contains("5星角色") {
-        "5 星 UP"
-    } else if declaration.contains("4星角色") {
-        "4 星 UP"
-    } else if declaration.contains("限定S级代理人") {
-        "限定 S 级 UP"
-    } else if declaration.contains("S级代理人") {
-        "S 级 UP"
-    } else if declaration.contains("A级代理人") {
-        "A 级 UP"
-    } else {
-        return None;
-    };
+    debug_assert!(context[role_position..].starts_with(role_marker));
     Some(OfficialBannerCharacterV1 {
         name_cn: name.to_owned(),
         banner_role: banner_role.to_owned(),
@@ -1803,6 +1800,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["诺姆", "千夏", "可琳", "波可娜"]
         );
+        assert_eq!(
+            phases[0]
+                .characters
+                .iter()
+                .map(|character| character.banner_role.as_str())
+                .collect::<Vec<_>>(),
+            vec!["限定 S 级 UP", "限定 S 级 UP", "A 级 UP", "A 级 UP"]
+        );
         assert!(!phases[0]
             .characters
             .iter()
@@ -1833,6 +1838,22 @@ mod tests {
                 .map(|character| character.name_cn.as_str())
                 .collect::<Vec<_>>(),
             vec!["蕾米埃尔", "派派", "赛斯"]
+        );
+        assert_eq!(
+            phases[0]
+                .characters
+                .iter()
+                .map(|character| character.banner_role.as_str())
+                .collect::<Vec<_>>(),
+            vec!["限定 S 级 UP", "A 级 UP", "A 级 UP"]
+        );
+        assert_eq!(
+            phases[1]
+                .characters
+                .iter()
+                .map(|character| character.banner_role.as_str())
+                .collect::<Vec<_>>(),
+            vec!["限定 S 级 UP", "A 级 UP", "A 级 UP"]
         );
         assert!(phases
             .iter()

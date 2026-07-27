@@ -607,12 +607,15 @@ const productExpression = `(async () => {
     bannerNextRowCount: nextBannerRows.length,
     bannerCardCount: bannerCards.length,
     bannerCardNames: bannerCards.map((card) => card.querySelector('h3')?.textContent?.trim() ?? ''),
+    bannerCardRoles: bannerCards.map((card) => card.querySelector('.banner-kicker')?.textContent?.trim() ?? ''),
     bannerDataCurrentNames: currentBannerRows.map((row) => (
       String(row?.character_name_cn || row?.character_name_en || row?.character_slug || '').trim()
     )),
+    bannerDataCurrentRoles: currentBannerRows.map((row) => String(row?.banner_role ?? '').trim()),
     bannerDataNextNames: nextBannerRows.map((row) => (
       String(row?.character_name_cn || row?.character_name_en || row?.character_slug || '').trim()
     )),
+    bannerDataNextRoles: nextBannerRows.map((row) => String(row?.banner_role ?? '').trim()),
     bannerDataNextDateRanges: [...new Set(nextBannerRows
       .map((row) => String(row?.date_range ?? '').trim())
       .filter(Boolean))],
@@ -2080,6 +2083,13 @@ function verifyBanner(snapshot, game, {
         rendered: snapshot.bannerCardNames,
         snapshot: snapshot.bannerDataCurrentNames,
       });
+    assert(snapshot.bannerCardRoles.every(Boolean)
+      && JSON.stringify([...snapshot.bannerCardRoles].sort())
+        === JSON.stringify([...snapshot.bannerDataCurrentRoles].sort()),
+    `${game} visible banner roles do not match the refreshed snapshot`, {
+      rendered: snapshot.bannerCardRoles,
+      snapshot: snapshot.bannerDataCurrentRoles,
+    });
     assert(snapshot.bannerImageCount === snapshot.bannerCardCount
       && snapshot.bannerBrokenImages.length === 0
       && snapshot.bannerMappingErrors.length === 0, `${game} current banner images are broken or mismatched`, snapshot);
@@ -2139,6 +2149,13 @@ async function verifyExpectedNextBanner(context, game) {
     `${game} next banner data count changed`, snapshot);
   assert(snapshot.bannerCardCount === snapshot.bannerNextRowCount,
     `${game} next banner DOM does not render every next snapshot row`, snapshot);
+  assert(snapshot.bannerCardRoles.every(Boolean)
+    && JSON.stringify([...snapshot.bannerCardRoles].sort())
+      === JSON.stringify([...snapshot.bannerDataNextRoles].sort()),
+  `${game} visible next-banner roles do not match the refreshed snapshot`, {
+    rendered: snapshot.bannerCardRoles,
+    snapshot: snapshot.bannerDataNextRoles,
+  });
   assert(JSON.stringify([...snapshot.bannerCardNames].sort())
       === JSON.stringify([...snapshot.bannerDataNextNames].sort()),
   `${game} next banner DOM does not match the refreshed snapshot`, {
