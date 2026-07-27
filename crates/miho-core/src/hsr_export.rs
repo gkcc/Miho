@@ -344,6 +344,7 @@ pub fn build_dataset_export_with_warnings(
             "ordered_signature",
             "duplicate_count",
             "merged_source_files",
+            "merged_source_kinds",
         ])
         .collect::<Vec<_>>();
     bundle.add_csv(
@@ -356,6 +357,7 @@ pub fn build_dataset_export_with_warnings(
                     item.signature.clone(),
                     item.count.to_string(),
                     item.files.clone(),
+                    item.source_kinds.clone(),
                 ])
                 .collect::<Vec<_>>()
         }),
@@ -375,6 +377,7 @@ pub fn build_dataset_export_with_warnings(
                     item.best_ordered.clone(),
                     item.count.to_string(),
                     item.files.clone(),
+                    item.source_kinds.clone(),
                     item.signature.clone(),
                     item.examples.clone(),
                 ])
@@ -773,6 +776,7 @@ struct OrderedTeam<'a> {
     signature: String,
     count: usize,
     files: String,
+    source_kinds: String,
 }
 struct UnorderedTeam<'a> {
     phase: &'a PhaseRow,
@@ -781,6 +785,7 @@ struct UnorderedTeam<'a> {
     best_ordered: String,
     count: usize,
     files: String,
+    source_kinds: String,
     examples: String,
 }
 
@@ -796,6 +801,10 @@ fn dedup_ordered<'a>(rows: &[(&'a PhaseRow, &'a TeamRow)]) -> Vec<OrderedTeam<'a
         .into_iter()
         .map(|(signature, group)| {
             let (phase, row) = *group.iter().min_by(|a, b| team_best_cmp(a.1, b.1)).unwrap();
+            let count = group
+                .iter()
+                .filter(|(_, candidate)| candidate.source_kind == row.source_kind)
+                .count();
             let files = group
                 .iter()
                 .map(|(_, row)| row.source_file.clone())
@@ -804,12 +813,23 @@ fn dedup_ordered<'a>(rows: &[(&'a PhaseRow, &'a TeamRow)]) -> Vec<OrderedTeam<'a
                 .into_iter()
                 .collect::<Vec<_>>()
                 .join(";");
+            let source_kinds = group
+                .iter()
+                .flat_map(|(_, row)| row.source_kind.split(';'))
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(";");
             OrderedTeam {
                 phase,
                 row,
                 signature,
-                count: group.len(),
+                count,
                 files,
+                source_kinds,
             }
         })
         .collect::<Vec<_>>();
@@ -832,8 +852,31 @@ fn dedup_unordered<'a>(rows: &[OrderedTeam<'a>]) -> Vec<UnorderedTeam<'a>> {
                 .iter()
                 .min_by(|a, b| team_best_cmp(a.row, b.row))
                 .unwrap();
-            let count = group.iter().map(|row| row.count).sum();
-            let files = best.files.clone();
+            let count = group
+                .iter()
+                .filter(|candidate| candidate.row.source_kind == best.row.source_kind)
+                .map(|row| row.count)
+                .sum();
+            let files = group
+                .iter()
+                .flat_map(|row| row.files.split(';'))
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(";");
+            let source_kinds = group
+                .iter()
+                .flat_map(|row| row.source_kinds.split(';'))
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(";");
             let examples = group
                 .iter()
                 .map(|row| row.signature.clone())
@@ -848,6 +891,7 @@ fn dedup_unordered<'a>(rows: &[OrderedTeam<'a>]) -> Vec<UnorderedTeam<'a>> {
                 best_ordered: best.signature.clone(),
                 count,
                 files,
+                source_kinds,
                 examples,
             }
         })
@@ -1043,12 +1087,15 @@ fn top_teams_latest(rows: &[UnorderedTeam<'_>], names: &NameResolver) -> Vec<Vec
                         .then_with(|| left.signature.cmp(&right.signature))
                 })
                 .expect("top team group is non-empty");
-            let duplicate_count = indices.iter().fold(0usize, |total, index| {
-                total.saturating_add(rows[*index].count)
-            });
+            let duplicate_count = indices
+                .iter()
+                .filter(|index| rows[**index].row.source_kind == rows[best].row.source_kind)
+                .fold(0usize, |total, index| {
+                    total.saturating_add(rows[*index].count)
+                });
             let source_kinds = indices
                 .iter()
-                .flat_map(|index| rows[*index].row.source_kind.split(';'))
+                .flat_map(|index| rows[*index].source_kinds.split(';'))
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_owned)
@@ -1136,8 +1183,8 @@ fn is_comprehensive_scope(value: &str) -> bool {
 
 fn source_priority(value: &str) -> usize {
     match value {
-        "prydwen_page" => 0,
-        "hf_comps" => 1,
+        "hf_comps" => 0,
+        "prydwen_page" => 1,
         _ => 2,
     }
 }
@@ -1548,7 +1595,7 @@ mod tests {
             whale_count: None,
             app_flat: None,
             uses: None,
-            source_kind: "fixture".into(),
+            source_kind: "hf_comps".into(),
             source_file: "teams.json".into(),
             source_url: "fixture://teams".into(),
         };
@@ -1593,16 +1640,21 @@ mod tests {
                 .collect()
         );
         let unordered = csv_records(&bundle, "team_rank_dedup_unordered.csv");
-        assert_eq!(unordered[0]["duplicate_count"], "3");
-        assert_eq!(unordered[0]["merged_source_files"], "prydwen.html");
-        assert_eq!(unordered[0]["source_kind"], "prydwen_page");
-        assert_eq!(unordered[0]["rank"], "9.0");
+        assert_eq!(unordered[0]["duplicate_count"], "2");
+        assert_eq!(
+            unordered[0]["merged_source_files"],
+            "prydwen.html;teams.json"
+        );
+        assert_eq!(unordered[0]["merged_source_kinds"], "hf_comps;prydwen_page");
+        assert_eq!(unordered[0]["source_kind"], "hf_comps");
+        assert_eq!(unordered[0]["rank"], "1.0");
         assert!(
             unordered[0]["ordered_signature_examples"].contains("a>b>c>d")
                 && unordered[0]["ordered_signature_examples"].contains("b>a>c>d")
         );
         let top = csv_records(&bundle, "top_teams_latest.csv");
-        assert_eq!(top[0]["duplicate_count"], "3");
+        assert_eq!(top[0]["duplicate_count"], "2");
+        assert_eq!(top[0]["source_kind"], "hf_comps;prydwen_page");
         assert_eq!(
             top[0]["unordered_signature"],
             unordered[0]["unordered_signature"]
@@ -1623,6 +1675,110 @@ mod tests {
         assert!(
             report.contains("队伍有序去重后行数: 2") && report.contains("队伍无序去重后行数: 1")
         );
+    }
+
+    #[test]
+    fn exact_cross_source_mirrors_keep_hf_counts_and_all_source_traceability() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/hsr_parser_minimal.json"
+        ))
+        .unwrap();
+        let phase = make_phase_row(
+            "4.3.2",
+            &fixture["config"],
+            "moc",
+            "4.3.2/",
+            true,
+            true,
+            false,
+            "2026-06-25",
+        );
+        let team =
+            |chars: [&str; 4], source_kind: &str, source_file: String, raw_index: usize| TeamRow {
+                mode: "moc".into(),
+                sub_mode: "all".into(),
+                sub_mode_cn: "全部".into(),
+                phase_ver: "4.2.1".into(),
+                scope: "all".into(),
+                raw_index,
+                chars: chars.map(str::to_owned),
+                raw_json: "{}".into(),
+                rank: Some(if source_kind == "hf_comps" { 9.0 } else { 1.0 }),
+                comp_name: String::new(),
+                app_rate: Some(10.0),
+                avg_round: Some(3.0),
+                whale_count: None,
+                app_flat: None,
+                uses: None,
+                source_kind: source_kind.into(),
+                source_url: format!("fixture://{source_file}"),
+                source_file,
+            };
+        let mut teams = Vec::new();
+        for index in 1..=2 {
+            teams.push(team(
+                ["a", "b", "c", "d"],
+                "hf_comps",
+                format!("hf-{index}.json"),
+                index,
+            ));
+        }
+        for index in 1..=3 {
+            teams.push(team(
+                ["a", "b", "c", "d"],
+                "prydwen_page",
+                format!("prydwen-{index}.html"),
+                index + 2,
+            ));
+        }
+        teams.push(team(
+            ["w", "x", "y", "z"],
+            "hf_comps",
+            "hf-single.json".into(),
+            6,
+        ));
+        teams.push(team(
+            ["w", "x", "y", "z"],
+            "prydwen_page",
+            "prydwen-single.html".into(),
+            7,
+        ));
+
+        let bundle = build_dataset_export(&HsrExportDataset {
+            slices: vec![HsrExportSlice {
+                phase,
+                characters: vec![],
+                teams,
+                tiers: vec![],
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+
+        for table in [
+            "team_rank_dedup_ordered.csv",
+            "team_rank_dedup_unordered.csv",
+        ] {
+            let rows = csv_records(&bundle, table);
+            assert_eq!(rows.len(), 2);
+            let repeated = rows.iter().find(|row| row["char_1_slug"] == "a").unwrap();
+            assert_eq!(repeated["duplicate_count"], "2");
+            assert_eq!(repeated["source_kind"], "hf_comps");
+            assert_eq!(repeated["rank"], "9.0");
+            assert_eq!(repeated["merged_source_kinds"], "hf_comps;prydwen_page");
+            assert_eq!(
+                repeated["merged_source_files"],
+                "hf-1.json;hf-2.json;prydwen-1.html;prydwen-2.html;prydwen-3.html"
+            );
+            let single = rows.iter().find(|row| row["char_1_slug"] == "w").unwrap();
+            assert_eq!(single["duplicate_count"], "1");
+            assert_eq!(single["source_kind"], "hf_comps");
+            assert_eq!(single["merged_source_kinds"], "hf_comps;prydwen_page");
+            assert_eq!(
+                single["merged_source_files"],
+                "hf-single.json;prydwen-single.html"
+            );
+        }
     }
 
     #[test]
@@ -1905,19 +2061,19 @@ mod tests {
         let top = csv_records(&bundle, "top_teams_latest.csv");
         assert_eq!(top.len(), 2);
         let moc = top.iter().find(|row| row["mode"] == "moc").unwrap();
-        assert_eq!(moc["duplicate_count"], "5");
+        assert_eq!(moc["duplicate_count"], "2");
         assert_eq!(moc["source_kind"], "hf_comps;prydwen_page");
-        assert_eq!(moc["rank"], "9.0");
+        assert_eq!(moc["rank"], "1.0");
         assert_eq!(
             moc["unordered_signature"],
-            "4.3.10|2026-07-01|moc|all|all|4.3.1|Duty Action|a>b>c>d"
+            "4.3.10|2026-07-01|moc|all|top|4.3.1|Zulu metadata spelling|a>b>c>d"
         );
         let aa = top.iter().find(|row| row["mode"] == "aa").unwrap();
-        assert_eq!(aa["duplicate_count"], "9");
+        assert_eq!(aa["duplicate_count"], "4");
         assert_eq!(aa["source_kind"], "hf_comps;prydwen_page");
         assert_eq!(
             aa["unordered_signature"],
-            "4.3.10|2026-07-01|aa|all_bosses|all_bosses|4.3.1|The Humming Laughter|a>b>c>d"
+            "4.3.10|2026-07-01|aa|all_bosses|all-bosses|4.3.1|The Humming Laughter|a>b>c>d"
         );
     }
 

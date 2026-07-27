@@ -1160,6 +1160,7 @@ fn build_teams(
     let lookup = roster_lookup(roster);
     let phase_lookup = build_phase_lookup(phases);
     let mut grouped = Vec::<Value>::new();
+    let mut grouped_source_counts = Vec::<BTreeMap<String, u64>>::new();
     let mut grouped_indices = HashMap::<String, usize>::new();
     for row in teams {
         let mode = get(row, "mode");
@@ -1262,13 +1263,20 @@ fn build_teams(
             "names_cn": names_cn,
         });
         refresh_hsr_evidence(&mut template);
+        let count_source = template_count_source(&template);
+        let source_count = template_duplicate_count(&template);
         let mut signature_chars = chars.clone();
         signature_chars.sort();
         let key = format!("{mode}|{}|{}", scope_key, signature_chars.join(">"));
         if let Some(index) = grouped_indices.get(&key).copied() {
-            merge_hsr_template(&mut grouped[index], template);
+            let count = grouped_source_counts[index]
+                .entry(count_source)
+                .or_default();
+            *count = count.saturating_add(source_count);
+            merge_hsr_template(&mut grouped[index], template, &grouped_source_counts[index]);
         } else {
             grouped_indices.insert(key, grouped.len());
+            grouped_source_counts.push(BTreeMap::from([(count_source, source_count)]));
             grouped.push(template);
         }
     }
@@ -1357,6 +1365,55 @@ fn template_duplicate_count(value: &Value) -> u64 {
         .max(1)
 }
 
+fn template_source_tokens(value: &Value) -> Vec<&str> {
+    let source_kind = value_str(value, "source_kind");
+    let sources = if source_kind.is_empty() {
+        value_str(value, "merged_source_kinds")
+    } else {
+        source_kind
+    };
+    let mut tokens = sources
+        .split(';')
+        .map(str::trim)
+        .filter(|source| !source.is_empty())
+        .collect::<Vec<_>>();
+    tokens.sort_unstable();
+    tokens.dedup();
+    tokens
+}
+
+fn source_kind_priority(source: &str) -> u8 {
+    match source {
+        "hf_comps" => 0,
+        "prydwen_page" => 1,
+        _ => 2,
+    }
+}
+
+fn template_count_source(value: &Value) -> String {
+    template_source_tokens(value)
+        .into_iter()
+        .min_by(|left, right| {
+            source_kind_priority(left)
+                .cmp(&source_kind_priority(right))
+                .then_with(|| left.cmp(right))
+        })
+        .unwrap_or("")
+        .to_owned()
+}
+
+fn authoritative_duplicate_count(source_counts: &BTreeMap<String, u64>) -> u64 {
+    source_counts
+        .iter()
+        .min_by(|(left, _), (right, _)| {
+            source_kind_priority(left)
+                .cmp(&source_kind_priority(right))
+                .then_with(|| left.cmp(right))
+        })
+        .map(|(_, count)| *count)
+        .unwrap_or(1)
+}
+
 fn merged_evidence_values(values: &[&str]) -> String {
     values
         .iter()
@@ -1433,9 +1490,13 @@ fn refresh_hsr_evidence(template: &mut Value) {
     object.insert("evidence_comment".into(), comment.into());
 }
 
-fn merge_hsr_template(current: &mut Value, candidate: Value) {
-    let duplicate_count =
-        template_duplicate_count(current).saturating_add(template_duplicate_count(&candidate));
+fn merge_hsr_template(
+    current: &mut Value,
+    candidate: Value,
+    source_counts: &BTreeMap<String, u64>,
+) {
+    let candidate_preferred = template_cmp(&candidate, current).is_lt();
+    let duplicate_count = authoritative_duplicate_count(source_counts);
     let source_files = merged_evidence_values(&[
         value_str(current, "merged_source_files"),
         value_str(current, "source_file"),
@@ -1452,7 +1513,7 @@ fn merge_hsr_template(current: &mut Value, candidate: Value) {
         value_str(current, "quality_flag"),
         value_str(&candidate, "quality_flag"),
     ]);
-    if template_cmp(&candidate, current).is_lt() {
+    if candidate_preferred {
         *current = candidate;
     }
     let object = current.as_object_mut().expect("team template is object");
@@ -1464,9 +1525,9 @@ fn merge_hsr_template(current: &mut Value, candidate: Value) {
 }
 
 fn template_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
-    template_scope_priority(left)
-        .cmp(&template_scope_priority(right))
-        .then_with(|| template_source_priority(left).cmp(&template_source_priority(right)))
+    template_source_sort_key(left)
+        .cmp(&template_source_sort_key(right))
+        .then_with(|| template_scope_priority(left).cmp(&template_scope_priority(right)))
         .then_with(|| {
             template_number(left, "rank", 1_000_000.0).total_cmp(&template_number(
                 right,
@@ -1509,12 +1570,10 @@ fn template_scope_priority(value: &Value) -> u8 {
     u8::from(!scope.contains('-') || matches!(scope.as_str(), "all" | "top"))
 }
 
-fn template_source_priority(value: &Value) -> u8 {
-    match value_str(value, "source_kind") {
-        "hf_comps" => 0,
-        "prydwen_page" => 1,
-        _ => 2,
-    }
+fn template_source_sort_key(value: &Value) -> (u8, usize, String) {
+    let tokens = template_source_tokens(value);
+    let source = template_count_source(value);
+    (source_kind_priority(&source), tokens.len(), source)
 }
 
 fn template_number(value: &Value, key: &str, fallback: f64) -> f64 {
@@ -2134,6 +2193,7 @@ mod tests {
             ("duplicate_count", "2"),
         ]);
         let mut second = first.clone();
+        second.insert("scope".into(), "12-1".into());
         second.insert("rank".into(), "1".into());
         second.insert("source_kind".into(), "prydwen_page".into());
         second.insert("source_file".into(), "prydwen.csv".into());
@@ -2150,7 +2210,7 @@ mod tests {
         assert_eq!(templates[0]["source_kind"], "hf_comps");
         assert_eq!(templates[0]["rank"], 2);
         assert_eq!(templates[0]["phase_status"], "expired");
-        assert_eq!(templates[0]["duplicate_count"], 5);
+        assert_eq!(templates[0]["duplicate_count"], 2);
         assert_eq!(templates[0]["merged_source_files"], "hf.csv;prydwen.csv");
         assert_eq!(templates[0]["merged_source_kinds"], "hf_comps;prydwen_page");
         assert_eq!(templates[0]["stability_component"], true);
@@ -2309,7 +2369,7 @@ mod tests {
     }
 
     #[test]
-    fn teams_merge_same_observation_when_phase_names_disagree() {
+    fn teams_merge_sources_without_counting_one_observation_twice() {
         let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
         let mut base = row(&[
             ("snapshot_id", "4.3.10"),
@@ -2335,15 +2395,74 @@ mod tests {
         alternate.insert("source_kind".into(), "prydwen_page".into());
         alternate.insert("source_file".into(), "prydwen/all.html".into());
 
-        let templates = build_teams(&[base, alternate], &[], &[], &context).unwrap();
+        let roster = vec![json!({"character_slug":"a","role_groups":"sustain"})];
+        let templates = build_teams(&[base, alternate], &[], &roster, &context).unwrap();
 
         assert_eq!(templates.len(), 1);
-        assert_eq!(templates[0]["duplicate_count"], 2);
+        assert_eq!(templates[0]["duplicate_count"], 1);
         assert_eq!(templates[0]["merged_source_kinds"], "hf_comps;prydwen_page");
         assert_eq!(
             templates[0]["merged_source_files"],
             "hf/top.json;prydwen/all.html"
         );
+        assert_eq!(templates[0]["evidence_grade"], "B");
+        assert!(templates[0]["evidence_comment"]
+            .as_str()
+            .unwrap()
+            .contains("仅 1 条记录"));
+    }
+
+    #[test]
+    fn teams_accumulate_authoritative_source_counts_independent_of_input_order() {
+        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 7, 12).unwrap());
+        let make_team = |source: &str, count: &str, rank: &str| {
+            let mut team = row(&[
+                ("snapshot_id", "4.3.10"),
+                ("collect_date", "2026-06-25"),
+                ("mode", "moc"),
+                ("scope", "1"),
+                ("phase_ver", "4.3.10"),
+                ("phase_name", "Duty Action"),
+                ("rank", rank),
+                ("app_rate", "10"),
+                ("avg_round", "3"),
+                ("source_kind", source),
+                ("source_file", source),
+                ("duplicate_count", count),
+            ]);
+            for (index, slug) in ["a", "b", "c", "d"].iter().enumerate() {
+                team.insert(format!("char_{}_slug", index + 1), (*slug).into());
+            }
+            team
+        };
+        let roster = vec![json!({"character_slug":"a","role_groups":"sustain"})];
+        let rows = vec![
+            make_team("x_source", "2", "1"),
+            make_team("y_source", "3", "2"),
+            make_team("x_source", "4", "3"),
+        ];
+        for input in [rows.clone(), rows.into_iter().rev().collect()] {
+            let templates = build_teams(&input, &[], &roster, &context).unwrap();
+            assert_eq!(templates.len(), 1);
+            assert_eq!(templates[0]["source_kind"], "x_source");
+            assert_eq!(templates[0]["duplicate_count"], 6);
+            assert_eq!(templates[0]["merged_source_kinds"], "x_source;y_source");
+            assert_eq!(templates[0]["evidence_grade"], "A");
+        }
+
+        let composite = build_teams(
+            &[
+                make_team("hf_comps;prydwen_page", "2", "2"),
+                make_team("prydwen_page", "3", "1"),
+            ],
+            &[],
+            &roster,
+            &context,
+        )
+        .unwrap();
+        assert_eq!(composite.len(), 1);
+        assert_eq!(composite[0]["duplicate_count"], 2);
+        assert_eq!(composite[0]["merged_source_kinds"], "hf_comps;prydwen_page");
     }
 
     #[test]

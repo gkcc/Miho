@@ -422,6 +422,7 @@ function effectiveFreshnessStatus(freshness: TaskModeFreshness, today = localDat
 
 function summarizeFreshness(freshness: TaskFreshnessSummary, today = localDateKey()): {
   latestSampleDate: string | null;
+  oldestStaleSampleDate: string | null;
   staleSamples: number;
   futureSamples: number;
   missingSamples: number;
@@ -439,10 +440,15 @@ function summarizeFreshness(freshness: TaskFreshnessSummary, today = localDateKe
     .filter((mode) => mode.sampleAgeDays !== null)
     .map((mode) => mode.sample_date)
     .sort();
+  const staleSampleDates = modes
+    .filter((mode) => staleSampleAgeDays(mode.sample_date, today) !== null)
+    .map((mode) => mode.sample_date)
+    .sort();
   const latestSampleDate = sampleDates.at(-1) ?? null;
   return {
     latestSampleDate,
-    staleSamples: modes.filter((mode) => staleSampleAgeDays(mode.sample_date, today) !== null).length,
+    oldestStaleSampleDate: staleSampleDates[0] ?? null,
+    staleSamples: staleSampleDates.length,
     futureSamples: modes.filter((mode) => mode.sampleAgeDays !== null && mode.sampleAgeDays < 0).length,
     missingSamples: modes.filter((mode) => mode.sampleAgeDays === null).length,
     active: modes.filter((mode) => mode.effectiveStatus === "active").length,
@@ -2069,20 +2075,24 @@ function renderTasks(): void {
     title.append(element("h3", undefined, operationLabel(task.operation)));
     const badge = element("span", `status-badge ${task.status}`, STATUS_LABELS[task.status]);
     titleRow.append(title, badge);
-    const historicalSample = task.freshness ? summarizeFreshness(task.freshness).stale > 0 : false;
     const taskFreshnessSummary = task.freshness ? summarizeFreshness(task.freshness) : null;
+    const historicalSample = (taskFreshnessSummary?.stale ?? 0) > 0;
+    const staleSample = (taskFreshnessSummary?.staleSamples ?? 0) > 0;
+    const staleSampleDate = taskFreshnessSummary?.oldestStaleSampleDate;
     const freshnessWarning = task.freshness?.status === "warning"
       || taskFreshnessSummary?.latestSampleDate === null
       || (taskFreshnessSummary?.unknown ?? 0) > 0;
     const outcome = task.status === "succeeded"
       ? exportedGame
-        ? historicalSample
-          ? "本机更新与校验成功；Box 与卡池已刷新，终局分析保留上游最新可用的历史样本。"
-          : freshnessWarning
-            ? "本机更新与校验成功；Box 与卡池已刷新，终局数据质量有告警。"
-            : task.freshness
-              ? "本机更新与校验成功；Box、卡池和终局分析已刷新。"
-            : "本机更新已完成；打开对应游戏查看本次结果。"
+        ? staleSample && staleSampleDate
+          ? `联网与本机校验成功，但上游存在陈旧终局样本，最早停在 ${staleSampleDate}${sampleAgeSuffix(staleSampleDate)}；Box 与卡池已刷新。`
+          : historicalSample
+            ? "本机更新与校验成功；Box 与卡池已刷新，终局分析保留上游最新可用的历史样本。"
+            : freshnessWarning
+              ? "本机更新与校验成功；Box 与卡池已刷新，终局数据质量有告警。"
+              : task.freshness
+                ? "本机更新与校验成功；Box、卡池和终局分析已刷新。"
+                : "本机更新已完成；打开对应游戏查看本次结果。"
         : "操作已经完成，报告已生成。"
       : task.status === "failed"
         ? "操作没有完成，请查看下方原因。"
@@ -2095,7 +2105,7 @@ function renderTasks(): void {
     if (task.freshness) {
       const modes = Object.entries(task.freshness.modes)
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([mode, freshness]) => `${modeLabel(mode)}：${freshnessLabel(effectiveFreshnessStatus(freshness))}${freshness.sample_date ? `（采样 ${freshness.sample_date}）` : ""}`);
+        .map(([mode, freshness]) => `${modeLabel(mode)}：${freshnessLabel(effectiveFreshnessStatus(freshness))}${freshness.sample_date ? `（采样 ${freshness.sample_date}）${sampleAgeSuffix(freshness.sample_date)}` : ""}`);
       if (modes.length) card.append(element("p", "task-summary", `数据时效 · ${modes.join("；")}`));
     }
 

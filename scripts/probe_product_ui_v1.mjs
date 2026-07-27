@@ -2722,14 +2722,36 @@ async function verifyPublicDataUpdate(topId, game) {
       targetSampleDate,
       analysisSampleDates,
     });
-  const hasHistoricalSamples = Object.values(updatedGameHealth?.freshness?.modes ?? {})
-    .some((mode) => mode?.status === "stale");
+  const freshnessModes = Object.values(updatedGameHealth?.freshness?.modes ?? {});
+  const staleSampleDates = freshnessModes
+    .map((mode) => mode?.sample_date ?? "")
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/u.test(value))
+    .filter((value) => {
+      const age = sampleAgeDays(value, localDateKey());
+      return age !== null && age >= ENDGAME_SAMPLE_STALE_AFTER_DAYS;
+    })
+    .sort();
+  const oldestStaleSampleDate = staleSampleDates.at(0) ?? "";
+  const oldestStaleSampleAge = oldestStaleSampleDate
+    ? sampleAgeDays(oldestStaleSampleDate, localDateKey())
+    : null;
+  const hasStaleSamples = oldestStaleSampleAge !== null;
+  const hasHistoricalSamples = freshnessModes.some((mode) => mode?.status === "stale");
   const hasQualityWarning = updatedGameHealth?.freshness?.status === "warning";
-  assert(task.text.includes("本机更新与校验成功")
+  assert((hasStaleSamples
+    ? task.text.includes("联网与本机校验成功")
+    : task.text.includes("本机更新与校验成功"))
     && task.text.includes("查看本次更新结果")
     && !task.text.includes("查看最新 Box 和分析"),
   `${game} completed task card still overstates update freshness`, task);
-  if (hasHistoricalSamples) {
+  if (hasStaleSamples) {
+    assert(task.text.includes("上游存在陈旧终局样本")
+      && task.text.includes(`最早停在 ${oldestStaleSampleDate}`)
+      && task.text.includes(`已 ${oldestStaleSampleAge} 天未更新`)
+      && task.text.includes("Box 与卡池已刷新")
+      && !task.text.includes("Box、卡池和终局分析已刷新"),
+    `${game} completed task card does not disclose the oldest stale sample`, task);
+  } else if (hasHistoricalSamples) {
     assert(task.text.includes("终局分析保留上游最新可用的历史样本"),
       `${game} completed task card does not disclose historical upstream samples`, task);
   } else if (hasQualityWarning) {

@@ -223,6 +223,15 @@ const HSR_HARNESS = String.raw`
   sampleAge(sampleDate, today = '2026-07-10') {
     return sampleAgeSummary(sampleDate, today);
   },
+  sampleNotice(freshness, today = '2026-07-10') {
+    return freshnessSampleNotice(freshness, today);
+  },
+  phaseMechanicsCopy(info, freshness, status = 'current', modeLabel = '虚构叙事', today = '2026-07-10') {
+    return phaseMechanicsCopy(info, freshness, status, modeLabel, today);
+  },
+  templateSource(template) {
+    return templateSourceSummary(template);
+  },
   sourceMeta(today = '2026-07-10') {
     return sourceMetaLine(today);
   },
@@ -3156,6 +3165,39 @@ test('runtime dates downgrade expired periods while preserving active periods an
     status: 'stale',
     label: '已 31 天未更新',
   });
+  assert.equal(
+    hsr.sampleNotice(hsr.freshness('pf', {}, '2026-07-28'), '2026-07-28'),
+    '当前周期仍在进行，但上游终局统计已 33 天未更新，最新采样仍为 2026-06-25；联网刷新成功只表示检查完成，不表示上游发布了新样本。',
+  );
+  assert.equal(
+    hsr.phaseMechanicsCopy(
+      {mechanic_name: '喧哗如笑', mechanic_text: '施放终结技后触发当期增益。'},
+      hsr.freshness('pf', {}, '2026-07-28'),
+      'current',
+      '虚构叙事',
+      '2026-07-28',
+    ),
+    '喧哗如笑：施放终结技后触发当期增益。 数据时效：当前周期仍在进行，但上游终局统计已 33 天未更新，最新采样仍为 2026-06-25；联网刷新成功只表示检查完成，不表示上游发布了新样本。',
+  );
+  assert.equal(
+    hsr.phaseMechanicsCopy(
+      {mechanic_name: '旧期机制', mechanic_text: '击破敌人后获得增益。', end_date: '2026-07-12'},
+      hsr.freshness('aa', {}, '2026-07-28'),
+      'expired',
+      '异相仲裁',
+      '2026-07-28',
+    ),
+    '旧期机制：击破敌人后获得增益。 周期状态：本地最新 异相仲裁 数据周期已于 2026-07-12 结束；当前数据包尚未包含新周期统计，以下队伍仅作历史参考。',
+  );
+  assert.equal(
+    hsr.templateSource({
+      source_kind: 'hf_comps',
+      source_file: 'hf/top.json',
+      merged_source_kinds: 'hf_comps;prydwen_page',
+      merged_source_files: 'hf/top.json;prydwen/all.html',
+    }),
+    'hf_comps;prydwen_page · hf/top.json;prydwen/all.html',
+  );
   assert.equal(
     hsr.sampleText({phase: '4.3.2', theme: '喧哗如笑', period: '2026-06-23 至 2026-08-03', date: '2026-06-25', label: '当前周期'}, '2026-07-26'),
     '期次：4.3.2 · 主题：喧哗如笑 · 周期：2026-06-23 至 2026-08-03 · 最新采样：2026-06-25（已 31 天未更新） · 当前周期',

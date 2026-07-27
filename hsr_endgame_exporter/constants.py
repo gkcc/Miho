@@ -119,6 +119,7 @@ TEAM_ORDERED_COLUMNS = TEAM_RAW_COLUMNS + [
     "ordered_signature",
     "duplicate_count",
     "merged_source_files",
+    "merged_source_kinds",
 ]
 
 TEAM_UNORDERED_COLUMNS = TEAM_ORDERED_COLUMNS + [

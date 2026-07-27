@@ -141,6 +141,66 @@ def test_team_dedup_is_scoped_to_snapshot_collect_date_and_phase_identity():
     }
 
 
+def test_team_dedup_cross_source_mirrors_keep_hf_counts_and_traceability():
+    base = {
+        "snapshot_id": "4.3.2",
+        "collect_date": "2026-06-25",
+        "mode": "moc",
+        "sub_mode": "all",
+        "scope": "all",
+        "phase_ver": "4.2.1",
+        "phase_name": "Duty Action",
+        "app_rate": 10,
+        "avg_round": 3,
+    }
+
+    def team(chars, source_kind, source_file, rank):
+        return {
+            **base,
+            "source_kind": source_kind,
+            "source_file": source_file,
+            "rank": rank,
+            **{
+                f"char_{index}_slug": slug
+                for index, slug in enumerate(chars, start=1)
+            },
+        }
+
+    raw = [
+        *[
+            team("abcd", "hf_comps", f"hf-{index}.json", 9)
+            for index in range(1, 3)
+        ],
+        *[
+            team("abcd", "prydwen_page", f"prydwen-{index}.html", 1)
+            for index in range(1, 4)
+        ],
+        team("wxyz", "hf_comps", "hf-single.json", 9),
+        team("wxyz", "prydwen_page", "prydwen-single.html", 1),
+    ]
+    ordered = dedup_ordered_teams(raw)
+    unordered = dedup_unordered_teams(ordered)
+
+    for rows in (ordered, unordered):
+        assert len(rows) == 2
+        by_first = {row["char_1_slug"]: row for row in rows}
+        repeated = by_first["a"]
+        assert repeated["duplicate_count"] == 2
+        assert repeated["source_kind"] == "hf_comps"
+        assert repeated["rank"] == 9
+        assert repeated["merged_source_kinds"] == "hf_comps;prydwen_page"
+        assert repeated["merged_source_files"] == (
+            "hf-1.json;hf-2.json;prydwen-1.html;prydwen-2.html;prydwen-3.html"
+        )
+        single = by_first["w"]
+        assert single["duplicate_count"] == 1
+        assert single["source_kind"] == "hf_comps"
+        assert single["merged_source_kinds"] == "hf_comps;prydwen_page"
+        assert single["merged_source_files"] == (
+            "hf-single.json;prydwen-single.html"
+        )
+
+
 def test_python_oracle_aggregates_two_slices_without_overwrite():
     rows = [
         {"mode": "moc", "sub_mode": "all", "phase_ver": "4.2.1", "character_slug": "topaz", "collect_date": "2026-06-25"},
@@ -237,13 +297,14 @@ def test_python_top_teams_latest_merges_aggregate_sources_and_excludes_concrete_
     view = _build_top_teams_latest({"team_rank_dedup_unordered": rows})
     assert len(view) == 2
     by_mode = {row["mode"]: row for row in view}
-    assert by_mode["moc"]["duplicate_count"] == 5
+    assert by_mode["moc"]["duplicate_count"] == 2
     assert by_mode["moc"]["source_kind"] == "hf_comps;prydwen_page"
-    assert by_mode["moc"]["rank"] == 9
+    assert by_mode["moc"]["rank"] == 1
     assert str(by_mode["moc"]["unordered_signature"]).startswith("4.3.10|")
-    assert "|all|" in str(by_mode["moc"]["unordered_signature"])
-    assert by_mode["aa"]["duplicate_count"] == 9
+    assert "|top|" in str(by_mode["moc"]["unordered_signature"])
+    assert by_mode["aa"]["duplicate_count"] == 4
     assert by_mode["aa"]["source_kind"] == "hf_comps;prydwen_page"
+    assert by_mode["aa"]["rank"] == 1
     assert str(by_mode["aa"]["unordered_signature"]).startswith("4.3.10|")
     assert "|all_bosses|" in str(by_mode["aa"]["unordered_signature"])
 

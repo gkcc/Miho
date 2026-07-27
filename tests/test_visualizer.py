@@ -62,12 +62,12 @@ def test_recommender_selects_one_observation_for_same_day_snapshots_before_dedup
     assert templates[0]["merged_source_files"] == "4.3.10/moc/comps/top_combined.json"
 
 
-def test_recommender_merges_same_observation_when_phase_names_disagree():
+def test_recommender_merges_sources_without_counting_one_observation_twice():
     base = {
         "snapshot_id": "4.3.10",
         "collect_date": "2026-06-25",
         "mode": "moc",
-        "scope": "all",
+        "scope": "1",
         "phase_ver": "4.3.10",
         "phase_name": "Duty Action",
         "rank": "9",
@@ -79,17 +79,69 @@ def test_recommender_merges_same_observation_when_phase_names_disagree():
     }
     alternate = {
         **base,
+        "scope": "12-1",
         "phase_name": "Duty Action (alternate metadata)",
+        "rank": "1",
         "source_kind": "prydwen_page",
         "source_file": "prydwen/all.html",
     }
 
-    templates = _build_recommender_rows([base, alternate], [], [])
+    roster = [{"character_slug": "a", "role_groups": "sustain"}]
+    templates = _build_recommender_rows([base, alternate], roster, [])
 
     assert len(templates) == 1
-    assert templates[0]["duplicate_count"] == 2
+    assert templates[0]["source_kind"] == "hf_comps"
+    assert templates[0]["rank"] == 9.0
+    assert templates[0]["duplicate_count"] == 1
     assert templates[0]["merged_source_kinds"] == "hf_comps;prydwen_page"
     assert templates[0]["merged_source_files"] == "hf/top.json;prydwen/all.html"
+    assert templates[0]["evidence_grade"] == "B"
+    assert "仅 1 条记录" in templates[0]["evidence_comment"]
+
+
+def test_recommender_accumulates_authoritative_source_counts_independent_of_order():
+    base = {
+        "snapshot_id": "4.3.10",
+        "collect_date": "2026-06-25",
+        "mode": "moc",
+        "scope": "1",
+        "phase_ver": "4.3.10",
+        "phase_name": "Duty Action",
+        "app_rate": "10",
+        "avg_round": "3",
+        **{f"char_{index}_slug": slug for index, slug in enumerate("abcd", start=1)},
+    }
+
+    def team(source_kind, duplicate_count, rank):
+        return {
+            **base,
+            "rank": str(rank),
+            "source_kind": source_kind,
+            "source_file": source_kind,
+            "duplicate_count": str(duplicate_count),
+        }
+
+    roster = [{"character_slug": "a", "role_groups": "sustain"}]
+    rows = [team("x_source", 2, 1), team("y_source", 3, 2), team("x_source", 4, 3)]
+    for input_rows in (rows, list(reversed(rows))):
+        templates = _build_recommender_rows(input_rows, roster, [])
+        assert len(templates) == 1
+        assert templates[0]["source_kind"] == "x_source"
+        assert templates[0]["duplicate_count"] == 6
+        assert templates[0]["merged_source_kinds"] == "x_source;y_source"
+        assert templates[0]["evidence_grade"] == "A"
+
+    composite = _build_recommender_rows(
+        [
+            team("hf_comps;prydwen_page", 2, 2),
+            team("prydwen_page", 3, 1),
+        ],
+        roster,
+        [],
+    )
+    assert len(composite) == 1
+    assert composite[0]["duplicate_count"] == 2
+    assert composite[0]["merged_source_kinds"] == "hf_comps;prydwen_page"
 
 
 def test_recommender_team_reader_recovers_from_legacy_dedup_signatures(tmp_path):
@@ -263,7 +315,8 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "hsr_endgame_box_v1" in app_text
     assert "phaseName(row)" in app_text
     assert "phaseStatusLabel" in app_text
-    assert "banner={phase:'current'" in app_text
+    assert "banner={phase:loadBannerPhasePreference()" in app_text
+    assert "normalizeBannerPhasePreference" in app_text
     assert "banner_next" in app_text
     assert "no-store" in app_text
     assert "./data.v2.json" in app_text

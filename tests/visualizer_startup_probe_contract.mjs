@@ -149,8 +149,13 @@ test('the product probe gates the real ZZZ to HSR to ZZZ sequence and emits exac
   assert.match(productProbeSource, /value\.includes\(`终局最新采样 \$\{targetSampleDate\}`\)/u);
   assert.match(productProbeSource, /targetSampleDate === visualizerLatestSampleDate/u);
   assert.match(productProbeSource, /analysisExpectedPhase\?\.sampleDate/u);
+  assert.match(productProbeSource, /const staleSampleDates = freshnessModes/u);
+  assert.match(productProbeSource, /age !== null && age >= ENDGAME_SAMPLE_STALE_AFTER_DAYS/u);
+  assert.match(productProbeSource, /hasStaleSamples[\s\S]*task\.text\.includes\("联网与本机校验成功"\)/u);
   assert.match(productProbeSource, /task\.text\.includes\("本机更新与校验成功"\)/u);
   assert.match(productProbeSource, /task\.text\.includes\("查看本次更新结果"\)/u);
+  assert.match(productProbeSource, /task\.text\.includes\(`最早停在 \$\{oldestStaleSampleDate\}`\)/u);
+  assert.match(productProbeSource, /task\.text\.includes\(`已 \$\{oldestStaleSampleAge\} 天未更新`\)/u);
   assert.match(productProbeSource, /终局分析保留上游最新可用的历史样本/u);
   assert.match(productProbeSource, /else if \(hasQualityWarning\)/u);
   assert.match(productProbeSource, /Box、卡池和终局分析已刷新/u);

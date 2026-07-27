@@ -11,6 +11,7 @@ use crate::{
 };
 
 pub const DATA_QUALITY_SCHEMA_V1: &str = "miho-data-quality-v1";
+pub const ENDGAME_SAMPLE_STALE_AFTER_DAYS: i64 = 15;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FreshnessV1 {
@@ -256,9 +257,8 @@ pub fn attach_data_quality_v1(
             } else if performance.is_some_and(|value| value > 0.0) {
                 valid_performance_count += 1;
             }
-            let source = value(row, "source_kind").trim();
-            if !source.is_empty() {
-                sources.insert(source.to_owned());
+            for source in row_source_kinds(row) {
+                sources.insert(source);
             }
         }
         modes.insert(
@@ -298,6 +298,14 @@ pub fn attach_data_quality_v1(
             report.warnings.push(format!(
                 "{mode}: phase is stale and recommendations use historical samples"
             ));
+        }
+        if let Some(age_days) = sample_age_days(&quality.freshness, local_date) {
+            if age_days >= ENDGAME_SAMPLE_STALE_AFTER_DAYS {
+                report.warnings.push(format!(
+                    "{mode}: latest sample {} is {age_days} days old while phase status remains {}",
+                    quality.freshness.sample_date, quality.freshness.status
+                ));
+            }
         }
     }
     report.warnings.sort();
@@ -463,6 +471,26 @@ fn mode_freshness(
             .unwrap_or("")
             .to_owned(),
     }
+}
+
+fn sample_age_days(freshness: &FreshnessV1, local_date: NaiveDate) -> Option<i64> {
+    parse_data_quality_date_v1(&freshness.sample_date)
+        .map(|sample_date| local_date.signed_duration_since(sample_date).num_days())
+}
+
+fn row_source_kinds(row: &BTreeMap<String, String>) -> Vec<String> {
+    let merged = value(row, "merged_source_kinds").trim();
+    let sources = if merged.is_empty() {
+        value(row, "source_kind")
+    } else {
+        merged
+    };
+    sources
+        .split(';')
+        .map(str::trim)
+        .filter(|source| !source.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn parse_date(value: &str) -> Option<NaiveDate> {
@@ -808,6 +836,24 @@ mod tests {
     }
 
     #[test]
+    fn source_coverage_prefers_merged_source_kinds_and_splits_each_source() {
+        let merged = BTreeMap::from([
+            ("source_kind".to_owned(), "hf_comps".to_owned()),
+            (
+                "merged_source_kinds".to_owned(),
+                "hf_comps;prydwen_page".to_owned(),
+            ),
+        ]);
+        assert_eq!(
+            row_source_kinds(&merged),
+            ["hf_comps".to_owned(), "prydwen_page".to_owned()]
+        );
+
+        let legacy = BTreeMap::from([("source_kind".to_owned(), "fixture".to_owned())]);
+        assert_eq!(row_source_kinds(&legacy), ["fixture"]);
+    }
+
+    #[test]
     fn reports_active_stale_future_and_unknown_freshness() {
         let mut bundle = bundle_with_phases(
             &[
@@ -872,6 +918,44 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("pf: phase is stale")));
+    }
+
+    #[test]
+    fn active_phase_with_old_sample_reports_sample_staleness_separately() {
+        let mut bundle = bundle_with_phases(
+            &[&["pf", "1", "30000", "hf_comps"]],
+            &[&[
+                "pf",
+                "2026-06-25",
+                "4.3.1",
+                "2026-06-22",
+                "2026-08-03",
+                "huggingface",
+                "4.3.2/",
+            ]],
+        );
+        let report = attach_data_quality_v1(
+            &mut bundle,
+            Game::Hsr,
+            &[GameMode::HsrPf],
+            NaiveDate::from_ymd_opt(2026, 7, 28).unwrap(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(report.modes["pf"].freshness.status, "active");
+        assert_eq!(report.status, "warning");
+        assert!(report.warnings.iter().any(|warning| {
+            warning == "pf: latest sample 2026-06-25 is 33 days old while phase status remains active"
+        }));
+        assert!(!report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("pf: phase is stale")));
+
+        let emitted: DataQualityReportV1 =
+            serde_json::from_slice(bundle.get("data_quality.json").unwrap()).unwrap();
+        assert_eq!(emitted, report);
     }
 
     #[test]

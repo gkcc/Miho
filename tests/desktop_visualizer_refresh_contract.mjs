@@ -47,6 +47,11 @@ test('completed update cards open the matching game and request its latest revis
   assert.match(renderTasks, /makeButton\("查看本次更新结果"[\s\S]*?showUpdatedGame\(exportedGame\)/);
   assert.match(renderTasks, /本机更新与校验成功；Box 与卡池已刷新，终局分析保留上游最新可用的历史样本/);
   assert.match(renderTasks, /本机更新与校验成功；Box 与卡池已刷新，终局数据质量有告警/);
+  assert.match(renderTasks, /联网与本机校验成功，但上游存在陈旧终局样本，最早停在/);
+  assert.match(renderTasks, /staleSample && staleSampleDate/);
+  assert.match(renderTasks, /oldestStaleSampleDate/);
+  assert.match(renderTasks, /sampleAgeSuffix\(staleSampleDate\)/);
+  assert.match(renderTasks, /sampleAgeSuffix\(freshness\.sample_date\)/);
   assert.match(renderTasks, /freshnessLabel\(effectiveFreshnessStatus\(freshness\)\)/);
   assert.doesNotMatch(renderTasks, /查看最新 Box 和分析|即可查看最新 Box、卡池和终局分析/);
   assert.match(renderTasks, /viewUpdate\.disabled = workspaceBusy \|\| boxTransitionBusy \|\| isWindowClosing\(\)/);

@@ -68,9 +68,14 @@ def dedup_ordered_teams(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for signature, group in groups.items():
         best = dict(sorted(group, key=_team_sort_key)[0])
         best["ordered_signature"] = signature
-        best["duplicate_count"] = len(group)
+        best["duplicate_count"] = sum(
+            1 for item in group if item.get("source_kind") == best.get("source_kind")
+        )
         best["merged_source_files"] = ";".join(
             sorted({str(item.get("source_file", "")) for item in group if item.get("source_file")})
+        )
+        best["merged_source_kinds"] = _merged_team_values(
+            item.get("source_kind") for item in group
         )
         output.append(best)
     return sorted(output, key=_team_output_key)
@@ -89,7 +94,17 @@ def dedup_unordered_teams(ordered_rows: list[dict[str, Any]]) -> list[dict[str, 
         best["ordered_signature_examples"] = ";".join(
             sorted({str(item.get("ordered_signature", "")) for item in group if item.get("ordered_signature")})
         )
-        best["duplicate_count"] = sum(int(item.get("duplicate_count") or 1) for item in group)
+        best["duplicate_count"] = sum(
+            int(item.get("duplicate_count") or 1)
+            for item in group
+            if item.get("source_kind") == best.get("source_kind")
+        )
+        best["merged_source_files"] = _merged_team_values(
+            item.get("merged_source_files") or item.get("source_file") for item in group
+        )
+        best["merged_source_kinds"] = _merged_team_values(
+            item.get("merged_source_kinds") or item.get("source_kind") for item in group
+        )
         output.append(best)
     return sorted(output, key=_team_output_key)
 
@@ -238,8 +253,8 @@ def _columns_from_rows(rows: list[dict[str, Any]]) -> list[str]:
 
 def _team_sort_key(row: dict[str, Any]) -> tuple[int, float, float]:
     source_priority = {
-        "prydwen_page": 0,
-        "hf_comps": 1,
+        "hf_comps": 0,
+        "prydwen_page": 1,
     }.get(str(row.get("source_kind", "")), 2)
     rank = row.get("rank")
     rank_value = float(rank) if isinstance(rank, (int, float)) else 1_000_000.0
@@ -374,8 +389,14 @@ def _build_top_teams_latest(tables: dict[str, list[dict[str, Any]]]) -> list[dic
             key=lambda row: (_team_sort_key(row), str(row.get("unordered_signature") or "")),
         )
         merged = dict(representative)
-        merged["duplicate_count"] = sum(_team_duplicate_count(row.get("duplicate_count")) for row in group)
-        merged["source_kind"] = _merged_team_values(row.get("source_kind") for row in group)
+        merged["duplicate_count"] = sum(
+            _team_duplicate_count(row.get("duplicate_count"))
+            for row in group
+            if row.get("source_kind") == representative.get("source_kind")
+        )
+        merged["source_kind"] = _merged_team_values(
+            row.get("merged_source_kinds") or row.get("source_kind") for row in group
+        )
         merged["merged_source_files"] = _merged_team_values(
             row.get("merged_source_files") or row.get("source_file") for row in group
         )

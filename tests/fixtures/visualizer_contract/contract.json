@@ -34,7 +34,7 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "c015b99fdce57647bed91fb92d9a900db8d9d382a4b0b79067cccde8ce838a31",
+      "app.js": "58c799d2c4e0f90e3c717674aaa3cee619817ac9787c26bd1323db9b160b6329",
       "index.html": "599d38eb25ca363607b5f7e2b50804a91db14e10414b71012a2c669c214411cc",
       "solver.js": "98a2f0f9a760488f8f0f141f5f221b3cabf9c277ecfcf8abba0365d95451816a",
       "styles.css": "d8664e94a3e8077ac794e878997076100527fbb626e4fe217a43d1a04835b86c"

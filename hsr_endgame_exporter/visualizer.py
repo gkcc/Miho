@@ -829,6 +829,7 @@ def _build_recommender_rows(
             latest_observations[mode] = identity
 
     grouped: dict[str, dict[str, Any]] = {}
+    grouped_source_counts: dict[str, dict[str, int]] = {}
     for row in team_rows:
         mode = str(row.get("mode") or "")
         if not mode or _team_observation_identity(row) != latest_observations.get(mode):
@@ -881,12 +882,17 @@ def _build_recommender_rows(
             ],
         }
         _refresh_hsr_evidence(template)
+        count_source = _template_count_source(template)
+        source_count = _evidence_duplicate_count(template.get("duplicate_count"))
         key = f"{mode}|{scope_key}|{'>'.join(sorted(chars))}"
         current = grouped.get(key)
         if current is None:
             grouped[key] = template
+            grouped_source_counts[key] = {count_source: source_count}
         else:
-            grouped[key] = _merge_hsr_template(current, template)
+            source_counts = grouped_source_counts[key]
+            source_counts[count_source] = source_counts.get(count_source, 0) + source_count
+            grouped[key] = _merge_hsr_template(current, template, source_counts)
 
     return sorted(
         grouped.values(),
@@ -915,6 +921,33 @@ def _evidence_duplicate_count(value: Any) -> int:
         return max(1, int(str(value).strip()))
     except (TypeError, ValueError):
         return 1
+
+
+def _source_kind_priority(source: str) -> int:
+    return {"hf_comps": 0, "prydwen_page": 1}.get(source, 2)
+
+
+def _template_source_tokens(template: dict[str, Any]) -> tuple[str, ...]:
+    source_kind = str(template.get("source_kind") or "")
+    sources = source_kind or str(template.get("merged_source_kinds") or "")
+    return tuple(sorted({item.strip() for item in sources.split(";") if item.strip()}))
+
+
+def _template_count_source(template: dict[str, Any]) -> str:
+    return min(
+        _template_source_tokens(template),
+        key=lambda source: (_source_kind_priority(source), source),
+        default="",
+    )
+
+
+def _authoritative_duplicate_count(source_counts: dict[str, int]) -> int:
+    source = min(
+        source_counts,
+        key=lambda item: (_source_kind_priority(item), item),
+        default="",
+    )
+    return max(1, source_counts.get(source, 1))
 
 
 def _merged_evidence_values(*values: Any) -> str:
@@ -980,10 +1013,13 @@ def _refresh_hsr_evidence(template: dict[str, Any]) -> None:
         template["evidence_comment"] = f"重复记录 {count} 条，Rank、占比、表现与来源字段完整。"
 
 
-def _merge_hsr_template(current: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
-    duplicate_count = _evidence_duplicate_count(current.get("duplicate_count")) + _evidence_duplicate_count(
-        candidate.get("duplicate_count")
-    )
+def _merge_hsr_template(
+    current: dict[str, Any],
+    candidate: dict[str, Any],
+    source_counts: dict[str, int],
+) -> dict[str, Any]:
+    candidate_preferred = _template_sort_key(candidate) < _template_sort_key(current)
+    duplicate_count = _authoritative_duplicate_count(source_counts)
     source_files = _merged_evidence_values(
         current.get("merged_source_files"),
         current.get("source_file"),
@@ -997,7 +1033,7 @@ def _merge_hsr_template(current: dict[str, Any], candidate: dict[str, Any]) -> d
         candidate.get("source_kind"),
     )
     quality_flags = _merged_evidence_values(current.get("quality_flag"), candidate.get("quality_flag"))
-    selected = dict(candidate if _template_sort_key(candidate) < _template_sort_key(current) else current)
+    selected = dict(candidate if candidate_preferred else current)
     selected["duplicate_count"] = duplicate_count
     selected["merged_source_files"] = source_files
     selected["merged_source_kinds"] = source_kinds
@@ -1254,11 +1290,13 @@ def _numeric_value(value: Any) -> float | int | None:
     return int(number) if number.is_integer() else number
 
 
-def _template_sort_key(row: dict[str, Any]) -> tuple[int, int, float, float, int, float]:
+def _template_sort_key(row: dict[str, Any]) -> tuple[int, int, str, int, float, float, int, float]:
     source_scope = str(row.get("scope") or "")
     normalized_scope = re.sub(r"[^a-z0-9]+", "-", source_scope.lower()).strip("-")
     scope_priority = 0 if "-" in normalized_scope and normalized_scope not in {"all", "top"} else 1
-    source_priority = {"hf_comps": 0, "prydwen_page": 1}.get(str(row.get("source_kind") or ""), 2)
+    source_tokens = _template_source_tokens(row)
+    source = _template_count_source(row)
+    source_priority = _source_kind_priority(source)
     rank = row.get("rank")
     rank_value = float(rank) if isinstance(rank, (int, float)) else 1_000_000.0
     app_rate = row.get("app_rate")
@@ -1275,7 +1313,16 @@ def _template_sort_key(row: dict[str, Any]) -> tuple[int, int, float, float, int
         performance_missing, performance_value = 0, -performance
     else:
         performance_missing, performance_value = 0, 0.0
-    return scope_priority, source_priority, rank_value, -app_value, performance_missing, performance_value
+    return (
+        source_priority,
+        len(source_tokens),
+        source,
+        scope_priority,
+        rank_value,
+        -app_value,
+        performance_missing,
+        performance_value,
+    )
 
 
 # Python is retained as a migration oracle. Runtime visualizer assets have one

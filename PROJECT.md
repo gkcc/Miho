@@ -707,6 +707,12 @@
 - 双游戏卡池子 TAB 在 revision 重载后保持，失效阶段安全回退；ZZZ 同名双池同时显示生命周期与官方日期组。官方确认角色会清除遗留卫星/待调频阶段文案，即使旧快照已先晋升为 `next`；爱芮复刻缺机制资料时改为“等机制档位评审”。桌面在 focus、重新可见及 60 秒轮询时重读 health，descriptor 失败保持 fail-closed；隐藏产品复验确认六种终局模式均展示采样、期次、主题、机制和周期。
 - 完整 Tauri 构建与嵌入资源/PE 门禁通过；正式 Desktop、人工 CLI、无窗任务 CLI SHA-256 为 `7356FE31B63F47217202E754EA1918649ADB1B9365E34821C3347F940537A70B`、`7FDB5A317D833C001D4F468A545A6F98E90E5EF0FD3BC259E8158B2E9D7FAAA3`、`0114D3788214D88B7EF40E1B5B9B6B4EED3C5B25D804C1FD99EE6E7527EF09A8`。owner-aware attempt `installer-eab31bc97d5540dd89dc37b1e7356ee2` 已切到唯一 generation，任务 `Ready / Enabled / LastTaskResult=0`，无 candidate/journal；正式 GUI 隐藏复验退出 0、stdout/stderr 为空，HSR/ZZZ Box 哈希保持不变，6 份临时 EXE 回滚副本已精确删除。
 
+### HSR 周期、样本年龄与同源证据去重（2026-07-28，已交付）
+
+- **呈现语义**：周期状态与统计样本年龄彻底分开。PF“借虚成真”保持当前期（`2026-06-22` 至 `2026-08-03`），同时明确最新样本仍为 `2026-06-25（已 33 天未更新）`；四模式均保留对应期次、主题、机制和周期，更新卡只声称本机、Box 与卡池刷新，不把上游停更包装成新终局样本。
+- **证据去重**：HF 与 Prydwen 的镜像队伍按同一上游来源族计数，`merged_source_kinds/files` 仍完整保留。正式 19,311 个模板中 1,600 个双来源模板的 `duplicate_count` 全为 `1`、证据等级全为 `B`，不再由镜像重复抬成 `A`；质量报告同时列出 `hf_comps / prydwen_page`。HSR Workbook 契约新增 `merged_source_kinds`，10/10 通过。
+- **正式交付**：Desktop、人工 CLI、无窗任务 CLI SHA-256 分别为 `C7B6015A343449422D25555D83AF748B2D90901B302336DBBC5694A6B604DAAB`、`409087D1116F047ECDAC476B328E908E5FA3B9B084FB15CA1EB31893030801BE`、`B871DDDEA0FB2E46F9AE1E03616D995B25D68685628E92A0C55C241E4C56523A`；09:30 任务已切到唯一对应无窗 generation，正式重放为 `Ready / Enabled / LastTaskResult=0`。隐藏 CDP 实际点击双游戏更新按钮并验证六模式、两个卡池和 revision，正常退出 0、stdout/stderr 空、Box 哈希不变；Node 契约 141/141，独立终审无 Blocker/High/Medium。未进入安装器或 portable 链。
+
 ## 恢复入口
 
 - 项目状态：本文件。

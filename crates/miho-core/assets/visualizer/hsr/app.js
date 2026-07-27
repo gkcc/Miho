@@ -700,6 +700,7 @@ function modeFreshness(mode=rec.mode,fallback={},today=localToday()){
 function freshnessPeriodText(freshness){return`${freshness.startDate||'未知'} 至 ${freshness.endDate||'未知'}`}
 function freshnessSampleLabel(freshness){const age=sampleAgeSummary(freshness?.sampleDate);return age.days==null?'':age.label}
 function freshnessSampleWarning(freshness){return sampleAgeSummary(freshness?.sampleDate).status==='stale'}
+function freshnessSampleNotice(freshness,today=localToday()){const age=sampleAgeSummary(freshness?.sampleDate,today);return freshness?.status==='active'&&age.status==='stale'?`当前周期仍在进行，但上游终局统计${age.label}，最新采样仍为 ${freshness.sampleDate||'未知'}；联网刷新成功只表示检查完成，不表示上游发布了新样本。`:''}
 function freshnessBadgeHtml(freshness){const badges=[];if(freshness.status!=='active')badges.push(`<span class="data-${esc(freshness.status)}">${esc(freshnessStatusLabel(freshness.status))}</span>`);if(freshnessSampleWarning(freshness))badges.push(`<span class="data-stale">样本${esc(freshnessSampleLabel(freshness))}</span>`);return badges.join('')}
 function freshnessTemplateLabel(status,currentLabel){return status==='stale'?'历史模板（源滞后）':status==='future'?'未来周期样本（尚未开始）':status==='unknown'?'周期状态未知的样本':currentLabel}
 function syncFreshnessNavigation(mode=rec.mode,fallback={}){const root=$('appTabs');if(!root)return;const button=[...root.children].find(item=>item.dataset.value==='recommender');if(!button)return;const freshness=modeFreshness(mode,fallback),age=sampleAgeSummary(freshness.sampleDate),suffix=freshness.status!=='active'?` · ${freshnessStatusLabel(freshness.status)}`:age.status==='stale'?` · 样本${age.label}`:'';button.textContent=`组队推荐${suffix}`;button.classList.remove('freshness-stale','freshness-future','freshness-unknown');if(freshness.status!=='active')button.classList.add(`freshness-${freshness.status}`);else if(age.status==='stale')button.classList.add('freshness-stale');button.title=`${MODES.find(([value])=>value===mode)?.[1]||mode}：${freshnessStatusLabel(freshness.status)}${age.days==null?'':`，样本${age.label}`}，不阻止浏览`;}
@@ -984,6 +985,14 @@ function phaseInfoFor(template){
 }
 function recommendationPhaseInfo(template){const actual=template||scopeTemplates(rec.mode,rec.scope)[0]||currentModeTemplates(rec.mode)[0]||{},info=phaseInfoFor(actual);return{...actual,...info}}
 
+function phaseMechanicsCopy(info,freshness,status,modeLabel,today=localToday()){
+  const expiredText=freshness.status==='stale'||status==='expired'?`本地最新 ${modeLabel} 数据周期已于 ${freshness.endDate||info.end_date||'上一周期'} 结束；当前数据包尚未包含新周期统计，以下队伍仅作历史参考。`:'';
+  const mechanicName=info.mechanic_name||'机制效果待维护';
+  const mechanicText=info.mechanic_text||'当前本地数据只识别到了期名和采样日期，尚未维护这一期的环境效果。这个状态会明确显示，避免把未知效果误当成已匹配。';
+  const sampleStaleText=freshnessSampleNotice(freshness,today);
+  return `${mechanicName}：${mechanicText}${expiredText?` 周期状态：${expiredText}`:''}${sampleStaleText?` 数据时效：${sampleStaleText}`:''}`;
+}
+
 function renderPhaseMechanics(template){
   const info=recommendationPhaseInfo(template||{});
   const modeLabel=MODES.find(x=>x[0]===rec.mode)?.[1]||rec.mode;
@@ -992,10 +1001,7 @@ function renderPhaseMechanics(template){
   const status=info.phase_status||template.phase_status||'unknown',freshness=modeFreshness(rec.mode,info);
   const sampleAge=freshnessSampleLabel(freshness);
   $('phaseMechanicsSubtitle').textContent=`${freshnessStatusLabel(freshness.status)} · 采样 ${freshness.sampleDate||'未知'}${sampleAge?`（${sampleAge}）`:''} · 周期 ${freshnessPeriodText(freshness)} · 来源 ${freshness.source||'未知'}`;
-  const expiredText=freshness.status==='stale'||status==='expired'?`本地最新 ${modeLabel} 数据周期已于 ${freshness.endDate||info.end_date||'上一周期'} 结束；当前数据包尚未包含新周期统计，以下队伍仅作历史参考。`:'';
-  const mechanicName=expiredText?'源滞后 / 历史模板':(info.mechanic_name||'机制效果待维护');
-  const mechanicText=expiredText||info.mechanic_text||'当前本地数据只识别到了期名和采样日期，尚未维护这一期的环境效果。这个状态会明确显示，避免把未知效果误当成已匹配。';
-  $('phaseMechanicsText').textContent=`${mechanicName}：${mechanicText}`;
+  $('phaseMechanicsText').textContent=phaseMechanicsCopy(info,freshness,status,modeLabel);
   const source=$('phaseMechanicsSource');
   const mechanicUrl=safeLinkUrl(info.mechanic_url);
   if(mechanicUrl){source.href=mechanicUrl;source.textContent=info.mechanic_source||'机制来源';source.classList.remove('hidden-link');}
@@ -1036,6 +1042,7 @@ function recMemberHtml(member,item){
 function templateEvidenceGrade(template){const grade=String(template?.evidence_grade||'B').toUpperCase();return grade==='A'?'A':'B'}
 function templateEvidenceCount(template){const count=Math.trunc(Number(template?.duplicate_count));return Number.isFinite(count)&&count>0?count:1}
 function templateEvidenceSummary(template){return`证据 ${templateEvidenceGrade(template)} · 记录 ${templateEvidenceCount(template)} 条${template?.quality_flag?` · 质量 ${template.quality_flag}`:''}`}
+function templateSourceSummary(template){const kinds=template?.merged_source_kinds||template?.source_kind||'',files=template?.merged_source_files||template?.source_file||'';return[kinds,files].filter(Boolean).join(' · ')}
 function recTags(item){
   const t=item.template;
   const grade=templateEvidenceGrade(t),tags=[{text:item.missingCount?`缺 ${item.missingCount}`:'可成队',warn:item.missingCount>0},{text:`证据 ${grade}`,warn:grade!=='A'},{text:`记录 ${templateEvidenceCount(t)} 条`,warn:false},{text:t.source_kind||'source',warn:false}];
@@ -1210,6 +1217,6 @@ function showRecTooltip(evt,item){
   const weaknessUse=item.weaknessDriven?'用于匹配核心输出':rec.riskMode==='filter'?'默认仅标注；当前“过滤风险”会硬筛':'仅标注，不参与加减分';
   const variantText=item.isSubstituted?`C 级理论替补：${item.substitutionAssignments.map(row=>`${charName(row.missing)} → ${charName(row.replacement)}`).join('；')}；历史表现仍来自原模板`:`原始实证队伍；${templateEvidenceSummary(t)}；${t.evidence_comment||''}`;
   const ownedCount=item.finalOwnedCount??item.ownedCount,recordedCount=item.finalBuildRecordedCount??item.buildRecordedCount,readyCount=item.finalBuildReadyCount??item.buildReadyCount,missingCount=item.finalMissingCount??item.missingCount;
-  tt.innerHTML=`<div class="tooltip-head"><div><strong>${esc(t.mode_cn)} · ${esc(recScopeDisplayLabel(t.mode,t.scope_key,t.scope_label))}</strong><span>${esc(phaseLabel(t))} · ${esc(t.collect_date)}</span></div></div><div class="tooltip-grid"><b>数据范围</b><div>${esc(dataRange)}</div><b>阵容证据</b><div>${esc(variantText)}</div><b>排序参考</b><div>${esc(scoreMeta.label)}：${esc(scoreMeta.description)}</div><b>角色硬约束</b><div>${esc(constraintText)}</div><b>敌方弱点</b><div>${esc(selected)}（${esc(weaknessUse)}）</div><b>风险模式</b><div>${esc(riskMode)}</div><b>原模板表现</b><div>Rank ${esc(rankDisplayText(t.rank))} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${esc(performanceSummary(item.performance))}</div><b>最终阵容</b><div>${ownedCount}/4，练度已录入 ${recordedCount}/${ownedCount}，成型 ${readyCount}/${recordedCount}，缺 ${missingCount}</div><b>弱点命中</b><div>全队 ${item.elementHits} · 核心 ${item.coreElementHits}</div><b>风险</b><div>${esc(riskText)}</div><b>评分拆分</b><div>${esc(scoreBreakdownText(item))}</div><b>三套参考</b><div>综合 ${esc(scoreValueText(item.scores.balanced))} · 历史 ${esc(scoreValueText(item.scores.history))} · Box ${esc(scoreValueText(item.scores.box))}（量纲不同）</div><b>${esc(scoreMeta.scoreLabel)}</b><div>${Math.round(item.score)}</div><b>来源</b><div>${esc(t.source_kind||'')} · ${esc(t.source_file||'')}</div></div>`;
+  tt.innerHTML=`<div class="tooltip-head"><div><strong>${esc(t.mode_cn)} · ${esc(recScopeDisplayLabel(t.mode,t.scope_key,t.scope_label))}</strong><span>${esc(phaseLabel(t))} · ${esc(t.collect_date)}</span></div></div><div class="tooltip-grid"><b>数据范围</b><div>${esc(dataRange)}</div><b>阵容证据</b><div>${esc(variantText)}</div><b>排序参考</b><div>${esc(scoreMeta.label)}：${esc(scoreMeta.description)}</div><b>角色硬约束</b><div>${esc(constraintText)}</div><b>敌方弱点</b><div>${esc(selected)}（${esc(weaknessUse)}）</div><b>风险模式</b><div>${esc(riskMode)}</div><b>原模板表现</b><div>Rank ${esc(rankDisplayText(t.rank))} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${esc(performanceSummary(item.performance))}</div><b>最终阵容</b><div>${ownedCount}/4，练度已录入 ${recordedCount}/${ownedCount}，成型 ${readyCount}/${recordedCount}，缺 ${missingCount}</div><b>弱点命中</b><div>全队 ${item.elementHits} · 核心 ${item.coreElementHits}</div><b>风险</b><div>${esc(riskText)}</div><b>评分拆分</b><div>${esc(scoreBreakdownText(item))}</div><b>三套参考</b><div>综合 ${esc(scoreValueText(item.scores.balanced))} · 历史 ${esc(scoreValueText(item.scores.history))} · Box ${esc(scoreValueText(item.scores.box))}（量纲不同）</div><b>${esc(scoreMeta.scoreLabel)}</b><div>${Math.round(item.score)}</div><b>来源</b><div>${esc(templateSourceSummary(t))}</div></div>`;
   moveTooltip(evt);
 }
