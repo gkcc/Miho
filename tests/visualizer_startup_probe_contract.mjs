@@ -147,4 +147,16 @@ test('the product probe gates the real ZZZ to HSR to ZZZ sequence and emits exac
   assert.match(productProbeSource, /update-health cards overflow or hide sample dates at the supported minimum width/u);
   assert.match(productProbeSource, /Emulation\.clearDeviceMetricsOverride/u);
   assert.match(productProbeSource, /authoritative and visible update health after public-data update/u);
+  assert.match(productProbeSource, /verifyExpectedNextBanner\(context, game\)/u);
+  assert.match(productProbeSource, /requireExpected: !runUpdates/u);
+  assert.match(productProbeSource, /requireCurrent: !runUpdates/u);
+  assert.match(productProbeSource, /if \(requireCurrent\) \{/u);
+  assert.match(productProbeSource, /requireExpected && expectedNextBannerCount/u);
+  assert.match(productProbeSource, /\.map\(\(name\) => name\.trim\(\)\)/u);
+  assert.match(productProbeSource, /#bannerPhaseControl button/u);
+  assert.match(productProbeSource, /candidate\.dataset\.value === 'next'/u);
+  assert.match(productProbeSource, /snapshot\.bannerCardCount === snapshot\.bannerNextRowCount/u);
+  assert.match(productProbeSource, /snapshot\.bannerCardNames.*snapshot\.bannerDataNextNames/su);
+  assert.match(productProbeSource, /next banner images are broken or mismatched/u);
+  assert.match(productProbeSource, /next banner dates are not visibly rendered/u);
 });

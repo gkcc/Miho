@@ -94,6 +94,99 @@ function Get-MihoFileSha256V1 {
     }
 }
 
+function Read-MihoFileStreamBytesV1 {
+    param(
+        [Parameter(Mandatory = $true)][System.IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][int]$Count
+    )
+
+    $bytes = New-Object byte[] $Count
+    $offset = 0
+    while ($offset -lt $Count) {
+        $read = $Stream.Read($bytes, $offset, $Count - $offset)
+        if ($read -le 0) { return $null }
+        $offset += $read
+    }
+    return ,$bytes
+}
+
+function Assert-MihoWindowsGuiExecutableV1 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [string]$Label = "Executable"
+    )
+
+    $stream = $null
+    $failure = ""
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read
+        )
+        do {
+            if ($stream.Length -lt 64) {
+                $failure = "$Label is not a valid Windows PE executable."
+                break
+            }
+            $dosHeader = Read-MihoFileStreamBytesV1 -Stream $stream -Count 64
+            if ($null -eq $dosHeader -or $dosHeader[0] -ne 0x4d -or $dosHeader[1] -ne 0x5a) {
+                $failure = "$Label is not a valid Windows PE executable."
+                break
+            }
+            $peOffset = [System.BitConverter]::ToUInt32($dosHeader, 60)
+            if ($peOffset -lt 64 -or ([int64]$peOffset + 24) -gt $stream.Length) {
+                $failure = "$Label is not a valid Windows PE executable."
+                break
+            }
+
+            $stream.Position = [int64]$peOffset
+            $peHeader = Read-MihoFileStreamBytesV1 -Stream $stream -Count 24
+            if ($null -eq $peHeader -or [System.BitConverter]::ToUInt32($peHeader, 0) -ne 0x00004550) {
+                $failure = "$Label is not a valid Windows PE executable."
+                break
+            }
+            $machine = [System.BitConverter]::ToUInt16($peHeader, 4)
+            $numberOfSections = [System.BitConverter]::ToUInt16($peHeader, 6)
+            $optionalHeaderSize = [System.BitConverter]::ToUInt16($peHeader, 20)
+            $characteristics = [System.BitConverter]::ToUInt16($peHeader, 22)
+            $sectionTableEnd = [int64]$peOffset + 24 + [int64]$optionalHeaderSize + ([int64]$numberOfSections * 40)
+            if ($machine -eq 0 -or $numberOfSections -lt 1 -or $numberOfSections -gt 96 -or
+                ($characteristics -band 0x0002) -eq 0 -or ($characteristics -band 0x2000) -ne 0 -or
+                $optionalHeaderSize -lt 70 -or $sectionTableEnd -gt $stream.Length) {
+                $failure = "$Label is not a valid Windows PE executable."
+                break
+            }
+
+            $optionalHeader = Read-MihoFileStreamBytesV1 -Stream $stream -Count 70
+            if ($null -eq $optionalHeader) {
+                $failure = "$Label is not a valid Windows PE executable."
+                break
+            }
+            $magic = [System.BitConverter]::ToUInt16($optionalHeader, 0)
+            if (($magic -eq 0x010b -and $optionalHeaderSize -lt 224) -or
+                ($magic -eq 0x020b -and $optionalHeaderSize -lt 240) -or
+                ($magic -ne 0x010b -and $magic -ne 0x020b)) {
+                $failure = "$Label is not a valid Windows PE executable."
+                break
+            }
+            $subsystem = [System.BitConverter]::ToUInt16($optionalHeader, 68)
+            if ($subsystem -ne 2) {
+                $failure = "$Label must use the Windows GUI PE subsystem (Subsystem=2); found Subsystem=$subsystem."
+                break
+            }
+        } while ($false)
+    }
+    catch {
+        $failure = "$Label could not be validated as a Windows GUI PE executable: $($_.Exception.Message)"
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+    if (-not [string]::IsNullOrEmpty($failure)) { throw $failure }
+}
+
 function ConvertTo-MihoBase64V1 {
     param([Parameter(Mandatory = $true)][byte[]]$Bytes)
 
@@ -3213,6 +3306,7 @@ function Get-MihoGenerationV1 {
         [hashtable]$FileHooks
     )
 
+    $null = Assert-MihoWindowsGuiExecutableV1 -Path $SourceCli -Label "Source CLI"
     $versionResult = Invoke-MihoCheckedProcessV1 -Adapter $Adapter -FilePath $SourceCli -Arguments @("--version") -WorkingDirectory $Workspace -Label "miho version probe" -TimeoutSeconds $TimeoutSeconds
     $version = ([string]$versionResult.StdOut).Trim()
     if ([string]::IsNullOrWhiteSpace($version) -or $version.Contains([char]10) -or $version.Contains([char]13)) {
@@ -3249,6 +3343,7 @@ function Get-MihoGenerationV1 {
             Invoke-MihoGenerationCheckpointV1 -FileHooks $FileHooks -Stage "staging-created" -Path $stagingDirectory
             $stagedExecutable = Join-Path $stagingDirectory "miho.exe"
             Copy-MihoFileDurableV1 -Source $SourceCli -Destination $stagedExecutable
+            $null = Assert-MihoWindowsGuiExecutableV1 -Path $stagedExecutable -Label "Copied generation CLI"
             if ((Get-MihoFileSha256V1 -Path $stagedExecutable) -cne $sourceHash) {
                 throw "Copied CLI hash mismatch."
             }
@@ -3375,6 +3470,7 @@ function Assert-MihoGenerationOwnedV1 {
     if ((Get-MihoFileSha256V1 -Path $resolvedExecutable) -ne $hash) {
         throw "Owned generation executable has drifted."
     }
+    $null = Assert-MihoWindowsGuiExecutableV1 -Path $resolvedExecutable -Label "Owned generation CLI"
     if ($RequireOnlyExecutable) {
         $entries = @(Get-ChildItem -LiteralPath $resolvedDirectory -Force -ErrorAction Stop)
         if ($entries.Count -ne 1 -or $entries[0].Name -ne "miho.exe" -or $entries[0].PSIsContainer) {
@@ -3442,6 +3538,7 @@ function Assert-MihoExactGenerationDirectoryV1 {
     if ((Get-MihoFileSha256V1 -Path $executable) -cne $Sha256) {
         throw "Exact generation executable has drifted."
     }
+    $null = Assert-MihoWindowsGuiExecutableV1 -Path $executable -Label "Exact generation CLI"
     return [pscustomobject][ordered]@{
         Directory = $resolvedDirectory
         Executable = $executable
@@ -4488,6 +4585,39 @@ function Test-MihoTaskEquivalentExceptEnabledV1 {
     return ($Expected.Enabled -and -not $Snapshot.Enabled)
 }
 
+function Get-MihoJournalOldStateEvidenceV1 {
+    param(
+        [Parameter(Mandatory = $true)]$Journal,
+        [Parameter(Mandatory = $true)]$Paths
+    )
+
+    $oldTask = Get-MihoJournalOldTaskV1 -Journal $Journal
+    $oldManifestBytes = Get-MihoJournalOldManifestBytesV1 -Journal $Journal
+    if (($null -eq $oldTask) -xor ($null -eq $oldManifestBytes)) {
+        throw "Automation journal old task and manifest evidence disagree."
+    }
+    if ($null -eq $oldTask) {
+        return [pscustomobject][ordered]@{
+            Task = $null
+            ManifestBytes = $null
+            Manifest = $null
+            Generation = $null
+        }
+    }
+
+    $oldManifest = ConvertFrom-MihoStrictJsonBytesV1 -Bytes $oldManifestBytes
+    $oldGeneration = Assert-MihoGenerationOwnedV1 -Manifest $oldManifest -Paths $Paths -RequireOnlyExecutable
+    if (-not (Test-MihoPathEqualV1 -Left ([string]$oldTask.Execute) -Right $oldGeneration.Executable)) {
+        throw "Automation journal old task does not execute its owned generation."
+    }
+    return [pscustomobject][ordered]@{
+        Task = $oldTask
+        ManifestBytes = $oldManifestBytes
+        Manifest = $oldManifest
+        Generation = $oldGeneration
+    }
+}
+
 function Get-MihoJournalPriorStatePreflightV1 {
     param(
         [Parameter(Mandatory = $true)]$Journal,
@@ -4496,8 +4626,9 @@ function Get-MihoJournalPriorStatePreflightV1 {
         [Parameter(Mandatory = $true)][hashtable]$Adapter
     )
 
-    $oldTask = Get-MihoJournalOldTaskV1 -Journal $Journal
-    $oldManifestBytes = Get-MihoJournalOldManifestBytesV1 -Journal $Journal
+    $oldState = Get-MihoJournalOldStateEvidenceV1 -Journal $Journal -Paths $Paths
+    $oldTask = $oldState.Task
+    $oldManifestBytes = $oldState.ManifestBytes
     $currentTask = Invoke-MihoAdapterV1 -Adapter $Adapter -Operation "GetTask" -Arguments @($Identity.TaskName)
     $currentIsOld = Test-MihoSnapshotExactlyV1 -Snapshot $currentTask -Expected $oldTask
     $currentIsNew = $false
@@ -4533,6 +4664,8 @@ function Get-MihoJournalPriorStatePreflightV1 {
     return [pscustomobject][ordered]@{
         OldTask = $oldTask
         OldManifestBytes = $oldManifestBytes
+        OldManifest = $oldState.Manifest
+        OldGeneration = $oldState.Generation
         CurrentTask = $currentTask
         CurrentIsOld = $currentIsOld
         CurrentIsOldDisabled = $currentIsOldDisabled
@@ -4581,10 +4714,20 @@ function Restore-MihoJournalManifestV1 {
 function Restore-MihoJournalTaskLastV1 {
     param(
         [Parameter(Mandatory = $true)]$Preflight,
+        [Parameter(Mandatory = $true)]$Paths,
         [Parameter(Mandatory = $true)]$Identity,
         [Parameter(Mandatory = $true)][hashtable]$Adapter
     )
 
+    if ($null -ne $Preflight.OldTask) {
+        if ($null -eq $Preflight.OldManifest -or $null -eq $Preflight.OldGeneration) {
+            throw "Canonical task rollback lacks its old owned generation evidence."
+        }
+        $oldGeneration = Assert-MihoGenerationOwnedV1 -Manifest $Preflight.OldManifest -Paths $Paths -RequireOnlyExecutable
+        if (-not (Test-MihoPathEqualV1 -Left ([string]$Preflight.OldTask.Execute) -Right $oldGeneration.Executable)) {
+            throw "Canonical task rollback target does not execute its owned generation."
+        }
+    }
     $currentTask = Invoke-MihoAdapterV1 -Adapter $Adapter -Operation "GetTask" -Arguments @($Identity.TaskName)
     if ($null -ne $Preflight.OldTask) {
         if (-not (Test-MihoSnapshotExactlyV1 -Snapshot $currentTask -Expected $Preflight.OldTask)) {
@@ -4615,7 +4758,7 @@ function Restore-MihoJournalPriorStateV1 {
     $preflight = Get-MihoJournalPriorStatePreflightV1 -Journal $Journal -Paths $Paths -Identity $Identity -Adapter $Adapter
     Remove-MihoJournalNewCanonicalV1 -Preflight $preflight -Identity $Identity -Adapter $Adapter
     Restore-MihoJournalManifestV1 -Preflight $preflight -Paths $Paths -FileHooks $FileHooks
-    Restore-MihoJournalTaskLastV1 -Preflight $preflight -Identity $Identity -Adapter $Adapter
+    Restore-MihoJournalTaskLastV1 -Preflight $preflight -Paths $Paths -Identity $Identity -Adapter $Adapter
 }
 
 function Assert-MihoJournalQuarantineV1 {
@@ -5066,7 +5209,7 @@ function Rollback-MihoInstallJournalV1 {
     }
 
     Restore-MihoJournalManifestV1 -Preflight $preflight -Paths $Paths -FileHooks $FileHooks
-    Restore-MihoJournalTaskLastV1 -Preflight $preflight -Identity $Identity -Adapter $Adapter
+    Restore-MihoJournalTaskLastV1 -Preflight $preflight -Paths $Paths -Identity $Identity -Adapter $Adapter
     Restore-MihoJournalLegacyTaskV1 -Journal $Journal -Adapter $Adapter
     Remove-MihoJournalNewGenerationV1 -Journal $Journal -Paths $Paths -FileHooks $FileHooks
     $rollbackReceipt = [pscustomobject][ordered]@{
@@ -5380,6 +5523,7 @@ function Install-MihoDailyUpdateTaskV1 {
             throw "Workspace and automation storage must not overlap."
         }
         $sourcePath = Resolve-MihoExistingFileV1 -Path $SourceCli -Label "Source CLI"
+        $null = Assert-MihoWindowsGuiExecutableV1 -Path $sourcePath -Label "Source CLI"
         $selectedConfig = $Config
         if ([string]::IsNullOrWhiteSpace($selectedConfig)) {
             $selectedConfig = if ($null -ne $oldState) { $oldState.ConfigRelative } else { "configs\update_v1.json" }
@@ -5489,6 +5633,7 @@ function Install-MihoDailyUpdateTaskV1 {
             $journal.prior_health_attempt_id = Get-MihoHealthyAttemptBeforeCandidateV1 -Adapter $Adapter -Executable $generation.Executable -Workspace $workspacePath -ConfigRelative $configRelative -TimeoutSeconds $ProcessTimeoutSeconds
             Write-MihoJournalV1 -Journal $journal -Paths $paths -FileHooks $FileHooks
 
+            $null = Assert-MihoExactGenerationDirectoryV1 -Directory $generation.Directory -Sha256 $generation.Sha256 -Paths $paths
             Invoke-MihoAdapterV1 -Adapter $Adapter -Operation "RegisterTask" -Arguments @($candidateSpec) | Out-Null
             $candidateTask = Invoke-MihoAdapterV1 -Adapter $Adapter -Operation "GetTask" -Arguments @($candidateName)
             if ($null -eq $candidateTask -or -not (Test-MihoTaskMatchesSpecV1 -Snapshot $candidateTask -Spec $candidateSpec)) {
@@ -5552,6 +5697,7 @@ function Install-MihoDailyUpdateTaskV1 {
             if (($null -ne $oldState -and -not $priorPreflight.CurrentIsOldDisabled) -or ($null -eq $oldState -and $null -ne $priorPreflight.CurrentTask)) {
                 throw "Canonical task changed while the candidate was running."
             }
+            $null = Assert-MihoExactGenerationDirectoryV1 -Directory $generation.Directory -Sha256 $generation.Sha256 -Paths $paths
             Invoke-MihoAdapterV1 -Adapter $Adapter -Operation "RegisterTask" -Arguments @($canonicalSpec) | Out-Null
             $canonicalTask = Invoke-MihoAdapterV1 -Adapter $Adapter -Operation "GetTask" -Arguments @($identity.TaskName)
             if ($null -eq $canonicalTask -or -not (Test-MihoTaskMatchesSpecV1 -Snapshot $canonicalTask -Spec $canonicalSpec)) {
@@ -5892,6 +6038,7 @@ function Commit-MihoDailyUpdateTaskInstallV1 {
             if ([string]$commitHealth.attempt_id -cne $evidence.ExpectedAttemptId) {
                 throw "Commit health does not belong to the prepared candidate attempt."
             }
+            $null = Assert-MihoExactGenerationDirectoryV1 -Directory $evidence.Generation.Directory -Sha256 $evidence.Generation.Sha256 -Paths $paths
             Invoke-MihoAdapterV1 -Adapter $Adapter -Operation "RegisterTask" -Arguments @($evidence.CanonicalSpec) | Out-Null
             $canonicalTask = Invoke-MihoAdapterV1 -Adapter $Adapter -Operation "GetTask" -Arguments @($identity.TaskName)
             if ($null -eq $canonicalTask -or -not (Test-MihoTaskMatchesSpecV1 -Snapshot $canonicalTask -Spec $evidence.CanonicalSpec)) {

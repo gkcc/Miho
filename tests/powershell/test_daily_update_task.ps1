@@ -56,6 +56,71 @@ function Set-TestTaskArguments {
     $State.Tasks[$TaskName] = Convert-MihoTaskXmlToSnapshotV1 -TaskName $TaskName -Xml $document.OuterXml -Sddl $snapshot.Sddl
 }
 
+function Copy-TestBytes {
+    param(
+        [Parameter(Mandatory = $true)][byte[]]$Source,
+        [Parameter(Mandatory = $true)][byte[]]$Destination,
+        [Parameter(Mandatory = $true)][int]$Offset
+    )
+    [System.Array]::Copy($Source, 0, $Destination, $Offset, $Source.Length)
+}
+
+function New-TestPeExecutableBytes {
+    param(
+        [uint16]$Subsystem = 2,
+        [uint32]$Marker = 1
+    )
+
+    $bytes = New-Object byte[] 512
+    $bytes[0] = 0x4d
+    $bytes[1] = 0x5a
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]0x80)) -Destination $bytes -Offset 0x3c
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]0x00004550)) -Destination $bytes -Offset 0x80
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint16]0x8664)) -Destination $bytes -Offset 0x84
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint16]1)) -Destination $bytes -Offset 0x86
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes($Marker)) -Destination $bytes -Offset 0x88
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint16]0x00f0)) -Destination $bytes -Offset 0x94
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint16]0x0022)) -Destination $bytes -Offset 0x96
+
+    $optional = 0x98
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint16]0x020b)) -Destination $bytes -Offset $optional
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]0x1000)) -Destination $bytes -Offset ($optional + 16)
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]0x1000)) -Destination $bytes -Offset ($optional + 32)
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]0x0200)) -Destination $bytes -Offset ($optional + 36)
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]0x1000)) -Destination $bytes -Offset ($optional + 56)
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]0x0200)) -Destination $bytes -Offset ($optional + 60)
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes($Subsystem)) -Destination $bytes -Offset ($optional + 68)
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]16)) -Destination $bytes -Offset ($optional + 108)
+
+    $section = $optional + 0x00f0
+    Copy-TestBytes -Source ([System.Text.Encoding]::ASCII.GetBytes(".text")) -Destination $bytes -Offset $section
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]1)) -Destination $bytes -Offset ($section + 8)
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]0x1000)) -Destination $bytes -Offset ($section + 12)
+    Copy-TestBytes -Source ([System.BitConverter]::GetBytes([uint32]0x60000020)) -Destination $bytes -Offset ($section + 36)
+    return ,$bytes
+}
+
+function Set-TestJournalOldGenerationSubsystem {
+    param(
+        [Parameter(Mandatory = $true)]$Case,
+        [uint16]$Subsystem = 3
+    )
+
+    $record = Read-MihoJsonFileV1 -Path $Case.Paths.Journal -MaximumBytes $script:MihoJournalMaximumBytesV1
+    $oldManifestBytes = ConvertFrom-MihoBase64V1 -Text ([string]$record.Object.old_manifest_bytes_base64)
+    $oldManifest = ConvertFrom-MihoStrictJsonBytesV1 -Bytes $oldManifestBytes
+    $oldExecutable = [string]$oldManifest.exe_path
+    [System.IO.File]::WriteAllBytes($oldExecutable, (New-TestPeExecutableBytes -Subsystem $Subsystem))
+    $oldManifest.exe_sha256 = Get-MihoFileSha256V1 -Path $oldExecutable
+    $oldManifestBytes = ConvertTo-MihoJsonBytesV1 -Object $oldManifest
+    $record.Object.old_manifest_bytes_base64 = ConvertTo-MihoBase64V1 -Bytes $oldManifestBytes
+    $record.Object.old_manifest_sha256 = Get-MihoSha256BytesV1 -Bytes $oldManifestBytes
+    [System.IO.File]::WriteAllBytes($Case.Paths.Journal, (ConvertTo-MihoJsonBytesV1 -Object $record.Object))
+    if (Test-Path -LiteralPath $Case.Paths.Manifest) {
+        [System.IO.File]::WriteAllBytes($Case.Paths.Manifest, $oldManifestBytes)
+    }
+}
+
 function New-TestCase {
     param([string]$Label)
 
@@ -65,7 +130,7 @@ function New-TestCase {
     $source = Join-Path $base "source portable miho.exe"
     New-Item -ItemType Directory -Path (Join-Path $workspace "configs") -Force | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $workspace "configs\update_v1.json"), "{}", (Get-MihoUtf8V1))
-    [System.IO.File]::WriteAllBytes($source, (Get-MihoUtf8V1).GetBytes("fake-cli-v1-$Label"))
+    [System.IO.File]::WriteAllBytes($source, (New-TestPeExecutableBytes -Marker 1))
     $identity = Get-MihoTaskIdentityV1 -OwnerSid (Get-MihoCurrentSidV1)
     $ownerKind = "manual"
     $ownerInstanceId = [guid]::NewGuid().ToString("D").ToLowerInvariant()
@@ -274,7 +339,7 @@ function Invoke-TestInstall {
 
 function Set-TestSourceV2 {
     param($Case)
-    [System.IO.File]::WriteAllBytes($Case.Source, (Get-MihoUtf8V1).GetBytes("fake-cli-v2-$([guid]::NewGuid().ToString('N'))"))
+    [System.IO.File]::WriteAllBytes($Case.Source, (New-TestPeExecutableBytes -Marker 2))
     $Case.State.Version = "miho 2.0.0"
 }
 
@@ -2366,6 +2431,150 @@ function Test-WrapperClaimAndUninstallOwnerRoundTrip {
     finally { Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+function Test-WindowsGuiExecutableInvariant {
+    foreach ($fixture in @(
+        [pscustomobject]@{ Label = "cui-source"; Bytes = (New-TestPeExecutableBytes -Subsystem 3); Error = "Subsystem=2" },
+        [pscustomobject]@{ Label = "corrupt-source"; Bytes = [byte[]](0x4d, 0x5a, 0, 0); Error = "valid Windows PE" }
+    )) {
+        $case = New-TestCase -Label $fixture.Label
+        try {
+            [System.IO.File]::WriteAllBytes($case.Source, [byte[]]$fixture.Bytes)
+            $callsBefore = $case.State.Calls.Count
+            Assert-Throws { Invoke-TestInstall -Case $case } $fixture.Error
+            $newCalls = @($case.State.Calls | Select-Object -Skip $callsBefore)
+            Assert-Equal @($newCalls | Where-Object { $_.Operation -eq "RegisterTask" }).Count 0 "Invalid source registered a candidate task: $($fixture.Label)"
+            Assert-True (-not (Test-Path -LiteralPath $case.Paths.Journal)) "Invalid source wrote an install journal: $($fixture.Label)"
+            Assert-True (-not (Test-Path -LiteralPath $case.Paths.Manifest)) "Invalid source wrote an ownership manifest: $($fixture.Label)"
+            Assert-Equal @(Get-ChildItem -LiteralPath $case.Paths.Generations -Force).Count 0 "Invalid source created a generation: $($fixture.Label)"
+        }
+        finally { Remove-TestCase $case }
+    }
+
+    $case = New-TestCase -Label "cui-after-copy"
+    try {
+        $hookState = [pscustomobject]@{ Source = $case.Source; Mutated = $false }
+        $generationCheckpoint = {
+            param($stage, $path)
+            if ([string]$stage -ceq "staging-created" -and -not $hookState.Mutated) {
+                [System.IO.File]::WriteAllBytes($hookState.Source, (New-TestPeExecutableBytes -Subsystem 3))
+                $hookState.Mutated = $true
+            }
+        }.GetNewClosure()
+        $callsBefore = $case.State.Calls.Count
+        Assert-Throws { Invoke-TestInstall -Case $case -FileHooks @{ GenerationCheckpoint = $generationCheckpoint } } "Copied generation CLI must use"
+        Assert-True $hookState.Mutated "Post-source-validation copy mutation hook did not run."
+        $newCalls = @($case.State.Calls | Select-Object -Skip $callsBefore)
+        Assert-Equal @($newCalls | Where-Object { $_.Operation -eq "RegisterTask" }).Count 0 "CUI copy registered a candidate task."
+        Assert-True (-not (Test-Path -LiteralPath $case.Paths.Journal)) "CUI copy wrote an install journal."
+        Assert-Equal @(Get-ChildItem -LiteralPath $case.Paths.Generations -Force).Count 0 "CUI copy left generation staging evidence."
+    }
+    finally { Remove-TestCase $case }
+
+    $case = New-TestCase -Label "active-cui-generation"
+    try {
+        $null = Invoke-TestInstall -Case $case
+        $manifest = (Read-MihoJsonFileV1 -Path $case.Paths.Manifest -MaximumBytes $script:MihoManifestMaximumBytesV1).Object
+        [System.IO.File]::WriteAllBytes([string]$manifest.exe_path, (New-TestPeExecutableBytes -Subsystem 3))
+        $manifest.exe_sha256 = Get-MihoFileSha256V1 -Path ([string]$manifest.exe_path)
+        [System.IO.File]::WriteAllBytes($case.Paths.Manifest, (ConvertTo-MihoJsonBytesV1 -Object $manifest))
+        Assert-Throws { Assert-MihoGenerationOwnedV1 -Manifest $manifest -Paths $case.Paths -RequireOnlyExecutable } "Subsystem=2"
+        Assert-Equal (Invoke-TestDesktopProbeWithLease -Case $case -ExpectedOwnerKind $case.OwnerKind -ExpectedOwnerInstanceId $case.OwnerInstanceId).status "invalid" "Desktop probe accepted a CUI active generation."
+    }
+    finally { Remove-TestCase $case }
+
+    $case = New-TestCase -Label "recovery-cui-generation"
+    try {
+        $hookState = [pscustomobject]@{ TargetPhase = "prepared"; FailCount = 1 }
+        Assert-Throws { Invoke-TestInstall -Case $case -FileHooks (New-JournalPhaseCrashHooks $hookState) } "requires explicit repair"
+        $record = Read-MihoJsonFileV1 -Path $case.Paths.Journal -MaximumBytes $script:MihoJournalMaximumBytesV1
+        $stagingExecutable = Join-Path ([string]$record.Object.new_generation_staging_path) "miho.exe"
+        [System.IO.File]::WriteAllBytes($stagingExecutable, (New-TestPeExecutableBytes -Subsystem 3))
+        $record.Object.new_exe_sha256 = Get-MihoFileSha256V1 -Path $stagingExecutable
+        [System.IO.File]::WriteAllBytes($case.Paths.Journal, (ConvertTo-MihoJsonBytesV1 -Object $record.Object))
+        Assert-Throws { Get-MihoInstallJournalEvidenceV1 -Journal $record.Object -Paths $case.Paths -Identity $case.Identity } "Subsystem=2"
+    }
+    finally { Remove-TestCase $case }
+}
+
+function Test-RecoveryRefusesCuiOldGenerationBeforeTaskRestore {
+    $case = New-TestCase -Label "install-repair-cui-old"
+    try {
+        $null = Invoke-TestInstall -Case $case
+        Set-TestSourceV2 -Case $case
+        $case.State.FailRestoreCount = 1
+        $hookState = [pscustomobject]@{ FailCount = 1 }
+        Assert-Throws { Invoke-TestInstall -Case $case -FileHooks (New-ManifestFailureHooks $hookState) } "rollback is pending"
+        Assert-True (Test-Path -LiteralPath $case.Paths.Journal) "Install crash fixture did not retain its journal."
+        $case.State.FailRestoreCount = 0
+        Set-TestJournalOldGenerationSubsystem -Case $case -Subsystem 3
+        $restoreBefore = $case.State.RestoreCount
+        $callsBefore = $case.State.Calls.Count
+        Assert-Throws {
+            Repair-MihoAutomationJournalV1 -ExpectedOwnerKind $case.OwnerKind -ExpectedOwnerInstanceId $case.OwnerInstanceId -AutomationRoot $case.Automation -Adapter $case.Adapter -ProcessTimeoutSeconds 5
+        } "Subsystem=2"
+        Assert-Equal $case.State.RestoreCount $restoreBefore "Install Repair restored a task before rejecting its CUI old generation."
+        $newCalls = @($case.State.Calls | Select-Object -Skip $callsBefore)
+        Assert-Equal @($newCalls | Where-Object { $_.Operation -eq "RestoreTask" }).Count 0 "Install Repair issued RestoreTask for a CUI old generation."
+        Assert-True (Test-Path -LiteralPath $case.Paths.Journal) "Rejected install Repair removed its recovery journal."
+    }
+    finally { Remove-TestCase $case }
+
+    $case = New-TestCase -Label "uninstall-repair-cui-old"
+    try {
+        $null = Invoke-TestInstall -Case $case
+        $case.State.FailRestoreCount = 1
+        $hookState = [pscustomobject]@{ TargetPhase = "generation-quarantined"; FailCount = 1 }
+        Assert-Throws {
+            Uninstall-MihoDailyUpdateTaskV1 -ExpectedOwnerKind $case.OwnerKind -ExpectedOwnerInstanceId $case.OwnerInstanceId -AutomationRoot $case.Automation -Adapter $case.Adapter -QuiesceTimeoutSeconds 5 -FileHooks (New-JournalPhaseCrashHooks $hookState)
+        } "rollback is pending"
+        Assert-True (Test-Path -LiteralPath $case.Paths.Journal) "Uninstall crash fixture did not retain its journal."
+        $case.State.FailRestoreCount = 0
+        Set-TestJournalOldGenerationSubsystem -Case $case -Subsystem 3
+        $restoreBefore = $case.State.RestoreCount
+        $callsBefore = $case.State.Calls.Count
+        Assert-Throws {
+            Repair-MihoAutomationJournalV1 -ExpectedOwnerKind $case.OwnerKind -ExpectedOwnerInstanceId $case.OwnerInstanceId -AutomationRoot $case.Automation -Adapter $case.Adapter -ProcessTimeoutSeconds 5
+        } "Subsystem=2"
+        Assert-Equal $case.State.RestoreCount $restoreBefore "Uninstall Repair restored a task before rejecting its CUI old generation."
+        $newCalls = @($case.State.Calls | Select-Object -Skip $callsBefore)
+        Assert-Equal @($newCalls | Where-Object { $_.Operation -eq "RestoreTask" }).Count 0 "Uninstall Repair issued RestoreTask for a CUI old generation."
+        Assert-True (Test-Path -LiteralPath $case.Paths.Journal) "Rejected uninstall Repair removed its recovery journal."
+    }
+    finally { Remove-TestCase $case }
+
+    $case = New-TestCase -Label "uninstall-repair-valid-quarantine"
+    try {
+        $null = Invoke-TestInstall -Case $case
+        $oldTask = Copy-TestSnapshot $case.State.Tasks[$case.Identity.TaskName]
+        $oldManifestBytes = [System.IO.File]::ReadAllBytes($case.Paths.Manifest)
+        $oldManifest = ConvertFrom-MihoStrictJsonBytesV1 -Bytes $oldManifestBytes
+        $authority = (Read-MihoAuthorityV1 -Paths $case.Paths -Identity $case.Identity).Object
+        $owner = [pscustomobject][ordered]@{
+            Kind = [string]$authority.owner_kind
+            InstanceId = [string]$authority.owner_instance_id
+            Epoch = [string]$authority.owner_epoch
+        }
+        $quarantine = Join-Path $case.Paths.Generations (".uninstall-" + [guid]::NewGuid().ToString("N"))
+        $journal = New-MihoJournalV1 -Operation "uninstall" -Identity $case.Identity -Owner $owner -Paths $case.Paths -OldTask $oldTask -OldManifestBytes $oldManifestBytes -NewSpec $null -OriginalGenerationPath ([string]$oldManifest.generation_path) -QuarantinePath $quarantine
+        Write-MihoJournalV1 -Journal $journal -Paths $case.Paths
+        Invoke-MihoAdapterV1 -Adapter $case.Adapter -Operation "DisableTask" -Arguments @($case.Identity.TaskName) | Out-Null
+        Move-MihoDirectoryV1 -Source ([string]$oldManifest.generation_path) -Destination $quarantine -Purpose "test-uninstall-generation-quarantine"
+        $journal.phase = "generation-quarantined"
+        Write-MihoJournalV1 -Journal $journal -Paths $case.Paths
+
+        Assert-True (-not (Test-Path -LiteralPath ([string]$oldManifest.generation_path)) -and (Test-Path -LiteralPath $quarantine)) "Valid public Repair fixture is not quarantine-only."
+        $repaired = Repair-MihoAutomationJournalV1 -ExpectedOwnerKind $case.OwnerKind -ExpectedOwnerInstanceId $case.OwnerInstanceId -AutomationRoot $case.Automation -Adapter $case.Adapter -ProcessTimeoutSeconds 5
+        Assert-True ($repaired.recovered -and -not $repaired.committed) "Public Repair did not recover a valid quarantine-only uninstall."
+        Assert-True (Test-Path -LiteralPath ([string]$oldManifest.generation_path)) "Public Repair did not restore the valid quarantined generation."
+        Assert-True (-not (Test-Path -LiteralPath $quarantine)) "Public Repair left the valid quarantine path."
+        Assert-True (Test-MihoSnapshotExactlyV1 -Snapshot $case.State.Tasks[$case.Identity.TaskName] -Expected $oldTask) "Public Repair did not restore the valid old task."
+        Assert-True (-not (Test-Path -LiteralPath $case.Paths.Journal)) "Public Repair left the valid uninstall journal."
+    }
+    finally { Remove-TestCase $case }
+}
+
+Test-RecoveryRefusesCuiOldGenerationBeforeTaskRestore
+Test-WindowsGuiExecutableInvariant
 Test-SuccessAndUnicodeQuoting
 Test-OwnershipConflictPreservesState
 Test-CaseSensitiveWorkspaceIdentityIsNotCollapsed

@@ -2674,6 +2674,19 @@ test('banner refresh labels expose the managed official snapshot timestamp', () 
   });
   assert.equal(zzz.bannerRefresh(), '官方卡池资料上次刷新：2026-07-24 22:30');
 
+  zzz.reset({
+    rosterRows: [],
+    bannerRows: [],
+    teamTemplates: [],
+    tierRows: [],
+    usageRows: [],
+    bannerRefresh: {status: 'no_current', fetched_at: '2026-07-24T14:30:00Z'},
+  });
+  assert.equal(
+    zzz.bannerRefresh(),
+    '官方卡池资料已于 2026-07-24 22:30 检查，但官方响应未覆盖当前或下一期',
+  );
+
   hsr.reset({
     ...hsrData([], []),
     bannerRefresh: {status: 'stale', fetched_at: '2026-07-24T14:30:00Z'},

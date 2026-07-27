@@ -22,7 +22,15 @@ param(
     [switch]$RunProductUpdates,
 
     [ValidateRange(30, 900)]
-    [int]$ProductUpdateTimeoutSeconds = 600
+    [int]$ProductUpdateTimeoutSeconds = 600,
+
+    [string]$ExpectedHsrBannerNames = "",
+
+    [string]$ExpectedZzzBannerNames = "",
+
+    [string]$ExpectedHsrNextBannerNames = "",
+
+    [string]$ExpectedZzzNextBannerNames = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -794,16 +802,32 @@ try {
         $previousErrorActionPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            $productProbeOutput = @(& $nodeCommand.Source `
-                $fullProductProbeScript `
-                "--ws" ([string]$readyTarget.webSocketDebuggerUrl) `
-                "--expected-hsr-owned" ([string]$ExpectedHsrOwned) `
-                "--expected-zzz-owned" ([string]$ExpectedZzzOwned) `
-                "--expected-hsr-total" ([string]$ExpectedHsrTotal) `
-                "--expected-zzz-total" ([string]$ExpectedZzzTotal) `
-                "--timeout-ms" "120000" `
-                "--run-updates" ([string]$RunProductUpdates.IsPresent).ToLowerInvariant() `
-                "--update-timeout-ms" ([string]($ProductUpdateTimeoutSeconds * 1000)) 2>&1)
+            $productProbeArguments = @(
+                $fullProductProbeScript,
+                "--ws", ([string]$readyTarget.webSocketDebuggerUrl),
+                "--expected-hsr-owned", ([string]$ExpectedHsrOwned),
+                "--expected-zzz-owned", ([string]$ExpectedZzzOwned),
+                "--expected-hsr-total", ([string]$ExpectedHsrTotal),
+                "--expected-zzz-total", ([string]$ExpectedZzzTotal),
+                "--timeout-ms", "120000",
+                "--run-updates", ([string]$RunProductUpdates.IsPresent).ToLowerInvariant(),
+                "--update-timeout-ms", ([string]($ProductUpdateTimeoutSeconds * 1000))
+            )
+            foreach ($bannerExpectation in @(
+                    [pscustomobject]@{ Game = "hsr"; Phase = ""; Names = $ExpectedHsrBannerNames },
+                    [pscustomobject]@{ Game = "zzz"; Phase = ""; Names = $ExpectedZzzBannerNames },
+                    [pscustomobject]@{ Game = "hsr"; Phase = "next-"; Names = $ExpectedHsrNextBannerNames },
+                    [pscustomobject]@{ Game = "zzz"; Phase = "next-"; Names = $ExpectedZzzNextBannerNames }
+                )) {
+                $names = @(([string]$bannerExpectation.Names).Split([char]'|') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                if ($names.Count -eq 0) { continue }
+                $prefix = "--expected-{0}-{1}banner-" -f $bannerExpectation.Game, $bannerExpectation.Phase
+                $productProbeArguments += @(
+                    ($prefix + "count"), ([string]$names.Count),
+                    ($prefix + "names"), ([string]$bannerExpectation.Names)
+                )
+            }
+            $productProbeOutput = @(& $nodeCommand.Source @productProbeArguments 2>&1)
             $productProbeExitCode = $LASTEXITCODE
         }
         finally {

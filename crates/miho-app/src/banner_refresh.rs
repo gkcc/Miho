@@ -159,6 +159,9 @@ pub fn parse_hsr_user_post_list_json(input: &str) -> Result<Vec<HsrOfficialPostR
             continue;
         };
         if !is_hsr_banner_title(title) {
+            if is_hsr_banner_like_title(title) {
+                bail!("HSR userPost contained an unrecognized official banner title: {title:?}");
+            }
             continue;
         }
         validate_hsr_official_post(post, "HSR userPost banner candidate")?;
@@ -211,11 +214,14 @@ pub fn parse_hsr_get_post_full_json(input: &str) -> Result<Vec<OfficialBannerPha
         content,
         &format!("米游社官方：{title}"),
         &source_url,
+        None,
     )
 }
 
-/// Parses strict `版本限时频段（上期/下期）` announcement items from the
-/// official ZZZ content-v2 channel response.
+/// Parses strict version banner announcements from the official ZZZ
+/// content-v2 channel response. New-version notices may express their start
+/// as `版本更新后`; those are bound to the matching official maintenance
+/// schedule instead of guessing from the announcement publication time.
 pub fn parse_zzz_content_list_json(input: &str) -> Result<Vec<OfficialBannerPhaseV1>> {
     let root = parse_success_response(input, "ZZZ getContentList")?;
     let list = root
@@ -231,9 +237,14 @@ pub fn parse_zzz_content_list_json(input: &str) -> Result<Vec<OfficialBannerPhas
         let Some(title) = item.get("sTitle").and_then(Value::as_str) else {
             continue;
         };
-        if !is_zzz_banner_title(title) {
+        let Some(version) = zzz_banner_version(title) else {
+            if is_zzz_banner_like_title(title) {
+                bail!(
+                    "ZZZ getContentList contained an unrecognized official banner title: {title:?}"
+                );
+            }
             continue;
-        }
+        };
         matching_titles += 1;
         let channels = item
             .get("sChanId")
@@ -259,6 +270,11 @@ pub fn parse_zzz_content_list_json(input: &str) -> Result<Vec<OfficialBannerPhas
             bail!("ZZZ banner item {title:?} has no announcement content");
         }
         let combined = format!("{intro}\n{content}");
+        let version_update_at = if combined.contains("版本更新后") {
+            Some(find_zzz_version_update_completion(list, &version)?)
+        } else {
+            None
+        };
         let source_url = format!("https://zzz.mihoyo.com/news/{info_id}");
         phases.extend(parse_announcement_phases(
             "zzz",
@@ -267,6 +283,7 @@ pub fn parse_zzz_content_list_json(input: &str) -> Result<Vec<OfficialBannerPhas
             &combined,
             &format!("《绝区零》官方网站：{title}"),
             &source_url,
+            version_update_at,
         )?);
     }
     if matching_titles == 0 {
@@ -305,12 +322,31 @@ pub fn merge_banner_plan_snapshot(
         .context("existing banner plan phases must be an array")?;
 
     let existing_character_index = index_existing_characters(phases);
+    let official_phases = dedupe_official_phases(official_phases.to_vec())?;
+    let official_statuses = official_phases
+        .iter()
+        .map(|phase| official_phase_status(phase, fetched_at))
+        .collect::<Vec<_>>();
+    let official_current_phase_count = official_statuses
+        .iter()
+        .filter(|status| **status == "current")
+        .count();
+    let official_next_phase_count = official_statuses
+        .iter()
+        .filter(|status| **status == "next")
+        .count();
+    let refresh_status = if official_current_phase_count > 0 || official_next_phase_count > 0 {
+        "fresh"
+    } else {
+        "no_current"
+    };
+    let official_phase_count = official_phases.len();
     let mut used_existing = BTreeSet::new();
     let mut confirmed_slugs = BTreeSet::new();
-    for official in dedupe_official_phases(official_phases.to_vec())? {
-        validate_official_phase(&official)?;
+    for official in &official_phases {
+        validate_official_phase(official)?;
         let resolved_characters =
-            resolve_official_characters(&official, name_map, &existing_character_index)?;
+            resolve_official_characters(official, name_map, &existing_character_index)?;
         confirmed_slugs.extend(
             resolved_characters
                 .iter()
@@ -318,20 +354,15 @@ pub fn merge_banner_plan_snapshot(
                 .map(str::to_owned),
         );
         let match_index =
-            find_matching_phase(phases, &official, &resolved_characters, &used_existing);
-        let status = official_phase_status(&official, fetched_at);
+            find_matching_phase(phases, official, &resolved_characters, &used_existing);
+        let status = official_phase_status(official, fetched_at);
         let merged = if let Some(index) = match_index {
             used_existing.insert(index);
-            merge_one_phase(
-                phases[index].clone(),
-                &official,
-                resolved_characters,
-                status,
-            )?
+            merge_one_phase(phases[index].clone(), official, resolved_characters, status)?
         } else {
             merge_one_phase(
                 Value::Object(Map::new()),
-                &official,
+                official,
                 resolved_characters,
                 status,
             )?
@@ -339,20 +370,29 @@ pub fn merge_banner_plan_snapshot(
         if let Some(index) = match_index {
             phases[index] = merged;
         } else {
+            let index = phases.len();
             phases.push(merged);
+            // A phase added by this same official response is not an existing
+            // baseline candidate for a later phase. Shared rerun/support UP
+            // characters must not let one newly announced pool replace
+            // another pool from the same source.
+            used_existing.insert(index);
         }
     }
     refresh_dated_phase_statuses(phases, fetched_at);
     remove_promoted_satellites(phases, &confirmed_slugs);
     dedupe_plan_phases(phases);
 
-    append_root_sources(root_object, official_phases)?;
+    append_root_sources(root_object, &official_phases)?;
     root_object.insert(
         "refresh".to_owned(),
         json!({
-            "status": "fresh",
+            "status": refresh_status,
             "fetched_at": refresh.fetched_at,
             "source_label": refresh.source_label,
+            "official_phase_count": official_phase_count,
+            "official_current_phase_count": official_current_phase_count,
+            "official_next_phase_count": official_next_phase_count,
         }),
     );
     root_object.insert(
@@ -466,15 +506,103 @@ fn is_hsr_banner_title(title: &str) -> bool {
     is_version_number(version)
 }
 
-fn is_zzz_banner_title(title: &str) -> bool {
+fn is_hsr_banner_like_title(title: &str) -> bool {
+    let compact = remove_whitespace(title);
+    compact.contains("版本活动跃迁") || compact.contains("联动跃迁说明")
+}
+
+fn zzz_banner_version(title: &str) -> Option<String> {
     let compact = remove_whitespace(title);
     let Some(version) = compact
         .strip_suffix("版本限时频段（上期）")
         .or_else(|| compact.strip_suffix("版本限时频段（下期）"))
+        .or_else(|| compact.strip_suffix("版本限时频段"))
     else {
-        return false;
+        return None;
     };
-    is_version_number(version)
+    is_version_number(version).then(|| version.to_owned())
+}
+
+fn is_zzz_banner_like_title(title: &str) -> bool {
+    remove_whitespace(title).contains("版本限时频段")
+}
+
+fn find_zzz_version_update_completion(list: &[Value], version: &str) -> Result<NaiveDateTime> {
+    let expected_prefix = format!("{version}版本");
+    let mut completions = BTreeSet::new();
+    for item in list {
+        let item = item
+            .as_object()
+            .context("ZZZ getContentList list item must be an object")?;
+        let Some(title) = item.get("sTitle").and_then(Value::as_str) else {
+            continue;
+        };
+        let compact_title = remove_whitespace(title);
+        if !compact_title.starts_with(&expected_prefix) || !compact_title.contains("更新通知") {
+            continue;
+        }
+        let intro = item.get("sIntro").and_then(Value::as_str).unwrap_or("");
+        let content = item.get("sContent").and_then(Value::as_str).unwrap_or("");
+        if intro.trim().is_empty() && content.trim().is_empty() {
+            bail!("ZZZ {version} update notice has no content");
+        }
+        completions.insert(parse_zzz_version_update_completion(&format!(
+            "{intro}\n{content}"
+        ))?);
+    }
+    match completions.len() {
+        1 => Ok(*completions.iter().next().unwrap()),
+        0 => {
+            bail!("ZZZ {version} version-relative banner has no matching official update schedule")
+        }
+        _ => bail!("ZZZ {version} official update schedules disagree"),
+    }
+}
+
+fn parse_zzz_version_update_completion(raw_content: &str) -> Result<NaiveDateTime> {
+    let text = strip_html(raw_content);
+    let marker = text
+        .find("【版本更新时间】")
+        .map(|index| index + "【版本更新时间】".len())
+        .or_else(|| {
+            text.find("版本更新时间")
+                .map(|index| index + "版本更新时间".len())
+        })
+        .context("ZZZ official update notice has no version update time section")?;
+    let remaining = &text[marker..];
+    let section = remaining
+        .find('【')
+        .and_then(|end| remaining.get(..end))
+        .unwrap_or(remaining);
+    if !section.contains("开始") || !section.contains("预计需要") {
+        bail!("ZZZ official update notice has no bounded maintenance schedule");
+    }
+    let dates = scan_date_tokens(section);
+    if dates.len() != 1 || !dates[0].has_time {
+        bail!("ZZZ official update notice has an invalid maintenance start");
+    }
+    let compact = remove_whitespace(section);
+    let duration = compact
+        .split_once("预计需要")
+        .map(|(_, suffix)| suffix)
+        .context("ZZZ official update notice has no maintenance duration")?;
+    let digit_count = duration.bytes().take_while(u8::is_ascii_digit).count();
+    if digit_count == 0
+        || !duration[digit_count..].starts_with("个小时")
+            && !duration[digit_count..].starts_with("小时")
+    {
+        bail!("ZZZ official update notice has an unsupported maintenance duration");
+    }
+    let hours = duration[..digit_count]
+        .parse::<i64>()
+        .context("parse ZZZ official maintenance duration")?;
+    if !(1..=24).contains(&hours) {
+        bail!("ZZZ official maintenance duration is outside the supported range");
+    }
+    dates[0]
+        .value
+        .checked_add_signed(Duration::hours(hours))
+        .context("ZZZ official update completion overflowed")
 }
 
 fn is_version_number(value: &str) -> bool {
@@ -494,19 +622,30 @@ fn parse_announcement_phases(
     raw_content: &str,
     source_label: &str,
     source_url: &str,
+    version_update_at: Option<NaiveDateTime>,
 ) -> Result<Vec<OfficialBannerPhaseV1>> {
     let text = strip_html(raw_content);
     let segments = split_segments(&text);
     let mut windows: BTreeMap<String, (DateWindow, Vec<OfficialBannerCharacterV1>)> =
         BTreeMap::new();
     let mut malformed_relevant_segment = None;
-    for segment in &segments {
+    for (index, segment) in segments.iter().enumerate() {
         if !is_banner_date_segment(segment) {
             continue;
         }
-        match parse_date_window(segment) {
+        match parse_date_window(segment, version_update_at) {
             Ok(window) => {
-                let roles = extract_role_mentions(segment);
+                let mut roles = extract_role_mentions(segment);
+                if roles.is_empty() {
+                    for following in segments.iter().skip(index + 1) {
+                        if is_banner_date_segment(following)
+                            || announcement_fact_prefix(following).len() != following.len()
+                        {
+                            break;
+                        }
+                        merge_character_facts(&mut roles, &extract_role_mentions(following));
+                    }
+                }
                 windows
                     .entry(window.date_range.clone())
                     .and_modify(|(_, existing)| merge_character_facts(existing, &roles))
@@ -562,13 +701,19 @@ fn parse_announcement_phases(
 
 fn is_banner_date_segment(segment: &str) -> bool {
     segment.contains("跃迁时间")
-        || segment.contains("调频活动时间")
+        || ((segment.contains("调频活动时间")
+            || segment.contains("活动时间")
+            || segment.contains("版本更新后"))
+            && !scan_date_tokens(segment).is_empty())
         || (segment.contains("联动跃迁")
             && segment.contains("长期开放")
             && !scan_date_tokens(segment).is_empty())
 }
 
-fn parse_date_window(segment: &str) -> Result<DateWindow> {
+fn parse_date_window(
+    segment: &str,
+    version_update_at: Option<NaiveDateTime>,
+) -> Result<DateWindow> {
     let dates = scan_date_tokens(segment);
     for date in &dates {
         if !date.has_time
@@ -604,6 +749,24 @@ fn parse_date_window(segment: &str) -> Result<DateWindow> {
             date_range: format!("{} 后长期开放", dates[0].canonical),
             start_at: dates[0].canonical.clone(),
             end_at: None,
+        });
+    }
+    if dates.len() == 1 && segment.contains("版本更新后") {
+        let start = version_update_at
+            .context("version-relative official banner date has no trusted update completion")?;
+        let end = &dates[0];
+        if end.value < start {
+            bail!(
+                "official version-relative date range ends before it starts: {} -> {}",
+                start.format("%Y-%m-%d %H:%M"),
+                end.canonical
+            );
+        }
+        let start_at = start.format("%Y-%m-%d %H:%M").to_string();
+        return Ok(DateWindow {
+            date_range: format!("{} 至 {}", start_at, end.canonical),
+            start_at,
+            end_at: Some(end.canonical.clone()),
         });
     }
     bail!("expected a complete date range or one long-term-open date")
@@ -797,16 +960,20 @@ fn merge_character_facts(
 fn strip_html(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     let mut in_tag = false;
+    let mut tag = String::new();
     for character in value.chars() {
         match character {
             '<' if !in_tag => {
                 in_tag = true;
-                output.push('\n');
+                tag.clear();
             }
             '>' if in_tag => {
                 in_tag = false;
-                output.push('\n');
+                if is_html_segment_boundary_tag(&tag) {
+                    output.push('\n');
+                }
             }
+            _ if in_tag => tag.push(character),
             _ if !in_tag => output.push(character),
             _ => {}
         }
@@ -819,6 +986,39 @@ fn strip_html(value: &str) -> String {
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
+}
+
+fn is_html_segment_boundary_tag(raw_tag: &str) -> bool {
+    let tag = raw_tag
+        .trim_start()
+        .trim_start_matches('/')
+        .split(|character: char| character.is_whitespace() || character == '/')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    matches!(
+        tag.as_str(),
+        "p" | "div"
+            | "br"
+            | "li"
+            | "ul"
+            | "ol"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "section"
+            | "article"
+            | "table"
+            | "thead"
+            | "tbody"
+            | "tfoot"
+            | "tr"
+            | "td"
+            | "th"
+    )
 }
 
 fn split_segments(value: &str) -> Vec<String> {
@@ -990,7 +1190,18 @@ fn resolve_official_characters(
 ) -> Result<Vec<Value>> {
     let normalized_map = name_map
         .iter()
-        .map(|(name, slug)| (normalize_cn_name(name), slug.as_str()))
+        .map(|(name, slug)| (normalize_cn_name(name), slug.to_owned()))
+        .chain(
+            existing_character_index
+                .iter()
+                .filter_map(|(slug, character)| {
+                    let name = character.get("name_cn").and_then(Value::as_str)?;
+                    let normalized = normalize_cn_name(name);
+                    (!normalized.is_empty()).then(|| (normalized, slug.to_owned()))
+                }),
+        )
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect::<Vec<_>>();
     let mut output = Vec::new();
     let mut slugs = BTreeSet::new();
@@ -999,13 +1210,13 @@ fn resolve_official_characters(
         let exact_candidates = normalized_map
             .iter()
             .filter(|(name, _)| name == &needle)
-            .map(|(_, slug)| *slug)
+            .map(|(_, slug)| slug.as_str())
             .collect::<BTreeSet<_>>();
         let mut candidates = if exact_candidates.is_empty() {
             normalized_map
                 .iter()
                 .filter(|(name, _)| name.starts_with(&needle))
-                .map(|(_, slug)| *slug)
+                .map(|(_, slug)| slug.as_str())
                 .collect::<BTreeSet<_>>()
         } else {
             exact_candidates
@@ -1022,10 +1233,10 @@ fn resolve_official_characters(
             let hinted = normalized_map
                 .iter()
                 .filter(|(name, slug)| {
-                    candidates.contains(slug)
+                    candidates.contains(slug.as_str())
                         && descriptor_terms.iter().any(|term| name.contains(term))
                 })
-                .map(|(_, slug)| *slug)
+                .map(|(_, slug)| slug.as_str())
                 .collect::<BTreeSet<_>>();
             if !hinted.is_empty() {
                 candidates = hinted;
@@ -1469,6 +1680,29 @@ mod tests {
       }
     }"#;
 
+    const ZZZ_VERSION_RELATIVE_FIXTURE: &str = r#"{
+      "retcode": 0,
+      "message": "OK",
+      "data": {
+        "list": [
+          {
+            "sChanId": ["279"],
+            "sTitle": "3.1版本「漫长的告别」预下载开启&更新通知",
+            "sIntro": "3.1版本预下载现已开启。",
+            "sContent": "<p>【版本更新时间】</p><p>2026/07/29 06:00 开始，预计需要5个小时。</p>",
+            "iInfoId": 165374
+          },
+          {
+            "sChanId": ["279"],
+            "sTitle": "3.1版本限时频段",
+            "sIntro": "活动期间，限定S级代理人[蕾米埃尔(流明·异常)]以及默认A级代理人[派派(物理·异常)]、[赛斯(电·防护)]的调频获取概率将大幅提升！",
+            "sContent": "<p>活动时间：3.1版本更新后 ~ 2026/09/08 14:59</p><p>活动期间，限定S级代理<span style=\"color:red\">人[蕾米埃尔(流明·异常)]以及默认A级代理人[派派(物理·异常)]、[赛斯(电·防护)]的调频获取概率将大幅提升！</span></p><p>活动期间，限定S级音擎[空羽复归之诗(异常)]的调频获取概率将大幅提升！</p><p>活动时间：3.1版本更新后 ~ 2026/08/19 11:59</p><p>活动期间，限定S级代理人[爱芮(以太·异常)]以及默认A级代理人[派派(物理·异常)]、[赛斯(电·防护)]的调频获取概率将大幅提升！</p>",
+            "iInfoId": 165375
+          }
+        ]
+      }
+    }"#;
+
     const HSR_COLLAB_FIXTURE: &str = r#"{
       "retcode": 0,
       "message": "OK",
@@ -1573,6 +1807,91 @@ mod tests {
             .characters
             .iter()
             .any(|character| character.name_cn == "首席跟班"));
+    }
+
+    #[test]
+    fn zzz_bare_version_banner_uses_the_matching_official_update_completion() {
+        let phases = parse_zzz_content_list_json(ZZZ_VERSION_RELATIVE_FIXTURE).unwrap();
+        assert_eq!(phases.len(), 2);
+        assert!(phases
+            .iter()
+            .all(|phase| phase.start_at == "2026-07-29 11:00"));
+        assert_eq!(phases[0].date_range, "2026-07-29 11:00 至 2026-08-19 11:59");
+        assert_eq!(phases[1].date_range, "2026-07-29 11:00 至 2026-09-08 14:59");
+        assert_eq!(
+            phases[0]
+                .characters
+                .iter()
+                .map(|character| character.name_cn.as_str())
+                .collect::<Vec<_>>(),
+            vec!["爱芮", "派派", "赛斯"]
+        );
+        assert_eq!(
+            phases[1]
+                .characters
+                .iter()
+                .map(|character| character.name_cn.as_str())
+                .collect::<Vec<_>>(),
+            vec!["蕾米埃尔", "派派", "赛斯"]
+        );
+        assert!(phases
+            .iter()
+            .all(|phase| phase.source_url == "https://zzz.mihoyo.com/news/165375"));
+    }
+
+    #[test]
+    fn merge_keeps_distinct_new_pools_that_share_source_and_up_characters() {
+        let phases = parse_zzz_content_list_json(ZZZ_VERSION_RELATIVE_FIXTURE).unwrap();
+        let snapshot = merge_banner_plan_snapshot(
+            br#"{"phases":[]}"#,
+            &phases,
+            &BTreeMap::from([
+                ("爱芮".to_owned(), "aria".to_owned()),
+                ("派派".to_owned(), "piper".to_owned()),
+                ("赛斯".to_owned(), "seth".to_owned()),
+                ("蕾米埃尔".to_owned(), "remiel".to_owned()),
+            ]),
+            &BannerRefreshMetadataV1 {
+                fetched_at: "2026-07-27T12:00:00+08:00".to_owned(),
+                source_label: "《绝区零》官方网站".to_owned(),
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&snapshot).unwrap();
+        let next = value["phases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|phase| phase["status"] == "next")
+            .collect::<Vec<_>>();
+        assert_eq!(next.len(), 2);
+        assert_eq!(
+            next[0]["date_range"],
+            "2026-07-29 11:00 至 2026-08-19 11:59"
+        );
+        assert_eq!(
+            next[1]["date_range"],
+            "2026-07-29 11:00 至 2026-09-08 14:59"
+        );
+        assert_eq!(next[0]["characters"][0]["slug"], "aria");
+        assert_eq!(next[1]["characters"][0]["slug"], "remiel");
+    }
+
+    #[test]
+    fn zzz_version_relative_banner_fails_closed_on_unknown_title_or_schedule() {
+        assert!(parse_zzz_content_list_json(
+            &ZZZ_VERSION_RELATIVE_FIXTURE
+                .replace("3.1版本限时频段\"", "3.1版本限时频段（第一期）\"")
+        )
+        .is_err());
+        assert!(parse_zzz_content_list_json(
+            &ZZZ_VERSION_RELATIVE_FIXTURE.replace("预下载开启&更新通知", "预下载说明")
+        )
+        .is_err());
+        assert!(parse_zzz_content_list_json(
+            &ZZZ_VERSION_RELATIVE_FIXTURE.replace("预计需要5个小时", "预计完成时间待定")
+        )
+        .is_err());
     }
 
     #[test]
@@ -1760,6 +2079,40 @@ mod tests {
     }
 
     #[test]
+    fn refresh_is_not_marked_fresh_when_official_coverage_is_only_historical() {
+        let official = OfficialBannerPhaseV1 {
+            id: "zzz-official-history-1".to_owned(),
+            title: "历史卡池".to_owned(),
+            subtitle: "官方公告".to_owned(),
+            date_range: "2026-07-01 12:00 至 2026-07-02 14:59".to_owned(),
+            start_at: "2026-07-01 12:00".to_owned(),
+            end_at: Some("2026-07-02 14:59".to_owned()),
+            source_label: "《绝区零》官方网站".to_owned(),
+            source_url: "https://zzz.mihoyo.com/news/1".to_owned(),
+            characters: vec![OfficialBannerCharacterV1 {
+                name_cn: "爱芮".to_owned(),
+                banner_role: "限定 S 级 UP".to_owned(),
+                descriptor_cn: None,
+            }],
+        };
+        let snapshot = merge_banner_plan_snapshot(
+            br#"{"phases":[]}"#,
+            &[official],
+            &BTreeMap::from([("爱芮".to_owned(), "aria".to_owned())]),
+            &BannerRefreshMetadataV1 {
+                fetched_at: "2026-07-24T12:00:00+08:00".to_owned(),
+                source_label: "《绝区零》官方网站".to_owned(),
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&snapshot).unwrap();
+        assert_eq!(value["refresh"]["status"], "no_current");
+        assert_eq!(value["refresh"]["official_phase_count"], 1);
+        assert_eq!(value["refresh"]["official_current_phase_count"], 0);
+        assert_eq!(value["refresh"]["official_next_phase_count"], 0);
+    }
+
+    #[test]
     fn descriptor_disambiguates_base_character_forms_when_no_exact_name_exists() {
         let mut phase = parse_hsr_get_post_full_json(HSR_FULL_FIXTURE)
             .unwrap()
@@ -1779,6 +2132,90 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolved[0]["slug"], "march-7th");
+    }
+
+    #[test]
+    fn official_short_name_promotes_unique_named_satellite_to_next_phase() {
+        let existing = r#"{
+          "phases": [{
+            "id": "announced-satellites",
+            "status": "satellite",
+            "title": "已公开卫星",
+            "date_range": "待官方调频确认",
+            "characters": [{
+              "slug": "remiel",
+              "name_cn": "蕾米埃尔·丹",
+              "analysis_tags": ["卫星"]
+            }]
+          }]
+        }"#;
+        let official = OfficialBannerPhaseV1 {
+            id: "zzz-official-165375-remiel".to_owned(),
+            title: "3.1版本限时频段".to_owned(),
+            subtitle: "限定调频".to_owned(),
+            date_range: "2026-07-29 11:00 至 2026-09-08 14:59".to_owned(),
+            start_at: "2026-07-29 11:00".to_owned(),
+            end_at: Some("2026-09-08 14:59".to_owned()),
+            source_label: "《绝区零》官方网站".to_owned(),
+            source_url: "https://zzz.mihoyo.com/news/165375".to_owned(),
+            characters: vec![OfficialBannerCharacterV1 {
+                name_cn: "蕾米埃尔".to_owned(),
+                banner_role: "限定 S 级 UP".to_owned(),
+                descriptor_cn: None,
+            }],
+        };
+        let snapshot = merge_banner_plan_snapshot(
+            existing.as_bytes(),
+            &[official],
+            &BTreeMap::new(),
+            &BannerRefreshMetadataV1 {
+                fetched_at: "2026-07-27T12:00:00+08:00".to_owned(),
+                source_label: "《绝区零》官方网站".to_owned(),
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&snapshot).unwrap();
+        let phases = value["phases"].as_array().unwrap();
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0]["status"], "next");
+        assert_eq!(phases[0]["characters"][0]["slug"], "remiel");
+        assert_eq!(phases[0]["characters"][0]["name_cn"], "蕾米埃尔·丹");
+        assert_eq!(phases[0]["characters"][0]["analysis_tags"], json!(["卫星"]));
+    }
+
+    #[test]
+    fn official_short_name_fails_closed_when_existing_prefix_is_ambiguous() {
+        let phase = OfficialBannerPhaseV1 {
+            id: "zzz-official-ambiguous-remiel".to_owned(),
+            title: "3.1版本限时频段".to_owned(),
+            subtitle: "限定调频".to_owned(),
+            date_range: "2026-07-29 11:00 至 2026-09-08 14:59".to_owned(),
+            start_at: "2026-07-29 11:00".to_owned(),
+            end_at: Some("2026-09-08 14:59".to_owned()),
+            source_label: "《绝区零》官方网站".to_owned(),
+            source_url: "https://zzz.mihoyo.com/news/165375".to_owned(),
+            characters: vec![OfficialBannerCharacterV1 {
+                name_cn: "蕾米埃尔".to_owned(),
+                banner_role: "限定 S 级 UP".to_owned(),
+                descriptor_cn: None,
+            }],
+        };
+        let existing = BTreeMap::from([
+            (
+                "remiel".to_owned(),
+                json!({"slug":"remiel","name_cn":"蕾米埃尔·丹"}),
+            ),
+            (
+                "remiel-alt".to_owned(),
+                json!({"slug":"remiel-alt","name_cn":"蕾米埃尔·诺"}),
+            ),
+        ]);
+        let error = resolve_official_characters(&phase, &BTreeMap::new(), &existing)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("resolves to multiple canonical slugs"));
+        assert!(error.contains("remiel"));
+        assert!(error.contains("remiel-alt"));
     }
 
     #[test]

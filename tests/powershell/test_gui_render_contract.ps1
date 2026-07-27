@@ -381,6 +381,12 @@ if ($scriptSource -notmatch 'Desktop process wrote unexpected stdout/stderr afte
     $scriptSource -notmatch 'Set-MihoGuiRenderChildEnvironmentV1 -StartInfo \$startInfo -DebugPort \$port' -or
     $scriptSource -notmatch 'Assert-MihoBoundWebViewUserDataDirectoryV1' -or
     $scriptSource -notmatch 'Get-MihoExitedProcessDiagnosticV1 -Process \$process -WaitMilliseconds 250' -or
+    $scriptSource -notmatch '\[string\]\$ExpectedHsrBannerNames = ""' -or
+    $scriptSource -notmatch '\[string\]\$ExpectedZzzNextBannerNames = ""' -or
+    $scriptSource -notmatch 'Phase = "next-"; Names = \$ExpectedHsrNextBannerNames' -or
+    $scriptSource -notmatch '\(\$prefix \+ "count"\)' -or
+    $scriptSource -notmatch '\(\$prefix \+ "names"\)' -or
+    $scriptSource -notmatch '& \$nodeCommand\.Source @productProbeArguments' -or
     $scriptSource -match 'Get-FileHash' -or
     $scriptSource -match 'Get-MihoDescendantProcessIdsV1' -or
     $scriptSource -match 'Get-MihoOwnedDebugPortProcessIdsV1') {
