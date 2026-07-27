@@ -23,8 +23,8 @@ use miho_app::{
     EvidenceTaskV1, ExportInvocation, ExportObserver, ExportSourceV1, ExportTaskV1,
     FileUpdateReceiptStore, NativeUpdateExecutorV1, PullTaskV1, TaskFreshnessSummaryV1,
     TaskRequestV1, TaskSpecV1, UpdateArtifactV1, UpdateInvocationV1, UpdateRequestV1,
-    UpdateStepContextV1, UpdateStepExecutor, UpdateStepFailureV1, UpdateStepFuture,
-    UpdateStepKindV1, VisualizerTaskV1, WorkspaceBootstrapCompletedOperationV1,
+    UpdateRunStatusV1, UpdateStepContextV1, UpdateStepExecutor, UpdateStepFailureV1,
+    UpdateStepFuture, UpdateStepKindV1, VisualizerTaskV1, WorkspaceBootstrapCompletedOperationV1,
     WorkspaceBootstrapRequestV1, WorkspaceBootstrapTransactionRequestV1, WorkspaceLayout,
     WorkspaceWriteLease,
 };
@@ -980,10 +980,15 @@ async fn run_native_update(args: &UpdateRunArgs) -> anyhow::Result<()> {
             .await
         }
     };
-    if outcome.exit_code == 0 {
+    let committed_success = outcome.receipt.status == UpdateRunStatusV1::Succeeded
+        && outcome.receipt.state_committed
+        && outcome.receipt.receipt_committed;
+    if committed_success {
         if let Some(failure) = committed_freshness_failure_code(outcome.freshness.as_ref()) {
             bail!("{failure}");
         }
+    }
+    if outcome.exit_code == 0 {
         eprintln!("update succeeded: {}", outcome.receipt.attempt_id);
         return Ok(());
     }

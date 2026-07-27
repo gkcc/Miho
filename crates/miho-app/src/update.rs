@@ -424,9 +424,10 @@ pub trait UpdateStepExecutor: Send + Sync {
         false
     }
 
-    /// Optional trusted configuration used to verify the committed
-    /// generation's freshness evidence before the workspace write lease is
-    /// released. Custom executors retain their existing behavior by default.
+    /// Trusted configuration used to verify the generation's freshness
+    /// evidence before success state is committed and again before the
+    /// workspace write lease is released. A successful execution that leaves
+    /// this unset is rejected before success state is committed.
     fn freshness_config(&self) -> Option<&ResolvedUpdateConfigV1> {
         None
     }
@@ -1352,8 +1353,9 @@ pub struct UpdateRunOutcomeV1 {
     pub receipt: UpdateReceiptV1,
     pub exit_code: i32,
     /// Sanitized freshness captured from the exact committed state/artifact
-    /// generation while the workspace write lease is still held. `None`
-    /// means the executor did not provide a trusted resolved configuration.
+    /// generation while the workspace write lease is still held. Every
+    /// committed-success receipt has `Some`; `None` means the run did not
+    /// reach a successful commit.
     pub freshness: Option<Result<BTreeMap<Game, TaskFreshnessSummaryV1>, UpdateStepFailureV1>>,
 }
 
@@ -2189,6 +2191,13 @@ pub async fn run_update_observed_v1<E: UpdateStepExecutor, S: UpdateReceiptStore
         );
     };
 
+    let Some(freshness_config) = executor.freshness_config() else {
+        if observer.before_commit().is_err() {
+            return finish_interrupted(&workspace, receipt, store);
+        }
+        return finish_failure(&workspace, receipt, update_freshness_failure_v1(), store);
+    };
+
     for game in receipt.games.iter().filter(|game| game.selected) {
         state.games.insert(
             game.game,
@@ -2207,31 +2216,29 @@ pub async fn run_update_observed_v1<E: UpdateStepExecutor, S: UpdateReceiptStore
             },
         );
     }
-    if let Some(config) = executor.freshness_config() {
-        let checked_games = receipt
-            .games
-            .iter()
-            .filter(|game| game.selected)
-            .map(|game| game.game)
-            .collect::<Vec<_>>();
-        let generation_date = invocation.local_datetime().date();
-        let generation_dates = checked_games
-            .iter()
-            .copied()
-            .map(|game| (game, generation_date))
-            .collect::<BTreeMap<_, _>>();
-        if let Err(failure) = load_update_freshness_locked_v1(
-            &workspace,
-            &checked_games,
-            config,
-            &state,
-            &generation_dates,
-        ) {
-            if observer.before_commit().is_err() {
-                return finish_interrupted(&workspace, receipt, store);
-            }
-            return finish_failure(&workspace, receipt, failure, store);
+    let checked_games = receipt
+        .games
+        .iter()
+        .filter(|game| game.selected)
+        .map(|game| game.game)
+        .collect::<Vec<_>>();
+    let generation_date = invocation.local_datetime().date();
+    let generation_dates = checked_games
+        .iter()
+        .copied()
+        .map(|game| (game, generation_date))
+        .collect::<BTreeMap<_, _>>();
+    if let Err(failure) = load_update_freshness_locked_v1(
+        &workspace,
+        &checked_games,
+        freshness_config,
+        &state,
+        &generation_dates,
+    ) {
+        if observer.before_commit().is_err() {
+            return finish_interrupted(&workspace, receipt, store);
         }
+        return finish_failure(&workspace, receipt, failure, store);
     }
     if observer.before_commit().is_err() {
         return finish_interrupted(&workspace, receipt, store);
@@ -2241,13 +2248,17 @@ pub async fn run_update_observed_v1<E: UpdateStepExecutor, S: UpdateReceiptStore
     receipt.receipt_committed = true;
     match store.commit_success(&workspace, &state, &receipt) {
         Ok(()) => {
-            let freshness = executor.freshness_config().map(|config| {
-                load_committed_attempt_freshness_locked_v1(&workspace, &receipt, config, &state)
-            });
+            let freshness = load_committed_attempt_freshness_locked_v1(
+                &workspace,
+                &receipt,
+                freshness_config,
+                &state,
+            );
+            let exit_code = if freshness.is_ok() { 0 } else { 1 };
             UpdateRunOutcomeV1 {
                 receipt,
-                exit_code: 0,
-                freshness,
+                exit_code,
+                freshness: Some(freshness),
             }
         }
         Err(failure) => {

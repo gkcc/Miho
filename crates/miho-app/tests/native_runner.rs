@@ -95,6 +95,10 @@ struct FreshnessFakeExecutor {
 }
 
 impl FreshnessFakeExecutor {
+    fn valid(root: &Path) -> Self {
+        Self::default().with_freshness_config(freshness_config(root))
+    }
+
     fn with_invalid_hsr_mode() -> Self {
         Self {
             invalid_hsr_mode: true,
@@ -209,7 +213,7 @@ impl UpdateStepExecutor for FreshnessFakeExecutor {
 }
 
 #[derive(Clone, Default)]
-struct ObserverAwareFakeExecutor(FakeExecutor);
+struct ObserverAwareFakeExecutor(FreshnessFakeExecutor);
 
 impl UpdateStepExecutor for ObserverAwareFakeExecutor {
     fn execute<'a>(
@@ -235,6 +239,10 @@ impl UpdateStepExecutor for ObserverAwareFakeExecutor {
                 .await
                 .map_err(UpdateStepExecutionErrorV1::Failure)
         })
+    }
+
+    fn freshness_config(&self) -> Option<&ResolvedUpdateConfigV1> {
+        self.0.freshness_config()
     }
 }
 
@@ -498,7 +506,7 @@ impl UpdateReceiptStore for FailInterruptedStore {
 async fn full_success_commits_state_and_canonical_receipt_last() {
     let root = temp_root("success");
     let invocation = invocation();
-    let executor = FakeExecutor::default();
+    let executor = FreshnessFakeExecutor::valid(&root);
     let outcome = run_update_v1(
         &request(&root),
         &invocation,
@@ -546,7 +554,7 @@ async fn full_success_commits_state_and_canonical_receipt_last() {
         read_json::<UpdateReceiptV1>(&root.join(".miho").join(UPDATE_CANONICAL_RECEIPT_FILE));
     assert_eq!(canonical, outcome.receipt);
 
-    let observed = executor.observed.lock().unwrap();
+    let observed = executor.inner.observed.lock().unwrap();
     assert_eq!(observed.len(), 5);
     assert!(observed.iter().all(|(_, attempt, local)| {
         attempt == &invocation.attempt_id && local == "2026-07-13T09:30:00.123456"
@@ -555,9 +563,42 @@ async fn full_success_commits_state_and_canonical_receipt_last() {
 }
 
 #[tokio::test]
+async fn successful_steps_without_freshness_config_fail_before_success_commit() {
+    let root = temp_root("missing-freshness-config");
+    let executor = FakeExecutor::default();
+    let outcome = run_update_v1(
+        &request(&root),
+        &invocation_with("attempt-missing-freshness-config", 30),
+        &executor,
+        &FileUpdateReceiptStore,
+    )
+    .await;
+
+    assert_eq!(executor.observed.lock().unwrap().len(), 5);
+    assert_eq!(outcome.exit_code, 1);
+    assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Failed);
+    assert!(!outcome.receipt.state_committed);
+    assert!(outcome.receipt.receipt_committed);
+    assert_eq!(
+        outcome
+            .receipt
+            .failure
+            .as_ref()
+            .map(|failure| failure.code.as_str()),
+        Some("update.health_freshness_invalid")
+    );
+    assert!(outcome.freshness.is_none());
+    assert!(!root.join(".miho").join(UPDATE_STATE_FILE).exists());
+    let canonical =
+        read_json::<UpdateReceiptV1>(&root.join(".miho").join(UPDATE_CANONICAL_RECEIPT_FILE));
+    assert_eq!(canonical, outcome.receipt);
+    cleanup(&root);
+}
+
+#[tokio::test]
 async fn explicit_attempt_id_collision_exits_one_without_overwriting_receipts_or_running_steps() {
     let root = temp_root("attempt-id-collision");
-    let executor = FakeExecutor::default();
+    let executor = FreshnessFakeExecutor::valid(&root);
     let attempt_id = "scheduler_candidate-20260714_001";
     let first = invocation_with(attempt_id, 30);
     let first_outcome =
@@ -592,7 +633,7 @@ async fn explicit_attempt_id_collision_exits_one_without_overwriting_receipts_or
         Some("update.attempt_id_collision")
     );
     assert!(!collision.receipt.receipt_committed);
-    assert_eq!(executor.observed.lock().unwrap().len(), 5);
+    assert_eq!(executor.inner.observed.lock().unwrap().len(), 5);
     assert_eq!(
         [
             fs::read(&attempt_path).unwrap(),
@@ -679,7 +720,7 @@ async fn unsafe_invocation_constructed_without_the_constructor_is_runtime_failur
 #[tokio::test]
 async fn health_binds_each_split_generation_receipt_to_the_expected_config() {
     let root = temp_root("generation-config-binding");
-    let executor = FakeExecutor::default();
+    let executor = FreshnessFakeExecutor::valid(&root);
     let mut hsr_request = request(&root);
     hsr_request.skip_zzz = true;
     let hsr_invocation = invocation_with("attempt-config-hsr", 31);
@@ -819,8 +860,11 @@ async fn committed_freshness_rejects_an_artifact_swap_before_the_write_lease_is_
     )
     .await;
 
-    assert_eq!(outcome.exit_code, 0, "the update commit itself succeeded");
+    assert_eq!(outcome.exit_code, 1);
     assert_eq!(outcome.receipt.status, UpdateRunStatusV1::Succeeded);
+    assert!(outcome.receipt.state_committed);
+    assert!(outcome.receipt.receipt_committed);
+    assert!(outcome.receipt.failure.is_none());
     assert_eq!(
         outcome
             .freshness
@@ -831,6 +875,14 @@ async fn committed_freshness_rejects_an_artifact_swap_before_the_write_lease_is_
             .code,
         "update.health_freshness_invalid"
     );
+    let canonical =
+        read_json::<UpdateReceiptV1>(&root.join(".miho").join(UPDATE_CANONICAL_RECEIPT_FILE));
+    assert_eq!(canonical, outcome.receipt);
+    let state = read_json::<UpdateStateV1>(&root.join(".miho").join(UPDATE_STATE_FILE));
+    assert!(state
+        .games
+        .values()
+        .all(|game| game.attempt_id == "attempt-freshness-artifact-swap"));
     cleanup(&root);
 }
 
@@ -1052,7 +1104,7 @@ async fn health_accepts_producer_unknown_dates_and_sanitizes_them_for_the_deskto
 #[tokio::test]
 async fn single_game_refresh_cannot_hide_other_games_stale_config_generation() {
     let root = temp_root("single-game-config-change");
-    let executor = FakeExecutor::default();
+    let executor = FreshnessFakeExecutor::valid(&root);
     let mut hsr_a = request(&root);
     hsr_a.skip_zzz = true;
     assert_eq!(
@@ -1404,10 +1456,11 @@ async fn review_packet_failure_is_terminal_and_cannot_be_false_green() {
 #[tokio::test]
 async fn state_batch_failure_is_exit_one_and_cannot_advance_state() {
     let root = temp_root("state-fail");
+    let executor = FreshnessFakeExecutor::valid(&root);
     let outcome = run_update_v1(
         &request(&root),
         &invocation(),
-        &FakeExecutor::default(),
+        &executor,
         &FailSuccessStore {
             inner: FileUpdateReceiptStore,
         },
@@ -1520,10 +1573,11 @@ fn button_update_waits_for_health_snapshot_and_then_succeeds() {
             .enable_all()
             .build()
             .unwrap();
+        let executor = FreshnessFakeExecutor::valid(&worker_root);
         let outcome = runtime.block_on(run_update_v1(
             &request(&worker_root),
             &invocation(),
-            &FakeExecutor::default(),
+            &executor,
             &FileUpdateReceiptStore,
         ));
         outcome_tx.send(outcome).unwrap();
@@ -1546,10 +1600,11 @@ fn button_update_waits_for_health_snapshot_and_then_succeeds() {
 #[tokio::test]
 async fn cancellation_before_first_commit_preserves_generation_and_terminalizes_attempt() {
     let root = temp_root("cancel-before-commit");
+    let baseline_executor = FreshnessFakeExecutor::valid(&root);
     let baseline = run_update_v1(
         &request(&root),
         &invocation(),
-        &FakeExecutor::default(),
+        &baseline_executor,
         &FileUpdateReceiptStore,
     )
     .await;
@@ -1622,10 +1677,11 @@ async fn cancellation_before_first_commit_preserves_generation_and_terminalizes_
 #[tokio::test]
 async fn cancellation_receipt_write_failure_is_failed_and_keeps_canonical_generation() {
     let root = temp_root("cancel-receipt-write-failure");
+    let baseline_executor = FreshnessFakeExecutor::valid(&root);
     let baseline = run_update_v1(
         &request(&root),
         &invocation(),
-        &FakeExecutor::default(),
+        &baseline_executor,
         &FileUpdateReceiptStore,
     )
     .await;
@@ -1774,7 +1830,7 @@ async fn next_lock_owner_marks_a_leftover_running_attempt_interrupted() {
     let completed = run_update_v1(
         &request(&root),
         &second,
-        &FakeExecutor::default(),
+        &FreshnessFakeExecutor::valid(&root),
         &FileUpdateReceiptStore,
     )
     .await;
@@ -1816,7 +1872,7 @@ async fn skip_is_explicit_and_both_skipped_is_invalid() {
     let root = temp_root("skip");
     let mut hsr_skipped = request(&root);
     hsr_skipped.skip_hsr = true;
-    let zzz_only_executor = FakeExecutor::default();
+    let zzz_only_executor = FreshnessFakeExecutor::valid(&root);
     let zzz_only = run_update_v1(
         &hsr_skipped,
         &invocation(),
@@ -1834,6 +1890,7 @@ async fn skip_is_explicit_and_both_skipped_is_invalid() {
             && step.reason_code.as_deref() == Some("update.game_not_selected")
     }));
     assert!(zzz_only_executor
+        .inner
         .observed
         .lock()
         .unwrap()
@@ -1842,7 +1899,7 @@ async fn skip_is_explicit_and_both_skipped_is_invalid() {
 
     let mut zzz_skipped = request(&root);
     zzz_skipped.skip_zzz = true;
-    let hsr_only_executor = FakeExecutor::default();
+    let hsr_only_executor = FreshnessFakeExecutor::valid(&root);
     let hsr_only = run_update_v1(
         &zzz_skipped,
         &invocation_with("attempt-hsr-only", 31),
@@ -1856,10 +1913,10 @@ async fn skip_is_explicit_and_both_skipped_is_invalid() {
         UpdateStepStatusV1::Skipped
     );
     assert_eq!(
-        hsr_only_executor.observed.lock().unwrap()[0].0,
+        hsr_only_executor.inner.observed.lock().unwrap()[0].0,
         UpdateStepKindV1::HsrExport
     );
-    assert_eq!(hsr_only_executor.observed.lock().unwrap().len(), 1);
+    assert_eq!(hsr_only_executor.inner.observed.lock().unwrap().len(), 1);
 
     let mut neither = request(&root);
     neither.skip_hsr = true;
@@ -1882,7 +1939,7 @@ async fn skip_is_explicit_and_both_skipped_is_invalid() {
 #[tokio::test]
 async fn successful_state_never_skips_refresh_and_force_is_recorded_only_as_audit_input() {
     let root = temp_root("always-refresh");
-    let first_executor = FakeExecutor::default();
+    let first_executor = FreshnessFakeExecutor::valid(&root);
     let first = run_update_v1(
         &request(&root),
         &invocation(),
@@ -1891,9 +1948,9 @@ async fn successful_state_never_skips_refresh_and_force_is_recorded_only_as_audi
     )
     .await;
     assert_eq!(first.exit_code, 0);
-    assert_eq!(first_executor.observed.lock().unwrap().len(), 5);
+    assert_eq!(first_executor.inner.observed.lock().unwrap().len(), 5);
 
-    let second_executor = FakeExecutor::default();
+    let second_executor = FreshnessFakeExecutor::valid(&root);
     let second = run_update_v1(
         &request(&root),
         &invocation_with("attempt-refresh-without-force", 31),
@@ -1903,11 +1960,11 @@ async fn successful_state_never_skips_refresh_and_force_is_recorded_only_as_audi
     .await;
     assert_eq!(second.exit_code, 0);
     assert!(!second.receipt.force);
-    assert_eq!(second_executor.observed.lock().unwrap().len(), 5);
+    assert_eq!(second_executor.inner.observed.lock().unwrap().len(), 5);
 
     let mut forced_request = request(&root);
     forced_request.force = true;
-    let forced_executor = FakeExecutor::default();
+    let forced_executor = FreshnessFakeExecutor::valid(&root);
     let forced = run_update_v1(
         &forced_request,
         &invocation_with("attempt-refresh-with-force", 32),
@@ -1917,7 +1974,7 @@ async fn successful_state_never_skips_refresh_and_force_is_recorded_only_as_audi
     .await;
     assert_eq!(forced.exit_code, 0);
     assert!(forced.receipt.force);
-    assert_eq!(forced_executor.observed.lock().unwrap().len(), 5);
+    assert_eq!(forced_executor.inner.observed.lock().unwrap().len(), 5);
 
     let state = read_json::<UpdateStateV1>(&root.join(".miho").join(UPDATE_STATE_FILE));
     assert!(state

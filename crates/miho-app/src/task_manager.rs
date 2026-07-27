@@ -466,12 +466,22 @@ impl UpdateTaskExecutor for CoreUpdateTaskExecutor {
                         .iter()
                         .all(|step| step.status == UpdateStepStatusV1::Succeeded)
             });
+        let committed_freshness_failure = committed_managed_update_freshness_failure(
+            outcome.receipt.status == UpdateRunStatusV1::Succeeded
+                && outcome.receipt.state_committed
+                && outcome.receipt.receipt_committed,
+            outcome.freshness.as_ref(),
+            request.game,
+        );
         if outcome.exit_code != 0
             || outcome.receipt.status != UpdateRunStatusV1::Succeeded
             || !outcome.receipt.state_committed
             || !outcome.receipt.receipt_committed
             || !selected_succeeded
         {
+            if let Some(failure) = committed_freshness_failure {
+                return Err(anyhow::Error::new(failure));
+            }
             let step_failure = outcome
                 .receipt
                 .games
@@ -499,6 +509,23 @@ impl UpdateTaskExecutor for CoreUpdateTaskExecutor {
             notices: Vec::new(),
             freshness: Some(freshness),
         })
+    }
+}
+
+fn committed_managed_update_freshness_failure(
+    committed_success: bool,
+    freshness: Option<
+        &Result<BTreeMap<miho_core::contract::Game, TaskFreshnessSummaryV1>, UpdateStepFailureV1>,
+    >,
+    game: miho_core::contract::Game,
+) -> Option<UpdateStepFailureV1> {
+    if !committed_success {
+        return None;
+    }
+    match freshness {
+        Some(Err(failure)) => Some(failure.clone()),
+        Some(Ok(freshness)) if freshness.contains_key(&game) => None,
+        Some(Ok(_)) | None => Some(managed_update_freshness_failure()),
     }
 }
 
@@ -1046,6 +1073,38 @@ mod tests {
                 miho_core::contract::Game::Zzz,
             ),
             Err(failure)
+        );
+    }
+
+    #[test]
+    fn committed_update_postcheck_failure_outranks_the_success_receipt_shape() {
+        let failure = UpdateStepFailureV1::safe(
+            "update.health_freshness_invalid",
+            "the committed update generation failed freshness verification",
+            true,
+        );
+        let failed = Err(failure.clone());
+
+        assert_eq!(
+            committed_managed_update_freshness_failure(
+                true,
+                Some(&failed),
+                miho_core::contract::Game::Zzz,
+            ),
+            Some(failure)
+        );
+        assert_eq!(
+            committed_managed_update_freshness_failure(
+                false,
+                Some(&failed),
+                miho_core::contract::Game::Zzz,
+            ),
+            None
+        );
+        assert_eq!(
+            committed_managed_update_freshness_failure(true, None, miho_core::contract::Game::Zzz,)
+                .map(|failure| failure.code),
+            Some("update.health_freshness_invalid".to_owned())
         );
     }
 

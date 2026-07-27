@@ -659,6 +659,13 @@
 - **验证与正式部署**：`cargo test --locked -p miho-core -p miho-app -p miho-cli`、Rust fmt、diff check 与完整 `pnpm run tauri:build` 均通过；三份 EXE 的 7 项 Visualizer 原始字节各 exact-once，PE 子系统为 Desktop/任务 CLI `WINDOWS_GUI`、人工 CLI `WINDOWS_CUI`。正式 Desktop、人工 CLI、无窗任务 CLI SHA-256 分别为 `82469D0EC5A7FA8C92ADA3FD1ACA9F209AA06CDAF0D8B65F9287879239F9D069`、`9FBC3BE50F8F545B9F083EF6E480ED954E5A2F3FE0DAD07664187D302FFB39A1`、`17B98C112C562E540C6C04AC6E9EEC38D9315113A363685214F1FCFFF130FCD4`。owner-aware attempt `installer-56bdd97a744d41239c961400571782c7` 对 HSR/ZZZ health 均为 true，09:30 任务已切到唯一 generation `miho-0.1.0-17b98c112c562e540c6c04ac6e9eec38d9315113a363685214f1fcfff130fcd4`，状态 `Ready / Enabled / LastTaskResult=0`，无 candidate/journal。
 - **无窗实机复核与数据安全**：正式人工 CLI 和任务 CLI 各自只读 `update health` 均退出 0、返回同一 healthy attempt；隐藏 GUI 探针确认 Visualizer `ready`、正常退出 0、stdout/stderr 为空、调试端口和捕获子进程清理完成，收尾无 Miho/WindowsTerminal/OpenConsole 残留。HSR/ZZZ Box SHA-256 仍为 `E0476FAA415CDD651DB69FD4B969E1C91FAB69C87DFEC86DE377183F009AC662` / `C677733006B569CBFB96EB95BF1827FB26A58292C1F17A9180AC7FF01E4D7491`；未进入 NSIS、portable 或旧安装器链。
 
+### 公共 runner freshness 强制门禁与 postcommit 非零回执（2026-07-27，已交付）
+
+- **缺配置不再假成功**：`UpdateStepExecutor::freshness_config()` 保持源码兼容的可选签名，但 runner 对成功步骤只读取一次；缺少可信 resolved config 会以 `update.health_freshness_invalid` 在 success state/receipt commit 前终止，默认 `None` 不再构成绕过。相同 config 引用同时用于 precommit 与 postcommit 复验，避免状态型自定义 executor 两次返回不一致。
+- **postcommit 事实与退出语义分离**：若 `commit_success` 后、写租约释放前的 artifact/freshness 复验发现外部替换，底层 outcome 现在返回 exit 1，CLI 与 Tauri TaskManager 均优先传播 typed freshness failure；已经原子提交的 canonical receipt/state 仍如实保持 `Succeeded`、双 committed、无 terminal failure，不伪造回滚。生产 candidate/计划任务会因此 fail-closed。
+- **回归与构建**：native runner 33/33；`cargo test --locked -p miho-app -p miho-cli` 全套通过（miho-app unit 56 passed、1 live ignored，TaskManager 18/18，CLI 各套全绿）；Rust fmt、diff check 与完整 `pnpm run tauri:build` 通过。Desktop、人工 CLI、任务 CLI 的 7 项 Visualizer 原始字节各 exact-once，PE 子系统分别为 `WINDOWS_GUI / WINDOWS_CUI / WINDOWS_GUI`。
+- **正式部署与无窗证据**：正式 Desktop、人工 CLI、无窗任务 CLI SHA-256 分别为 `9CA99B9550DEA9D4BBCC170B8B1BE746DD81DD767753DD97B9603453785908ED`、`30595A3226449307A81A68526604EB97F16EE19D6781C422DBB7E745ABA22DEF`、`C129B94FBF214317CF3AF249A0F5F34D1D41432207B379F23552E9F7816FFD2D`。owner-aware candidate attempt `installer-f0ce2586ddeb48b5b2e711b28de5f9f9` 对 HSR/ZZZ exact health 为 true，09:30 任务已切到唯一 generation `miho-0.1.0-c129b94fbf214317cf3af249a0f5f34d1d41432207b379f23552e9f7816ffd2d`，状态 `Ready / Enabled / LastTaskResult=0`，无 candidate/journal。正式人工 CLI 与任务 CLI 只读 health 均退出 0；隐藏 GUI 为 `ready`、正常退出 0、stdout/stderr 空、无 Miho/WindowsTerminal/OpenConsole 残留。HSR/ZZZ Box 哈希保持不变，两份已核对的旧 EXE 临时回滚副本在验收后精确删除；未进入 NSIS、portable 或旧安装器链。
+
 ## 恢复入口
 
 - 项目状态：本文件。
