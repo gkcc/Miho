@@ -272,6 +272,7 @@ fn aliases_for(slug: &str, name: &str) -> Vec<String> {
         "orphie-magnusson-and-magus" => vec!["orphie-and-magus"],
         "piper-wheel" => vec!["piper"],
         "pulchra-fellini" => vec!["pulchra"],
+        "remielle" => vec!["remiel"],
         "soldier-0-anby" => vec!["anby-demara-soldier-0", "anby-soldier-0"],
         "tsukishiro-yanagi" => vec!["yanagi"],
         "ukinami-yuzuha" => vec!["yuzuha"],
@@ -790,6 +791,9 @@ mod tests {
             "soldier-0-anby"
         );
         assert_eq!(mapped["demara"].character_slug, "anby-demara");
+        assert!(aliases_for("remielle", "Remielle Dan")
+            .iter()
+            .any(|alias| alias == "remiel"));
         assert!(!mapped["anby-demara"]
             .aliases
             .split(';')

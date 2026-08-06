@@ -321,6 +321,7 @@ pub fn merge_banner_plan_snapshot(
         .as_array_mut()
         .context("existing banner plan phases must be an array")?;
 
+    migrate_legacy_character_slugs(phases, name_map);
     let existing_character_index = index_existing_characters(phases);
     let official_phases = dedupe_official_phases(official_phases.to_vec())?;
     let official_statuses = official_phases
@@ -631,7 +632,7 @@ fn parse_announcement_phases(
         BTreeMap::new();
     let mut malformed_relevant_segment = None;
     for (index, segment) in segments.iter().enumerate() {
-        if !is_banner_date_segment(segment) {
+        if !is_banner_date_segment(segment, version_update_at.is_some()) {
             continue;
         }
         match parse_date_window(segment, version_update_at) {
@@ -639,7 +640,7 @@ fn parse_announcement_phases(
                 let mut roles = extract_role_mentions(segment);
                 if roles.is_empty() {
                     for following in segments.iter().skip(index + 1) {
-                        if is_banner_date_segment(following)
+                        if is_banner_date_segment(following, version_update_at.is_some())
                             || announcement_fact_prefix(following).len() != following.len()
                         {
                             break;
@@ -700,11 +701,11 @@ fn parse_announcement_phases(
     Ok(output)
 }
 
-fn is_banner_date_segment(segment: &str) -> bool {
+fn is_banner_date_segment(segment: &str, allow_version_relative: bool) -> bool {
     segment.contains("跃迁时间")
         || ((segment.contains("调频活动时间")
             || segment.contains("活动时间")
-            || segment.contains("版本更新后"))
+            || allow_version_relative && segment.contains("版本更新后"))
             && !scan_date_tokens(segment).is_empty())
         || (segment.contains("联动跃迁")
             && segment.contains("长期开放")
@@ -717,11 +718,14 @@ fn parse_date_window(
 ) -> Result<DateWindow> {
     let dates = scan_date_tokens(segment);
     for date in &dates {
+        let suffix = &segment[date.end..];
+        let attached_digits = suffix.bytes().take_while(u8::is_ascii_digit).count();
+        let attached_after_digits = &suffix[attached_digits..];
         if !date.has_time
-            && segment[date.end..]
-                .chars()
-                .next()
-                .is_some_and(|character| character.is_ascii_digit() || character == '：')
+            && (suffix.starts_with('：')
+                || attached_digits > 0
+                    && (attached_after_digits.starts_with(':')
+                        || attached_after_digits.starts_with('：')))
         {
             bail!("official date has an invalid or unsupported attached time");
         }
@@ -1069,7 +1073,11 @@ fn dedupe_official_phases(
                 == normalize_date_range(&phase.date_range);
             let same_source = existing.source_url.eq_ignore_ascii_case(&phase.source_url);
             let same_title = remove_whitespace(&existing.title) == remove_whitespace(&phase.title);
-            same_date && (same_source || same_title)
+            let same_complete_identity = official_phase_game(existing)
+                .zip(official_phase_game(&phase))
+                .is_some_and(|(left, right)| left == right)
+                && official_character_fact_set(existing) == official_character_fact_set(&phase);
+            same_date && (same_source || same_title || same_complete_identity)
         });
         if let Some(index) = duplicate_index {
             merge_character_facts(&mut output[index].characters, &phase.characters);
@@ -1081,6 +1089,30 @@ fn dedupe_official_phases(
         bail!("official banner response produced no phases");
     }
     Ok(output)
+}
+
+fn official_phase_game(phase: &OfficialBannerPhaseV1) -> Option<&'static str> {
+    if phase.id.starts_with("hsr-official-") || phase.source_url.contains("miyoushe.com/sr/") {
+        Some("hsr")
+    } else if phase.id.starts_with("zzz-official-") || phase.source_url.contains("zzz.mihoyo.com/")
+    {
+        Some("zzz")
+    } else {
+        None
+    }
+}
+
+fn official_character_fact_set(phase: &OfficialBannerPhaseV1) -> BTreeSet<(String, String)> {
+    phase
+        .characters
+        .iter()
+        .map(|character| {
+            (
+                normalize_cn_name(&character.name_cn),
+                remove_whitespace(&character.banner_role),
+            )
+        })
+        .collect()
 }
 
 fn validate_official_phase(phase: &OfficialBannerPhaseV1) -> Result<()> {
@@ -1157,6 +1189,41 @@ fn index_existing_characters(phases: &[Value]) -> BTreeMap<String, Value> {
         }
     }
     output
+}
+
+fn migrate_legacy_character_slugs(phases: &mut [Value], name_map: &BannerNameMapV1) {
+    let mut canonical_slugs_by_name = BTreeMap::<String, BTreeSet<String>>::new();
+    for (name, slug) in name_map {
+        let normalized_name = normalize_cn_name(name);
+        if !normalized_name.is_empty() && is_valid_slug(slug) {
+            canonical_slugs_by_name
+                .entry(normalized_name)
+                .or_default()
+                .insert(slug.clone());
+        }
+    }
+    for phase in phases {
+        let Some(characters) = phase.get_mut("characters").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for character in characters {
+            let Some(object) = character.as_object_mut() else {
+                continue;
+            };
+            if object.get("slug").and_then(Value::as_str) != Some("remiel") {
+                continue;
+            }
+            let Some(name) = object.get("name_cn").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(candidates) = canonical_slugs_by_name.get(&normalize_cn_name(name)) else {
+                continue;
+            };
+            if candidates.len() == 1 && candidates.contains("remielle") {
+                object.insert("slug".to_owned(), Value::String("remielle".to_owned()));
+            }
+        }
+    }
 }
 
 fn clear_confirmed_phase_metadata(characters: &mut [Value]) {
@@ -1620,13 +1687,6 @@ fn dedupe_plan_phases(phases: &mut Vec<Value>) {
     let mut output = Vec::with_capacity(phases.len());
     for phase in phases.drain(..) {
         let duplicate = output.iter().any(|existing: &Value| {
-            let same_source = existing.get("source_url").and_then(Value::as_str)
-                == phase.get("source_url").and_then(Value::as_str);
-            let same_title = existing
-                .get("title")
-                .and_then(Value::as_str)
-                .zip(phase.get("title").and_then(Value::as_str))
-                .is_some_and(|(left, right)| remove_whitespace(left) == remove_whitespace(right));
             let same_date = existing
                 .get("date_range")
                 .and_then(Value::as_str)
@@ -1634,8 +1694,10 @@ fn dedupe_plan_phases(phases: &mut Vec<Value>) {
                 .is_some_and(|(left, right)| {
                     normalize_date_range(left) == normalize_date_range(right)
                 });
-            let same_characters = phase_slug_set(existing) == phase_slug_set(&phase);
-            (same_source || same_title) && same_date && same_characters
+            let existing_characters = phase_slug_set(existing);
+            let same_characters =
+                !existing_characters.is_empty() && existing_characters == phase_slug_set(&phase);
+            same_date && same_characters
         });
         if !duplicate {
             output.push(phase);
@@ -1794,6 +1856,40 @@ mod tests {
     }
 
     #[test]
+    fn hsr_date_parser_distinguishes_version_marker_from_invalid_time() {
+        let window = parse_date_window(
+            "跃迁时间为 2026/07/15 4.4版本更新后 - 2026/08/25 15:00。",
+            None,
+        )
+        .unwrap();
+        assert_eq!(window.date_range, "2026-07-15 至 2026-08-25 15:00");
+
+        for malformed in [
+            "跃迁时间为 2026/07/15 25:00 - 2026/08/25 15:00。",
+            "跃迁时间为 2026/07/15 9:00 - 2026/08/25 15:00。",
+        ] {
+            assert!(parse_date_window(malformed, None).is_err());
+        }
+    }
+
+    #[test]
+    fn hsr_parser_ignores_multi_window_trial_summary_from_current_notice() {
+        let phases = parse_announcement_phases(
+            "hsr",
+            "77188470",
+            "4.4版本活动跃迁（其二）",
+            "<p>限定5星角色「姬子•启行（智识•火）」跃迁成功概率限时提升，跃迁时间为 2026/07/15 4.4版本更新后 - 2026/08/25 15:00。</p><p>限定5星角色「刻律德菈（同谐•风）」「那刻夏（智识•风）」「砂金（存护•虚数）」将会返场，跃迁时间为 2026/08/05 12:00 - 2026/08/25 15:00。</p><p>● 活动内容：2026/07/15 4.4版本更新后 - 2026/08/25 15:00，可试用角色「姬子•启行（智识•火）」；2026/08/05 12:00 - 2026/08/25 15:00，可试用角色「刻律德菈（同谐•风）」体验关卡。</p>",
+            "米游社官方：4.4版本活动跃迁（其二）",
+            "https://www.miyoushe.com/sr/article/77188470",
+            None,
+        )
+        .unwrap();
+        assert_eq!(phases.len(), 2);
+        assert_eq!(phases[0].date_range, "2026-07-15 至 2026-08-25 15:00");
+        assert_eq!(phases[1].date_range, "2026-08-05 12:00 至 2026-08-25 15:00");
+    }
+
+    #[test]
     fn hsr_parser_rejects_wrong_uid_title_date_and_empty_roles() {
         for malformed in [
             HSR_FULL_FIXTURE.replace(HSR_OFFICIAL_UID, "1"),
@@ -1916,7 +2012,7 @@ mod tests {
                 ("爱芮".to_owned(), "aria".to_owned()),
                 ("派派".to_owned(), "piper".to_owned()),
                 ("赛斯".to_owned(), "seth".to_owned()),
-                ("蕾米埃尔".to_owned(), "remiel".to_owned()),
+                ("蕾米埃尔".to_owned(), "remielle".to_owned()),
             ]),
             &BannerRefreshMetadataV1 {
                 fetched_at: "2026-07-27T12:00:00+08:00".to_owned(),
@@ -1941,7 +2037,7 @@ mod tests {
             "2026-07-29 11:00 至 2026-09-08 14:59"
         );
         assert_eq!(next[0]["characters"][0]["slug"], "aria");
-        assert_eq!(next[1]["characters"][0]["slug"], "remiel");
+        assert_eq!(next[1]["characters"][0]["slug"], "remielle");
     }
 
     #[test]
@@ -2005,7 +2101,7 @@ mod tests {
               "title": "已公开卫星",
               "date_range": "待官方调频确认",
               "characters": [
-                {"slug": "remiel", "analysis_tags": ["卫星"]},
+                {"slug": "remielle", "analysis_tags": ["卫星"]},
                 {
                   "slug": "norma",
                   "name_cn": "诺姆·霍洛维尔",
@@ -2043,7 +2139,7 @@ mod tests {
                 .iter()
                 .map(|character| character["slug"].as_str().unwrap())
                 .collect::<Vec<_>>(),
-            vec!["remiel"]
+            vec!["remielle"]
         );
         let current = &output_phases[0];
         assert_eq!(current["title"], "3.0 下半调频");
@@ -2120,7 +2216,7 @@ mod tests {
               "status": "current",
               "title": "old phase",
               "date_range": "2026-06-01 至 2026-06-21 14:59",
-              "characters": [{"slug": "remiel"}]
+              "characters": [{"slug": "remielle"}]
             },
             {
               "id": "long-term",
@@ -2224,7 +2320,7 @@ mod tests {
     }
 
     #[test]
-    fn official_short_name_promotes_unique_named_satellite_and_clears_phase_metadata() {
+    fn official_short_name_migrates_legacy_satellite_and_preserves_manual_metadata() {
         let existing = r#"{
           "phases": [{
             "id": "announced-satellites",
@@ -2260,7 +2356,7 @@ mod tests {
         let snapshot = merge_banner_plan_snapshot(
             existing.as_bytes(),
             &[official.clone()],
-            &BTreeMap::new(),
+            &BTreeMap::from([("蕾米埃尔·丹".to_owned(), "remielle".to_owned())]),
             &BannerRefreshMetadataV1 {
                 fetched_at: "2026-07-27T12:00:00+08:00".to_owned(),
                 source_label: "《绝区零》官方网站".to_owned(),
@@ -2271,7 +2367,7 @@ mod tests {
         let phases = value["phases"].as_array().unwrap();
         assert_eq!(phases.len(), 1);
         assert_eq!(phases[0]["status"], "next");
-        assert_eq!(phases[0]["characters"][0]["slug"], "remiel");
+        assert_eq!(phases[0]["characters"][0]["slug"], "remielle");
         assert_eq!(phases[0]["characters"][0]["name_cn"], "蕾米埃尔·丹");
         assert_eq!(
             phases[0]["characters"][0]["analysis_tags"],
@@ -2293,7 +2389,7 @@ mod tests {
         let repaired = merge_banner_plan_snapshot(
             &serde_json::to_vec(&stale_promoted).unwrap(),
             &[official],
-            &BTreeMap::new(),
+            &BTreeMap::from([("蕾米埃尔·丹".to_owned(), "remielle".to_owned())]),
             &BannerRefreshMetadataV1 {
                 fetched_at: "2026-07-28T12:00:00+08:00".to_owned(),
                 source_label: "《绝区零》官方网站".to_owned(),
@@ -2302,6 +2398,7 @@ mod tests {
         .unwrap();
         let repaired: Value = serde_json::from_slice(&repaired).unwrap();
         let repaired_character = &repaired["phases"][0]["characters"][0];
+        assert_eq!(repaired_character["slug"], "remielle");
         assert_eq!(
             repaired_character["analysis_tags"],
             json!(["官方档案", "缺少实测"])
@@ -2522,6 +2619,97 @@ mod tests {
         assert_eq!(deduped.len(), 1);
         assert_eq!(deduped[0].source_url, first.source_url);
         assert_eq!(deduped[0].characters.len(), 5);
+    }
+
+    #[test]
+    fn hsr_dedupe_collapses_identical_full_pool_across_distinct_articles() {
+        let original = parse_hsr_get_post_full_json(HSR_FULL_FIXTURE)
+            .unwrap()
+            .remove(0);
+        let mut latest = original.clone();
+        latest.id = "hsr-official-77188470-1".to_owned();
+        latest.title = "4.4版本活动跃迁（其二）".to_owned();
+        latest.source_label = "米游社官方：4.4版本活动跃迁（其二）".to_owned();
+        latest.source_url = "https://www.miyoushe.com/sr/article/77188470".to_owned();
+
+        let deduped = dedupe_official_phases(vec![latest.clone(), original]).unwrap();
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].source_url, latest.source_url);
+        assert_eq!(deduped[0].characters, latest.characters);
+    }
+
+    #[test]
+    fn exact_pool_dedupe_keeps_same_date_pools_that_only_share_supports() {
+        let first = parse_hsr_get_post_full_json(HSR_FULL_FIXTURE)
+            .unwrap()
+            .remove(0);
+        let mut different_anchor = first.clone();
+        different_anchor.id = "hsr-official-77188470-2".to_owned();
+        different_anchor.title = "4.4版本活动跃迁（其二）".to_owned();
+        different_anchor.source_url = "https://www.miyoushe.com/sr/article/77188470".to_owned();
+        different_anchor.characters[0].name_cn = "赛飞儿".to_owned();
+        let deduped =
+            dedupe_official_phases(vec![first.clone(), different_anchor.clone()]).unwrap();
+        assert_eq!(deduped.len(), 2);
+
+        let mut plan = vec![
+            json!({
+                "title": first.title,
+                "date_range": first.date_range,
+                "source_url": first.source_url,
+                "characters": [
+                    {"slug": "himeko-nova"},
+                    {"slug": "moze"},
+                    {"slug": "hanya"}
+                ]
+            }),
+            json!({
+                "title": different_anchor.title,
+                "date_range": different_anchor.date_range,
+                "source_url": different_anchor.source_url,
+                "characters": [
+                    {"slug": "cerydra"},
+                    {"slug": "moze"},
+                    {"slug": "hanya"}
+                ]
+            }),
+        ];
+        dedupe_plan_phases(&mut plan);
+        assert_eq!(plan.len(), 2);
+    }
+
+    #[test]
+    fn plan_dedupe_collapses_identical_pool_across_distinct_articles() {
+        let mut phases = vec![
+            json!({
+                "title": "4.4 拓星启明",
+                "date_range": "2026-07-15 至 2026-08-25 15:00",
+                "source_url": "https://www.miyoushe.com/sr/article/77188470",
+                "characters": [
+                    {"slug": "himeko-nova"},
+                    {"slug": "moze"},
+                    {"slug": "hanya"},
+                    {"slug": "serval"}
+                ]
+            }),
+            json!({
+                "title": "4.4版本活动跃迁（其一）",
+                "date_range": "2026/07/15 至 2026/08/25 15:00",
+                "source_url": "https://www.miyoushe.com/sr/article/76661906",
+                "characters": [
+                    {"slug": "serval"},
+                    {"slug": "hanya"},
+                    {"slug": "moze"},
+                    {"slug": "himeko-nova"}
+                ]
+            }),
+        ];
+        dedupe_plan_phases(&mut phases);
+        assert_eq!(phases.len(), 1);
+        assert_eq!(
+            phases[0]["source_url"],
+            "https://www.miyoushe.com/sr/article/77188470"
+        );
     }
 
     #[test]

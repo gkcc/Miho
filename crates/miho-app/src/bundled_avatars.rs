@@ -431,7 +431,7 @@ static ZZZ_AVATARS: &[BundledAvatar] = &[
         include_bytes!("../assets/avatars/zzz/qingyi.webp"),
     ),
     (
-        "remiel",
+        "remielle",
         include_bytes!("../assets/avatars/zzz/remiel.webp"),
     ),
     ("rina", include_bytes!("../assets/avatars/zzz/rina.webp")),

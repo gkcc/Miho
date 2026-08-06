@@ -1763,7 +1763,7 @@ mod tests {
         let banner = vec![
             json!({"character_slug":"norma","phase_status":"current"}),
             json!({"character_slug":"sunna","phase_status":"current"}),
-            json!({"character_slug":"remiel","character_name_cn":"蕾米埃尔·丹","phase_status":"satellite"}),
+            json!({"character_slug":"remielle","character_name_cn":"蕾米埃尔·丹","phase_status":"satellite"}),
             json!({"character_slug":"sigrid","character_name_cn":"希格莉德·德拉叙尔","phase_status":"satellite"}),
             json!({"character_slug":"legacy-only","phase_status":"previous"}),
         ];
@@ -1776,7 +1776,7 @@ mod tests {
                 .map(|row| value_str(row, "character_slug"))
                 .collect::<Vec<_>>(),
             vec![
-                "remiel",
+                "remielle",
                 "sigrid",
                 "norma",
                 "velina",

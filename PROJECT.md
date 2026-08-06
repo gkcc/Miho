@@ -713,6 +713,13 @@
 - **证据去重**：HF 与 Prydwen 的镜像队伍按同一上游来源族计数，`merged_source_kinds/files` 仍完整保留。正式 19,311 个模板中 1,600 个双来源模板的 `duplicate_count` 全为 `1`、证据等级全为 `B`，不再由镜像重复抬成 `A`；质量报告同时列出 `hf_comps / prydwen_page`。HSR Workbook 契约新增 `merged_source_kinds`，10/10 通过。
 - **正式交付**：Desktop、人工 CLI、无窗任务 CLI SHA-256 分别为 `C7B6015A343449422D25555D83AF748B2D90901B302336DBBC5694A6B604DAAB`、`409087D1116F047ECDAC476B328E908E5FA3B9B084FB15CA1EB31893030801BE`、`B871DDDEA0FB2E46F9AE1E03616D995B25D68685628E92A0C55C241E4C56523A`；09:30 任务已切到唯一对应无窗 generation，正式重放为 `Ready / Enabled / LastTaskResult=0`。隐藏 CDP 实际点击双游戏更新按钮并验证六模式、两个卡池和 revision，正常退出 0、stdout/stderr 空、Box 哈希不变；Node 契约 141/141，独立终审无 Blocker/High/Medium。未进入安装器或 portable 链。
 
+### 2026-08-06 手动卡池、TIER 与终局出场率刷新（已交付）
+
+- **更新阻断与修复**：HSR `4.4版本更新后` 曾被日期解析器误判为非法附着时间，试玩活动的多日期汇总又会被当成卡池窗口；两篇 4.4 公告还会重复生成同一姬子•启行整版本池。解析现只接受可信版本相对窗口，并按“同游戏、同日期、完整角色及定位集合完全相同”去重，仍保留仅共享四星陪跑的不同池。ZZZ 上游 canonical 已从旧 `remiel` 收敛到 `remielle`；旧计划仅在完整中文名唯一命中新身份时迁移，Rust/Python 名称映射、Visualizer、Box 读写别名与内置头像同步兼容，真实歧义继续 fail-closed。
+- **正式数据结果**：HSR 卡池为姬子•启行整版本池、刻律德菈/那刻夏/砂金下半池及 Fate 长期池，`himeko-nova` 仅一条；TIER 为 `2026-07-24`，终局最新采样 `2026-07-28`，MoC/AS/AA active。PF 上游尚无 `2026-08-03` 之后的新样本，因此保持 stale warning，不伪造新一期。ZZZ 两池为爱芮/派派/赛斯（至 `2026-08-19 11:59`）与蕾米埃尔/派派/赛斯（至 `2026-09-08 14:59`），产物中 `remiel=0 / remielle=1`；TIER 为 `2026-07-29`，SD/DA 最新采样 `2026-08-01` 且均 active，质量状态为 ok。
+- **验证与正式交付**：卡池 Rust 26 passed / 1 live ignored，官方 live canary、ZZZ Rust source/Visualizer/头像定点、Python alias 定点、Node 旧 Box 迁移 3/3、Rust fmt、diff check 与完整 `pnpm run tauri:build` 通过；三份 EXE 的 7 项 Visualizer 字节 exact-once，PE 子系统为 `WINDOWS_GUI / WINDOWS_CUI / WINDOWS_GUI`。正式 Desktop、人工 CLI、无窗任务 CLI SHA-256 分别为 `CA443C9C47829A4B56E0983C22D108FA29F42648BA3EB5B7EBBA1B4805230BF7`、`7276C45EB3D9AFFF07655CA4697BB62D6E8E4F049876A9741765C7BB3842B026`、`584683366E2E1D06B6C3C538528486ECB6AB899BC684103B5441AAC3852C42C9`。owner-aware attempt `installer-b2a703e58a7b40a6aa7a054b90a010c3` 提交成功，正式重放 attempt `20260806T142437666704Z-43224-0` healthy；09:30 任务为 `Ready / Enabled / LastTaskResult=0`，仅一个 generation，无 candidate/journal。
+- **真实入口与数据安全**：安装版隐藏 CDP/DOM 实际完成 `ZZZ → HSR → ZZZ`，覆盖 92/58 个角色、60/24 个已拥有角色、六种终局模式和两个当前卡池；蕾米埃尔在旧 `remiel` Box 文件未改写的前提下正确显示，程序退出 0、stdout/stderr 为空、调试端口和子进程清理完成。HSR/ZZZ Box SHA-256 前后保持 `20EB98A9D276BE7C5B8EA01151EE298DA2CEC96CBC16EB9424ECA7299217F5EA` / `0A7F4D5C7E15FC242A8C4BFB1C43C8F6CCF8E3C14830C83DF46B9CF5E89E7E83`；未进入安装器或 portable 链。独立复审无部署 blocker，另留附着数字白名单与异常 slug 精确池去重两项非阻断硬化。
+
 ## 恢复入口
 
 - 项目状态：本文件。

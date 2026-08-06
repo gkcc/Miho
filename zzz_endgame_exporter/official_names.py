@@ -31,6 +31,7 @@ MANUAL_ALIASES = {
     "orphie-magnusson-and-magus": ["orphie-and-magus"],
     "piper-wheel": ["piper"],
     "pulchra-fellini": ["pulchra"],
+    "remielle": ["remiel"],
     "soldier-0-anby": ["anby-demara-soldier-0", "anby-soldier-0"],
     "tsukishiro-yanagi": ["yanagi"],
     "ukinami-yuzuha": ["yuzuha"],

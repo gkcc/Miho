@@ -80,6 +80,17 @@ def test_zzz_prydwen_full_month_date_and_aliases():
         ]
     )
     assert mapped["billy-starlight"]["character_name_cn"] == "星徽·比利"
+    remielle = official_name_map(
+        [
+            {
+                "character_slug": "remielle",
+                "character_name_en": "Remielle Dan",
+                "character_name_cn": "蕾米埃尔·丹",
+                "source": "official",
+            }
+        ]
+    )
+    assert remielle["remiel"]["character_slug"] == "remielle"
 
 
 def test_zzz_avatar_crop_box_accepts_normalized_coordinates():
@@ -242,7 +253,7 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
                         "status": "satellite",
                         "characters": [
                             {
-                                "slug": "remiel",
+                                "slug": "remielle",
                                 "name_cn": "蕾米埃尔·丹",
                                 "banner_role": "已公开卫星",
                                 "rarity": "S",
@@ -370,7 +381,7 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
     roster = {row["character_slug"]: row for row in data["rosterRows"]}
 
     assert [row["character_slug"] for row in data["rosterRows"][:4]] == [
-        "remiel",
+        "remielle",
         "nom",
         "miyabi",
         "ukinami-yuzuha",
@@ -379,7 +390,7 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
     assert roster["nom"]["character_name_cn"] == "诺姆·霍洛维尔"
     assert roster["nom"]["element_cn"] == "火"
     assert roster["nom"]["banner_statuses"] == "current"
-    assert roster["remiel"]["banner_statuses"] == "satellite"
+    assert roster["remielle"]["banner_statuses"] == "satellite"
     assert data["bannerRows"][0]["phase_status"] == "current"
     assert "banner={phase:'current'" in app_text
     assert "banner_current" in app_text

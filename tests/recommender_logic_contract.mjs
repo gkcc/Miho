@@ -2272,6 +2272,27 @@ test('ZZZ migrates legacy Nom Box state and scoped recommendation constraints wi
   });
 });
 
+test('ZZZ migrates the legacy Remiel Box identity without losing build progress', () => {
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const migrated = plain(api.migrateBox({
+    owned: ['remiel', 'remielle'],
+    buildSlug: 'remiel',
+    builds: {
+      remiel: {level: 60, engine: 0, mindscape: 1, signature: 'yes', skills: 'high', discs: 'unset'},
+      remielle: {level: 40, engine: 60, mindscape: 0, signature: 'no', skills: 'max', discs: 'great'},
+    },
+  }));
+  const expectedBuild = {level: 60, engine: 60, mindscape: 1, signature: 'yes', skills: 'max', discs: 'great'};
+  assert.deepEqual(migrated.owned, ['remielle']);
+  assert.equal(migrated.buildSlug, 'remielle');
+  assert.deepEqual(migrated.builds, {remielle: expectedBuild});
+  assert.deepEqual(
+    migrated.payload,
+    {owned: ['remielle'], buildSlug: 'remielle', builds: {remielle: expectedBuild}},
+    'the next Box save/export must contain only the current canonical identity',
+  );
+});
+
 test('HSR Box import previews every replacement delta, rejects empty documents, and bounds undo history', () => {
   const api = loadContract(HSR_APP, HSR_HARNESS);
   const rosterRows = [
