@@ -56,14 +56,16 @@
   </section>
 
   <section id="recommenderView" class="hidden">
-    <section class="controls rec-target-controls" aria-label="多队目标">
-      <div class="control-field"><span class="control-label" id="recTargetScopeControlLabel">参战关卡（可多选）</span><div id="recTargetScopeControl" class="segmented" role="group" aria-labelledby="recTargetScopeControlLabel"></div></div>
-      <p>只在已选关卡之间联合分配 Box；未选关卡不会占用或预留代理人。</p>
+    <section class="controls rec-target-controls rec-plan-controls" id="recPlanControls" aria-label="推荐场景">
+      <div class="control-field"><span class="control-label" id="recStrategyControlLabel">推荐场景</span><div id="recStrategyControl" class="segmented" role="group" aria-labelledby="recStrategyControlLabel"></div></div>
+      <label id="recTeamCountControl" for="recTeamCountSelect">方案队数<select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></label>
+      <div class="control-field" id="recTargetScopeGroup"><span class="control-label" id="recTargetScopeControlLabel">参战关卡（可多选）</span><div id="recTargetScopeControl" class="segmented" role="group" aria-labelledby="recTargetScopeControlLabel"></div></div>
+      <p id="recStrategyHint"></p>
     </section>
     <section class="controls rec-controls">
       <div class="control-field"><span class="control-label" id="recModeControlLabel">模式</span><div id="recModeControl" class="segmented" role="group" aria-labelledby="recModeControlLabel"></div></div>
-      <label for="recScopeSelect">关卡<select id="recScopeSelect"></select></label>
-      <div class="control-field"><span class="control-label" id="recElementControlLabel">推荐属性</span><div id="recElementControl" class="segmented" role="group" aria-labelledby="recElementControlLabel"></div></div>
+      <label for="recScopeSelect"><span id="recScopeLabel">实战关卡</span><select id="recScopeSelect"></select></label>
+      <div class="control-field"><span class="control-label" id="recElementControlLabel">敌方弱点（默认仅标注）</span><div id="recElementControl" class="segmented" role="group" aria-labelledby="recElementControlLabel"></div></div>
       <label for="recSortSelect">排序口径<select id="recSortSelect"><option value="balanced" selected>综合推荐</option><option value="history">历史表现</option><option value="box">Box 即战力</option></select></label>
       <label for="recGapSelect">缺口<select id="recGapSelect"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="3">显示全部</option></select></label>
       <label for="recRiskSelect">风险<select id="recRiskSelect"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></label>
@@ -72,7 +74,7 @@
     </section>
     <section class="rec-constraints" aria-label="代理人硬约束">
       <div class="constraint-picker">
-        <label for="recCharacterSelect">代理人硬约束 <span>按当前模式与关卡保存</span></label>
+        <label for="recCharacterSelect">代理人硬约束 <span id="recConstraintScopeHint">按当前模式与关卡保存</span></label>
         <div class="constraint-picker-row">
           <select id="recCharacterSelect" title="选择要加入当前关卡约束的代理人"></select>
           <button id="recRequireBtn" type="button">必须上场</button>

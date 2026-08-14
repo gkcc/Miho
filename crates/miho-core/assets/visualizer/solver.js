@@ -215,7 +215,20 @@
           if (compatible >= branchLimit) break;
         }
       }
-      states = next.sort(stateOrder).slice(0, beamWidth);
+      const remainingLists = prepared.lists.slice(scopeIndex + 1);
+      if (!remainingLists.length) {
+        states = next.sort(stateOrder).slice(0, beamWidth);
+        return;
+      }
+      const viable = [];
+      const blocked = [];
+      for (const state of next) {
+        const target = remainingLists.every((list) => list.some((candidate) => !conflicts(state.mask, candidate.mask)))
+          ? viable
+          : blocked;
+        target.push(state);
+      }
+      states = [...viable.sort(stateOrder), ...blocked.sort(stateOrder)].slice(0, beamWidth);
     });
     return selectSolutions(states, maxSolutions, scopeCount);
   }

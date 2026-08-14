@@ -294,6 +294,11 @@
         "bytes": 10420
       },
       {
+        "slug": "pearl",
+        "sha256": "c21e52d651313d8bc9a6ef2035e70f33301b49798f09cb3d6dbb23bee2a74865",
+        "bytes": 15862
+      },
+      {
         "slug": "pela",
         "sha256": "5fcdf953cec7fb7dbc748a3e9280ecef28fbc8116bd4348fba0f43f6a90c99e9",
         "bytes": 10048

@@ -207,6 +207,41 @@ def test_hsr_final_target_controls_remain_responsive() -> None:
     assert "#recTooltip .tooltip-grid>div{min-width:0;overflow-wrap:anywhere}" in styles
 
 
+def test_hsr_and_zzz_recommenders_keep_parallel_dual_strategy_controls() -> None:
+    for game, custom_label in (("hsr", "按弱点配队"), ("zzz", "按属性配队")):
+        visualizer = (
+            ROOT / "crates" / "miho-core" / "assets" / "visualizer" / game
+        )
+        index = (visualizer / "index.html").read_text(encoding="utf-8")
+        app = (visualizer / "app.js").read_text(encoding="utf-8")
+
+        assert 'id="recStrategyControl"' in index
+        assert 'id="recTeamCountSelect"' in index
+        assert "参战关卡（可多选）" in index
+        assert "['final','末层实战']" in app
+        assert f"['custom','{custom_label}']" in app
+        assert "function customPoolTemplates(" in app
+        assert "scope_key!=='all'" in app
+        assert "function recPlanScopes(" in app
+        assert "function substituteCandidates(" in app
+        assert "function expandSlateItemVariants(" in app
+        assert "function showRecTooltip(" in app
+        assert "bindAccessibleDetail(card,'recTooltip'" in app
+        assert "evidenceConfidence:assignmentRows.length?'C'" in app
+
+    zzz_styles = (
+        ROOT
+        / "crates"
+        / "miho-core"
+        / "assets"
+        / "visualizer"
+        / "zzz"
+        / "styles.css"
+    ).read_text(encoding="utf-8")
+    assert "@media(max-width:900px){.rec-plan-controls" in zzz_styles
+    assert "@media(max-width:620px){.rec-plan-controls" in zzz_styles
+
+
 class _FixedLocalDateTime(datetime):
     @classmethod
     def now(cls, tz: object = None) -> "_FixedLocalDateTime":

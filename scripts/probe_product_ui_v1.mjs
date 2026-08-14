@@ -1260,22 +1260,36 @@ async function verifyZzzRecommender(context) {
         button.click();
         return button;
       };
-      const primarySlate = () => document.querySelector('#recSlateList .rec-solution');
-      const primarySlateCards = () => [...(primarySlate()?.querySelectorAll('.rec-slate-card') ?? [])];
-      const waitForSlate = async (expected) => {
+      const primarySlate = () => [...document.querySelectorAll('#recSlateList .rec-solution')].find(visible) ?? null;
+      const primarySlateCards = () => [...(primarySlate()?.querySelectorAll('.rec-slate-card') ?? [])].filter(visible);
+      const visibleCandidateCards = () => [...document.querySelectorAll('#recList .rec-card')].filter(visible);
+      const waitForSlate = async (expected, expectedModeLabel = '') => {
         const deadline = Date.now() + 30000;
         while (Date.now() < deadline) {
           const count = primarySlateCards().length;
           const subtitle = document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '';
           const meta = document.querySelector('#recSlateMeta')?.textContent ?? '';
-          if (primarySlate() && count === expected && subtitle && !meta.includes('正在')) return;
+          if (primarySlate() && count === expected && subtitle
+            && (!expectedModeLabel || subtitle.includes('目标：' + expectedModeLabel))
+            && !meta.includes('正在')) return;
           await new Promise((resolve) => setTimeout(resolve, 50));
         }
         throw new Error('timed out waiting for ZZZ joint slate');
       };
+      const waitForCandidateCards = async () => {
+        const deadline = Date.now() + 30000;
+        while (Date.now() < deadline) {
+          const cards = visibleCandidateCards();
+          if (cards.length) return cards;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error('timed out waiting for ZZZ recommendation cards');
+      };
       const tab = need([...document.querySelectorAll('#tabs button')]
         .find((button) => button.textContent?.trim().startsWith('组队推荐')), 'missing ZZZ recommender tab');
       tab.click();
+      rec.strategy = 'final';
+      rec.teamCounts = { sd: '2', da: '2' };
       rec.targetScopes = {};
       rec.elements = {};
       rec.constraints = {};
@@ -1287,11 +1301,200 @@ async function verifyZzzRecommender(context) {
       if (typeof saveRec === 'function') saveRec();
       if (typeof renderRec === 'function') renderRec();
       clickControl('#recModeControl', 'da');
+      clickControl('#recStrategyControl', 'custom');
+      await waitForCandidateCards();
+
+      const initialTeamSelect = need(document.querySelector('#recTeamCountSelect'), 'missing ZZZ team-count select');
+      const initialScopeSelect = need(document.querySelector('#recScopeSelect'), 'missing ZZZ recommender scope select');
+      const customPool = typeof customPoolTemplates === 'function' ? customPoolTemplates(rec.mode) : [];
+      const custom = {
+        mode: rec.mode,
+        strategy: rec.strategy,
+        teamCount: initialTeamSelect.value,
+        teamCountVisible: visible(document.querySelector('#recTeamCountControl')),
+        targetControlVisible: visible(document.querySelector('#recTargetScopeControl')),
+        scopeValues: [...initialScopeSelect.options].map((option) => option.value),
+        hint: document.querySelector('#recStrategyHint')?.textContent?.trim() ?? '',
+        subtitle: document.querySelector('#recSubtitle')?.textContent?.trim() ?? '',
+        candidateCardCount: visibleCandidateCards().length,
+        poolTemplateCount: customPool.length,
+        poolSources: [...new Set(customPool.flatMap((template) =>
+          Array.isArray(template.evidenceScopes) && template.evidenceScopes.length
+            ? template.evidenceScopes
+            : [template.scope_key]
+        ).filter(Boolean))].sort(),
+      };
+
+      initialTeamSelect.value = '3';
+      initialTeamSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitForSlate(3);
+      const storedAfterThree = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}');
+      const threeTeams = {
+        teamCount: document.querySelector('#recTeamCountSelect')?.value ?? '',
+        scopeValues: [...document.querySelector('#recScopeSelect').options].map((option) => option.value),
+        storedTeamCount: storedAfterThree.teamCounts?.da ?? '',
+        slateCount: primarySlateCards().length,
+      };
+
+      const visibleWeaknessButtons = () => [...document.querySelectorAll('#recElementControl button')].filter(visible);
+      const weaknessSelection = () => {
+        const weaknessButtons = visibleWeaknessButtons();
+        return {
+          active: weaknessButtons.filter((button) => button.classList.contains('active')).map((button) => button.textContent?.trim() ?? ''),
+          pressed: weaknessButtons.filter((button) => button.getAttribute('aria-pressed') === 'true').map((button) => button.textContent?.trim() ?? ''),
+        };
+      };
+      const storedWeaknesses = (scope) => JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').elements?.[rec.mode + '|' + scope] ?? [];
+      const weaknessButtons = visibleWeaknessButtons();
+      need(weaknessButtons.length >= 2, 'not enough visible ZZZ weakness controls to probe team isolation');
+      const firstWeakness = weaknessButtons[0].textContent?.trim() ?? '';
+      weaknessButtons[0].click();
+      await waitForCandidateCards();
+      await waitForSlate(3);
+      const weaknessSlotOne = {
+        key: rec.mode + '|' + rec.scope,
+        expected: firstWeakness,
+        ...weaknessSelection(),
+        stored: storedWeaknesses('custom-1'),
+        candidateCardCount: visibleCandidateCards().length,
+        slateCount: primarySlateCards().length,
+      };
+
+      const weaknessScopeSelect = need(document.querySelector('#recScopeSelect'), 'ZZZ custom scope select disappeared during weakness probe');
+      weaknessScopeSelect.value = 'custom-2';
+      weaknessScopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitForCandidateCards();
+      await waitForSlate(3);
+      const weaknessSlotTwoBefore = {
+        key: rec.mode + '|' + rec.scope,
+        ...weaknessSelection(),
+        stored: storedWeaknesses('custom-2'),
+      };
+
+      const secondWeaknessButton = need(visibleWeaknessButtons().find((button) => (button.textContent?.trim() ?? '') !== firstWeakness),
+        'missing a second visible ZZZ weakness control');
+      const secondWeakness = secondWeaknessButton.textContent?.trim() ?? '';
+      secondWeaknessButton.click();
+      await waitForCandidateCards();
+      await waitForSlate(3);
+      const weaknessSlotTwo = {
+        key: rec.mode + '|' + rec.scope,
+        expected: secondWeakness,
+        ...weaknessSelection(),
+        stored: storedWeaknesses('custom-2'),
+        candidateCardCount: visibleCandidateCards().length,
+        slateCount: primarySlateCards().length,
+      };
+
+      const weaknessReturnSelect = need(document.querySelector('#recScopeSelect'), 'ZZZ custom scope select disappeared after second weakness');
+      weaknessReturnSelect.value = 'custom-1';
+      weaknessReturnSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitForCandidateCards();
+      await waitForSlate(3);
+      const returnedWeaknessSlotOne = {
+        key: rec.mode + '|' + rec.scope,
+        ...weaknessSelection(),
+        stored: storedWeaknesses('custom-1'),
+        candidateCardCount: visibleCandidateCards().length,
+        slateCount: primarySlateCards().length,
+      };
+
+      const controls = {
+        select: document.querySelector('#recCharacterSelect'),
+        required: document.querySelector('#recRequireBtn'),
+        excluded: document.querySelector('#recExcludeBtn'),
+      };
+      Object.entries(controls).forEach(([name, element]) => need(element, 'missing ZZZ constraint control ' + name));
+      const choices = [...controls.select.options].map((option) => option.value).filter(Boolean);
+      need(choices.length >= 2, 'not enough ZZZ roster options to probe constraints');
+      controls.select.value = choices[0];
+      controls.required.click();
+      controls.select.value = choices[1];
+      controls.excluded.click();
       await Promise.resolve();
+      const slotOneKey = rec.mode + '|' + rec.scope;
+      const storedSlotOne = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').constraints?.[slotOneKey] ?? {};
+      const slotOne = {
+        key: slotOneKey,
+        requiredSaved: Array.isArray(storedSlotOne.required) && storedSlotOne.required.includes(choices[0]),
+        excludedSaved: Array.isArray(storedSlotOne.excluded) && storedSlotOne.excluded.includes(choices[1]),
+        requiredChipCount: document.querySelector('#recRequiredList')?.children.length ?? -1,
+        excludedChipCount: document.querySelector('#recExcludedList')?.children.length ?? -1,
+        scopeHint: document.querySelector('#recConstraintScopeHint')?.textContent?.trim() ?? '',
+        clearText: document.querySelector('#recConstraintClearBtn')?.textContent?.trim() ?? '',
+        selectTitle: controls.select.title,
+      };
+      const customScopeSelect = need(document.querySelector('#recScopeSelect'), 'ZZZ custom scope select disappeared');
+      customScopeSelect.value = 'custom-2';
+      customScopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+      const slotTwo = {
+        key: rec.mode + '|' + rec.scope,
+        requiredChipCount: document.querySelector('#recRequiredList')?.children.length ?? -1,
+        excludedChipCount: document.querySelector('#recExcludedList')?.children.length ?? -1,
+      };
+      const returnScopeSelect = need(document.querySelector('#recScopeSelect'), 'ZZZ custom scope select disappeared on slot two');
+      returnScopeSelect.value = 'custom-1';
+      returnScopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+      const returnedSlotOne = {
+        requiredChipCount: document.querySelector('#recRequiredList')?.children.length ?? -1,
+        excludedChipCount: document.querySelector('#recExcludedList')?.children.length ?? -1,
+      };
+
+      clickControl('#recStrategyControl', 'final');
+      rec.targetScopes = { da: ['1-1', '1-2'] };
+      saveRec();
+      syncRec();
+      renderRec();
+      await waitForSlate(2, '综合推荐');
+      await Promise.resolve();
+
+      const sortSelect = need(document.querySelector('#recSortSelect'), 'missing ZZZ recommendation sort select');
+      const captureSort = async (mode) => {
+        sortSelect.value = mode;
+        sortSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        const expectedModeLabel = mode === 'history' ? '历史表现' : mode === 'box' ? 'Box 即战力' : '综合推荐';
+        const expectedScoreLabel = mode === 'history' ? '历史分' : mode === 'box' ? 'Box 分' : '综合分';
+        await waitForSlate(recPlanScopes().length, expectedModeLabel);
+        const cards = await waitForCandidateCards();
+        const ranked = typeof rankedFor === 'function' ? rankedFor(rec.mode, rec.scope) : [];
+        const stored = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}');
+        return {
+          mode: rec.sortMode,
+          storedMode: stored.sortMode ?? '',
+          topKeys: ranked.slice(0, 8).map((item) => typeof customTemplateKey === 'function'
+            ? customTemplateKey(item.template)
+            : [...(item.template?.chars ?? [])].sort().join('|')),
+          scoreMatches: ranked.every((item) => item.scoreMode === mode && item.score === item.scores?.[mode]),
+          partsComplete: ranked.every((item) => ['balanced', 'history', 'box'].every((key) =>
+            Array.isArray(item.scoreParts?.[key]) && Number.isFinite(item.scores?.[key]))),
+          referenceCounts: cards.map((card) => card.querySelectorAll('.rec-score-refs > span').length),
+          breakdowns: cards.map((card) => card.querySelector('.rec-score-parts')?.textContent?.trim() ?? ''),
+          slateTitles: primarySlateCards().map((card) => card.querySelector('h3')?.textContent?.trim() ?? ''),
+          slateSubtitle: document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '',
+          expectedScoreLabel,
+          expectedModeLabel,
+        };
+      };
+      const sortProbe = {
+        options: [...sortSelect.options].map((option) => ({value: option.value, text: option.textContent?.trim() ?? ''})),
+        balanced: await captureSort('balanced'),
+        history: await captureSort('history'),
+        box: await captureSort('box'),
+      };
+      rec.sortMode = 'balanced';
+      rec.targetScopes = {};
+      saveRec();
+      syncRec();
+      renderRec();
+      await waitForSlate(3, '综合推荐');
 
       const defaults = {
         page: typeof state === 'object' ? state.page : '',
+        strategy: rec.strategy,
         viewVisible: visible(document.querySelector('#recommenderView')),
+        strategyControlVisible: visible(document.querySelector('#recStrategyControl')),
         controlVisible: visible(document.querySelector('#recTargetScopeControl')),
         targetValues: [...document.querySelectorAll('#recTargetScopeControl button')].map((button) => button.dataset.value),
         selectedTargets: [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value),
@@ -1336,11 +1539,91 @@ async function verifyZzzRecommender(context) {
         selectedAfterLastClick: [...document.querySelectorAll('#recTargetScopeControl button.active')].map((button) => button.dataset.value),
         storedTargets: JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').targetScopes?.da ?? [],
       };
-      return {defaults, pair, modeIsolation, returnedPair, single};
+      return {custom, threeTeams, weaknessSlotOne, weaknessSlotTwoBefore, weaknessSlotTwo, returnedWeaknessSlotOne, slotOne, slotTwo, returnedSlotOne, sortProbe, defaults, pair, modeIsolation, returnedPair, single};
     })()`, context.sessionId);
 
+    assert(result.custom.mode === "da"
+      && result.custom.strategy === "custom"
+      && result.custom.teamCount === "2"
+      && result.custom.teamCountVisible
+      && !result.custom.targetControlVisible
+      && JSON.stringify(result.custom.scopeValues) === JSON.stringify(["custom-1", "custom-2"])
+      && result.custom.hint.includes("普通层或自定义敌人")
+      && result.custom.subtitle.includes("跨全部具体实战关卡")
+      && result.custom.candidateCardCount > 0
+      && result.custom.poolTemplateCount > 0
+      && JSON.stringify(result.custom.poolSources) === JSON.stringify(["1-1", "1-2", "1-3"]), "ZZZ attribute-driven scenario is not backed by the complete concrete-stage pool", result.custom);
+    assert(result.threeTeams.teamCount === "3"
+      && JSON.stringify(result.threeTeams.scopeValues) === JSON.stringify(["custom-1", "custom-2", "custom-3"])
+      && result.threeTeams.storedTeamCount === "3"
+      && result.threeTeams.slateCount === 3, "ZZZ custom scenario could not switch from two to three teams", result.threeTeams);
+    assert(result.weaknessSlotOne.key === "da|custom-1"
+      && result.weaknessSlotOne.expected
+      && JSON.stringify(result.weaknessSlotOne.active) === JSON.stringify([result.weaknessSlotOne.expected])
+      && JSON.stringify(result.weaknessSlotOne.pressed) === JSON.stringify([result.weaknessSlotOne.expected])
+      && JSON.stringify(result.weaknessSlotOne.stored) === JSON.stringify([result.weaknessSlotOne.expected])
+      && result.weaknessSlotOne.candidateCardCount > 0
+      && result.weaknessSlotOne.slateCount === 3
+      && result.weaknessSlotTwoBefore.key === "da|custom-2"
+      && result.weaknessSlotTwoBefore.active.length === 0
+      && result.weaknessSlotTwoBefore.pressed.length === 0
+      && result.weaknessSlotTwoBefore.stored.length === 0
+      && result.weaknessSlotTwo.key === "da|custom-2"
+      && result.weaknessSlotTwo.expected
+      && result.weaknessSlotTwo.expected !== result.weaknessSlotOne.expected
+      && JSON.stringify(result.weaknessSlotTwo.active) === JSON.stringify([result.weaknessSlotTwo.expected])
+      && JSON.stringify(result.weaknessSlotTwo.pressed) === JSON.stringify([result.weaknessSlotTwo.expected])
+      && JSON.stringify(result.weaknessSlotTwo.stored) === JSON.stringify([result.weaknessSlotTwo.expected])
+      && result.weaknessSlotTwo.candidateCardCount > 0
+      && result.weaknessSlotTwo.slateCount === 3
+      && result.returnedWeaknessSlotOne.key === "da|custom-1"
+      && JSON.stringify(result.returnedWeaknessSlotOne.active) === JSON.stringify([result.weaknessSlotOne.expected])
+      && JSON.stringify(result.returnedWeaknessSlotOne.pressed) === JSON.stringify([result.weaknessSlotOne.expected])
+      && JSON.stringify(result.returnedWeaknessSlotOne.stored) === JSON.stringify([result.weaknessSlotOne.expected])
+      && result.returnedWeaknessSlotOne.candidateCardCount > 0
+      && result.returnedWeaknessSlotOne.slateCount === 3, "ZZZ custom weaknesses leaked between target teams", {
+        slotOne: result.weaknessSlotOne,
+        slotTwoBefore: result.weaknessSlotTwoBefore,
+        slotTwo: result.weaknessSlotTwo,
+        returnedSlotOne: result.returnedWeaknessSlotOne,
+      });
+    assert(result.slotOne.key === "da|custom-1"
+      && result.slotOne.requiredSaved
+      && result.slotOne.excludedSaved
+      && result.slotOne.requiredChipCount === 1
+      && result.slotOne.excludedChipCount === 1
+      && result.slotOne.scopeHint.includes("队伍")
+      && result.slotOne.clearText === "清空本队"
+      && result.slotOne.selectTitle.includes("当前队伍约束")
+      && result.slotTwo.key === "da|custom-2"
+      && result.slotTwo.requiredChipCount === 0
+      && result.slotTwo.excludedChipCount === 0
+      && result.returnedSlotOne.requiredChipCount === 1
+      && result.returnedSlotOne.excludedChipCount === 1, "ZZZ custom constraints leaked between target teams", {slotOne: result.slotOne, slotTwo: result.slotTwo, returnedSlotOne: result.returnedSlotOne});
+    assert(JSON.stringify(result.sortProbe.options.map((option) => option.value)) === JSON.stringify(["balanced", "history", "box"])
+      && result.sortProbe.options.map((option) => option.text).join("|") === "综合推荐|历史表现|Box 即战力", "ZZZ recommendation sort choices are incomplete", result.sortProbe.options);
+    for (const [mode, snapshot] of Object.entries({
+      balanced: result.sortProbe.balanced,
+      history: result.sortProbe.history,
+      box: result.sortProbe.box,
+    })) {
+      assert(snapshot.mode === mode
+        && snapshot.storedMode === mode
+        && snapshot.scoreMatches
+        && snapshot.partsComplete
+        && snapshot.topKeys.length > 0
+        && new Set(snapshot.topKeys).size === snapshot.topKeys.length
+        && snapshot.referenceCounts.length > 0
+        && snapshot.referenceCounts.every((count) => count === 3)
+        && snapshot.breakdowns.every((text) => text.length > 0)
+        && snapshot.slateTitles.length > 0
+        && snapshot.slateTitles.some((title) => title.includes(snapshot.expectedScoreLabel))
+        && snapshot.slateSubtitle.includes(`目标：${snapshot.expectedModeLabel}`), `ZZZ ${mode} sort is not wired through cards, persistence, and the joint slate`, snapshot);
+    }
     assert(result.defaults.page === "recommender"
+      && result.defaults.strategy === "final"
       && result.defaults.viewVisible
+      && result.defaults.strategyControlVisible
       && result.defaults.controlVisible
       && JSON.stringify(result.defaults.targetValues) === JSON.stringify(["1-1", "1-2", "1-3"])
       && JSON.stringify(result.defaults.selectedTargets) === JSON.stringify(["1-1", "1-2", "1-3"]), "ZZZ Dangerous Assault targets do not default to all real stages", result.defaults);
@@ -1402,7 +1685,7 @@ async function verifyRecommenderSearchAndLock(context, game) {
       rec.locks = {};
       ${game === "hsr"
         ? "rec.mode='as';rec.strategy='final';rec.scope='4-1';rec.targetScopes={as:['4-1','4-2']};rec.elements={};rec.constraints={};rec.gap='4';rec.riskMode='warn';rec.sortMode='balanced';ensureRecScope();saveRecSettings();renderRecommender();"
-        : "rec.mode='da';rec.scope='1-1';rec.targetScopes={da:['1-1','1-2']};rec.elements={};rec.constraints={};rec.gap='3';rec.riskMode='warn';rec.sortMode='balanced';ensureScope();saveRec();renderRec();"}
+        : "rec.mode='da';rec.strategy='final';rec.teamCounts={sd:'2',da:'2'};rec.scope='1-1';rec.targetScopes={da:['1-1','1-2']};rec.elements={};rec.constraints={};rec.gap='3';rec.riskMode='warn';rec.sortMode='balanced';ensureScope();saveRec();renderRec();"}
       return true;
     })()`, context.sessionId);
     const ready = await waitFor(`${game} searchable lockable slate`, async () => evaluate(context.id, `(() => {
@@ -1491,9 +1774,19 @@ async function verifyHsrRecommender(context) {
             && subtitle
             && (!expectedModeLabel || subtitle.includes('目标：' + expectedModeLabel))
             && !status.includes('正在')) return;
+          if (!primarySlate() && status && !status.includes('正在')) break;
           await new Promise((resolve) => setTimeout(resolve, 50));
         }
-        throw new Error('timed out waiting for HSR joint slate');
+        throw new Error('timed out waiting for HSR joint slate: ' + JSON.stringify({
+          expected,
+          cards: primarySlateCards().length,
+          hasPrimary: Boolean(primarySlate()),
+          subtitle: document.querySelector('#recSlateSubtitle')?.textContent?.trim() ?? '',
+          status: document.querySelector('#recSlateStatus')?.textContent?.trim() ?? '',
+          branchCandidates: recSlateCurrentPrepared?.candidateLists?.map((list) => list.length) ?? [],
+          branchTeams: recSlateCurrentPrepared?.candidateLists?.map((list) => new Set(list.map((item) => templatePoolKey(item.template))).size) ?? [],
+          fullTeams: recSlateCurrentPrepared?.fullCandidateLists?.map((list) => new Set(list.map((item) => templatePoolKey(item.template))).size) ?? [],
+        }));
       };
       const waitForCandidateCards = async () => {
         const deadline = Date.now() + 30000;
@@ -1558,13 +1851,74 @@ async function verifyHsrRecommender(context) {
 
       initialTeamSelect.value = '3';
       initialTeamSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      await Promise.resolve();
+      await waitForSlate(3);
       const threeTeamScope = need(document.querySelector('#recScopeSelect'), 'scope select disappeared');
       const storedAfterThree = JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}');
       const threeTeams = {
         teamCount: document.querySelector('#recTeamCountSelect')?.value ?? '',
         scopeValues: [...threeTeamScope.options].map((option) => option.value),
         storedTeamCount: storedAfterThree.teamCounts?.as ?? '',
+        slateCount: primarySlateCards().length,
+      };
+
+      const visibleWeaknessButtons = () => [...document.querySelectorAll('#recElementControl button')].filter(visible);
+      const weaknessSelection = () => {
+        const buttons = visibleWeaknessButtons();
+        return {
+          active: buttons.filter((button) => button.classList.contains('active')).map((button) => button.textContent?.trim() ?? ''),
+          pressed: buttons.filter((button) => button.getAttribute('aria-pressed') === 'true').map((button) => button.textContent?.trim() ?? ''),
+        };
+      };
+      const storedWeaknesses = (scope) => JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').elements?.[rec.mode + '|' + scope] ?? [];
+      const weaknessButtons = visibleWeaknessButtons();
+      need(weaknessButtons.length >= 2, 'not enough visible HSR weakness controls to probe team isolation');
+      const firstWeakness = weaknessButtons[0].textContent?.trim() ?? '';
+      weaknessButtons[0].click();
+      await waitForCandidateCards();
+      await waitForSlate(3);
+      const weaknessSlotOne = {
+        key: rec.mode + '|' + rec.scope,
+        expected: firstWeakness,
+        ...weaknessSelection(),
+        stored: storedWeaknesses('custom-1'),
+        candidateCardCount: document.querySelectorAll('#recList .rec-card').length,
+        slateCount: primarySlateCards().length,
+      };
+      const weaknessScopeSelect = need(document.querySelector('#recScopeSelect'), 'HSR custom scope select disappeared during weakness probe');
+      weaknessScopeSelect.value = 'custom-2';
+      weaknessScopeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitForCandidateCards();
+      await waitForSlate(3);
+      const weaknessSlotTwoBefore = {
+        key: rec.mode + '|' + rec.scope,
+        ...weaknessSelection(),
+        stored: storedWeaknesses('custom-2'),
+      };
+      const secondWeaknessButton = need(visibleWeaknessButtons().find((button) => (button.textContent?.trim() ?? '') !== firstWeakness),
+        'missing a second visible HSR weakness control');
+      const secondWeakness = secondWeaknessButton.textContent?.trim() ?? '';
+      secondWeaknessButton.click();
+      await waitForCandidateCards();
+      await waitForSlate(3);
+      const weaknessSlotTwo = {
+        key: rec.mode + '|' + rec.scope,
+        expected: secondWeakness,
+        ...weaknessSelection(),
+        stored: storedWeaknesses('custom-2'),
+        candidateCardCount: document.querySelectorAll('#recList .rec-card').length,
+        slateCount: primarySlateCards().length,
+      };
+      const weaknessReturnSelect = need(document.querySelector('#recScopeSelect'), 'HSR custom scope select disappeared after second weakness');
+      weaknessReturnSelect.value = 'custom-1';
+      weaknessReturnSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitForCandidateCards();
+      await waitForSlate(3);
+      const returnedWeaknessSlotOne = {
+        key: rec.mode + '|' + rec.scope,
+        ...weaknessSelection(),
+        stored: storedWeaknesses('custom-1'),
+        candidateCardCount: document.querySelectorAll('#recList .rec-card').length,
+        slateCount: primarySlateCards().length,
       };
 
       const controls = {
@@ -1593,6 +1947,9 @@ async function verifyHsrRecommender(context) {
         excludedSaved: Array.isArray(storedSlotOne.excluded) && storedSlotOne.excluded.includes(choices[1]),
         requiredChipCount: document.querySelector('#recRequiredList')?.children.length ?? -1,
         excludedChipCount: document.querySelector('#recExcludedList')?.children.length ?? -1,
+        scopeHint: document.querySelector('#recConstraintScopeHint')?.textContent?.trim() ?? '',
+        clearText: document.querySelector('#recConstraintClearBtn')?.textContent?.trim() ?? '',
+        selectTitle: controls.select.title,
       };
 
       const scopeSelect = need(document.querySelector('#recScopeSelect'), 'scope select disappeared after constraints');
@@ -1716,6 +2073,10 @@ async function verifyHsrRecommender(context) {
         entry,
         custom,
         threeTeams,
+        weaknessSlotOne,
+        weaknessSlotTwoBefore,
+        weaknessSlotTwo,
+        returnedWeaknessSlotOne,
         constraints: {
           controlsVisible: Object.values(controls).every(visible),
           slotOne,
@@ -1743,13 +2104,47 @@ async function verifyHsrRecommender(context) {
       && result.custom.subtitle.includes("跨全部具体战斗侧去重"), "HSR custom recommendations are not visibly backed by the full mode pool", result.custom);
     assert(result.threeTeams.teamCount === "3"
       && result.threeTeams.storedTeamCount === "3"
-      && JSON.stringify(result.threeTeams.scopeValues) === JSON.stringify(["custom-1", "custom-2", "custom-3"]), "HSR weakness-driven scenario could not switch to three teams", result.threeTeams);
+      && JSON.stringify(result.threeTeams.scopeValues) === JSON.stringify(["custom-1", "custom-2", "custom-3"])
+      && result.threeTeams.slateCount === 3, "HSR weakness-driven scenario could not switch to three teams", result.threeTeams);
+    assert(result.weaknessSlotOne.key === "as|custom-1"
+      && result.weaknessSlotOne.expected
+      && JSON.stringify(result.weaknessSlotOne.active) === JSON.stringify([result.weaknessSlotOne.expected])
+      && JSON.stringify(result.weaknessSlotOne.pressed) === JSON.stringify([result.weaknessSlotOne.expected])
+      && JSON.stringify(result.weaknessSlotOne.stored) === JSON.stringify([result.weaknessSlotOne.expected])
+      && result.weaknessSlotOne.candidateCardCount > 0
+      && result.weaknessSlotOne.slateCount === 3
+      && result.weaknessSlotTwoBefore.key === "as|custom-2"
+      && result.weaknessSlotTwoBefore.active.length === 0
+      && result.weaknessSlotTwoBefore.pressed.length === 0
+      && result.weaknessSlotTwoBefore.stored.length === 0
+      && result.weaknessSlotTwo.key === "as|custom-2"
+      && result.weaknessSlotTwo.expected
+      && result.weaknessSlotTwo.expected !== result.weaknessSlotOne.expected
+      && JSON.stringify(result.weaknessSlotTwo.active) === JSON.stringify([result.weaknessSlotTwo.expected])
+      && JSON.stringify(result.weaknessSlotTwo.pressed) === JSON.stringify([result.weaknessSlotTwo.expected])
+      && JSON.stringify(result.weaknessSlotTwo.stored) === JSON.stringify([result.weaknessSlotTwo.expected])
+      && result.weaknessSlotTwo.candidateCardCount > 0
+      && result.weaknessSlotTwo.slateCount === 3
+      && result.returnedWeaknessSlotOne.key === "as|custom-1"
+      && JSON.stringify(result.returnedWeaknessSlotOne.active) === JSON.stringify([result.weaknessSlotOne.expected])
+      && JSON.stringify(result.returnedWeaknessSlotOne.pressed) === JSON.stringify([result.weaknessSlotOne.expected])
+      && JSON.stringify(result.returnedWeaknessSlotOne.stored) === JSON.stringify([result.weaknessSlotOne.expected])
+      && result.returnedWeaknessSlotOne.candidateCardCount > 0
+      && result.returnedWeaknessSlotOne.slateCount === 3, "HSR custom weaknesses leaked between target teams", {
+        slotOne: result.weaknessSlotOne,
+        slotTwoBefore: result.weaknessSlotTwoBefore,
+        slotTwo: result.weaknessSlotTwo,
+        returnedSlotOne: result.returnedWeaknessSlotOne,
+      });
     assert(result.constraints.controlsVisible
       && result.constraints.slotOne.key === "as|custom-1"
       && result.constraints.slotOne.requiredSaved
       && result.constraints.slotOne.excludedSaved
       && result.constraints.slotOne.requiredChipCount === 1
-      && result.constraints.slotOne.excludedChipCount === 1, "HSR required/excluded constraints were not saved for the current slot", result.constraints);
+      && result.constraints.slotOne.excludedChipCount === 1
+      && result.constraints.slotOne.scopeHint.includes("队伍")
+      && result.constraints.slotOne.clearText === "清空本队"
+      && result.constraints.slotOne.selectTitle.includes("当前队伍约束"), "HSR required/excluded constraints were not saved for the current slot", result.constraints);
     assert(result.constraints.slotTwo.key === "as|custom-2"
       && result.constraints.slotTwo.requiredChipCount === 0
       && result.constraints.slotTwo.excludedChipCount === 0
@@ -1871,20 +2266,32 @@ async function verifyHsrRecommenderLayout(topId, context) {
             tab.click();
             await new Promise((resolve) => requestAnimationFrame(resolve));
           }
-          const card = document.querySelector('#recList .rec-card');
+          const shown = (node) => !!node && node.getClientRects().length > 0;
+          const slateCards = [...document.querySelectorAll('#recSlateList .rec-slate-solution .rec-slate-card')].filter(shown);
+          const substituted = slateCards.find((card) => card.querySelector('.rec-slate-evidence:not(.real)'));
+          const target = substituted || slateCards[0] || [...document.querySelectorAll('#recList .rec-card')].find(shown);
           const tooltip = document.querySelector('#recTooltip');
-          if (!card || !tooltip) return null;
+          if (!target || !tooltip) return null;
+          const originalScrollX = scrollX;
+          const originalScrollY = scrollY;
+          target.focus({preventScroll: true});
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+          const focusOpened = !tooltip.hidden && target.getAttribute('aria-describedby') === 'recTooltip';
+          if (typeof closeAccessibleDetail === 'function') closeAccessibleDetail();
+          else { tooltip.hidden = true; target.blur(); }
+          scrollTo(originalScrollX, originalScrollY);
           const clientX = innerWidth - 24;
           const clientY = innerHeight - 24;
-          card.dispatchEvent(new MouseEvent('mouseenter', {clientX, clientY}));
-          card.dispatchEvent(new MouseEvent('mousemove', {clientX, clientY}));
+          target.dispatchEvent(new MouseEvent('mouseenter', {clientX, clientY}));
+          target.dispatchEvent(new MouseEvent('mousemove', {clientX, clientY}));
           tooltip.scrollTop = tooltip.scrollHeight;
           await new Promise((resolve) => requestAnimationFrame(resolve));
-          card.dispatchEvent(new MouseEvent('mousemove', {clientX, clientY}));
+          target.dispatchEvent(new MouseEvent('mousemove', {clientX, clientY}));
           await new Promise((resolve) => requestAnimationFrame(resolve));
           const rect = tooltip.getBoundingClientRect();
           const lastValue = tooltip.querySelector('.tooltip-grid > div:last-child');
           const lastRect = lastValue?.getBoundingClientRect() ?? null;
+          const text = tooltip.textContent ?? '';
           const result = {
             innerWidth,
             innerHeight,
@@ -1897,8 +2304,19 @@ async function verifyHsrRecommenderLayout(topId, context) {
             tooltipScrollHeight: tooltip.scrollHeight,
             lastValueRight: lastRect?.right ?? null,
             lastValueBottom: lastRect?.bottom ?? null,
+            focusOpened,
+            targetKind: target.closest('#recSlateList') ? 'joint-slate' : 'candidate',
+            isSubstituted: Boolean(substituted && target === substituted),
+            hasDataRange: text.includes('数据范围'),
+            hasEvidence: text.includes('阵容证据'),
+            hasOriginalBox: text.includes('原模板 Box') && text.includes('原实证模板准入'),
+            hasSource: text.includes('来源'),
+            hasCGrade: text.includes('C 级理论替补'),
           };
+          if (typeof closeAccessibleDetail === 'function') closeAccessibleDetail();
           tooltip.hidden = true;
+          target.blur();
+          scrollTo(originalScrollX, originalScrollY);
           return result;
         })()`, context.sessionId);
         return value && Math.abs(value.innerWidth - width) <= 1 && Math.abs(value.innerHeight - height) <= 1
@@ -1920,6 +2338,10 @@ async function verifyHsrRecommenderLayout(topId, context) {
         && snapshot.lastValueRight <= rect.right + 1
         && snapshot.lastValueBottom <= rect.bottom + 1,
       `HSR recommendation tooltip clips its final field at ${width}x${height}`, snapshot);
+      assert(snapshot.focusOpened && snapshot.targetKind === "joint-slate", `HSR recommendation tooltip lacks keyboard focus on the joint path at ${width}x${height}`, snapshot);
+      assert(snapshot.hasDataRange && snapshot.hasEvidence && snapshot.hasOriginalBox && snapshot.hasSource
+        && (!snapshot.isSubstituted || snapshot.hasCGrade),
+      `HSR recommendation tooltip omits auditable evidence fields at ${width}x${height}`, snapshot);
       snapshots.push({width, height, ...snapshot});
     }
     return snapshots;
@@ -1948,9 +2370,11 @@ async function verifyHsrRecommenderLayout(topId, context) {
 
 async function verifyZzzCompactTooltipLayout(topId, context) {
   const savedStyle = await evaluate(topId, `(() => document.querySelector('iframe.visualizer-frame[data-game="zzz"]')?.getAttribute('style') ?? null)()`);
+  const storageKey = "zzz_endgame_rec_v1";
+  const savedRec = await evaluate(context.id, `(() => ({storageRaw:localStorage.getItem(${JSON.stringify(storageKey)}),recState:JSON.parse(JSON.stringify(rec)),page:state.page,hash:location.hash,scrollX,scrollY}))()`, context.sessionId);
   try {
     await evaluate(topId, `(() => {const frame=document.querySelector('iframe.visualizer-frame[data-game="zzz"]');if(!frame)throw new Error('missing ZZZ frame');frame.style.width='320px';frame.style.height='568px';frame.style.flex='none';return true;})()`);
-    const snapshot = await waitFor("ZZZ 320x568 tooltip layout", async () => evaluate(context.id, `(async () => {
+    const chartSnapshot = await waitFor("ZZZ 320x568 chart tooltip layout", async () => evaluate(context.id, `(async () => {
       await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       const target=document.querySelector('#chart [role="button"][tabindex="0"]');
       const tooltip=document.querySelector('#tooltip');
@@ -1962,18 +2386,62 @@ async function verifyZzzCompactTooltipLayout(topId, context) {
       await new Promise((resolve)=>requestAnimationFrame(resolve));
       const rect=tooltip.getBoundingClientRect(),last=tooltip.querySelector('.tooltip-grid > :last-child')?.getBoundingClientRect()||null;
       const result={innerWidth,innerHeight,documentScrollWidth:document.documentElement.scrollWidth,hidden:tooltip.hidden,rect:{left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom},clientWidth:tooltip.clientWidth,scrollWidth:tooltip.scrollWidth,lastRight:last?.right??null,lastBottom:last?.bottom??null};
-      tooltip.hidden=true;return result;
+      tooltip.hidden=true;
+      const settled=Math.abs(result.innerWidth-320)<=1&&Math.abs(result.innerHeight-568)<=1&&!result.hidden&&result.rect.left>=11&&result.rect.top>=11&&result.rect.right<=result.innerWidth-11&&result.rect.bottom<=result.innerHeight-11&&result.documentScrollWidth<=result.innerWidth&&result.scrollWidth<=result.clientWidth+1&&result.lastRight<=result.rect.right+1&&result.lastBottom<=result.rect.bottom+1;
+      if(!settled)throw new Error('unstable chart tooltip geometry: '+JSON.stringify(result));
+      return result;
     })()`, context.sessionId));
-    assert(Math.abs(snapshot.innerWidth - 320) <= 1 && Math.abs(snapshot.innerHeight - 568) <= 1
-      && !snapshot.hidden && snapshot.rect.left >= 11 && snapshot.rect.top >= 11
-      && snapshot.rect.right <= snapshot.innerWidth - 11 && snapshot.rect.bottom <= snapshot.innerHeight - 11,
-    "ZZZ tooltip escaped 320x568", snapshot);
-    assert(snapshot.documentScrollWidth <= snapshot.innerWidth && snapshot.scrollWidth <= snapshot.clientWidth + 1
-      && snapshot.lastRight <= snapshot.rect.right + 1 && snapshot.lastBottom <= snapshot.rect.bottom + 1,
-    "ZZZ tooltip content is clipped at 320x568", snapshot);
-    return snapshot;
+    assert(Math.abs(chartSnapshot.innerWidth - 320) <= 1 && Math.abs(chartSnapshot.innerHeight - 568) <= 1
+      && !chartSnapshot.hidden && chartSnapshot.rect.left >= 11 && chartSnapshot.rect.top >= 11
+      && chartSnapshot.rect.right <= chartSnapshot.innerWidth - 11 && chartSnapshot.rect.bottom <= chartSnapshot.innerHeight - 11,
+    "ZZZ chart tooltip escaped 320x568", chartSnapshot);
+    assert(chartSnapshot.documentScrollWidth <= chartSnapshot.innerWidth && chartSnapshot.scrollWidth <= chartSnapshot.clientWidth + 1
+      && chartSnapshot.lastRight <= chartSnapshot.rect.right + 1 && chartSnapshot.lastBottom <= chartSnapshot.rect.bottom + 1,
+    "ZZZ chart tooltip content is clipped at 320x568", chartSnapshot);
+
+    await evaluate(context.id, `(() => {
+      const tab=[...document.querySelectorAll('#tabs button')].find(button=>button.textContent?.trim().startsWith('组队推荐'));
+      if(!tab)throw new Error('missing ZZZ recommender tab');tab.click();
+      rec.mode='sd';rec.strategy='final';rec.scope='';rec.sortMode='balanced';rec.targetScopes={};rec.elements={};rec.constraints={};rec.locks={};rec.gap='3';rec.riskMode='warn';rec.search='';
+      ensureScope();saveRec();syncRec();renderRec();return true;
+    })()`, context.sessionId);
+    await waitFor("ZZZ compact recommendation cards", async () => evaluate(context.id, `(() => {
+      const shown=node=>{if(!node)return false;const style=getComputedStyle(node),rect=node.getBoundingClientRect();return style.display!=='none'&&style.visibility!=='hidden'&&Number(style.opacity)>0&&rect.width>0&&rect.height>0;};
+      const cards=[...document.querySelectorAll('#recList .rec-card')].filter(shown),solutions=[...document.querySelectorAll('#recSlateList .rec-solution.primary .rec-slate-card')].filter(shown),status=(document.querySelector('#recSlateMeta')?.textContent||'')+(document.querySelector('#recSlateMessage')?.textContent||'');
+      return cards.length>0&&solutions.length>0&&!status.includes('正在');
+    })()`, context.sessionId));
+    const recSnapshot = await waitFor("ZZZ 320x568 recommendation tooltip layout", async () => evaluate(context.id, `(async () => {
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const shown=node=>{if(!node)return false;const style=getComputedStyle(node),rect=node.getBoundingClientRect();return style.display!=='none'&&style.visibility!=='hidden'&&Number(style.opacity)>0&&rect.width>0&&rect.height>0;};
+      const slateCards=[...document.querySelectorAll('#recSlateList .rec-solution.primary .rec-slate-card')].filter(shown),substituted=slateCards.find(card=>card.querySelector('.rec-slate-evidence:not(.real)')),target=substituted||slateCards[0]||[...document.querySelectorAll('#recList .rec-card')].find(shown),tooltip=document.querySelector('#recTooltip');if(!target||!tooltip)return null;
+      const originalScrollX=scrollX,originalScrollY=scrollY;target.focus({preventScroll:true});await new Promise(resolve=>requestAnimationFrame(resolve));const focusOpened=!tooltip.hidden&&target.getAttribute('aria-describedby')==='recTooltip';if(typeof closeAccessibleDetail==='function')closeAccessibleDetail();else{tooltip.hidden=true;target.blur();}scrollTo(originalScrollX,originalScrollY);
+      const clientX=innerWidth-12,clientY=innerHeight-12;target.dispatchEvent(new MouseEvent('mouseenter',{clientX,clientY}));target.dispatchEvent(new MouseEvent('mousemove',{clientX,clientY}));tooltip.scrollTop=tooltip.scrollHeight;await new Promise(resolve=>requestAnimationFrame(resolve));target.dispatchEvent(new MouseEvent('mousemove',{clientX,clientY}));await new Promise(resolve=>requestAnimationFrame(resolve));
+      const rect=tooltip.getBoundingClientRect(),last=tooltip.querySelector('.tooltip-grid > :last-child')?.getBoundingClientRect()||null,text=tooltip.textContent||'',result={innerWidth,innerHeight,documentScrollWidth:document.documentElement.scrollWidth,hidden:tooltip.hidden,rect:{left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom},clientWidth:tooltip.clientWidth,scrollWidth:tooltip.scrollWidth,clientHeight:tooltip.clientHeight,scrollHeight:tooltip.scrollHeight,lastRight:last?.right??null,lastBottom:last?.bottom??null,focusOpened,targetKind:target.closest('#recSlateList')?'joint-slate':'candidate',isSubstituted:Boolean(substituted&&target===substituted),hasDataRange:text.includes('数据范围'),hasEvidence:text.includes('阵容证据'),hasBangboo:text.includes('邦布证据'),hasSource:text.includes('来源'),hasCGrade:text.includes('C 级理论替补')};if(typeof closeAccessibleDetail==='function')closeAccessibleDetail();tooltip.hidden=true;target.blur();scrollTo(originalScrollX,originalScrollY);
+      const settled=Math.abs(result.innerWidth-320)<=1&&Math.abs(result.innerHeight-568)<=1&&!result.hidden&&result.rect.left>=11&&result.rect.top>=11&&result.rect.right<=result.innerWidth-11&&result.rect.bottom<=result.innerHeight-11&&result.documentScrollWidth<=result.innerWidth&&result.scrollWidth<=result.clientWidth+1&&result.lastRight<=result.rect.right+1&&result.lastBottom<=result.rect.bottom+1;
+      if(!settled)throw new Error('unstable recommendation tooltip geometry: '+JSON.stringify(result));
+      return result;
+    })()`, context.sessionId));
+    assert(Math.abs(recSnapshot.innerWidth - 320) <= 1 && Math.abs(recSnapshot.innerHeight - 568) <= 1
+      && !recSnapshot.hidden && recSnapshot.rect.left >= 11 && recSnapshot.rect.top >= 11
+      && recSnapshot.rect.right <= recSnapshot.innerWidth - 11 && recSnapshot.rect.bottom <= recSnapshot.innerHeight - 11,
+    "ZZZ recommendation tooltip escaped 320x568", recSnapshot);
+    assert(recSnapshot.documentScrollWidth <= recSnapshot.innerWidth && recSnapshot.scrollWidth <= recSnapshot.clientWidth + 1
+      && recSnapshot.lastRight <= recSnapshot.rect.right + 1 && recSnapshot.lastBottom <= recSnapshot.rect.bottom + 1,
+    "ZZZ recommendation tooltip content is clipped at 320x568", recSnapshot);
+    assert(recSnapshot.focusOpened && recSnapshot.targetKind === "joint-slate", "ZZZ recommendation tooltip did not support keyboard focus on the joint recommendation path", recSnapshot);
+    assert(recSnapshot.hasDataRange && recSnapshot.hasEvidence && recSnapshot.hasBangboo && recSnapshot.hasSource
+      && (!recSnapshot.isSubstituted || recSnapshot.hasCGrade),
+      "ZZZ recommendation tooltip omits auditable evidence fields", recSnapshot);
+    return {chart: chartSnapshot, recommender: recSnapshot};
   } finally {
-    await evaluate(topId, `(() => {const frame=document.querySelector('iframe.visualizer-frame[data-game="zzz"]');if(!frame)return false;const style=${JSON.stringify(savedStyle)};if(style===null)frame.removeAttribute('style');else frame.setAttribute('style',style);return true;})()`);
+    try {
+      const restored = await evaluate(context.id, `(() => {const raw=${JSON.stringify(savedRec.storageRaw)},expectedRec=${JSON.stringify(JSON.stringify(savedRec.recState))};if(typeof closeAccessibleDetail==='function')closeAccessibleDetail();if(raw===null)localStorage.removeItem(${JSON.stringify(storageKey)});else localStorage.setItem(${JSON.stringify(storageKey)},raw);for(const key of Object.keys(rec))delete rec[key];Object.assign(rec,${JSON.stringify(savedRec.recState)});state.page=${JSON.stringify(savedRec.page)};history.replaceState(null,'',${JSON.stringify(savedRec.hash)});ensureScope();render();postVisualizerPage();const chartTooltip=document.querySelector('#tooltip'),recTooltip=document.querySelector('#recTooltip');if(chartTooltip){chartTooltip.hidden=true;chartTooltip.scrollTop=0;}if(recTooltip){recTooltip.hidden=true;recTooltip.scrollTop=0;}if(document.activeElement instanceof HTMLElement)document.activeElement.blur();scrollTo(${JSON.stringify(savedRec.scrollX)},${JSON.stringify(savedRec.scrollY)});return{storage:localStorage.getItem(${JSON.stringify(storageKey)})===raw,rec:JSON.stringify(rec)===expectedRec,page:state.page===${JSON.stringify(savedRec.page)},hash:location.hash===${JSON.stringify(savedRec.hash)},scroll:Math.abs(scrollX-${JSON.stringify(savedRec.scrollX)})<=1&&Math.abs(scrollY-${JSON.stringify(savedRec.scrollY)})<=1};})()`, context.sessionId);
+      assert(Object.values(restored).every(Boolean), "ZZZ compact tooltip probe did not restore recommender state", restored);
+      await waitFor("ZZZ compact tooltip parent page restoration", async () => evaluate(topId, `(() => document.querySelector('iframe.visualizer-frame[data-game="zzz"]')?.dataset.page===${JSON.stringify(savedRec.page)})()`));
+    } finally {
+      const styleRestored = await evaluate(topId, `(() => {const frame=document.querySelector('iframe.visualizer-frame[data-game="zzz"]');if(!frame)return false;const style=${JSON.stringify(savedStyle)};if(style===null)frame.removeAttribute('style');else frame.setAttribute('style',style);return frame.getAttribute('style')===style;})()`);
+      assert(styleRestored === true, "ZZZ compact tooltip probe did not restore iframe layout");
+    }
   }
 }
 

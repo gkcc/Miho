@@ -190,6 +190,7 @@ static HSR_AVATARS: &[BundledAvatar] = &[
         "natasha",
         include_bytes!("../assets/avatars/hsr/natasha.webp"),
     ),
+    ("pearl", include_bytes!("../assets/avatars/hsr/pearl.webp")),
     ("pela", include_bytes!("../assets/avatars/hsr/pela.webp")),
     (
         "phainon",
@@ -512,7 +513,7 @@ mod tests {
             manifest["schema_version"],
             "miho-bundled-avatar-manifest-v1"
         );
-        for (game, game_key, expected) in [(Game::Hsr, "hsr", 92), (Game::Zzz, "zzz", 59)] {
+        for (game, game_key, expected) in [(Game::Hsr, "hsr", 93), (Game::Zzz, "zzz", 59)] {
             let avatars = for_game(game);
             assert_eq!(avatars.len(), expected);
             let manifest_rows = manifest["games"][game_key].as_array().unwrap();

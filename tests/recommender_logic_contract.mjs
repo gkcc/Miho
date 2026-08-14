@@ -134,13 +134,35 @@ const HSR_HARNESS = String.raw`
           scores: {...item.scores},
           finalChars: [...item.finalChars],
           finalMissingCount: item.finalMissingCount,
-          finalBuildRecordedCount: item.finalBuildRecordedCount,
-          finalBuildReadyCount: item.finalBuildReadyCount,
-          evidenceConfidence: item.evidenceConfidence,
-          substitutions: item.substitutionAssignments.map(row => ({missing: row.missing, replacement: row.replacement})),
-        } : null),
+           finalBuildRecordedCount: item.finalBuildRecordedCount,
+           finalBuildReadyCount: item.finalBuildReadyCount,
+          elementHits: item.elementHits,
+          coreElementHits: item.coreElementHits,
+          weaknessMatched: item.weaknessMatched,
+          risks: item.risks.map(risk => risk.type || risk.text),
+           evidenceConfidence: item.evidenceConfidence,
+           substitutions: item.substitutionAssignments.map(row => ({missing: row.missing, replacement: row.replacement})),
+         } : null),
       })),
     };
+  },
+  slateCandidates(scopeKeys) {
+    const scopes = scopeKeys.map(scope => ({key: scope, label: scope}));
+    return recSlateCandidateLists(scopes).map(list => list.map(item => ({
+      id: item.template.id,
+      variantKey: item.variantKey,
+      score: item.score,
+      scores: {...item.scores},
+      scoreParts: Object.fromEntries(Object.entries(item.scoreParts).map(([mode, parts]) => [mode, parts.map(part => ({...part}))])),
+      finalChars: [...item.finalChars],
+      finalMissingCount: item.finalMissingCount,
+      elementHits: item.elementHits,
+      coreElementHits: item.coreElementHits,
+      weaknessMatched: item.weaknessMatched,
+      risks: item.risks.map(risk => risk.type || risk.text),
+      evidenceConfidence: item.evidenceConfidence,
+      substitutions: item.substitutionAssignments.map(row => ({missing: row.missing, replacement: row.replacement})),
+    })));
   },
   lockCandidate(scopeKey, templateId) {
     const scopes = recPlanScopes();
@@ -295,6 +317,8 @@ const ZZZ_HARNESS = String.raw`
     rec = {
       mode: settings.mode || 'sd',
       scope: settings.scope || 's1',
+      strategy: settings.strategy || 'final',
+      teamCounts: settings.teamCounts || {...DEFAULT_REC_TEAM_COUNTS},
       targetScopes: settings.targetScopes || {},
       elements: settings.elements || {},
       constraints: settings.constraints || {},
@@ -313,10 +337,14 @@ const ZZZ_HARNESS = String.raw`
     const sets = constraintSets(mode, scope);
     return {required: [...sets.required], excluded: [...sets.excluded]};
   },
+  setElements(mode, scope, values) {
+    rec.elements[key(mode, scope)] = [...values];
+  },
   ranked(mode, scope, used = [], options = {}) {
     return rankedFor(mode, scope, new Set(used), options).map(item => ({
       id: item.template.id,
       chars: [...item.template.chars],
+      finalChars: [...item.finalChars],
       score: item.score,
       scoreMode: item.scoreMode,
       scores: {...item.scores},
@@ -327,7 +355,16 @@ const ZZZ_HARNESS = String.raw`
       readyCount: item.readyCount,
       elementHits: item.elementHits,
       coreHits: item.coreHits,
+      attributeDriven: item.attributeDriven,
+      attributeConfigured: item.attributeConfigured,
+      attributeMatched: item.attributeMatched,
+      targetScope: item.targetScope,
+      missingCount: item.missingCount,
       risks: item.risks.map(risk => risk.text),
+      substitutions: item.substitutions.map(entry => ({
+        missing: entry.missing.slug,
+        candidates: entry.candidates.map(candidate => candidate.character_slug),
+      })),
     }));
   },
   async rankedAsync(mode, scope, used = [], options = {}) {
@@ -383,14 +420,69 @@ const ZZZ_HARNESS = String.raw`
   scopes(mode = rec.mode) {
     return scopes(mode).map(scope => scope.key);
   },
+  pool(mode = rec.mode) {
+    return customPoolTemplates(mode).map(template => ({id: template.id, scope: template.scope_key, evidenceScopes: [...template.evidenceScopes]}));
+  },
   planScopes(mode = rec.mode) {
     return recPlanScopes(mode).map(scope => scope.key);
+  },
+  resizeCustomTeams(count) {
+    const previous = recPlanScopes();
+    rec.teamCounts[rec.mode] = String(count) === '3' ? '3' : '2';
+    ensureScope();
+    const active = new Set(recPlanScopes().map(scope => recLockKey(scope.key)));
+    const removed = previous.filter(scope => !active.has(recLockKey(scope.key)) && clearRecLock(scope.key));
+    return {scopes: recPlanScopes().map(scope => scope.key), removed: removed.map(scope => scope.key), locks: {...rec.locks}};
   },
   plan() {
     return bestRecSlatePlan(recPlanScopes()).map(item => item?.template.id || null);
   },
   planSnapshot() {
     return bestRecSlatePlan(recPlanScopes()).map(item => item ? {id: item.template.id, score: item.score, scoreMode: item.scoreMode, scores: {...item.scores}} : null);
+  },
+  slates() {
+    const result = solveRecSlates(recPlanScopes(), {maxSolutions: 3});
+    return {
+      solver_meta: {...result.solver_meta},
+      plans: result.plans.map(plan => ({
+        totalScore: plan.totalScore,
+        picks: plan.picks.map(item => item ? {
+          id: item.template.id,
+          slateKey: item.slateKey,
+          score: item.score,
+          scores: {...item.scores},
+          finalChars: [...item.finalChars],
+          finalMissingCount: item.finalMissingCount,
+          finalRecordedCount: item.finalRecordedCount,
+          finalReadyCount: item.finalReadyCount,
+          elementHits: item.elementHits,
+          coreHits: item.coreHits,
+          attributeMatched: item.attributeMatched,
+          evidenceConfidence: item.evidenceConfidence,
+          substitutions: item.substitutionAssignments.map(row => ({missing: row.missing, replacement: row.replacement})),
+        } : null),
+      })),
+    };
+  },
+  slateCandidates(scopeKeys) {
+    const scopes = scopeKeys.map(scope => ({key: scope, label: scope}));
+    return recSlateCandidateLists(scopes).map(list => list.map(item => ({
+      id: item.template.id,
+      baseKey: recSlateCandidateKey(item),
+      slateKey: item.slateKey,
+      finalChars: [...item.finalChars],
+      finalMissingCount: item.finalMissingCount,
+      elementHits: item.elementHits,
+      coreHits: item.coreHits,
+      attributeMatched: item.attributeMatched,
+      evidenceConfidence: item.evidenceConfidence,
+      substitutions: item.substitutionAssignments.map(row => ({missing: row.missing, replacement: row.replacement})),
+    })));
+  },
+  preserveLock(scopeKey, candidateKey) {
+    rec.locks[recLockKey(scopeKey)] = candidateKey;
+    solveRecSlates(recPlanScopes(), {maxSolutions: 1});
+    return {...rec.locks};
   },
   tier(slug, mode = rec.mode) {
     return tierMeta(slug, mode);
@@ -417,6 +509,11 @@ const ZZZ_HARNESS = String.raw`
     localStorage.setItem(REC_KEY, JSON.stringify(raw));
     loadRec();
     return rec.constraints;
+  },
+  migrateRecState(raw) {
+    localStorage.setItem(REC_KEY, JSON.stringify(raw));
+    loadRec();
+    return {strategy: rec.strategy, teamCounts: {...rec.teamCounts}, locks: {...rec.locks}};
   },
   migrateSort(raw) {
     localStorage.setItem(REC_KEY, JSON.stringify(raw));
@@ -779,6 +876,24 @@ test('shared slate solver marks three-stage search as bounded beam with auditabl
   assert.equal(result.solver_meta.branch_limit, 9);
 });
 
+test('shared three-stage beam preserves lower-scoring states that can still complete every scope', () => {
+  const result = solveSlate({
+    candidateLists: [
+      [{key: 'first', score: 100, members: ['first']}],
+      [
+        {key: 'blocked-high', score: 100, members: ['third']},
+        {key: 'viable-low', score: 1, members: ['second']},
+      ],
+      [{key: 'third', score: 100, members: ['third']}],
+    ],
+    beamWidth: 1,
+    branchLimit: 2,
+  });
+  assert.equal(result.solver_meta.max_filled, 3);
+  assert.deepEqual(result.solutions[0].picks, [0, 1, 0]);
+  assert.equal(result.solutions[0].totalScore, 201);
+});
+
 function hsrCharacter(slug, element, roles, pathName, releaseOrder) {
   return {
     character_slug: slug,
@@ -1042,6 +1157,30 @@ test('HSR custom mode searches the deduplicated cross-node pool and ranks core w
     false,
     'an ice support must not make a fire-core team count as an ice weakness match',
   );
+});
+
+test('HSR custom-pool deduplication keeps the strongest evidence before rank', () => {
+  const chars = ['core', 'support-a', 'support-b', 'sustain'];
+  const rosterRows = [
+    hsrCharacter('core', '火', 'main_dps', '毁灭', 1),
+    hsrCharacter('support-a', '冰', 'support', '同谐', 2),
+    hsrCharacter('support-b', '雷', 'support', '虚无', 3),
+    hsrCharacter('sustain', '虚数', 'sustain', '丰饶', 4),
+  ];
+  const templates = [
+    {...hsrTemplate('rank-one-b', '4-1', chars, 1, 40), evidence_grade: 'B', duplicate_count: 20},
+    {...hsrTemplate('single-a', '4-2', [...chars].reverse(), 50, 2), evidence_grade: 'A', duplicate_count: 1},
+    {...hsrTemplate('repeated-a', '4-3', [chars[1], chars[0], chars[3], chars[2]], 90, 1), evidence_grade: 'A', duplicate_count: 4},
+  ];
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  api.reset(
+    hsrData(rosterRows, templates),
+    {mode: 'as', scope: 'custom-1', strategy: 'custom', gap: '4'},
+    chars,
+    allBuilds(chars, hsrFullBuild),
+  );
+
+  assert.deepEqual(plain(api.pool('as')), [{id: 'repeated-a', scope: '4-3', evidenceScopes: ['4-1', '4-2', '4-3']}]);
 });
 
 test('HSR final mode supports arbitrary real-node targets while custom mode uses the requested team count', () => {
@@ -1407,6 +1546,42 @@ test('HSR joint planning assigns substitutes globally and caps theoretical evide
   assert.ok(picks.every(item => item.finalMissingCount === 0));
   const originalScores = Object.fromEntries(plain(api.ranked('as', '4-1')).concat(plain(api.ranked('as', '4-2'))).map(item => [item.id, item.score]));
   assert.ok(picks.every(item => item.score > originalScores[item.id]), 'final owned substitutes must update the Box-aware objective instead of keeping the missing-template score');
+});
+
+test('HSR substituted custom variants recompute final weakness scores and risks', () => {
+  const rosterRows = [
+    hsrCharacter('missing-ice-core', '冰', 'main_dps', '毁灭', 10),
+    hsrCharacter('fire-core', '火', 'main_dps', '毁灭', 1),
+    hsrCharacter('support-a', '量子', 'support', '同谐', 11),
+    hsrCharacter('support-b', '虚数', 'support', '虚无', 12),
+    hsrCharacter('sustain', '物理', 'sustain', '丰饶', 13),
+  ];
+  const template = hsrTemplate('ice-evidence-team', '4-1', ['missing-ice-core', 'support-a', 'support-b', 'sustain'], 1, 30);
+  const owned = ['fire-core', 'support-a', 'support-b', 'sustain'];
+  const data = hsrData(rosterRows, [template]);
+  data.tierRows = [{character_slug: 'missing-ice-core', tier_mode: 'as', tier: 'T5'}];
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const settings = {mode: 'as', scope: 'custom-1', strategy: 'custom', gap: '4', elements: {'as|custom-1': ['冰']}};
+  api.reset(data, settings, owned, allBuilds(owned, hsrFullBuild));
+
+  assert.equal(plain(api.ranked('as', 'custom-1'))[0].weaknessMatched, true, 'the real evidence template contains an Ice core');
+  const fireVariant = plain(api.slateCandidates(['custom-1']))[0].find(item => item.substitutions.some(row => row.replacement === 'fire-core'));
+  assert.ok(fireVariant, 'the owned same-role Fire core should be available as a theoretical substitute');
+  assert.equal(fireVariant.coreElementHits, 0);
+  assert.equal(fireVariant.weaknessMatched, false, 'the final substituted team must not inherit the missing Ice core match');
+  assert.equal(fireVariant.scoreParts.balanced.find(part => part.key === 'weakness').value, -220);
+  assert.ok(fireVariant.risks.includes('core-none'), 'the final team must receive its own weakness risk');
+  assert.ok(!fireVariant.risks.includes('tier-forgotten'), 'risks from the replaced character must not survive on the final team');
+  assert.equal(fireVariant.evidenceConfidence, 'C');
+
+  const cleanData = hsrData(rosterRows, [template]);
+  api.reset(cleanData, {...settings, riskMode: 'filter'}, owned, allBuilds(owned, hsrFullBuild));
+  const filteredVariants = plain(api.slateCandidates(['custom-1']))[0];
+  assert.ok(filteredVariants.length, 'the original Ice evidence team remains eligible under the weakness gate');
+  assert.ok(
+    filteredVariants.every(item => !item.substitutions.some(row => row.replacement === 'fire-core')),
+    'filter mode must reject a theoretical replacement whose final core misses the selected weakness',
+  );
 });
 
 test('HSR locked final teams reserve their deployment entities and invalid locks auto-clear', () => {
@@ -1792,7 +1967,7 @@ test('ZZZ async scoring cache ignores search, limit-adjacent filters, and deboun
   const candidates = plain(await api.candidateComparison(['s1', 's2']));
   assert.deepEqual(candidates.async, candidates.sync, 'cooperative joint preparation must preserve synchronous oracle ordering');
   assert.deepEqual(plain(await api.lockBoundary('s1')), {
-    afterDraft: {'sd|s1': 'invalid-lock'},
+    afterDraft: {'sd|final|s1': 'invalid-lock'},
     afterFinalize: {},
   }, 'asynchronous candidate work must remain pure until the current request reconciles locks');
 });
@@ -1807,13 +1982,19 @@ test('ZZZ warn only displays risks, off keeps identical scores, and filter alone
     {...zzzTemplate('risky-team', 's1', risky, 10, 10), avg_score: 30_000},
   ];
   const tierRows = slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: slug === 'risky-core' ? 'T5' : 'T0'}));
+  const data = zzzData(rosterRows, teamTemplates, tierRows);
+  data.usageRows = [10, 7, 5, 3].map((app_rate, index) => ({character_slug: 'risky-core', mode: 'sd', sub_mode: 'all', collect_date: `2026-07-0${index + 1}`, app_rate}));
+  const builds = allBuilds(slugs, zzzFullBuild);
+  builds['risky-core'] = {level: 55, engine: 50, mindscape: 0, signature: 'no', skills: 'high', discs: 'good'};
   const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
 
-  api.reset(zzzData(rosterRows, teamTemplates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'warn'}, slugs, allBuilds(slugs, zzzFullBuild));
+  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'warn'}, slugs, builds);
   const warn = plain(api.ranked('sd', 's1'));
   assert.ok(warn.find(item => item.id === 'risky-team').risks.some(risk => risk.includes('T5')));
+  assert.ok(warn.find(item => item.id === 'risky-team').risks.some(risk => risk.includes('练度未成型')));
+  assert.ok(warn.find(item => item.id === 'risky-team').risks.some(risk => risk.includes('近4期走弱')));
 
-  api.reset(zzzData(rosterRows, teamTemplates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'off'}, slugs, allBuilds(slugs, zzzFullBuild));
+  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'off'}, slugs, builds);
   const off = plain(api.ranked('sd', 's1'));
   assert.deepEqual(
     off.map(item => ({id: item.id, score: item.score, scores: item.scores})),
@@ -1821,7 +2002,7 @@ test('ZZZ warn only displays risks, off keeps identical scores, and filter alone
     'warn must not change any score or recommendation order relative to off',
   );
 
-  api.reset(zzzData(rosterRows, teamTemplates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'filter'}, slugs, allBuilds(slugs, zzzFullBuild));
+  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'filter'}, slugs, builds);
   assert.deepEqual(plain(api.ranked('sd', 's1')).map(item => item.id), ['safe-team']);
 });
 
@@ -2078,7 +2259,130 @@ test('ZZZ supports non-contiguous target stages and recomputes the joint plan fo
   assert.deepEqual(plain(api.plan()), ['stage-2-needs-shared']);
 });
 
-test('ZZZ ranks each planned stage with that stage\'s own configured attributes', () => {
+test('ZZZ final-stage weaknesses are annotations while custom planning uses a deduplicated cross-stage pool', () => {
+  const rosterRows = [
+    {...zzzCharacter('fire-core', 'crit_dps', 1), element_cn: '火'},
+    {...zzzCharacter('ice-core', 'crit_dps', 2), element_cn: '冰'},
+    {...zzzCharacter('ice-support', 'support', 3), element_cn: '冰'},
+    {...zzzCharacter('support-a', 'support', 4), element_cn: '物理'},
+    {...zzzCharacter('support-b', 'support', 5), element_cn: '物理'},
+    {...zzzCharacter('support-c', 'support', 6), element_cn: '物理'},
+    {...zzzCharacter('all-core', 'crit_dps', 7), element_cn: '冰'},
+  ];
+  const fireTeam = ['fire-core', 'ice-support', 'support-a'];
+  const iceTeam = ['ice-core', 'support-b', 'support-c'];
+  const templates = [
+    {...zzzTemplate('fire-grade-b', 's1', fireTeam, 1, 35), avg_score: 40_000, evidence_grade: 'B', duplicate_count: 99, phase_status: 'current', collect_date: '2026-08-01'},
+    {...zzzTemplate('fire-count-low', 's2', [...fireTeam].reverse(), 1, 30), avg_score: 39_000, evidence_grade: 'A', duplicate_count: 2, phase_status: 'current', collect_date: '2026-08-01'},
+    {...zzzTemplate('fire-count-high', 's3', fireTeam, 20, 28), avg_score: 38_000, evidence_grade: 'A', duplicate_count: 5, phase_status: 'current', collect_date: '2026-08-01'},
+    {...zzzTemplate('fire-rank-winner', 's2', [...fireTeam].reverse(), 2, 27), avg_score: 37_000, evidence_grade: 'A', duplicate_count: 5, phase_status: 'current', collect_date: '2026-08-01'},
+    {...zzzTemplate('ice-lower', 's2', iceTeam, 80, 1), avg_score: 10_000, phase_status: 'current', collect_date: '2026-08-01'},
+    {...zzzTemplate('aggregate-only', 'all', ['all-core', 'support-a', 'support-b'], 1, 35), avg_score: 50_000, phase_status: 'current', collect_date: '2026-08-01'},
+    {...zzzTemplate('old-concrete', 's3', ['all-core', 'support-a', 'support-b'], 1, 35), avg_score: 50_000, phase_status: 'current', collect_date: '2026-07-01'},
+    {...zzzTemplate('expired-newer', 's3', ['all-core', 'support-a', 'support-b'], 1, 35), avg_score: 50_000, phase_status: 'expired', collect_date: '2026-09-01'},
+  ];
+  const slugs = rosterRows.map(row => row.character_slug);
+  const data = zzzData(rosterRows, templates, slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: 'T0'})));
+  const builds = allBuilds(slugs, zzzFullBuild);
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+
+  api.reset(data, {mode: 'sd', scope: 's1', strategy: 'final', gap: '3'}, slugs, builds);
+  const plainFinal = plain(api.ranked('sd', 's1'));
+  api.reset(data, {mode: 'sd', scope: 's1', strategy: 'final', gap: '3', elements: {'sd|s1': ['冰']}}, slugs, builds);
+  const annotatedFinal = plain(api.ranked('sd', 's1'));
+  assert.deepEqual(annotatedFinal.map(item => item.id), plainFinal.map(item => item.id));
+  assert.deepEqual(annotatedFinal.map(item => item.scores), plainFinal.map(item => item.scores), 'final-stage weakness annotations must not change scores');
+  assert.equal(annotatedFinal[0].attributeDriven, false);
+  assert.equal(annotatedFinal[0].coreHits, 0, 'an Ice support must not count as the core weakness match');
+  assert.ok(annotatedFinal[0].risks.some(risk => risk.includes('主C均未命中')));
+
+  api.reset(data, {mode: 'sd', scope: 's1', strategy: 'final', gap: '3', riskMode: 'filter', elements: {'sd|s1': ['冰']}}, slugs, builds);
+  assert.deepEqual(plain(api.ranked('sd', 's1')).map(item => item.id), [], 'filter mode must hard-filter the mismatched real-stage team');
+
+  api.reset(data, {mode: 'sd', scope: 'custom-1', strategy: 'custom', teamCounts: {sd: '2', da: '2'}, gap: '3', elements: {'sd|custom-1': ['冰']}}, slugs, builds);
+  assert.deepEqual(plain(api.scopes()), ['custom-1', 'custom-2']);
+  assert.deepEqual(plain(api.planScopes()), ['custom-1', 'custom-2']);
+  assert.deepEqual(plain(api.pool()), [
+    {id: 'fire-rank-winner', scope: 's2', evidenceScopes: ['s1', 's2', 's3']},
+    {id: 'ice-lower', scope: 's2', evidenceScopes: ['s2']},
+  ], 'custom planning must use the latest active concrete stages and deduplicate by A evidence, duplicate count, then Rank');
+  const customRanked = plain(api.ranked('sd', 'custom-1'));
+  assert.equal(customRanked[0].id, 'ice-lower');
+  assert.equal(customRanked[0].attributeDriven, true);
+  assert.equal(customRanked[0].attributeMatched, true);
+  assert.equal(customRanked.find(item => item.id === 'fire-rank-winner').attributeMatched, false);
+
+  api.reset(data, {mode: 'sd', scope: 'custom-1', strategy: 'custom', teamCounts: {sd: '3', da: '2'}}, slugs, builds);
+  assert.deepEqual(plain(api.scopes()), ['custom-1', 'custom-2', 'custom-3']);
+  assert.deepEqual(plain(api.planScopes()), ['custom-1', 'custom-2', 'custom-3']);
+
+  const index = readFileSync(ZZZ_INDEX, 'utf8');
+  assert.match(index, /id="recStrategyControl"/);
+  assert.match(index, /id="recTeamCountSelect"/);
+  assert.match(index, /参战关卡（可多选）/);
+});
+
+test('ZZZ recommendation settings default to final-stage strategy and migrate legacy locks', () => {
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  assert.deepEqual(plain(api.migrateRecState({locks: {'sd|s1': 'legacy-team'}})), {
+    strategy: 'final',
+    teamCounts: {sd: '2', da: '2'},
+    locks: {'sd|final|s1': 'legacy-team'},
+  });
+  assert.deepEqual(plain(api.migrateRecState({strategy: 'custom', teamCounts: {sd: '3'}, locks: {'sd|custom|custom-1': 'custom-team'}})), {
+    strategy: 'custom',
+    teamCounts: {sd: '3', da: '2'},
+    locks: {'sd|custom|custom-1': 'custom-team'},
+  });
+
+  api.reset(zzzData([], []), {
+    mode: 'sd',
+    scope: 'custom-3',
+    strategy: 'custom',
+    teamCounts: {sd: '3', da: '2'},
+    locks: {
+      'sd|final|s1': 'final-team',
+      'sd|custom|custom-1': 'custom-team-one',
+      'sd|custom|custom-3': 'custom-team-three',
+    },
+  });
+  assert.deepEqual(plain(api.resizeCustomTeams(2)), {
+    scopes: ['custom-1', 'custom-2'],
+    removed: ['custom-3'],
+    locks: {
+      'sd|final|s1': 'final-team',
+      'sd|custom|custom-1': 'custom-team-one',
+    },
+  }, 'shrinking custom teams must clear only the removed custom lock and preserve final/custom strategy isolation');
+});
+
+test('ZZZ final-stage joint planning does not use annotated weaknesses as a hidden objective', () => {
+  const fireTeam = ['fire-core', 'fire-a', 'fire-b'];
+  const iceTeam = ['ice-core', 'ice-a', 'ice-b'];
+  const fixedTeam = ['fixed-core', 'fixed-a', 'fixed-b'];
+  const slugs = [...fireTeam, ...iceTeam, ...fixedTeam];
+  const rosterRows = slugs.map((slug, index) => ({
+    ...zzzCharacter(slug, slug.includes('core') ? 'crit_dps' : 'support', index + 1),
+    element_cn: slug.startsWith('ice-') ? '冰' : slug.startsWith('fire-') ? '火' : '物理',
+  }));
+  const templates = [
+    {...zzzTemplate('stage-one-fire-best', 's1', fireTeam, 1, 35), avg_score: 40_000},
+    {...zzzTemplate('stage-one-ice-lower', 's1', iceTeam, 80, 1), avg_score: 10_000},
+    {...zzzTemplate('stage-two-fixed', 's2', fixedTeam, 1, 35), avg_score: 40_000},
+  ];
+  const data = zzzData(rosterRows, templates, slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: 'T0'})));
+  const builds = allBuilds(slugs, zzzFullBuild);
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  const settings = {mode: 'sd', scope: 's1', strategy: 'final', targetScopes: {sd: ['s1', 's2']}, gap: '3'};
+
+  api.reset(data, settings, slugs, builds);
+  const baseline = plain(api.plan());
+  api.reset(data, {...settings, elements: {'sd|s1': ['冰']}}, slugs, builds);
+  assert.deepEqual(plain(api.plan()), baseline);
+  assert.deepEqual(baseline, ['stage-one-fire-best', 'stage-two-fixed']);
+});
+
+test('ZZZ ranks each custom team with that team\'s own configured weaknesses', () => {
   const rosterRows = [
     {...zzzCharacter('fire-core', 'crit_dps', 1), element_cn: '火'},
     {...zzzCharacter('ice-core', 'crit_dps', 2), element_cn: '冰'},
@@ -2094,15 +2398,139 @@ test('ZZZ ranks each planned stage with that stage\'s own configured attributes'
   const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
   api.reset(
     {rosterRows, teamTemplates, tierRows: slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: 'T0'}))},
-    {mode: 'sd', scope: 's1', elements: {'sd|s1': ['火'], 'sd|s2': ['冰']}},
+    {mode: 'sd', scope: 'custom-1', strategy: 'custom', teamCounts: {sd: '2', da: '2'}, elements: {'sd|custom-1': ['火'], 'sd|custom-2': ['冰']}},
     slugs,
     allBuilds(slugs, zzzFullBuild),
   );
 
-  const ranked = plain(api.ranked('sd', 's2'));
-  assert.equal(ranked[0].id, 'other-ice-team', 'ranking s2 must not reuse the currently viewed s1 attribute setting');
+  const ranked = plain(api.ranked('sd', 'custom-2'));
+  assert.equal(ranked[0].id, 'other-ice-team', 'the second custom team must not reuse the first team\'s weakness setting');
   assert.equal(ranked[0].coreHits, 1);
-  assert.equal(ranked.find(item => item.id === 'other-fire-team').coreHits, 0);
+  assert.equal(ranked.find(item => item.id !== 'other-ice-team').coreHits, 0);
+});
+
+test('ZZZ theoretical substitutes use owned agents with matching role and prefer style before element', () => {
+  const rosterRows = [
+    {...zzzCharacter('fixed-core', 'crit_dps', 10), style_cn: '强攻', element_cn: '火'},
+    {...zzzCharacter('fixed-flex', 'support', 11), style_cn: '防护', element_cn: '物理'},
+    {...zzzCharacter('missing-support', 'support', 12), style_cn: '支援', element_cn: '冰'},
+    {...zzzCharacter('same-style', 'support', 3), style_cn: '支援', element_cn: '物理'},
+    {...zzzCharacter('same-element', 'support', 1), style_cn: '击破', element_cn: '冰'},
+    {...zzzCharacter('wrong-role', 'anomaly_dps', 2), style_cn: '异常', element_cn: '冰'},
+  ];
+  const template = zzzTemplate('open-support-slot', 's1', ['fixed-core', 'missing-support', 'fixed-flex'], 1, 20);
+  const owned = ['fixed-core', 'fixed-flex', 'same-style', 'same-element', 'wrong-role'];
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  api.reset(zzzData(rosterRows, [template]), {mode: 'sd', scope: 's1', gap: '3'}, owned, allBuilds(owned, zzzFullBuild));
+
+  const ranked = plain(api.ranked('sd', 's1'))[0];
+  const substitution = ranked.substitutions.find(entry => entry.missing === 'missing-support');
+  assert.deepEqual(substitution.candidates, ['same-style', 'same-element']);
+  assert.ok(!substitution.candidates.includes('wrong-role'));
+  assert.deepEqual(ranked.finalChars, ['fixed-core', 'same-style', 'fixed-flex']);
+
+  api.reset(
+    zzzData(rosterRows, [template]),
+    {mode: 'sd', scope: 's1', gap: '3', constraints: {'sd|s1': {required: ['missing-support'], excluded: []}}},
+    owned,
+    allBuilds(owned, zzzFullBuild),
+  );
+  const required = plain(api.ranked('sd', 's1'))[0];
+  assert.deepEqual(required.substitutions[0].candidates, [], 'a required missing agent must not be replaced by theory');
+  assert.ok(required.finalChars.includes('missing-support'));
+});
+
+test('ZZZ joint planning allocates theoretical substitutes globally and labels every substituted team C', () => {
+  const rosterRows = [
+    {...zzzCharacter('left-core', 'crit_dps', 10), style_cn: '强攻'},
+    {...zzzCharacter('left-flex', 'support', 11), style_cn: '防护'},
+    {...zzzCharacter('left-missing', 'support', 12), style_cn: '支援'},
+    {...zzzCharacter('right-core', 'anomaly_dps', 20), style_cn: '异常'},
+    {...zzzCharacter('right-flex', 'support', 21), style_cn: '击破'},
+    {...zzzCharacter('right-missing', 'support', 22), style_cn: '支援'},
+    {...zzzCharacter('shared-substitute', 'support', 1), style_cn: '支援'},
+    {...zzzCharacter('alternate-substitute', 'support', 2), style_cn: '支援'},
+  ];
+  const templates = [
+    zzzTemplate('left-team', 's1', ['left-core', 'left-missing', 'left-flex'], 1, 30),
+    zzzTemplate('right-team', 's2', ['right-core', 'right-missing', 'right-flex'], 1, 30),
+  ];
+  const owned = rosterRows.map(row => row.character_slug).filter(slug => !slug.endsWith('-missing'));
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  api.reset(
+    zzzData(rosterRows, templates),
+    {mode: 'sd', scope: 's1', strategy: 'final', targetScopes: {sd: ['s1', 's2']}, gap: '3'},
+    owned,
+    allBuilds(owned, zzzFullBuild),
+  );
+
+  const result = plain(api.slates());
+  const picks = result.plans[0].picks;
+  assert.deepEqual(picks.map(item => item.id), ['left-team', 'right-team']);
+  assert.ok(picks.every(item => item.evidenceConfidence === 'C'));
+  assert.ok(picks.every(item => item.finalMissingCount === 0));
+  assert.equal(new Set(picks.flatMap(item => item.finalChars)).size, 6);
+  assert.equal(new Set(picks.flatMap(item => item.substitutions.map(row => row.replacement))).size, 2);
+
+  const realVariant = plain(api.slateCandidates(['s1']))[0].find(item => item.substitutions.length === 0);
+  assert.equal(realVariant.slateKey, realVariant.baseKey, 'the original real-team key must remain backward compatible');
+  assert.equal(
+    plain(api.preserveLock('s1', realVariant.slateKey))['sd|final|s1'],
+    realVariant.slateKey,
+    'a saved pre-substitution lock value must survive the new variant expansion',
+  );
+});
+
+test('ZZZ substituted custom variants recompute final weakness matches while original evidence gates stay conservative', () => {
+  const rosterRows = [
+    {...zzzCharacter('missing-ice-core', 'crit_dps', 10), style_cn: '强攻', element_cn: '冰'},
+    {...zzzCharacter('fire-core', 'crit_dps', 1), style_cn: '强攻', element_cn: '火'},
+    {...zzzCharacter('support-a', 'support', 11), style_cn: '支援', element_cn: '物理'},
+    {...zzzCharacter('support-b', 'support', 12), style_cn: '防护', element_cn: '物理'},
+  ];
+  const templates = [zzzTemplate('ice-evidence-team', 's1', ['missing-ice-core', 'support-a', 'support-b'], 1, 30)];
+  const owned = ['fire-core', 'support-a', 'support-b'];
+  const data = zzzData(rosterRows, templates);
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  api.reset(
+    data,
+    {mode: 'sd', scope: 'custom-1', strategy: 'custom', gap: '3', elements: {'sd|custom-1': ['冰']}},
+    owned,
+    allBuilds(owned, zzzFullBuild),
+  );
+  assert.equal(plain(api.ranked('sd', 'custom-1'))[0].attributeMatched, true, 'the real template records an Ice core');
+  const fireVariant = plain(api.slateCandidates(['custom-1']))[0].find(item => item.substitutions.some(row => row.replacement === 'fire-core'));
+  assert.equal(fireVariant.coreHits, 0);
+  assert.equal(fireVariant.attributeMatched, false, 'the actual substituted team must not inherit the missing Ice core match');
+  assert.equal(fireVariant.evidenceConfidence, 'C');
+
+  api.reset(
+    data,
+    {mode: 'sd', scope: 'custom-1', strategy: 'custom', gap: '0', elements: {'sd|custom-1': ['冰']}},
+    owned,
+    allBuilds(owned, zzzFullBuild),
+  );
+  assert.deepEqual(plain(api.slateCandidates(['custom-1']))[0], [], 'the original evidence gap must be admitted before C-level substitution');
+
+  api.reset(
+    data,
+    {mode: 'sd', scope: 'custom-1', strategy: 'custom', gap: '3', riskMode: 'filter', elements: {'sd|custom-1': ['火']}},
+    owned,
+    allBuilds(owned, zzzFullBuild),
+  );
+  assert.deepEqual(plain(api.slateCandidates(['custom-1']))[0], [], 'a C substitute must not rescue an original template rejected by the hard risk gate');
+});
+
+test('ZZZ recommendation cards expose accessible evidence tooltips and theoretical-substitute disclosure', () => {
+  const app = readFileSync(ZZZ_APP, 'utf8');
+  const styles = readFileSync(ZZZ_STYLE, 'utf8');
+  assert.match(app, /bindAccessibleDetail\(card,'recTooltip'/);
+  assert.match(app, /邦布证据/);
+  assert.match(app, /原模板 Box/);
+  assert.match(app, /替补按同职责、同特性与同属性推演，证据最高 C/);
+  assert.match(styles, /\.rec-sub-evidence/);
+  assert.match(styles, /\.rec-slate-evidence\.real/);
+  assert.match(styles, /\.rec-solution-summary span\.theory/);
 });
 
 test('ZZZ normalizes the stale Nom alias and keeps Box cards in actual release order', () => {

@@ -191,6 +191,38 @@ test('the product probe gates the real ZZZ to HSR to ZZZ sequence and emits exac
   assert.match(productProbeSource, /next banner dates are not visibly rendered/u);
 });
 
+test('the product probe verifies visible ZZZ recommendations and per-team weakness isolation', () => {
+  assert.match(productProbeSource, /const primarySlate = \(\) => \[\.\.\.document\.querySelectorAll\('#recSlateList \.rec-solution'\)\]\.find\(visible\) \?\? null/u);
+  assert.match(productProbeSource, /const primarySlateCards = \(\) => \[\.\.\.\(primarySlate\(\)\?\.querySelectorAll\('\.rec-slate-card'\) \?\? \[\]\)\]\.filter\(visible\)/u);
+  assert.match(productProbeSource, /const visibleCandidateCards = \(\) => \[\.\.\.document\.querySelectorAll\('#recList \.rec-card'\)\]\.filter\(visible\)/u);
+  assert.match(productProbeSource, /weaknessScopeSelect\.value = 'custom-2'/u);
+  assert.match(productProbeSource, /result\.weaknessSlotTwoBefore\.active\.length === 0/u);
+  assert.match(productProbeSource, /result\.weaknessSlotTwoBefore\.pressed\.length === 0/u);
+  assert.match(productProbeSource, /result\.weaknessSlotTwoBefore\.stored\.length === 0/u);
+  assert.match(productProbeSource, /result\.weaknessSlotTwo\.expected !== result\.weaknessSlotOne\.expected/u);
+  assert.match(productProbeSource, /JSON\.stringify\(result\.returnedWeaknessSlotOne\.active\) === JSON\.stringify\(\[result\.weaknessSlotOne\.expected\]\)/u);
+  assert.match(productProbeSource, /ZZZ custom weaknesses leaked between target teams/u);
+  assert.match(productProbeSource, /ZZZ compact recommendation cards/u);
+  assert.match(productProbeSource, /document\.querySelector\('#recTooltip'\)/u);
+  assert.match(productProbeSource, /hasDataRange:text\.includes\('数据范围'\)/u);
+  assert.match(productProbeSource, /hasEvidence:text\.includes\('阵容证据'\)/u);
+  assert.match(productProbeSource, /hasBangboo:text\.includes\('邦布证据'\)/u);
+  assert.match(productProbeSource, /ZZZ recommendation tooltip omits auditable evidence fields/u);
+});
+
+test('the product probe verifies cross-game recommendation parity through real controls', () => {
+  assert.match(productProbeSource, /not enough visible HSR weakness controls to probe team isolation/u);
+  assert.match(productProbeSource, /HSR custom weaknesses leaked between target teams/u);
+  assert.match(productProbeSource, /result\.threeTeams\.slateCount === 3/u);
+  assert.match(productProbeSource, /result\.constraints\.slotOne\.scopeHint\.includes\("队伍"\)/u);
+  assert.match(productProbeSource, /result\.constraints\.slotOne\.clearText === "清空本队"/u);
+  assert.match(productProbeSource, /ZZZ recommendation sort choices are incomplete/u);
+  assert.match(productProbeSource, /ZZZ \$\{mode\} sort is not wired through cards, persistence, and the joint slate/u);
+  assert.match(productProbeSource, /hasOriginalBox: text\.includes\('原模板 Box'\) && text\.includes\('原实证模板准入'\)/u);
+  assert.match(productProbeSource, /HSR recommendation tooltip lacks keyboard focus on the joint path/u);
+  assert.match(productProbeSource, /HSR recommendation tooltip omits auditable evidence fields/u);
+});
+
 test('the product probe rejects partial or ambiguous phase metadata identities', () => {
   const selectUniquePhaseMetadata = extractNamedFunction(productProbeSource, 'selectUniquePhaseMetadata');
   const sample = {
