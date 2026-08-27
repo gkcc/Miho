@@ -169,7 +169,11 @@ pub fn attach_visualizer_hub(
 }
 
 fn without_patch_newline(value: &str) -> &str {
-    value.strip_suffix('\n').unwrap_or(value)
+    value
+        .strip_suffix("\r\n")
+        .or_else(|| value.strip_suffix('\n'))
+        .or_else(|| value.strip_suffix('\r'))
+        .unwrap_or(value)
 }
 
 fn safe_directory_segment(value: &str) -> Result<String> {
@@ -1480,6 +1484,15 @@ mod tests {
         for value in ["", ".", "..", "a/b", "a\\b", "bad\nname"] {
             assert!(attach_visualizer_hub(&mut ArtifactBundle::default(), "out", value).is_err());
         }
+    }
+
+    #[test]
+    fn patch_newline_removal_accepts_platform_line_endings() {
+        assert_eq!(without_patch_newline("asset"), "asset");
+        assert_eq!(without_patch_newline("asset\n"), "asset");
+        assert_eq!(without_patch_newline("asset\r\n"), "asset");
+        assert_eq!(without_patch_newline("asset\r"), "asset");
+        assert_eq!(without_patch_newline("asset\n\n"), "asset\n");
     }
 
     #[test]
