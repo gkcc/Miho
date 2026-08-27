@@ -1807,18 +1807,26 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn rejects_reparse_point_visualizer_directory() {
-        use std::os::windows::fs::symlink_dir;
+    fn rejects_reparse_point_visualizer_directory_for_mutable_assets() {
         let root = root();
         let external = root.join("external");
         fs::create_dir_all(&external).unwrap();
-        fs::write(external.join("index.html"), b"secret").unwrap();
-        let visualizer = root.join("out/visualizer");
+        fs::write(external.join("data.json"), b"{}").unwrap();
+        let visualizer = root.join("out").join("visualizer");
         fs::remove_dir_all(&visualizer).unwrap();
-        if symlink_dir(&external, &visualizer).is_err() {
-            fs::remove_dir_all(root).unwrap();
-            return;
-        }
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(&visualizer)
+            .arg(&external)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "failed to create junction: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(is_reparse(&fs::symlink_metadata(&visualizer).unwrap()));
         assert_eq!(
             handle_request(
                 &root,
@@ -1826,8 +1834,18 @@ mod tests {
                 request(Method::GET, "/hsr/index.html", Vec::new())
             )
             .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            handle_request(
+                &root,
+                "main",
+                request(Method::GET, "/hsr/data.json", Vec::new())
+            )
+            .status(),
             StatusCode::NOT_FOUND
         );
+        fs::remove_dir(&visualizer).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
