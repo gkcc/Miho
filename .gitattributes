@@ -1,2 +1,3 @@
 tests/fixtures/decision_legacy_v0_contract/expected/decision_report.md whitespace=-blank-at-eof
+tests/fixtures/zzz_export_expected/export_report.md text eol=lf
 scripts/*.ps1 text eol=lf

@@ -392,7 +392,7 @@ def test_zzz_visualizer_uses_latest_snapshot_without_collect_date_and_merges_ban
     assert roster["nom"]["banner_statuses"] == "current"
     assert roster["remielle"]["banner_statuses"] == "satellite"
     assert data["bannerRows"][0]["phase_status"] == "current"
-    assert "banner={phase:'current'" in app_text
+    assert "banner={phase:loadBannerPhasePreference()" in app_text
     assert "banner_current" in app_text
     assert "no-store" in app_text
     assert data["phaseInfoRows"][0]["collect_date"] == "2026-07-06"

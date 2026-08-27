@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 from hsr_endgame_exporter.cli import run_visualizer as run_hsr_visualizer
 from hsr_endgame_exporter.parsers import attach_team_signatures
 from hsr_endgame_exporter.visualizer import (
+    _canonical_slug as canonical_hsr_slug,
     _safe_avatar_url as safe_hsr_avatar_url,
     _safe_link_url as safe_hsr_link_url,
     write_visualizer_app as write_hsr_visualizer_app,
@@ -63,6 +64,62 @@ SECURITY_TEXT = (
 HTML_PAYLOAD = "</script><svg onload=window.__MIHO_XSS__=1>"
 _UID_RE = re.compile(r"(?<!\d)\d{9,12}(?!\d)")
 LOCAL_DATETIME = "2026-07-12T13:00:00"
+BUNDLED_AVATAR_MANIFEST = json.loads(
+    (
+        ROOT
+        / "crates"
+        / "miho-app"
+        / "assets"
+        / "avatars"
+        / "manifest-v1.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+def _bundled_avatar_entries(game: str) -> list[dict[str, object]]:
+    assert BUNDLED_AVATAR_MANIFEST["schema_version"] == (
+        "miho-bundled-avatar-manifest-v1"
+    )
+    entries = BUNDLED_AVATAR_MANIFEST["games"][game]
+    assert isinstance(entries, list)
+    return entries
+
+
+def _cli_visualizer_file_set(base_files: list[str], game: str) -> list[str]:
+    files = set(base_files)
+    files.update(
+        f"assets/avatars/{entry['slug']}.webp"
+        for entry in _bundled_avatar_entries(game)
+    )
+    return sorted(files)
+
+
+def _assert_bundled_avatar_files(root: Path, game: str) -> None:
+    for entry in _bundled_avatar_entries(game):
+        slug = str(entry["slug"])
+        actual = root / "assets" / "avatars" / f"{slug}.webp"
+        assert actual.stat().st_size == entry["bytes"]
+        assert binary_sha256(actual) == entry["sha256"]
+
+
+def _apply_hsr_bundled_avatar_contract(value: object) -> None:
+    bundled_slugs = {
+        str(entry["slug"]) for entry in _bundled_avatar_entries("hsr")
+    }
+
+    def visit(node: object) -> None:
+        if isinstance(node, dict):
+            slug = node.get("character_slug")
+            canonical_slug = canonical_hsr_slug(slug)
+            if canonical_slug in bundled_slugs and "icon_url" in node:
+                node["icon_url"] = f"./assets/avatars/{canonical_slug}.webp"
+            for child in node.values():
+                visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+
+    visit(value)
 
 
 @pytest.mark.parametrize("game", ["hsr", "zzz"])
@@ -521,12 +578,16 @@ def test_real_hsr_cli_visualizer_matches_the_complete_python_oracle(
     actual_root, expected_root = cli_hsr_visualizer_root
     expected_data = load_json(expected_root / "data.json")
     actual_data = load_json(actual_root / "data.json")
+    _apply_hsr_bundled_avatar_contract(expected_data)
     assert_json_contract_equal(expected_data, actual_data, dynamic_pointers=())
 
     contract = load_json(FIXTURES / "contract.json")
     expected_files = relative_file_set(expected_root)
     assert expected_files == contract["file_sets"]["hsr"]
-    assert relative_file_set(actual_root) == expected_files
+    assert relative_file_set(actual_root) == _cli_visualizer_file_set(
+        expected_files, "hsr"
+    )
+    _assert_bundled_avatar_files(actual_root, "hsr")
 
     for name, contract_hash in contract["static_text_sha256"]["hsr"].items():
         expected_hash = normalized_utf8_sha256(expected_root / name)
@@ -573,7 +634,10 @@ def test_real_zzz_cli_visualizer_matches_the_complete_python_oracle(
     contract = load_json(FIXTURES / "contract.json")
     expected_files = relative_file_set(expected_root)
     assert expected_files == contract["file_sets"]["zzz"]
-    assert relative_file_set(actual_root) == expected_files
+    assert relative_file_set(actual_root) == _cli_visualizer_file_set(
+        expected_files, "zzz"
+    )
+    _assert_bundled_avatar_files(actual_root, "zzz")
 
     for name, contract_hash in contract["static_text_sha256"]["zzz"].items():
         expected_hash = normalized_utf8_sha256(expected_root / name)

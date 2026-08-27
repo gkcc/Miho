@@ -10,8 +10,8 @@ requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0.2,<7"]
 
 [project.optional-dependencies]
-excel = ["pandas", "openpyxl"]
-test = ["pytest"]
+excel = ["pandas==2.2.3", "openpyxl==3.1.5"]
+test = ["pytest", "Pillow"]
 
 [tool.setuptools.packages.find]
 include = ["hsr_endgame_exporter*", "zzz_endgame_exporter*", "miho_core*"]
