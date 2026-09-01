@@ -554,8 +554,7 @@ mod tests {
         thread::spawn(move || {
             for status in statuses {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0_u8; 1024];
-                let _ = stream.read(&mut request);
+                let _ = read_http_request(&mut stream);
                 observed.fetch_add(1, Ordering::SeqCst);
                 let reason = if status == 200 { "OK" } else { "Error" };
                 let body = if status == 200 {
@@ -575,8 +574,7 @@ mod tests {
         let handle = thread::spawn(move || {
             for body in bodies {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0_u8; 1024];
-                let _ = stream.read(&mut request);
+                let _ = read_http_request(&mut stream);
                 write!(
                     stream,
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

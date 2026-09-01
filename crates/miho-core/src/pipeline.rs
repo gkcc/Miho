@@ -1160,7 +1160,7 @@ mod tests {
         collections::BTreeSet,
         fs,
         io::{Read, Write},
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc, Mutex,
@@ -1177,6 +1177,22 @@ mod tests {
         json_failures: BTreeSet<String>,
         listed: Mutex<Vec<String>>,
         read: Mutex<Vec<String>>,
+    }
+
+    fn read_http_headers(stream: &mut TcpStream) -> String {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        loop {
+            let count = stream.read(&mut buffer).unwrap();
+            assert!(count > 0, "request ended before its headers were complete");
+            request.extend_from_slice(&buffer[..count]);
+            if request.windows(4).any(|part| part == b"\r\n\r\n") {
+                return String::from_utf8_lossy(&request).into_owned();
+            }
+        }
     }
 
     impl SnapshotSource for MemorySource {
@@ -2348,7 +2364,8 @@ mod tests {
     #[tokio::test]
     async fn generic_pipeline_matches_online_http_and_offline_cache() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let address = listener.local_addr().unwrap();
+        let origin = format!("http://{address}");
         let responses = BTreeMap::from([
             (
                 "/api/datasets/owner/repo/tree/main".to_owned(),
@@ -2380,13 +2397,12 @@ mod tests {
                     .to_owned(),
             ),
         ]);
-        let response_count = responses.len();
+        let expected_targets = responses.keys().cloned().collect::<BTreeSet<_>>();
         let server = thread::spawn(move || {
-            for _ in 0..response_count {
+            let mut served = Vec::new();
+            loop {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0_u8; 4096];
-                let size = stream.read(&mut request).unwrap();
-                let request = String::from_utf8_lossy(&request[..size]);
+                let request = read_http_headers(&mut stream);
                 let target = request
                     .lines()
                     .next()
@@ -2395,6 +2411,9 @@ mod tests {
                     .split('?')
                     .next()
                     .unwrap();
+                if target == "/__fixture_shutdown__" {
+                    break;
+                }
                 let (status, body) = responses
                     .get(target)
                     .map(|body| ("200 OK", body.as_str()))
@@ -2405,7 +2424,9 @@ mod tests {
                     body.len()
                 )
                 .unwrap();
+                served.push(target.to_owned());
             }
+            served
         });
         let cache =
             std::env::temp_dir().join(format!("miho-pipeline-http-cache-{}", std::process::id()));
@@ -2420,8 +2441,19 @@ mod tests {
         let mut request = hsr_request();
         request.features.hf_teams = true;
         let online = run_source_export(&online_source, &request).await.unwrap();
-        server.join().unwrap();
+        let mut shutdown = TcpStream::connect(address).unwrap();
+        write!(
+            shutdown,
+            "GET /__fixture_shutdown__ HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+        )
+        .unwrap();
+        let served = server.join().unwrap();
         assert!(online.errors.is_empty(), "{:?}", online.errors);
+        assert_eq!(
+            served.iter().cloned().collect::<BTreeSet<_>>(),
+            expected_targets,
+            "fixture request targets differed: {served:?}"
+        );
 
         let offline_source = HfSnapshotSource::new(
             repo.clone(),

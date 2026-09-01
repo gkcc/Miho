@@ -20,6 +20,7 @@ pub const ZZZ_OFFICIAL_APP_ID: &str = "706fd13a87294881";
 pub const ZZZ_OFFICIAL_CHANNEL_ID: u64 = 273;
 const ZZZ_ANNOUNCEMENT_CHANNEL_ID: u64 = 279;
 const MAX_OFFICIAL_POSTS: usize = 16;
+const MAX_HSR_USER_POST_PAGES: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -76,9 +77,16 @@ struct DateWindow {
 }
 
 pub fn hsr_user_post_url() -> String {
-    format!(
-        "https://bbs-api.miyoushe.com/post/wapi/userPost?uid={HSR_OFFICIAL_UID}&size={HSR_USER_POST_PAGE_SIZE}&offset=0"
-    )
+    hsr_user_post_url_with_offset("0").expect("static HSR userPost offset must be valid")
+}
+
+fn hsr_user_post_url_with_offset(offset: &str) -> Result<String> {
+    if offset.is_empty() || !offset.bytes().all(|byte| byte.is_ascii_digit()) {
+        bail!("invalid HSR userPost offset");
+    }
+    Ok(format!(
+        "https://bbs-api.miyoushe.com/post/wapi/userPost?uid={HSR_OFFICIAL_UID}&size={HSR_USER_POST_PAGE_SIZE}&offset={offset}"
+    ))
 }
 
 pub fn hsr_get_post_full_url(post_id: &str) -> Result<String> {
@@ -107,6 +115,75 @@ pub async fn fetch_hsr_official_banner_phases(
         .await
         .context("fetch HSR official userPost")?;
     let post_refs = parse_hsr_user_post_list_json(&list_json)?;
+    let banner_versions = post_refs
+        .iter()
+        .filter_map(|post_ref| hsr_banner_version(&post_ref.title))
+        .collect::<BTreeSet<_>>();
+    let mut update_refs_by_id = BTreeMap::new();
+    let mut seen_offsets = BTreeSet::from(["0".to_owned()]);
+    let mut page_json = list_json;
+    for page_index in 0..MAX_HSR_USER_POST_PAGES {
+        for (version, post_ref) in parse_hsr_version_update_post_refs(&page_json, &banner_versions)?
+        {
+            update_refs_by_id
+                .entry(post_ref.post_id.clone())
+                .or_insert((version, post_ref));
+        }
+        if update_refs_by_id.len() > MAX_OFFICIAL_POSTS {
+            bail!(
+                "HSR userPost contained too many relevant update notices: {}",
+                update_refs_by_id.len()
+            );
+        }
+        let found_versions = update_refs_by_id
+            .values()
+            .map(|(version, _)| version.clone())
+            .collect::<BTreeSet<_>>();
+        if banner_versions.is_subset(&found_versions) {
+            break;
+        }
+        let Some(next_offset) = parse_hsr_user_post_next_offset(&page_json)? else {
+            break;
+        };
+        if page_index + 1 >= MAX_HSR_USER_POST_PAGES {
+            break;
+        }
+        if !seen_offsets.insert(next_offset.clone()) {
+            bail!("HSR userPost pagination repeated an offset");
+        }
+        page_json = http
+            .get_text_with_headers(&hsr_user_post_url_with_offset(&next_offset)?, &headers)
+            .await
+            .context("fetch HSR official userPost continuation")?;
+    }
+    let found_versions = update_refs_by_id
+        .values()
+        .map(|(version, _)| version.clone())
+        .collect::<BTreeSet<_>>();
+    let missing_versions = banner_versions
+        .difference(&found_versions)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing_versions.is_empty() {
+        bail!(
+            "HSR version-relative banners have no matching official update schedule: {}",
+            missing_versions.join(", ")
+        );
+    }
+    let mut update_completions = BTreeMap::<String, BTreeSet<NaiveDateTime>>::new();
+    for (version, post_ref) in update_refs_by_id.into_values() {
+        let url = hsr_get_post_full_url(&post_ref.post_id)?;
+        let post_json = http
+            .get_text_with_headers(&url, &headers)
+            .await
+            .with_context(|| format!("fetch HSR official update post {}", post_ref.post_id))?;
+        let completion = parse_hsr_version_update_post_full_json(&post_json, &post_ref, &version)?;
+        update_completions
+            .entry(version)
+            .or_default()
+            .insert(completion);
+    }
+    let trusted_update_completions = resolve_hsr_trusted_update_completions(update_completions)?;
     let mut phases = Vec::new();
     for post_ref in post_refs {
         let url = hsr_get_post_full_url(&post_ref.post_id)?;
@@ -114,11 +191,16 @@ pub async fn fetch_hsr_official_banner_phases(
             .get_text_with_headers(&url, &headers)
             .await
             .with_context(|| format!("fetch HSR official post {}", post_ref.post_id))?;
-        let parsed = parse_hsr_get_post_full_json(&post_json)?;
-        if parsed
-            .iter()
-            .any(|phase| phase.source_url != official_hsr_post_url(&post_ref.post_id))
-        {
+        let version_update_at = hsr_banner_version(&post_ref.title)
+            .as_ref()
+            .and_then(|version| trusted_update_completions.get(version))
+            .copied();
+        let parsed =
+            parse_hsr_get_post_full_json_with_update_completion(&post_json, version_update_at)?;
+        if parsed.iter().any(|phase| {
+            phase.source_url != official_hsr_post_url(&post_ref.post_id)
+                || phase.title != post_ref.title
+        }) {
             bail!(
                 "HSR getPostFull response did not match requested official post {}",
                 post_ref.post_id
@@ -188,9 +270,128 @@ pub fn parse_hsr_user_post_list_json(input: &str) -> Result<Vec<HsrOfficialPostR
     Ok(output)
 }
 
+fn parse_hsr_user_post_next_offset(input: &str) -> Result<Option<String>> {
+    let root = parse_success_response(input, "HSR userPost")?;
+    let data = root
+        .get("data")
+        .and_then(Value::as_object)
+        .context("HSR userPost data must be an object")?;
+    let is_last = data
+        .get("is_last")
+        .and_then(Value::as_bool)
+        .context("HSR userPost data.is_last must be a boolean")?;
+    if is_last {
+        return Ok(None);
+    }
+    let offset = data
+        .get("next_offset")
+        .and_then(value_as_positive_id)
+        .context("HSR userPost data.next_offset must be a positive decimal cursor")?;
+    Ok(Some(offset))
+}
+
+fn parse_hsr_version_update_post_refs(
+    input: &str,
+    required_versions: &BTreeSet<String>,
+) -> Result<Vec<(String, HsrOfficialPostRefV1)>> {
+    let root = parse_success_response(input, "HSR userPost")?;
+    let list = root
+        .pointer("/data/list")
+        .and_then(Value::as_array)
+        .context("HSR userPost data.list must be an array")?;
+    let mut seen = BTreeSet::new();
+    let mut output = Vec::new();
+    for entry in list {
+        let post = entry
+            .get("post")
+            .and_then(Value::as_object)
+            .context("HSR userPost list entry is missing post")?;
+        let Some(title) = post.get("subject").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(version) = hsr_update_notice_version(title) else {
+            continue;
+        };
+        if !required_versions.contains(&version) {
+            continue;
+        }
+        validate_hsr_official_post(post, "HSR userPost update notice")?;
+        let post_id = required_nonempty_string(post, "post_id", "HSR userPost update notice")?;
+        if !post_id.bytes().all(|byte| byte.is_ascii_digit()) {
+            bail!("HSR userPost update notice has invalid post_id {post_id:?}");
+        }
+        if seen.insert(post_id.to_owned()) {
+            output.push((
+                version,
+                HsrOfficialPostRefV1 {
+                    post_id: post_id.to_owned(),
+                    title: title.trim().to_owned(),
+                },
+            ));
+        }
+    }
+    if output.len() > MAX_OFFICIAL_POSTS {
+        bail!(
+            "HSR userPost contained too many relevant update notices: {}",
+            output.len()
+        );
+    }
+    Ok(output)
+}
+
+fn parse_hsr_version_update_post_full_json(
+    input: &str,
+    expected_post: &HsrOfficialPostRefV1,
+    expected_version: &str,
+) -> Result<NaiveDateTime> {
+    let root = parse_success_response(input, "HSR update getPostFull")?;
+    let post = root
+        .pointer("/data/post/post")
+        .and_then(Value::as_object)
+        .context("HSR update getPostFull data.post.post must be an object")?;
+    validate_hsr_official_post(post, "HSR update getPostFull")?;
+    let post_id = required_nonempty_string(post, "post_id", "HSR update getPostFull")?;
+    if post_id != expected_post.post_id {
+        bail!("HSR update getPostFull response did not match requested official post");
+    }
+    let title = required_nonempty_string(post, "subject", "HSR update getPostFull")?;
+    if title.trim() != expected_post.title {
+        bail!("HSR update getPostFull title did not match the userPost catalog");
+    }
+    if hsr_update_notice_version(title).as_deref() != Some(expected_version) {
+        bail!("HSR update getPostFull title did not match version {expected_version}");
+    }
+    let content = required_nonempty_string(post, "content", "HSR update getPostFull")?;
+    parse_hsr_version_update_completion(content)
+}
+
+fn resolve_hsr_trusted_update_completions(
+    update_completions: BTreeMap<String, BTreeSet<NaiveDateTime>>,
+) -> Result<BTreeMap<String, NaiveDateTime>> {
+    let mut trusted = BTreeMap::new();
+    for (version, completions) in update_completions {
+        if completions.len() != 1 {
+            bail!("HSR {version} official update schedules disagree");
+        }
+        let completion = completions
+            .into_iter()
+            .next()
+            .context("HSR official update schedule unexpectedly disappeared")?;
+        trusted.insert(version, completion);
+    }
+    Ok(trusted)
+}
+
 /// Parses one Miyoushe `getPostFull` response into one or more date-distinct
 /// banner phases.
 pub fn parse_hsr_get_post_full_json(input: &str) -> Result<Vec<OfficialBannerPhaseV1>> {
+    parse_hsr_get_post_full_json_with_update_completion(input, None)
+}
+
+fn parse_hsr_get_post_full_json_with_update_completion(
+    input: &str,
+    version_update_at: Option<NaiveDateTime>,
+) -> Result<Vec<OfficialBannerPhaseV1>> {
     let root = parse_success_response(input, "HSR getPostFull")?;
     let post = root
         .pointer("/data/post/post")
@@ -206,6 +407,9 @@ pub fn parse_hsr_get_post_full_json(input: &str) -> Result<Vec<OfficialBannerPha
         bail!("HSR getPostFull title is not a strict banner title: {title:?}");
     }
     let content = required_nonempty_string(post, "content", "HSR getPostFull")?;
+    if let Some(version) = hsr_banner_version(title) {
+        validate_hsr_version_relative_markers(content, &version)?;
+    }
     let source_url = official_hsr_post_url(post_id);
     parse_announcement_phases(
         "hsr",
@@ -214,7 +418,7 @@ pub fn parse_hsr_get_post_full_json(input: &str) -> Result<Vec<OfficialBannerPha
         content,
         &format!("米游社官方：{title}"),
         &source_url,
-        None,
+        version_update_at,
     )
 }
 
@@ -498,14 +702,59 @@ fn is_hsr_banner_title(title: &str) -> bool {
             .strip_suffix("联动跃迁说明")
             .is_some_and(|prefix| !prefix.is_empty());
     }
+    hsr_banner_version(title).is_some()
+}
+
+fn hsr_banner_version(title: &str) -> Option<String> {
+    let compact = remove_whitespace(title);
     let Some(version) = compact.strip_suffix("版本活动跃迁（其一）").or_else(|| {
         compact
             .strip_suffix("版本活动跃迁（其二）")
             .or_else(|| compact.strip_suffix("版本活动跃迁（其三）"))
     }) else {
-        return false;
+        return None;
     };
-    is_version_number(version)
+    is_version_number(version).then(|| version.to_owned())
+}
+
+fn hsr_update_notice_version(title: &str) -> Option<String> {
+    let compact = remove_whitespace(title);
+    let (version, suffix) = compact.split_once("版本")?;
+    if !is_version_number(version) {
+        return None;
+    }
+    if suffix == "预下载&更新预告" {
+        return Some(version.to_owned());
+    }
+    let name = suffix.strip_suffix("版本更新说明")?;
+    (name.starts_with('「') && name.ends_with('」') && name.chars().count() > 2)
+        .then(|| version.to_owned())
+}
+
+fn validate_hsr_version_relative_markers(raw_content: &str, expected_version: &str) -> Result<()> {
+    let text = strip_html(raw_content);
+    for segment in split_segments(&text) {
+        if !is_banner_date_segment("hsr", &segment, true) {
+            continue;
+        }
+        for (marker_index, _) in segment.match_indices("版本更新后") {
+            let prefix = &segment[..marker_index];
+            let version_start = prefix
+                .char_indices()
+                .rev()
+                .take_while(|(_, character)| character.is_ascii_digit() || *character == '.')
+                .map(|(index, _)| index)
+                .last()
+                .unwrap_or(marker_index);
+            let version = &prefix[version_start..];
+            if !is_version_number(version) || version != expected_version {
+                bail!(
+                    "HSR banner version-relative date {version:?} did not match title version {expected_version}"
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn is_hsr_banner_like_title(title: &str) -> bool {
@@ -527,6 +776,50 @@ fn zzz_banner_version(title: &str) -> Option<String> {
 
 fn is_zzz_banner_like_title(title: &str) -> bool {
     remove_whitespace(title).contains("版本限时频段")
+}
+
+fn parse_hsr_version_update_completion(raw_content: &str) -> Result<NaiveDateTime> {
+    let compact = remove_whitespace(&strip_html(raw_content));
+    let marker = ["■更新时间", "▌更新时间"]
+        .iter()
+        .filter_map(|marker| compact.find(marker).map(|index| (index, *marker)))
+        .min_by_key(|(index, _)| *index)
+        .context("HSR official update notice has no version update time section")?;
+    let remaining = &compact[marker.0 + marker.1.len()..];
+    let section = ['■', '▌', '【']
+        .iter()
+        .filter_map(|marker| remaining.find(*marker))
+        .min()
+        .and_then(|end| remaining.get(..end))
+        .unwrap_or(remaining);
+    if !section.contains("开始") || !section.contains("预计") {
+        bail!("HSR official update notice has no bounded maintenance schedule");
+    }
+    let dates = scan_date_tokens(section);
+    if dates.len() != 1 || !dates[0].has_time {
+        bail!("HSR official update notice has an invalid maintenance start");
+    }
+    let duration = section
+        .split_once("预计")
+        .map(|(_, suffix)| suffix.trim_start_matches("需要"))
+        .context("HSR official update notice has no maintenance duration")?;
+    let digit_count = duration.bytes().take_while(u8::is_ascii_digit).count();
+    if digit_count == 0
+        || !duration[digit_count..].starts_with("个小时")
+            && !duration[digit_count..].starts_with("小时")
+    {
+        bail!("HSR official update notice has an unsupported maintenance duration");
+    }
+    let hours = duration[..digit_count]
+        .parse::<i64>()
+        .context("parse HSR official maintenance duration")?;
+    if !(1..=24).contains(&hours) {
+        bail!("HSR official maintenance duration is outside the supported range");
+    }
+    dates[0]
+        .value
+        .checked_add_signed(Duration::hours(hours))
+        .context("HSR official update completion overflowed")
 }
 
 fn find_zzz_version_update_completion(list: &[Value], version: &str) -> Result<NaiveDateTime> {
@@ -632,7 +925,7 @@ fn parse_announcement_phases(
         BTreeMap::new();
     let mut malformed_relevant_segment = None;
     for (index, segment) in segments.iter().enumerate() {
-        if !is_banner_date_segment(segment, version_update_at.is_some()) {
+        if !is_banner_date_segment(game, segment, version_update_at.is_some()) {
             continue;
         }
         match parse_date_window(segment, version_update_at) {
@@ -640,7 +933,7 @@ fn parse_announcement_phases(
                 let mut roles = extract_role_mentions(segment);
                 if roles.is_empty() {
                     for following in segments.iter().skip(index + 1) {
-                        if is_banner_date_segment(following, version_update_at.is_some())
+                        if is_banner_date_segment(game, following, version_update_at.is_some())
                             || announcement_fact_prefix(following).len() != following.len()
                         {
                             break;
@@ -701,15 +994,18 @@ fn parse_announcement_phases(
     Ok(output)
 }
 
-fn is_banner_date_segment(segment: &str, allow_version_relative: bool) -> bool {
+fn is_banner_date_segment(game: &str, segment: &str, allow_version_relative: bool) -> bool {
+    let has_date = !scan_date_tokens(segment).is_empty();
+    if game == "hsr" {
+        return segment.contains("跃迁时间")
+            || segment.contains("联动跃迁") && segment.contains("长期开放") && has_date;
+    }
     segment.contains("跃迁时间")
-        || ((segment.contains("调频活动时间")
+        || (segment.contains("调频活动时间")
             || segment.contains("活动时间")
             || allow_version_relative && segment.contains("版本更新后"))
-            && !scan_date_tokens(segment).is_empty())
-        || (segment.contains("联动跃迁")
-            && segment.contains("长期开放")
-            && !scan_date_tokens(segment).is_empty())
+            && has_date
+        || segment.contains("联动跃迁") && segment.contains("长期开放") && has_date
 }
 
 fn parse_date_window(
@@ -736,16 +1032,37 @@ fn parse_date_window(
     if dates.len() >= 2 {
         let start = &dates[0];
         let end = &dates[1];
-        if end.value < start.value {
+        let (start_value, start_at) = if segment.contains("版本更新后") {
+            let version_update_at = version_update_at.context(
+                "version-relative official banner date has no trusted update completion",
+            )?;
+            if start.has_time {
+                bail!("official version-relative start must use a date-only anchor");
+            }
+            if start.value.date() != version_update_at.date() {
+                bail!(
+                    "official version-relative start disagrees with trusted update completion: {} -> {}",
+                    start.canonical,
+                    version_update_at.format("%Y-%m-%d %H:%M")
+                );
+            }
+            (
+                version_update_at,
+                version_update_at.format("%Y-%m-%d %H:%M").to_string(),
+            )
+        } else {
+            (start.value, start.canonical.clone())
+        };
+        if end.value < start_value {
             bail!(
                 "official date range ends before it starts: {} -> {}",
-                start.canonical,
+                start_at,
                 end.canonical
             );
         }
         return Ok(DateWindow {
-            date_range: format!("{} 至 {}", start.canonical, end.canonical),
-            start_at: start.canonical.clone(),
+            date_range: format!("{} 至 {}", start_at, end.canonical),
+            start_at,
             end_at: Some(end.canonical.clone()),
         });
     }
@@ -1761,6 +2078,87 @@ mod tests {
       }
     }"#;
 
+    const HSR_VERSION_RELATIVE_LIST_FIXTURE: &str = r#"{
+      "retcode": 0,
+      "message": "OK",
+      "data": {
+        "list": [
+          {
+            "post": {
+              "post_id": "77754792",
+              "uid": "288909600",
+              "subject": "4.5版本「挥掷千星的筹码」版本更新说明",
+              "post_status": {"is_official": true}
+            }
+          },
+          {
+            "post": {
+              "post_id": "77739472",
+              "uid": "288909600",
+              "subject": "4.5版本活动跃迁（其一）",
+              "post_status": {"is_official": true}
+            }
+          },
+          {
+            "post": {
+              "post_id": "77718196",
+              "uid": "288909600",
+              "subject": "4.5版本预下载&更新预告",
+              "post_status": {"is_official": true}
+            }
+          }
+        ]
+      }
+    }"#;
+
+    const HSR_VERSION_UPDATE_FULL_FIXTURE: &str = r#"{
+      "retcode": 0,
+      "message": "OK",
+      "data": {
+        "post": {
+          "post": {
+            "post_id": "77754792",
+            "uid": "288909600",
+            "subject": "4.5版本「挥掷千星的筹码」版本更新说明",
+            "post_status": {"is_official": true},
+            "content": "<p>■更新时间</p><p>2026/08/26 06:00开始，预计5个小时完成。</p><p>■补偿说明</p><p>更新完成后发放补偿。</p>"
+          }
+        }
+      }
+    }"#;
+
+    const HSR_PRELOAD_UPDATE_FULL_FIXTURE: &str = r#"{
+      "retcode": 0,
+      "message": "OK",
+      "data": {
+        "post": {
+          "post": {
+            "post_id": "77718196",
+            "uid": "288909600",
+            "subject": "4.5版本预下载&更新预告",
+            "post_status": {"is_official": true},
+            "content": "<p>▌更新时间</p><p>2026/08/26 06:00 开始，预计需要5个小时。</p><p>▌更新方式</p><p>请按指引更新。</p>"
+          }
+        }
+      }
+    }"#;
+
+    const HSR_VERSION_RELATIVE_FULL_FIXTURE: &str = r#"{
+      "retcode": 0,
+      "message": "OK",
+      "data": {
+        "post": {
+          "post": {
+            "post_id": "77739472",
+            "uid": "288909600",
+            "subject": "4.5版本活动跃迁（其一）",
+            "post_status": {"is_official": true},
+            "content": "<p>本期活动跃迁时间为 2026/08/26 4.5版本更新后 - 2026/09/12 11:59，包含如下内容：</p><p>限定5星角色「知更鸟•晴歌（记忆•风）」与4星角色「丹恒（巡猎•风）」「青雀（智识•量子）」「加拉赫（丰饶•火）」跃迁成功概率限时提升。</p><p>限定5星角色「风堇（记忆•风）」跃迁成功概率限时提升。</p><p>▌活动跃迁详细规则</p><p>※详细信息可前往跃迁系统查看。</p><p>▌「锋芒崭露」角色试用活动</p><p>● 活动时间：4.5版本更新后 - 2026/09/12 11:59</p><p>● 活动内容：可试用角色「试用污染角色（巡猎•雷）」体验关卡。</p>"
+          }
+        }
+      }
+    }"#;
+
     const ZZZ_LIST_FIXTURE: &str = r#"{
       "retcode": 0,
       "message": "OK",
@@ -1837,6 +2235,45 @@ mod tests {
     }
 
     #[test]
+    fn hsr_pagination_and_banner_dialect_boundaries_are_strict() {
+        let continuation = r#"{
+          "retcode":0,
+          "message":"OK",
+          "data":{"list":[],"is_last":false,"next_offset":"76913745"}
+        }"#;
+        assert_eq!(
+            parse_hsr_user_post_next_offset(continuation).unwrap(),
+            Some("76913745".to_owned())
+        );
+        assert!(
+            parse_hsr_user_post_next_offset(&continuation.replace("76913745", "../unsafe"))
+                .is_err()
+        );
+        assert!(!is_banner_date_segment(
+            "hsr",
+            "活动时间：4.5版本更新后 - 2026/09/12 11:59",
+            true,
+        ));
+        assert!(is_banner_date_segment(
+            "zzz",
+            "活动时间：3.1版本更新后 - 2026/09/08 14:59",
+            true,
+        ));
+        assert!(hsr_update_notice_version("4.5版本子系统版本更新说明").is_none());
+
+        let mixed_valid_and_malformed = parse_announcement_phases(
+            "hsr",
+            "77739472",
+            "4.5版本活动跃迁（其一）",
+            "<p>跃迁时间：2026/08/26 11:00 - 2026/09/12 11:59，限定5星角色「知更鸟•晴歌（记忆•风）」跃迁成功概率限时提升。</p><p>跃迁时间：待定。</p>",
+            "米游社官方：4.5版本活动跃迁（其一）",
+            "https://www.miyoushe.com/sr/article/77739472",
+            None,
+        );
+        assert!(mixed_valid_and_malformed.is_err());
+    }
+
+    #[test]
     fn hsr_full_fixture_extracts_date_distinct_roles_but_not_light_cones() {
         let phases = parse_hsr_get_post_full_json(HSR_FULL_FIXTURE).unwrap();
         assert_eq!(phases.len(), 2);
@@ -1856,13 +2293,121 @@ mod tests {
     }
 
     #[test]
-    fn hsr_date_parser_distinguishes_version_marker_from_invalid_time() {
-        let window = parse_date_window(
-            "跃迁时间为 2026/07/15 4.4版本更新后 - 2026/08/25 15:00。",
-            None,
+    fn hsr_version_relative_banner_uses_matching_official_update_completion() {
+        let required_versions = BTreeSet::from(["4.5".to_owned()]);
+        let update_refs = parse_hsr_version_update_post_refs(
+            HSR_VERSION_RELATIVE_LIST_FIXTURE,
+            &required_versions,
         )
         .unwrap();
-        assert_eq!(window.date_range, "2026-07-15 至 2026-08-25 15:00");
+        assert_eq!(update_refs.len(), 2);
+        let mut completions = BTreeSet::new();
+        for (version, post_ref) in &update_refs {
+            let fixture = if post_ref.post_id == "77754792" {
+                HSR_VERSION_UPDATE_FULL_FIXTURE
+            } else {
+                HSR_PRELOAD_UPDATE_FULL_FIXTURE
+            };
+            completions.insert(
+                parse_hsr_version_update_post_full_json(fixture, post_ref, version).unwrap(),
+            );
+        }
+        let completion = NaiveDate::from_ymd_opt(2026, 8, 26)
+            .unwrap()
+            .and_hms_opt(11, 0, 0)
+            .unwrap();
+        assert_eq!(completions, BTreeSet::from([completion]));
+
+        let phases = parse_hsr_get_post_full_json_with_update_completion(
+            HSR_VERSION_RELATIVE_FULL_FIXTURE,
+            Some(completion),
+        )
+        .unwrap();
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].start_at, "2026-08-26 11:00");
+        assert_eq!(phases[0].date_range, "2026-08-26 11:00 至 2026-09-12 11:59");
+        let names = phases[0]
+            .characters
+            .iter()
+            .map(|character| character.name_cn.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(names.contains("知更鸟•晴歌"));
+        assert!(names.contains("风堇"));
+        assert!(!names.contains("试用污染角色"));
+    }
+
+    #[test]
+    fn hsr_version_relative_banner_fails_closed_on_untrusted_schedule_shapes() {
+        let completion = NaiveDate::from_ymd_opt(2026, 8, 26)
+            .unwrap()
+            .and_hms_opt(11, 0, 0)
+            .unwrap();
+        let wrong_day = NaiveDate::from_ymd_opt(2026, 8, 27)
+            .unwrap()
+            .and_hms_opt(11, 0, 0)
+            .unwrap();
+        assert!(parse_hsr_get_post_full_json_with_update_completion(
+            HSR_VERSION_RELATIVE_FULL_FIXTURE,
+            None,
+        )
+        .is_err());
+        assert!(parse_hsr_get_post_full_json_with_update_completion(
+            HSR_VERSION_RELATIVE_FULL_FIXTURE,
+            Some(wrong_day),
+        )
+        .is_err());
+        assert!(parse_hsr_get_post_full_json_with_update_completion(
+            &HSR_VERSION_RELATIVE_FULL_FIXTURE.replacen("4.5版本更新后", "4.6版本更新后", 1),
+            Some(completion),
+        )
+        .is_err());
+
+        let trial_only_mismatch = HSR_VERSION_RELATIVE_FULL_FIXTURE.replacen(
+            "● 活动时间：4.5版本更新后",
+            "● 活动时间：4.6版本更新后",
+            1,
+        );
+        assert!(parse_hsr_get_post_full_json_with_update_completion(
+            &trial_only_mismatch,
+            Some(completion),
+        )
+        .is_ok());
+
+        let disagreeing =
+            BTreeMap::from([("4.5".to_owned(), BTreeSet::from([completion, wrong_day]))]);
+        assert!(resolve_hsr_trusted_update_completions(disagreeing).is_err());
+
+        let expected_update_post = HsrOfficialPostRefV1 {
+            post_id: "77754792".to_owned(),
+            title: "4.5版本「挥掷千星的筹码」版本更新说明".to_owned(),
+        };
+        for malformed in [
+            HSR_VERSION_UPDATE_FULL_FIXTURE.replace("■更新时间", "■维护安排"),
+            HSR_VERSION_UPDATE_FULL_FIXTURE.replace("预计5个小时", "预计0个小时"),
+            HSR_VERSION_UPDATE_FULL_FIXTURE.replace("预计5个小时", "预计25个小时"),
+            HSR_VERSION_UPDATE_FULL_FIXTURE.replace("06:00", "25:00"),
+        ] {
+            assert!(parse_hsr_version_update_post_full_json(
+                &malformed,
+                &expected_update_post,
+                "4.5",
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn hsr_date_parser_distinguishes_version_marker_from_invalid_time() {
+        let completion = NaiveDate::from_ymd_opt(2026, 7, 15)
+            .unwrap()
+            .and_hms_opt(11, 0, 0)
+            .unwrap();
+        let window = parse_date_window(
+            "跃迁时间为 2026/07/15 4.4版本更新后 - 2026/08/25 15:00。",
+            Some(completion),
+        )
+        .unwrap();
+        assert_eq!(window.date_range, "2026-07-15 11:00 至 2026-08-25 15:00");
 
         for malformed in [
             "跃迁时间为 2026/07/15 25:00 - 2026/08/25 15:00。",
@@ -1874,6 +2419,10 @@ mod tests {
 
     #[test]
     fn hsr_parser_ignores_multi_window_trial_summary_from_current_notice() {
+        let completion = NaiveDate::from_ymd_opt(2026, 7, 15)
+            .unwrap()
+            .and_hms_opt(11, 0, 0)
+            .unwrap();
         let phases = parse_announcement_phases(
             "hsr",
             "77188470",
@@ -1881,11 +2430,11 @@ mod tests {
             "<p>限定5星角色「姬子•启行（智识•火）」跃迁成功概率限时提升，跃迁时间为 2026/07/15 4.4版本更新后 - 2026/08/25 15:00。</p><p>限定5星角色「刻律德菈（同谐•风）」「那刻夏（智识•风）」「砂金（存护•虚数）」将会返场，跃迁时间为 2026/08/05 12:00 - 2026/08/25 15:00。</p><p>● 活动内容：2026/07/15 4.4版本更新后 - 2026/08/25 15:00，可试用角色「姬子•启行（智识•火）」；2026/08/05 12:00 - 2026/08/25 15:00，可试用角色「刻律德菈（同谐•风）」体验关卡。</p>",
             "米游社官方：4.4版本活动跃迁（其二）",
             "https://www.miyoushe.com/sr/article/77188470",
-            None,
+            Some(completion),
         )
         .unwrap();
         assert_eq!(phases.len(), 2);
-        assert_eq!(phases[0].date_range, "2026-07-15 至 2026-08-25 15:00");
+        assert_eq!(phases[0].date_range, "2026-07-15 11:00 至 2026-08-25 15:00");
         assert_eq!(phases[1].date_range, "2026-08-05 12:00 至 2026-08-25 15:00");
     }
 

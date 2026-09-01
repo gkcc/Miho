@@ -727,6 +727,13 @@
 - **规则记忆与验证**：`AGENTS.md` 已固定“跨游戏同类能力必须在数据语义、交互、持久化和真实路径验证上同时审计，未记录机制差异时单边实现不算完成”。Node 推荐/桌面/探针契约 154/154、Visualizer Python 60 passed / 2 live deselected、Rust Visualizer 41/41、内置头像 3/3、Rust fmt、JS syntax、diff check 与完整 `pnpm run tauri:build` 均通过；三份 EXE 的 7 项 Visualizer 字节 exact-once，PE 子系统保持 Desktop/任务 CLI `WINDOWS_GUI`、人工 CLI `WINDOWS_CUI`。安装版隐藏 CDP/DOM 实际完成 `ZZZ → HSR → ZZZ`，覆盖 ZZZ/HSR 双策略、两/三队、逐队弱点与约束隔离、排序持久化、锁与键盘提示、93/93 Pearl 头像解码，正常退出 0、stdout/stderr 为空、调试端口与捕获子进程清理完成。
 - **正式状态与数据安全**：正式 Desktop、人工 CLI、无窗任务 CLI SHA-256 分别为 `11A1547407C5DD467E9B100044F9D8E12F50AA4E7FE08886D92E210B24548912`、`9DB8ADE79EA68A13079BCD0B27B03DD8DD6E6CCBAEFABEF939C96079FFA7C809`、`24B65A54CA2FC939B2910B88CC995CB6658BC268DEF693DDD50C764130DE2625`。owner-aware attempt `installer-e5b7eb4eba114b8b88d004b08ccab9d4` 已切到唯一 generation `miho-0.1.0-24b65a54ca2fc939b2910b88cc995cb6658bc268def693ddd50c764130de2625`；任务 `Ready / Enabled / LastTaskResult=0`，无 candidate/journal。HSR/ZZZ Box 为 61/24 owned，SHA-256 全程保持 `2BB5866B98C8187DF6459E8F548BC856D3E1A9BA75044438E5C65AD1CD7A58C1` / `0A7F4D5C7E15FC242A8C4BFB1C43C8F6CCF8E3C14830C83DF46B9CF5E89E7E83`；未进入 NSIS、portable 或旧安装器链。
 
+### HSR 4.5 官方窗口与 Prydwen 格式变更恢复（2026-09-02，已交付）
+
+- **两层根因**：HSR 4.5 卡池公告把起点改成“`2026/08/26 4.5版本更新后`”，旧链未绑定同版本官方维护完成时间，又会把文末角色试用“活动时间”误当卡池窗口；4.4 更新通知还位于 userPost 第二页。修完官方时间后，Prydwen 又将 changelog 日期标题从 `h6` 改为 `h5`，并混用 `Aug / July / June`，旧解析得到 0 行而触发 `update.hsr_export.degraded`。
+- **修复边界**：HSR 官方 userPost 改为有界分页并严格校验 UID、official、post ID、标题和版本；版本相对窗口只绑定同版本维护起点与时长，日期锚点不一致、缺 completion、通知冲突、坏窗口或 `跃迁时间：待定` 均 fail closed，试用活动不再污染卡池。HSR/ZZZ Prydwen 同类入口同步兼容 `h5/h6`；HSR 日期同时接受英文月份短名与全名。测试 HTTP fixture 完整读取请求头并用显式 shutdown 结束，避免请求数变化时无限等待。
+- **验证与真实更新**：HSR 4.4/4.5 官方 live smoke、`miho-core` 185 个单测与 43 个契约测试、`miho-app` 78 项、`miho-cli` 73 项、Rust fmt/diff check及完整 `pnpm run tauri:build` 均通过。正式计划任务重放 attempt `20260901T184034121402Z-48912-0` 对 HSR/ZZZ 返回 `healthy:true`；HSR changelog 恢复为 6 行（`2026-08-26 / 07-24 / 07-15 / 07-07 / 06-19 / 06-01`）。
+- **本机交付与数据安全**：安装版 Desktop/人工 CLI SHA-256 分别为 `ADF1063A9BFE1597556F1F886A489D12EFF6EBF944AE4A0F7DDBFBDE3D35B161` / `FD5BD883F4E1715B88A149395EC004B9067A3D41D517559E9E2FE5BEE1955FC6`，隐藏 GUI 渲染与安装版 CLI health 均通过；遗留 desktop workspace 已对齐生产 AppData revision 5。09:30 任务为 `Ready / Enabled / LastTaskResult=0`，仅有 generation `miho-0.1.0-56e43fb70039d77ebc4aa814f712cd04cc0c57e57d6a71aa5958562b95130fc7`，无 candidate/journal。HSR/ZZZ Box SHA-256 保持 `7CA25CFA0286211DB577ED4E068C12377442926013803A7BF05F20F5D5C8E347` / `E08F968914C6D53F33DD2E4419C3112222E3F776F0EF51031A9362A87CF2DB5E`；未进入 NSIS、portable 或旧安装器链。
+
 ## 恢复入口
 
 - 项目状态：本文件。

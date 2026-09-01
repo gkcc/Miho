@@ -223,20 +223,26 @@ fn build_tiers(chars: &[Value], updated: &str, snapshot: &str, fetched: &str) ->
 fn extract_changelog(text: &str) -> Vec<ChangelogRow> {
     let mut heads = vec![];
     let mut at = 0;
-    while let Some(pos) = text[at..].find("<h6") {
+    while let Some((pos, tag)) = ["h5", "h6"]
+        .into_iter()
+        .filter_map(|tag| text[at..].find(&format!("<{tag}")).map(|pos| (pos, tag)))
+        .min_by_key(|(pos, _)| *pos)
+    {
         let start = at + pos;
         let Some(gt) = text[start..].find('>') else {
             break;
         };
         let body = start + gt + 1;
-        let Some(end) = text[body..].find("</h6>") else {
+        let closing = format!("</{tag}>");
+        let Some(end) = text[body..].find(&closing) else {
             break;
         };
         let heading = &text[body..body + end];
+        let close = body + end + closing.len();
         if is_changelog_date(heading) {
-            heads.push((start, body + end + 5, heading.to_owned()));
+            heads.push((start, close, heading.to_owned()));
         }
-        at = body + end + 5;
+        at = close;
     }
     let mut out = vec![];
     for i in 0..heads.len() {
@@ -589,7 +595,7 @@ mod tests {
         assert_eq!(date_from_prydwen("future"), "future");
         let decoded = decode_payload(
             "<h6>Notes</h6><p>ignored before first date</p>\
-             <h6>07/July/2026</h6><script>bad script</script><style>bad style</style>\
+             <h5>07/July/2026</h5><script>bad script</script><style>bad style</style>\
              <p data-slug=\"alice\">A &amp;amp; B &#x27;x&#x27;</p>\
              <h6>Other</h6><p>kept until next dated heading</p>\
              <h6>08/July/2026</h6><p>second</p>",

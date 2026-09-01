@@ -211,9 +211,21 @@ pub fn build_tier_rows_at(
 pub fn extract_changelog(decoded: &str) -> Vec<ChangelogRow> {
     let mut headings = vec![];
     let mut cursor = 0;
-    while let Some(relative) = decoded[cursor..].find("<h6") {
+    while let Some((relative, tag)) = ["h5", "h6"]
+        .into_iter()
+        .filter_map(|tag| {
+            decoded[cursor..]
+                .find(&format!("<{tag}"))
+                .map(|relative| (relative, tag))
+        })
+        .min_by_key(|(relative, _)| *relative)
+    {
         let start = cursor + relative;
-        let Some(close) = decoded[start..].find("</h6>").map(|v| start + v + 5) else {
+        let closing = format!("</{tag}>");
+        let Some(close) = decoded[start..]
+            .find(&closing)
+            .map(|relative| start + relative + closing.len())
+        else {
             break;
         };
         let heading = strip_html(&decoded[start..close]);
@@ -462,13 +474,9 @@ fn strip_html(value: &str) -> String {
 }
 
 fn is_changelog_date(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 11
-        && bytes[0..2].iter().all(u8::is_ascii_digit)
-        && bytes[2] == b'/'
-        && bytes[3..6].iter().all(u8::is_ascii_alphabetic)
-        && bytes[6] == b'/'
-        && bytes[7..11].iter().all(u8::is_ascii_digit)
+    ["%d/%B/%Y", "%d/%b/%Y"]
+        .iter()
+        .any(|format| NaiveDate::parse_from_str(value.trim(), format).is_ok())
 }
 
 fn extract_next_data(text: &str) -> Option<Value> {
@@ -843,6 +851,23 @@ mod tests {
         let rows = extract_changelog(&decoded);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].text, "A & B ↑");
+    }
+
+    #[test]
+    fn changelog_accepts_current_h5_and_full_month_headings() {
+        let decoded = decode_prydwen_payload(
+            r#"\u003ch5\u003e26/Aug/2026\u003c/h5\u003e\u003cp\u003eAdded \u003cspan data-slug=\"robin-summeretto\"\u003eRobin\u003c/span\u003e.\u003c/p\u003e\u003ch5\u003e24/July/2026\u003c/h5\u003e\u003cp\u003eAdjusted \u003cspan data-slug=\"rin-tohsaka\"\u003eRin\u003c/span\u003e.\u003c/p\u003e\u003ch6\u003e19/June/2026\u003c/h6\u003e\u003cp\u003eAdjusted \u003cspan data-slug=\"sparkle\"\u003eSparkle\u003c/span\u003e.\u003c/p\u003e"#,
+        );
+        let rows = extract_changelog(&decoded);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].changelog_date, "2026-08-26");
+        assert_eq!(rows[0].character_slugs, "robin-summeretto");
+        assert_eq!(rows[1].changelog_date, "2026-07-24");
+        assert_eq!(rows[1].character_slugs, "rin-tohsaka");
+        assert_eq!(rows[2].changelog_date, "2026-06-19");
+        assert_eq!(rows[2].character_slugs, "sparkle");
+        assert!(!is_changelog_date("31/Feb/2026"));
+        assert!(!is_changelog_date("Changelog"));
     }
 
     #[test]

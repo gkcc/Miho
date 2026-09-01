@@ -161,7 +161,7 @@ mod tests {
     use std::{
         fs,
         io::{Read, Write},
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
         thread,
         time::Duration,
     };
@@ -170,14 +170,29 @@ mod tests {
         std::env::temp_dir().join(format!("miho-source-{label}-{}", std::process::id()))
     }
 
+    fn read_http_headers(stream: &mut TcpStream) {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        loop {
+            let count = stream.read(&mut buffer).unwrap();
+            assert!(count > 0, "request ended before its headers were complete");
+            request.extend_from_slice(&buffer[..count]);
+            if request.windows(4).any(|part| part == b"\r\n\r\n") {
+                break;
+            }
+        }
+    }
+
     fn serve_responses(responses: Vec<(u16, &'static str)>) -> (String, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let server = thread::spawn(move || {
             for (status, body) in responses {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0_u8; 2048];
-                let _ = stream.read(&mut request);
+                read_http_headers(&mut stream);
                 let reason = if status == 200 { "OK" } else { "Error" };
                 write!(
                     stream,
@@ -230,8 +245,7 @@ mod tests {
                 r#"{"collect_date":"2026-07-12"}"#,
             ] {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0_u8; 2048];
-                let _ = stream.read(&mut request);
+                read_http_headers(&mut stream);
                 write!(
                     stream,
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
