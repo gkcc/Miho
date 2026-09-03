@@ -1809,6 +1809,34 @@ test('HSR unknown build coverage is disclosed without becoming a low-build risk'
   assert.ok(recordedLow.risks.includes('build-low'), 'an explicitly recorded low core build must still warn');
 });
 
+test('HSR settled builds ignore tier and trend investment reminders while retaining absolute build strength', () => {
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  const chars = ['settled-core', 'support-a', 'support-b', 'sustain'];
+  const rosterRows = chars.map((slug, index) => hsrCharacter(slug, '火', index === 0 ? 'main_dps' : index === 3 ? 'sustain' : 'support', index === 3 ? '丰饶' : '同谐', index + 1));
+  const data = hsrData(rosterRows, [hsrTemplate('settled-team', '4-1', chars, 1, 30)]);
+  data.tierRows = [{character_slug: 'settled-core', tier_mode: 'as', tier: 'T5'}];
+  data.usageRows = [10, 7, 5, 3].map((app_rate, index) => ({character_slug: 'settled-core', tier_mode: 'as', sub_mode: 'all', collect_date: `2026-07-0${index + 1}`, app_rate}));
+  const settledBuilds = allBuilds(chars, hsrFullBuild);
+  settledBuilds['settled-core'] = {level: 75, lc: 70, eidolon: 0, signature: 'no', traces: 'high', relics: 'good'};
+
+  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'warn', sortMode: 'box', gap: '4'}, chars, settledBuilds);
+  const settled = plain(api.ranked('as', '4-1'))[0];
+  assert.equal(settled.buildReadyCount, 4, 'the near-complete core build must use the existing settled threshold');
+  assert.ok(!settled.risks.includes('tier-forgotten'), 'a settled T5 character has no remaining investment decision to warn about');
+  assert.ok(!settled.risks.includes('trend'), 'a settled character should be judged by current strength instead of popularity trend');
+
+  const unfinishedBuilds = {...settledBuilds, 'settled-core': {level: 70, lc: 70, eidolon: 0, signature: 'no', traces: 'high', relics: 'good'}};
+  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'warn', sortMode: 'box', gap: '4'}, chars, unfinishedBuilds);
+  const unfinished = plain(api.ranked('as', '4-1'))[0];
+  assert.ok(unfinished.risks.includes('build-mid'));
+  assert.ok(unfinished.risks.includes('tier-forgotten'));
+  assert.ok(unfinished.risks.includes('trend'));
+  assert.ok(settled.scores.box > unfinished.scores.box, 'settled handling must preserve the absolute build-strength contribution');
+
+  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'filter', sortMode: 'box', gap: '4'}, chars, settledBuilds);
+  assert.deepEqual(plain(api.ranked('as', '4-1')).map(item => item.id), ['settled-team']);
+});
+
 test('HSR legacy and invalid recommendation settings default safely to balanced sorting', () => {
   const api = loadContract(HSR_APP, HSR_HARNESS);
   const fixture = endgameRankingFixture();
@@ -2006,7 +2034,7 @@ test('ZZZ warn only displays risks, off keeps identical scores, and filter alone
   assert.deepEqual(plain(api.ranked('sd', 's1')).map(item => item.id), ['safe-team']);
 });
 
-test('ZZZ distinguishes unknown, T1, and T5 tiers without treating missing tier data as the worst tier', () => {
+test('ZZZ distinguishes unknown tiers and waives tier and trend reminders for settled builds', () => {
   const teams = [
     ['unknown-team', ['unknown-core', 'unknown-a', 'unknown-b']],
     ['t1-team', ['t1-core', 't1-a', 't1-b']],
@@ -2020,7 +2048,9 @@ test('ZZZ distinguishes unknown, T1, and T5 tiers without treating missing tier 
     {character_slug: 't5-core', tier_mode: 'sd', tier: 'T5'},
   ];
   const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
-  api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'warn'}, slugs, allBuilds(slugs, zzzFullBuild));
+  const data = zzzData(rosterRows, templates, tierRows);
+  data.usageRows = [10, 7, 5, 3].map((app_rate, index) => ({character_slug: 't5-core', mode: 'sd', sub_mode: 'all', collect_date: `2026-07-0${index + 1}`, app_rate}));
+  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'warn'}, slugs, allBuilds(slugs, zzzFullBuild));
   const byId = Object.fromEntries(plain(api.ranked('sd', 's1')).map(item => [item.id, item]));
 
   assert.equal(api.tier('unknown-core', 'sd'), null);
@@ -2028,9 +2058,12 @@ test('ZZZ distinguishes unknown, T1, and T5 tiers without treating missing tier 
   assert.equal(plain(api.tier('t5-core', 'sd')).tier, 'T5');
   assert.deepEqual(byId['unknown-team'].risks, [], 'missing tier data is unknown evidence, not T5');
   assert.deepEqual(byId['t1-team'].risks, [], 'a fully built T1 agent does not need a low-investment warning');
-  assert.ok(byId['t5-team'].risks.some(risk => risk.includes('T5')), 'an explicit T5 record remains a visible risk');
+  assert.deepEqual(byId['t5-team'].risks, [], 'a settled T5 agent is judged by absolute strength, not tier or usage trend');
   assert.equal(byId['unknown-team'].score, byId['t1-team'].score, 'tier warnings must not silently change warn-mode scores');
-  assert.equal(byId['t1-team'].score, byId['t5-team'].score, 'even an explicit T5 warning is display-only outside filter mode');
+  assert.equal(byId['t1-team'].score, byId['t5-team'].score, 'settled agents with equal absolute builds must remain equal regardless of tier');
+
+  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'filter'}, slugs, allBuilds(slugs, zzzFullBuild));
+  assert.deepEqual(plain(api.ranked('sd', 's1')).map(item => item.id).sort(), ['t1-team', 't5-team', 'unknown-team']);
 });
 
 test('ZZZ treats unrecorded builds as unavailable evidence and scores only explicitly recorded investment', () => {

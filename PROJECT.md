@@ -734,6 +734,12 @@
 - **验证与真实更新**：HSR 4.4/4.5 官方 live smoke、`miho-core` 185 个单测与 43 个契约测试、`miho-app` 78 项、`miho-cli` 73 项、Rust fmt/diff check及完整 `pnpm run tauri:build` 均通过。正式计划任务重放 attempt `20260901T184034121402Z-48912-0` 对 HSR/ZZZ 返回 `healthy:true`；HSR changelog 恢复为 6 行（`2026-08-26 / 07-24 / 07-15 / 07-07 / 06-19 / 06-01`）。
 - **本机交付与数据安全**：安装版 Desktop/人工 CLI SHA-256 分别为 `ADF1063A9BFE1597556F1F886A489D12EFF6EBF944AE4A0F7DDBFBDE3D35B161` / `FD5BD883F4E1715B88A149395EC004B9067A3D41D517559E9E2FE5BEE1955FC6`，隐藏 GUI 渲染与安装版 CLI health 均通过；遗留 desktop workspace 已对齐生产 AppData revision 5。09:30 任务为 `Ready / Enabled / LastTaskResult=0`，仅有 generation `miho-0.1.0-56e43fb70039d77ebc4aa814f712cd04cc0c57e57d6a71aa5958562b95130fc7`，无 candidate/journal。HSR/ZZZ Box SHA-256 保持 `7CA25CFA0286211DB577ED4E068C12377442926013803A7BF05F20F5D5C8E347` / `E08F968914C6D53F33DD2E4419C3112222E3F776F0EF51031A9362A87CF2DB5E`；未进入 NSIS、portable 或旧安装器链。
 
+### 已成型角色只看即战力（2026-09-04，已交付）
+
+- **组队语义**：HSR/ZZZ 统一把“已拥有且 `build.ready`”视为投入已完成；这类角色不再生成角色 Tier 与近几期出场率走弱提醒，也不会再被“过滤风险”因此排除。推荐仍按现有练度绝对分、真实队伍 Rank/成绩、队伍缺口、弱点、跨队冲突等证据判断；未成型角色的练度、Tier 与趋势投入提醒保持不变。Tier 风险原本在普通“仅提醒”模式就不直接扣排序分，本次只收敛提示与风险过滤语义，没有凭空给已成型角色加分。双游戏组队页徽章统一显示“已成型只看即战力”。
+- **验证与真实入口**：推荐逻辑 86/86、Python Visualizer 71 passed / 2 live deselected、Rust Visualizer 42/42、前端与嵌入契约 155/155、双 JS 语法和完整 `pnpm run tauri:build` 均通过；三份 EXE 的 7 项 Visualizer 资源各 exact-once，PE 子系统保持 Desktop/任务 CLI `WINDOWS_GUI`、人工 CLI `WINDOWS_CUI`。安装版隐藏 CDP 定向走完 `ZZZ → HSR → ZZZ`：两边组队页均有 8 张可见候选卡及新徽章，取正式数据中的 ZZZ `T3`、HSR `T1.5` 行验证时，已成型角色投资风险为 0，改为未成型后分别恢复 `tier-low` / `tier-caution`；应用正常退出 0，stdout/stderr 为空，调试端口及子进程清理完成。
+- **正式部署与数据安全**：正式 Desktop、人工 CLI、无窗任务 CLI SHA-256 分别为 `F76FBC426D52621D001C362935A5912ED7C4BEA37B69CFD1F40DCE268A968919`、`37492094E4AD2D8FDAD7AC53A5B2218394157B453E6D4B3EEDBD374D488B5635`、`C45466EB8651994A50D15D3AC47C7C3FD09E452FC3AA3EEB002E9EB6024AD8AB`。owner-aware candidate `installer-9ce23aa728c041ff9bb75c1aa0de9fe5` healthy 后切到唯一 generation `miho-0.1.0-c45466eb8651994a50d15d3ac47c7c3fd09e452fc3aa3eeb002e9eb6024ad8ab`；正式任务重放 attempt `20260903T161511840082Z-59328-0` health 为 true，任务 `Ready / Enabled / LastTaskResult=0`，manifest/authority/registry owner 均为 `9d8fbf93-afa2-45dd-8a06-5cb0da2ec3af`，无 candidate/journal。HSR/ZZZ Box 为 61/93、25/58，SHA-256 全程保持 `7CA25CFA0286211DB577ED4E068C12377442926013803A7BF05F20F5D5C8E347` / `E08F968914C6D53F33DD2E4419C3112222E3F776F0EF51031A9362A87CF2DB5E`；两份临时旧 EXE 回滚副本已精确删除，未进入 NSIS、portable 或旧安装器链。
+
 ## 恢复入口
 
 - 项目状态：本文件。

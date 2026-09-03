@@ -261,14 +261,14 @@ function usageTrendRisk(slug,mode=rec.mode){
   DATA._recommendationUsageTrendRisk.set(key,result);return result;
 }
 function memberRisk(member,mode=rec.mode){
-  const risks=[],tier=tierMeta(member.slug,mode),rank=tier?TIER_RANK[tier.tier]:null,build=member.build;
+  const risks=[],tier=tierMeta(member.slug,mode),rank=tier?TIER_RANK[tier.tier]:null,build=member.build,settled=member.owned&&build.ready;
   if(member.owned&&build.coreRecorded){if(build.baseScore<.68)risks.push({type:'build-low',text:`练度待补 ${build.basePercent}%`,severe:member.core});else if(build.baseScore<.86)risks.push({type:'build-mid',text:`练度未成型 ${build.basePercent}%`});}
-  if(rank!=null){
-    if(rank>=5)risks.push({type:'tier-low',text:`${tier.tier}不建议投入${build.ready?'（已练，仅提醒）':''}`,severe:true});
-    else if(rank>=3)risks.push({type:'tier-low',text:`${tier.tier}非主流低档${build.ready?'（已练，仅提醒）':''}`,severe:true});
-    else if(rank>=1&&build.coreRecorded&&!build.ready)risks.push({type:'tier-caution',text:`${tier.tier}投入谨慎`});
+  if(!settled&&rank!=null){
+    if(rank>=5)risks.push({type:'tier-low',text:`${tier.tier}不建议投入`,severe:true});
+    else if(rank>=3)risks.push({type:'tier-low',text:`${tier.tier}非主流低档`,severe:true});
+    else if(rank>=1&&build.coreRecorded)risks.push({type:'tier-caution',text:`${tier.tier}投入谨慎`});
   }
-  const trend=usageTrendRisk(member.slug,mode);if(trend.risk)risks.push({type:'trend',text:`近${trend.points.length}期走弱 ${trend.first.toFixed(1)}%→${trend.last.toFixed(1)}%`});
+  if(!settled){const trend=usageTrendRisk(member.slug,mode);if(trend.risk)risks.push({type:'trend',text:`近${trend.points.length}期走弱 ${trend.first.toFixed(1)}%→${trend.last.toFixed(1)}%`});}
   return risks;
 }
 function recommendationBuildScore(build){return build.coreRecorded?build.score:0}
@@ -403,7 +403,7 @@ function renderRec({recomputeSlate=true}={}){
   const templateLabel=freshnessTemplateLabel(freshness.status,custom?'当前模式完整实战阵容池':'当前同模式同关卡模板'),strategyNote=custom?'跨全部具体实战关卡按三名代理人无序签名去重；核心代理人命中任一弱点优先':`${plannedScopes.length}队联合优化；同关卡实战排序优先；弱点默认仅标注，不参与加减分；选择“过滤风险”时才硬筛选`;
   $('recSubtitle').textContent=`${templateLabel} ${templates.length} 队 · 平均分只在同模式内比较，0 视为缺失 · ${strategyNote}`;
   const riskLabel=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒（不改分）',freshnessBadge=freshnessBadgeHtml(freshness);
-  $('recBadges').innerHTML=freshnessBadge+[`排序 ${sortMeta.label}`,custom?'自定义弱点池':'末层实战',`${plannedScopes.length} 队模型`,sel.length?`弱点 ${sel.join(' / ')}`:'未标弱点',constraints.required.size?`必上 ${constraints.required.size}`:'未设必上',constraints.excluded.size?`排除 ${constraints.excluded.size}`:'未设排除',`原模板缺口 ≤ ${rec.gap}`,riskLabel,rec.riskMode==='off'?'T档不提醒':'T1及以下提醒',`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');
+  $('recBadges').innerHTML=freshnessBadge+[`排序 ${sortMeta.label}`,custom?'自定义弱点池':'末层实战',`${plannedScopes.length} 队模型`,sel.length?`弱点 ${sel.join(' / ')}`:'未标弱点',constraints.required.size?`必上 ${constraints.required.size}`:'未设必上',constraints.excluded.size?`排除 ${constraints.excluded.size}`:'未设排除',`原模板缺口 ≤ ${rec.gap}`,riskLabel,rec.riskMode==='off'?'T档/趋势不提醒':'已成型只看即战力',`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');
   void renderRecCandidates();
   if(recomputeSlate)renderRecSlate();else renderRecSlateMessage();
 }

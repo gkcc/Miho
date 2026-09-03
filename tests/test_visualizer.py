@@ -320,8 +320,8 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "banner_next" in app_text
     assert "no-store" in app_text
     assert "./data.v2.json" in app_text
-    assert "T1及以下提醒" in app_text
-    assert "当前模式T1及以下提醒" in app_text
+    assert "已成型只看即战力" in app_text
+    assert "settled=member.owned&&build.ready" in app_text
     assert "tierSummaryFor" in app_text
     assert "Prydwen 按模式分档" in app_text
     assert "投入谨慎" in app_text

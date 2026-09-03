@@ -752,18 +752,17 @@ function usageTrendFor(slug,mode){
   return result;
 }
 function memberRisk(member,mode){
-  const reasons=[];const tier=tierMetaFor(member.slug,mode);const core=isCoreMember(member.info);const build=member.buildState||buildState(buildFor(member.slug));const built=member.owned&&build.ready;
+  const reasons=[];const tier=tierMetaFor(member.slug,mode);const core=isCoreMember(member.info);const build=member.buildState||buildState(buildFor(member.slug));const settled=member.owned&&build.ready;
   if(member.owned){
     if(build.coreRecorded&&build.baseScore<.68)reasons.push({type:'build-low',text:`练度待补 ${build.basePercent}%`,penalty:core?70:38,severe:core});
     else if(build.coreRecorded&&build.baseScore<.86)reasons.push({type:'build-mid',text:`练度未成型 ${build.basePercent}%`,penalty:core?32:16});
   }
-  if(tier){
-    if(tier.rank>=5)reasons.push({type:'tier-forgotten',text:`${tier.tier}不建议投入${built?'（已练，降权）':''}`,penalty:built?(core?55:30):(core?120:70),severe:true});
-    else if(tier.rank>=3)reasons.push({type:'tier-offmeta',text:`${tier.tier}非主流低档${built?'（已练，降权）':''}`,penalty:built?(core?42:24):(core?85:45),severe:true});
-    else if(tier.rank>=1&&!built)reasons.push({type:'tier-caution',text:`${tier.tier}投入谨慎`,penalty:core?34:18});
+  if(!settled&&tier){
+    if(tier.rank>=5)reasons.push({type:'tier-forgotten',text:`${tier.tier}不建议投入`,penalty:core?120:70,severe:true});
+    else if(tier.rank>=3)reasons.push({type:'tier-offmeta',text:`${tier.tier}非主流低档`,penalty:core?85:45,severe:true});
+    else if(tier.rank>=1)reasons.push({type:'tier-caution',text:`${tier.tier}投入谨慎`,penalty:core?34:18});
   }
-  const trend=usageTrendFor(member.slug,mode);
-  if(trend.risk)reasons.push({type:'trend',text:`近${trend.points.length}期走弱 ${trend.first?.toFixed?.(1)}%→${trend.last?.toFixed?.(1)}%`,penalty:core?55:25});
+  if(!settled){const trend=usageTrendFor(member.slug,mode);if(trend.risk)reasons.push({type:'trend',text:`近${trend.points.length}期走弱 ${trend.first?.toFixed?.(1)}%→${trend.last?.toFixed?.(1)}%`,penalty:core?55:25});}
   return reasons;
 }
 function teamRisk(members,selectedElements){
@@ -969,7 +968,7 @@ function renderRecommender(options={}){
   const strategyNote=custom?'跨全部具体战斗侧去重；核心输出命中任一弱点优先':`${plannedScopes.length}队联合优化；同节点实战排序优先；弱点默认仅标注，不参与加减分；选择“过滤风险”时才硬筛选`;
   $('recSubtitle').textContent=`${phaseLabel(latest)} · ${latest.collect_date||''} · ${freshnessStatusLabel(freshness.status)} · ${templateLabel} ${templates.length} 队 · ${sortMeta.description} · ${strategyNote}${rec.search?' · 搜索只筛选左侧候选，不会改动右侧联合方案':''}`;
   const riskLabel=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒';
-  const tierRiskLabel=rec.riskMode==='off'?'当前模式T档不提醒':'当前模式T1及以下提醒';
+  const tierRiskLabel=rec.riskMode==='off'?'T档/趋势不提醒':'已成型只看即战力';
   const freshnessBadge=freshnessBadgeHtml(freshness);
   $('recBadges').innerHTML=freshnessBadge+[`排序 ${sortMeta.label}`,custom?'自定义弱点池':'末层实战',`${plannedScopes.length} 队模型`,selected.length?`弱点 ${selected.join(' / ')}`:'未标弱点',constraints.required.size?`必上 ${constraints.required.size}`:'未设必上',constraints.excluded.size?`排除 ${constraints.excluded.size}`:'未设排除',`缺口 ≤ ${rec.gap}`,riskLabel,tierRiskLabel,`Box ${box.owned.size}`].map(x=>`<span>${esc(x)}</span>`).join('');
   const list=$('recList');list.innerHTML='<div class="rec-empty">正在分片计算完整候选池…</div>';
