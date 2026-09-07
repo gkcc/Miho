@@ -1,38 +1,18 @@
-# 项目执行规则
+# Project rules
 
-## 核心优先级
+- Deliver one complete, usable goal at a time. Defer unrelated features, refactors, polish, and extra proof; verify the requested user entry point.
+- The product is the Tauri desktop app: prioritize Rust, reliable data, and usable UI.
+- For any HSR/ZZZ product capability change, audit the other game's matching entry point for data semantics, interaction, persistence, and real-path verification. Implement parity in the same task unless a documented game-mechanic difference applies.
 
-1. **先完成，再优化。** 先交付最小但完整、可实际使用的结果；重构、性能、文案润色和额外防御另开后续任务，不得阻塞当前交付。
-2. **不扩张范围。** 当前问题未闭环前，不主动增加相邻功能或重复已通过的工作。
-3. **以真实使用路径为准。** 能编译或单测通过不等于完成；用户要求的入口必须实际可用。
-4. **跨游戏同类能力必须对齐。** 新增或修改 HSR/ZZZ 任一游戏的同类产品能力时，交付前必须审计另一游戏在同入口的数据语义、交互、持久化与真实路径验证；除非存在已明确记录的游戏机制差异，否则应在同一任务补齐，单边实现不视为完成。
+## Local delivery
 
-## 产品方向
+- Runtime code, configuration, resources, or dependencies: rebuild and update the current runnable Tauri app. Deliver the matching update CLI; changes to `miho-core`, `miho-app`, `miho-cli`, or Visualizer resources require an owner-aware transaction synchronizing the daily update task.
+- Shared data-generation changes also require rebuilding the CLI, switching the scheduled-task generation, and validating the new artifact contract.
+- Build/test NSIS, installers, portable or release packages only when explicitly requested. Keep their existing code as historical compatibility assets; ordinary fixes must not expand this pipeline. Documentation-only changes do not create a new app version.
 
-- 主交付是 Tauri 桌面应用：优先投入 Rust 后端、稳定的数据链和美观易用的前端。
-- 本机交付默认直接构建并更新当前可运行的 Tauri 程序与同版本更新 CLI；涉及 `miho-core`、`miho-app`、`miho-cli` 或 Visualizer 资源时，必须用 owner-aware 事务同步每日更新任务。NSIS、安装器、portable/发布包仅在用户明确要求时处理，也不为它们扩大测试范围。
-- 已有安装器代码可作为历史兼容资产保留，但普通产品修复不主动扩建、重构或重复验证这条链。
+## Verification, records, and Git
 
-## 桌面自动化边界
-
-- 禁止抢占、移动或捕获用户真实鼠标；这一限制不等于禁止界面自动化。
-- 允许 headless、CDP、DOM/事件模拟、测试框架和程序化模拟点击；优先后台或隐藏窗口运行，真实入口能自动验证时应直接验证。
-
-## 验证与复审
-
-- 按变更风险跑定点测试；只有发布链、安全边界、数据删除/迁移、权限或大范围公共代码变化，才需要全量矩阵或独立对抗复审。
-- 不重复运行未受影响且已有可信回执的测试。明确记录实际运行了什么，未运行什么。
-- 子智能体只在能明显缩短关键路径、任务可独立并行，或上述高风险场景需要独立判断时使用；普通任务默认主线程直接完成。
-
-## 文档与提交
-
-- 每完成一个**可交付任务或里程碑**本地提交一次；微步骤、探索和中间修正不单独提交。存在已配置且可访问的既定远端时，验证通过后应及时推送该里程碑，不积压已完成交付；用户明确要求仅保留本地、暂缓推送或远端不可用时除外。
-- 提交和推送前检查 `git status`、实际 diff 和相关定点测试，只发布当前任务范围内的提交；不创建 PR 或执行合并，除非用户明确要求。
-- 只有目标、当前状态、关键决策、已验证证据或重要剩余风险发生变化时，才简洁回填 `PROJECT.md` 或对应追踪文档；不复制长日志，不为留痕制造自引用构建循环。
-- 运行时代码、配置、资源或依赖变化时重建并更新当前 Tauri 程序；共享数据生成链变化时同时构建 CLI、切换计划任务 generation，并验证新产物契约。只有用户明确要求安装器/发布包时才进入旧发布链。纯流程、说明或测试文档提交不冒充新的程序版本。
-- 遇到的最大困难只在它会改变后续主流程时记录；普通实现细节无需强制复盘。
-
-## 清理边界
-
-- 及时清理可再生且已确认未被当前 Tauri 程序或已知回滚证据引用的缓存和旧候选。
-- 不删除用户 AppData、当前运行程序、生产 owner/任务或来源不明的文件。
+- Run targeted checks; expand to a full matrix or independent adversarial review only for release pipelines, security/permission boundaries, data deletion/migration, or broad shared-code changes. Reuse unaffected valid evidence; state checks run and material omissions.
+- Make one local commit per completed deliverable/milestone. After verification, promptly push to the configured reachable remote unless the user requests local-only/delayed push. Check `git status`, diff, and relevant tests first; include only this task's changes. Create PRs or merge only on explicit request.
+- Update `PROJECT.md` or the relevant tracker only when goals, status, key decisions, evidence, or material remaining risks change. Keep records brief; avoid copied logs and documentation/build loops. Record difficulties only when they change future workflow.
+- Remove only regenerable caches/old candidates confirmed unused by the current app and retained rollback evidence. Never delete user AppData, the running app, production owners/tasks, or unidentified files.
