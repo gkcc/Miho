@@ -1098,7 +1098,7 @@ fn build_banner(
     let Some(root) = read_object_sidecar(bundle, context, "zzz_banner_plan.json")? else {
         return Ok((vec![], None));
     };
-    let refresh = banner_refresh(&root);
+    let refresh = banner_refresh(&root, local_datetime);
     let roster_map = roster
         .iter()
         .map(|row| (value_str(row, "character_slug"), row))
@@ -1149,21 +1149,84 @@ fn build_banner(
     Ok((output, refresh))
 }
 
-fn banner_refresh(root: &Value) -> Option<Value> {
+fn banner_refresh(root: &Value, local_datetime: chrono::NaiveDateTime) -> Option<Value> {
     let refresh = root.get("refresh")?.as_object()?;
     let status = refresh.get("status")?.as_str()?.trim();
     let fetched_at = refresh.get("fetched_at")?.as_str()?.trim();
     if status.is_empty() || fetched_at.is_empty() {
         return None;
     }
-    Some(json!({
+    let mut output = json!({
         "status": status,
         "fetched_at": fetched_at,
         "source_label": refresh
             .get("source_label")
             .and_then(Value::as_str)
             .unwrap_or(""),
-    }))
+    });
+    let pending = refresh
+        .get("pending_phases")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|phase| pending_banner_phase(phase, local_datetime))
+        .collect::<Vec<_>>();
+    if !pending.is_empty() {
+        output["pending_phases"] = Value::Array(pending);
+    }
+    Some(output)
+}
+
+fn pending_banner_phase(phase: &Value, local_datetime: chrono::NaiveDateTime) -> Option<Value> {
+    let declared = phase.get("phase_status")?.as_str()?;
+    if !matches!(declared, "current" | "next" | "previous") {
+        return None;
+    }
+    let mut output = json!({"status": declared});
+    for key in [
+        "id",
+        "title",
+        "subtitle",
+        "date_range",
+        "start_at",
+        "end_at",
+        "source_label",
+    ] {
+        output[key] = json!(phase.get(key).and_then(Value::as_str).unwrap_or(""));
+    }
+    output["source_url"] = json!(safe_link_url(
+        phase
+            .get("source_url")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+    ));
+    let characters = phase.get("characters")?.as_array()?.iter().filter_map(|character| {
+        let name = character.get("name_cn")?.as_str()?.trim();
+        if name.is_empty() { return None; }
+        Some(json!({
+            "name_cn": name,
+            "banner_role": character.get("banner_role").and_then(Value::as_str).unwrap_or(""),
+            "descriptor_cn": character.get("descriptor_cn").and_then(Value::as_str).unwrap_or(""),
+        }))
+    }).collect::<Vec<_>>();
+    if characters.is_empty() {
+        return None;
+    }
+    let (start, end) = banner_phase_boundary_fields(&output).ok()?;
+    output["phase_status"] = json!(shared_effective_banner_status(&output, local_datetime).ok()?);
+    output.as_object_mut()?.remove("status");
+    output["declared_phase_status"] = json!(declared);
+    output["phase_starts_at"] = json!(start);
+    output["phase_ends_at_exclusive"] = json!(end);
+    output["characters"] = Value::Array(characters);
+    output["missing_names"] = json!(phase
+        .get("missing_names")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>());
+    Some(output)
 }
 
 fn merge_banner_into_roster(roster: &mut Vec<Value>, banner: &[Value]) {
@@ -1417,6 +1480,59 @@ fn canonical(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_banner_announcements_stay_out_of_roster_and_normalize_boundaries() {
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 9, 9)
+            .unwrap()
+            .and_hms_opt(23, 59, 59)
+            .unwrap();
+        let plan = json!({"refresh":{
+            "status":"pending_identity", "fetched_at":"2026-09-09T12:00:00Z",
+            "source_label":"官方公告", "pending_phases":[{
+                "id":"pending", "title":"官方新角色", "subtitle":"下一期",
+                "date_range":"2026-09-09 00:00 至 2026-09-09 23:59",
+                "start_at":"2026-09-09 00:00", "end_at":"2026-09-09 23:59",
+                "source_label":"官方公告", "source_url":"javascript:alert(1)",
+                "phase_status":"next", "missing_names":["新角色",42],
+                "characters":[{"name_cn":"新角色","banner_role":"限定 S 级", "descriptor_cn":"火属性", "slug":"fabricated"}]
+            }, null, {"phase_status":"current", "characters":null}]
+        }, "phases":[]});
+        let mut context = VisualizerContext::new_with_local_datetime(now);
+        context
+            .add_sidecar_json("zzz_banner_plan.json", &plan)
+            .unwrap();
+        let (rows, refresh) = build_banner(&ArtifactBundle::default(), &context, &[], now).unwrap();
+        assert!(rows.is_empty());
+        let mut roster = vec![];
+        merge_banner_into_roster(&mut roster, &rows);
+        assert!(roster.is_empty());
+        let refresh = refresh.unwrap();
+        assert_eq!(refresh["status"], "pending_identity");
+        let pending = refresh["pending_phases"].as_array().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["phase_status"], "current");
+        assert_eq!(pending[0]["declared_phase_status"], "next");
+        assert_eq!(pending[0]["phase_starts_at"], "2026-09-09T00:00:00+08:00");
+        assert_eq!(
+            pending[0]["phase_ends_at_exclusive"],
+            "2026-09-10T00:00:00+08:00"
+        );
+        assert_eq!(pending[0]["characters"][0]["name_cn"], "新角色");
+        assert!(pending[0]["characters"][0].get("slug").is_none());
+        assert_eq!(pending[0]["source_url"], "");
+        assert_eq!(pending[0]["missing_names"], json!(["新角色"]));
+        let after = banner_refresh(&plan, now + chrono::Duration::seconds(1)).unwrap();
+        assert_eq!(after["pending_phases"][0]["phase_status"], "previous");
+        let ordinary = banner_refresh(
+            &json!({"refresh":{
+                "status":"fresh", "fetched_at":"2026-09-09T12:00:00Z", "pending_phases":"invalid"
+            }}),
+            now,
+        )
+        .unwrap();
+        assert!(ordinary.get("pending_phases").is_none());
+    }
 
     fn row(values: &[(&str, &str)]) -> Row {
         values

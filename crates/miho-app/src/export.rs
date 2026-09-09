@@ -34,6 +34,7 @@ use miho_core::{
         attach_visualizer_hub, read_csv_rows, validate_json_surrogate_escapes, VisualizerContext,
     },
     zzz_enrichment::first_valid_phase_override_path,
+    zzz_sources::{official_name_map as zzz_official_name_map, parse_official_agents},
     zzz_supplemental::{ZzzFixtureSupplementalSource, ZzzHttpSupplementalSource},
     zzz_visualizer::attach_zzz_visualizer,
     MihoError,
@@ -594,6 +595,28 @@ fn banner_name_map(
                     continue;
                 }
                 let slug = banner_plan_slug(game, &row.character_slug);
+                add_banner_name(&mut names, &mut ambiguous, &row.character_name_cn, &slug);
+            }
+        }
+    } else {
+        let zh = read_optional_bundle_json_array(bundle, "raw/hoyowiki/zzz_agents_zh-cn.json")?;
+        let en = read_optional_bundle_json_array(bundle, "raw/hoyowiki/zzz_agents_en-us.json")?;
+        if let (Some(zh), Some(en)) = (zh, en) {
+            let official_rows = parse_official_agents(&en, &zh);
+            let aliases = zzz_official_name_map(&official_rows, &[]);
+            for row in official_rows {
+                // Keep an established dataset alias only when the official
+                // dictionary resolves it to this same agent. Different agents
+                // sharing a Chinese name must remain ambiguous.
+                let slug = names
+                    .get(row.character_name_cn.trim())
+                    .filter(|slug| {
+                        aliases
+                            .get(slug.as_str())
+                            .is_some_and(|owner| owner.character_slug == row.character_slug)
+                    })
+                    .cloned()
+                    .unwrap_or(row.character_slug);
                 add_banner_name(&mut names, &mut ambiguous, &row.character_name_cn, &slug);
             }
         }
@@ -1599,6 +1622,75 @@ mod tests {
             Some("himeko-nova")
         );
         assert_eq!(names.get("长夜月").map(String::as_str), Some("evernight"));
+    }
+
+    #[test]
+    fn banner_name_map_includes_zzz_official_agents_without_statistics() {
+        let mut bundle = miho_core::output::ArtifactBundle::default();
+        bundle
+            .add_csv(
+                "name_map.csv",
+                &["character_slug", "character_name_cn"],
+                [["remielle", "蕾米埃尔·丹"]],
+            )
+            .unwrap();
+        bundle
+            .add_text(
+                "raw/hoyowiki/zzz_agents_zh-cn.json",
+                r#"[{"entry_page_id":"1","name":"新代理"},{"entry_page_id":"2","name":"蕾米埃尔·丹"},{"entry_page_id":"3","name":"仅中文新代理"}]"#,
+            )
+            .unwrap();
+        bundle
+            .add_text(
+                "raw/hoyowiki/zzz_agents_en-us.json",
+                r#"[{"entry_page_id":"1","name":"Future Agent"},{"entry_page_id":"2","name":"Remielle Dan"}]"#,
+            )
+            .unwrap();
+
+        let names = banner_name_map(&bundle, Game::Zzz).unwrap();
+
+        assert_eq!(
+            names.get("新代理").map(String::as_str),
+            Some("future-agent")
+        );
+        assert_eq!(
+            names.get("蕾米埃尔·丹").map(String::as_str),
+            Some("remielle")
+        );
+        assert!(!names.contains_key("仅中文新代理"));
+    }
+
+    #[test]
+    fn banner_name_map_rejects_zzz_official_name_collisions() {
+        let mut bundle = miho_core::output::ArtifactBundle::default();
+        bundle
+            .add_csv(
+                "name_map.csv",
+                &["character_slug", "character_name_cn"],
+                [["known-agent", "已知代理"], ["wrong-agent", "冲突名称"]],
+            )
+            .unwrap();
+        bundle
+            .add_text(
+                "raw/hoyowiki/zzz_agents_zh-cn.json",
+                r#"[{"entry_page_id":"1","name":"同名代理"},{"entry_page_id":"2","name":"同名代理"},{"entry_page_id":"3","name":"冲突名称"}]"#,
+            )
+            .unwrap();
+        bundle
+            .add_text(
+                "raw/hoyowiki/zzz_agents_en-us.json",
+                r#"[{"entry_page_id":"1","name":"Future Alpha"},{"entry_page_id":"2","name":"Future Beta"},{"entry_page_id":"3","name":"Different Agent"}]"#,
+            )
+            .unwrap();
+
+        let names = banner_name_map(&bundle, Game::Zzz).unwrap();
+
+        assert_eq!(
+            names.get("已知代理").map(String::as_str),
+            Some("known-agent")
+        );
+        assert!(!names.contains_key("同名代理"));
+        assert!(!names.contains_key("冲突名称"));
     }
 
     #[test]

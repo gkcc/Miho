@@ -521,6 +521,33 @@ const productExpression = `(async () => {
     if (value && visible(node.parentElement)) visibleText.push(value);
   }
   const bannerCards = [...document.querySelectorAll('#bannerGrid .banner-card')].filter(visible);
+  const pendingBannerCards = bannerCards.filter((card) => card.classList.contains('pending-identity'));
+  const pendingBannerPhases = typeof DATA === 'object' && Array.isArray(DATA?.bannerRefresh?.pending_phases)
+    ? DATA.bannerRefresh.pending_phases
+    : [];
+  const pendingBannerCharacters = (status) => pendingBannerPhases
+    .filter((phase) => !status || phase.phase_status === status)
+    .flatMap((phase) => phase.characters || []);
+  const pendingBannerNames = (status) => pendingBannerCharacters(status).map((character) => String(character.name_cn || '').trim());
+  const pendingBannerRoles = (status) => pendingBannerCharacters(status).map((character) => String(character.banner_role || '').trim());
+  const pendingBannerIsolationErrors = pendingBannerPhases.flatMap((phase) => {
+    const errors = [];
+    if ((DATA.bannerRows || []).some((row) => row.phase_id === phase.id)) errors.push({id: phase.id, reason: 'pending phase entered bannerRows'});
+    for (const character of phase.characters || []) {
+      if (character.slug || character.character_slug) errors.push({name: character.name_cn, reason: 'pending character has fabricated identity'});
+    }
+    for (const name of phase.missing_names || []) {
+      if ((DATA.rosterRows || []).some((row) => row.character_name_cn === name)) errors.push({name, reason: 'unmapped name entered roster'});
+    }
+    return errors;
+  });
+  const pendingBannerCardErrors = pendingBannerCards.flatMap((card) => (
+    card.querySelector('button, .mini-owned, svg, img')
+      || !card.textContent.includes('角色资料待同步')
+      || !card.textContent.includes('暂不参与强度分析、Box 或组队推荐')
+      ? [{name: card.querySelector('h3')?.textContent ?? '', reason: 'pending card exposes unbound actions or lacks disclosure'}]
+      : []
+  ));
   const bannerSectionTexts = [...document.querySelectorAll('#bannerGrid .banner-section-head p')]
     .filter(visible)
     .map((element) => element.textContent?.trim() ?? '');
@@ -541,7 +568,7 @@ const productExpression = `(async () => {
   const bannerBoundaryFieldErrors = [];
   const bannerClockStatusErrors = [];
   const bannerClockNow = Date.now();
-  for (const [index, row] of (typeof DATA === 'object' && Array.isArray(DATA?.bannerRows) ? DATA.bannerRows : []).entries()) {
+  for (const [index, row] of [...(typeof DATA === 'object' && Array.isArray(DATA?.bannerRows) ? DATA.bannerRows : []), ...pendingBannerPhases].entries()) {
     for (const field of ['phase_starts_at', 'phase_ends_at_exclusive']) {
       if (!Object.hasOwn(row ?? {}, field) || typeof row?.[field] !== 'string') {
         bannerBoundaryFieldErrors.push({ index, phaseId: String(row?.phase_id ?? ''), field, value: row?.[field] });
@@ -569,6 +596,25 @@ const productExpression = `(async () => {
     }
   }
   const bannerPhaseValue = typeof banner === 'object' ? banner?.phase ?? '' : '';
+  const selectedPendingPhases = pendingBannerPhases.filter((phase) => (
+    bannerPhaseValue === 'all' || phase.phase_status === bannerPhaseValue
+      || bannerPhaseValue === 'recent' && phase.phase_status === 'previous'
+  ));
+  const pendingBannerSections = [...document.querySelectorAll('#bannerGrid .banner-section.pending-identity')].filter(visible);
+  const pendingBannerSectionErrors = selectedPendingPhases.flatMap((phase) => {
+    const section = pendingBannerSections.find((candidate) => (
+      candidate.querySelector('.banner-section-head h3')?.textContent.trim() === phase.title
+        && candidate.querySelector('.banner-section-head p')?.textContent.includes(phase.date_range)
+    ));
+    if (!section) return [{id: phase.id, reason: 'official title or date is absent'}];
+    const link = section.querySelector('.banner-section-head a');
+    if (!link || link.getAttribute('href') !== phase.source_url || link.textContent.trim() !== phase.source_label) {
+      return [{id: phase.id, reason: 'official source is absent or mismatched'}];
+    }
+    const names = [...section.querySelectorAll('.banner-card h3')].map((element) => element.textContent.trim()).sort();
+    const expected = (phase.characters || []).map((character) => character.name_cn).sort();
+    return JSON.stringify(names) === JSON.stringify(expected) ? [] : [{id: phase.id, reason: 'official character names are mismatched', names, expected}];
+  });
   const renderedBannerRows = bannerPhaseValue === 'current'
     ? currentBannerRows
     : bannerPhaseValue === 'next'
@@ -611,7 +657,7 @@ const productExpression = `(async () => {
     String(row?.character_name_cn || row?.character_name_en || row?.character_slug || '').trim(),
     row?.character_slug ?? '',
   ]));
-  const bannerMappingErrors = bannerCards.flatMap((card) => {
+  const bannerMappingErrors = bannerCards.filter((card) => !card.classList.contains('pending-identity')).flatMap((card) => {
     const displayName = card.querySelector('h3')?.textContent?.trim() ?? '';
     const slug = bannerSlugByName.get(displayName) ?? '';
     const actual = basename(card.querySelector('img')?.getAttribute('src') ?? '');
@@ -681,6 +727,20 @@ const productExpression = `(async () => {
     bannerAllRowCount: typeof DATA === 'object' && Array.isArray(DATA?.bannerRows) ? DATA.bannerRows.length : 0,
     bannerCurrentRowCount: currentBannerRows.length,
     bannerNextRowCount: nextBannerRows.length,
+    bannerPendingAllCount: pendingBannerCharacters().length,
+    bannerPendingCurrentCount: pendingBannerCharacters('current').length,
+    bannerPendingNextCount: pendingBannerCharacters('next').length,
+    bannerPendingCurrentNames: pendingBannerNames('current'),
+    bannerPendingNextNames: pendingBannerNames('next'),
+    bannerPendingCurrentRoles: pendingBannerRoles('current'),
+    bannerPendingNextRoles: pendingBannerRoles('next'),
+    bannerPendingNextDateRanges: [...new Set(pendingBannerPhases.filter((phase) => phase.phase_status === 'next').map((phase) => phase.date_range))],
+    bannerPendingCardCount: pendingBannerCards.length,
+    bannerPendingSectionCount: pendingBannerSections.length,
+    bannerPendingExpectedSectionCount: selectedPendingPhases.length,
+    bannerPendingIsolationErrors: pendingBannerIsolationErrors,
+    bannerPendingCardErrors: pendingBannerCardErrors,
+    bannerPendingSectionErrors: pendingBannerSectionErrors,
     bannerCardCount: bannerCards.length,
     bannerCardNames: bannerCards.map((card) => card.querySelector('h3')?.textContent?.trim() ?? ''),
     bannerCardRoles: bannerCards.map((card) => card.querySelector('.banner-kicker')?.textContent?.trim() ?? ''),
@@ -2615,7 +2675,35 @@ async function verifyAnalysisModes(context, game, initialSnapshot, options = {})
   return snapshots;
 }
 
+function bannerVerificationSnapshot(snapshot) {
+  if (!(snapshot.bannerPendingAllCount > 0)) return snapshot;
+  return {
+    ...snapshot,
+    bannerAllRowCount: snapshot.bannerAllRowCount + snapshot.bannerPendingAllCount,
+    bannerCurrentRowCount: snapshot.bannerCurrentRowCount + snapshot.bannerPendingCurrentCount,
+    bannerNextRowCount: snapshot.bannerNextRowCount + snapshot.bannerPendingNextCount,
+    bannerDataCurrentNames: [...snapshot.bannerDataCurrentNames, ...snapshot.bannerPendingCurrentNames],
+    bannerDataCurrentRoles: [...snapshot.bannerDataCurrentRoles, ...snapshot.bannerPendingCurrentRoles],
+    bannerDataNextNames: [...snapshot.bannerDataNextNames, ...snapshot.bannerPendingNextNames],
+    bannerDataNextRoles: [...snapshot.bannerDataNextRoles, ...snapshot.bannerPendingNextRoles],
+    bannerDataNextDateRanges: [...new Set([...snapshot.bannerDataNextDateRanges, ...snapshot.bannerPendingNextDateRanges])],
+  };
+}
+
+function verifyPendingBanner(snapshot, game) {
+  if (!(snapshot.bannerPendingAllCount > 0)) return;
+  assert(snapshot.bannerRefreshStatus === 'pending_identity', `${game} pending banners lack the explicit refresh status`, snapshot);
+  assert(snapshot.bannerPendingIsolationErrors.length === 0,
+    `${game} pending announcements leaked into the canonical roster or banners`, snapshot.bannerPendingIsolationErrors);
+  assert(snapshot.bannerPendingCardErrors.length === 0,
+    `${game} pending cards expose identity-dependent actions or lack disclosure`, snapshot.bannerPendingCardErrors);
+  assert(snapshot.bannerPendingSectionCount === snapshot.bannerPendingExpectedSectionCount
+    && snapshot.bannerPendingSectionErrors.length === 0,
+    `${game} pending cards do not visibly match official dates, names and sources`, snapshot);
+}
+
 function primaryBannerPhase(snapshot, game) {
+  snapshot = bannerVerificationSnapshot(snapshot);
   if (snapshot.bannerCurrentRowCount > 0) return "current";
   const verifiedBoundaryGap = snapshot.bannerCurrentRowCount === 0
     && snapshot.bannerNextRowCount > 0
@@ -2634,6 +2722,8 @@ function verifyBanner(snapshot, game, {
   requireCurrent = true,
   requireData = true,
 } = {}) {
+  verifyPendingBanner(snapshot, game);
+  snapshot = bannerVerificationSnapshot(snapshot);
   assert(snapshot.statePage === "banner" && snapshot.bannerVisible, `${game} banner page is not visible`, snapshot);
   assert(snapshot.bannerTitle === "卡池情报", `${game} banner title is absent`, snapshot);
   assert(snapshot.bannerBadges.includes(`Box ${expectedOwned[game]}`), `${game} banner page lost the current Box`, snapshot);
@@ -2660,7 +2750,7 @@ function verifyBanner(snapshot, game, {
       rendered: snapshot.bannerCardRoles,
       snapshot: snapshot.bannerDataCurrentRoles,
     });
-    assert(snapshot.bannerImageCount === snapshot.bannerCardCount
+    assert(snapshot.bannerImageCount === snapshot.bannerCardCount - (snapshot.bannerPendingCardCount || 0)
       && snapshot.bannerBrokenImages.length === 0
       && snapshot.bannerMappingErrors.length === 0, `${game} current banner images are broken or mismatched`, snapshot);
   } else if (requireData) {
@@ -2668,7 +2758,7 @@ function verifyBanner(snapshot, game, {
       `${game} selected banner phase has no visible cards`, snapshot);
     assert(snapshot.bannerCardRoles.every(Boolean),
       `${game} selected banner phase has missing role labels`, snapshot);
-    assert(snapshot.bannerImageCount === snapshot.bannerCardCount
+    assert(snapshot.bannerImageCount === snapshot.bannerCardCount - (snapshot.bannerPendingCardCount || 0)
       && snapshot.bannerBrokenImages.length === 0
       && snapshot.bannerMappingErrors.length === 0,
     `${game} selected banner phase has broken or mismatched images`, snapshot);
@@ -2688,9 +2778,9 @@ function verifyBanner(snapshot, game, {
     }
   }
   if (requireFresh) {
-    assert(snapshot.bannerRefreshStatus === "fresh", `${game} banner snapshot is not marked fresh`, snapshot);
+    assert(snapshot.bannerRefreshStatus === "fresh" || snapshot.bannerRefreshStatus === "pending_identity" && snapshot.bannerPendingAllCount > 0, `${game} banner snapshot is not marked fresh or pending identity`, snapshot);
     assert(Number.isFinite(Date.parse(snapshot.bannerRefreshFetchedAt)), `${game} banner refresh timestamp is invalid`, snapshot);
-    assert(snapshot.bannerSubtitle.includes("官方卡池资料上次刷新："), `${game} banner refresh timestamp is not visibly labelled`, snapshot);
+    assert(snapshot.bannerSubtitle.includes(snapshot.bannerRefreshStatus === "pending_identity" ? "角色资料待同步" : "官方卡池资料上次刷新："), `${game} banner refresh timestamp is not visibly labelled`, snapshot);
     assert(Array.isArray(snapshot.bannerRefreshExpectedMinutes)
       && snapshot.bannerRefreshExpectedMinutes.length > 0
       && snapshot.bannerRefreshExpectedMinutes.some((minute) => snapshot.bannerSubtitle.includes(minute)),
@@ -2768,7 +2858,7 @@ async function verifyExpectedNextBanner(context, game, restorePhase = "current",
     return true;
   })()`, context.sessionId);
   assert(clicked === true, `could not switch ${game} banner page to the next phase`);
-  const snapshot = await waitFor(`${game} next banner DOM`, async () => {
+  const rawSnapshot = await waitFor(`${game} next banner DOM`, async () => {
     const value = await evaluate(context.id, productExpression, context.sessionId);
     return value?.readyState === "complete"
       && value?.statePage === "banner"
@@ -2777,6 +2867,8 @@ async function verifyExpectedNextBanner(context, game, restorePhase = "current",
       ? value
       : null;
   });
+  verifyPendingBanner(rawSnapshot, game);
+  const snapshot = bannerVerificationSnapshot(rawSnapshot);
   if (expectedNextBannerCount[game] !== null) {
     assert(snapshot.bannerNextRowCount === expectedNextBannerCount[game],
       `${game} next banner data count changed`, snapshot);
@@ -2805,7 +2897,7 @@ async function verifyExpectedNextBanner(context, game, restorePhase = "current",
     assert(JSON.stringify(actual) === JSON.stringify(expected),
       `${game} rendered next banner names changed`, { actual, expected });
   }
-  assert(snapshot.bannerImageCount === snapshot.bannerCardCount
+  assert(snapshot.bannerImageCount === snapshot.bannerCardCount - (snapshot.bannerPendingCardCount || 0)
     && snapshot.bannerBrokenImages.length === 0
     && snapshot.bannerMappingErrors.length === 0,
   `${game} next banner images are broken or mismatched`, snapshot);
@@ -3130,7 +3222,7 @@ async function verifyPublicDataUpdate(topId, game) {
     context,
     game,
     restorePhase,
-    preservedBannerSnapshot.bannerNextRowCount,
+    preservedBannerSnapshot.bannerNextRowCount + (preservedBannerSnapshot.bannerPendingNextCount || 0),
   );
   const fetchedAtMs = Date.parse(bannerSnapshot.bannerRefreshFetchedAt);
   assert(fetchedAtMs >= task.startedAt - 300000 && fetchedAtMs <= Date.now() + 300000,

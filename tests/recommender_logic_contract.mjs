@@ -638,11 +638,11 @@ const ZZZ_HARNESS = String.raw`
 };
 `;
 
-function loadContract(appPath, harness, {desktopMode = false, search = '', fetchImpl = null, sessionStorageEntries = []} = {}) {
+function loadContract(appPath, harness, {desktopMode = false, search = '', fetchImpl = null, sessionStorageEntries = [], documentOverride = null} = {}) {
   const storage = new Map();
   const session = new Map(sessionStorageEntries);
   const parentMessages = [];
-  const document = {
+  const document = documentOverride ?? {
     body: {innerHTML: ''},
     getElementById: () => null,
     createElement: () => ({}),
@@ -658,6 +658,7 @@ function loadContract(appPath, harness, {desktopMode = false, search = '', fetch
     setTimeout,
     clearTimeout,
     URLSearchParams,
+    URL,
     localStorage: {
       getItem: key => storage.get(String(key)) ?? null,
       setItem: (key, value) => storage.set(String(key), String(value)),
@@ -674,7 +675,16 @@ function loadContract(appPath, harness, {desktopMode = false, search = '', fetch
   context.parent = desktopMode
     ? {postMessage: message => parentMessages.push(JSON.parse(JSON.stringify(message)))}
     : context;
-  const source = `${readFileSync(SLATE_SOLVER, 'utf8')}\n${readFileSync(appPath, 'utf8')}\n${harness}`;
+  const source = `${readFileSync(SLATE_SOLVER, 'utf8')}\n${readFileSync(appPath, 'utf8')}\n${harness}
+    globalThis.__recommenderContract.pendingBanner = function(now, phase = 'current', search = '', ensure = false) {
+      const changed = refreshBannerPhaseStatuses(now);
+      banner.phase = phase; banner.search = search;
+      if (ensure) ensureBannerPhase();
+      renderBanner();
+      return {changed, phase: banner.phase, nextBoundary: nextBannerBoundary(now), pending: pendingBannerPhases(),
+        filtered: filteredPendingBannerPhases(), bannerRows: DATA.bannerRows, roster: DATA.rosterRows,
+        indexedCharacters: [...DATA_INDEX.rosterBySlug.keys()]};
+    };`;
   new vm.Script(source, {filename: appPath}).runInContext(context, {timeout: 2_000});
   const api = context.__recommenderContract;
   api.parentMessages = () => parentMessages.map(message => ({...message}));
@@ -3367,6 +3377,68 @@ test('ZZZ phase metadata uses every supplied identity field and rejects ambiguou
     phaseName: '唯一官方期名',
     mechanicName: '唯一官方机制',
   });
+});
+
+test('both games render pending-only official banners without inventing roster identities', () => {
+  function pendingDocument() {
+    const elements = new Map();
+    function element() {
+      return {
+        children: [], selectors: new Map(), textContent: '', _html: '', className: '',
+        set innerHTML(value) { this._html = value; this.children = []; this.selectors.clear(); },
+        get innerHTML() { return this._html; },
+        appendChild(child) { this.children.push(child); },
+        querySelector(selector) { if (!this.selectors.has(selector)) this.selectors.set(selector, element()); return this.selectors.get(selector); },
+        markup() { return this._html + this.children.map(child => child.markup()).join('') + [...this.selectors.values()].map(child => child.markup()).join(''); },
+      };
+    }
+    return {
+      body: element(), createElement: element,
+      getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); },
+    };
+  }
+  for (const [app, harness, data] of [[HSR_APP, HSR_HARNESS, hsrData([], [])], [ZZZ_APP, ZZZ_HARNESS, zzzData([], [])]]) {
+    const document = pendingDocument();
+    const api = loadContract(app, harness, {documentOverride: document});
+    const announced = {
+      id: 'official-new', title: '官方公告', date_range: '2026-09-09 12:00 至 2026-09-09 23:59',
+      phase_status: 'next', declared_phase_status: 'next',
+      phase_starts_at: '2026-09-09T12:00:00+08:00', phase_ends_at_exclusive: '2026-09-10T00:00:00+08:00',
+      source_label: '官方来源', source_url: 'https://example.com/banner', missing_names: ['新角色'],
+      characters: [{name_cn: '新角色', banner_role: '限定 S 级', descriptor_cn: '火属性'}, {name_cn: '<img onerror=alert(1)>', banner_role: 'A级'}],
+    };
+    api.reset({...data, bannerRows: [], bannerRefresh: {status: 'pending_identity', fetched_at: '2026-09-09T12:00:00Z', pending_phases: [announced, null]}});
+    let result = plain(api.pendingBanner(Date.parse('2026-09-09T11:59:59+08:00'), 'current', '', true));
+    assert.equal(result.phase, 'next', app);
+    assert.equal(result.nextBoundary, Date.parse('2026-09-09T12:00:00+08:00'));
+    let markup = document.getElementById('bannerGrid').markup();
+    assert.match(markup, /新角色/);
+    assert.match(markup, /2026-09-09 12:00 至 2026-09-09 23:59/);
+    assert.match(markup, /href="https:\/\/example.com\/banner"/);
+    assert.match(markup, /角色资料待同步/);
+    assert.match(markup, /暂不参与强度分析、Box 或组队推荐/);
+    assert.match(markup, /&lt;img onerror=alert\(1\)&gt;/);
+    assert.doesNotMatch(markup, /mini-owned|<button|<svg|<img onerror|卡池数据未生成/);
+    assert.match(api.bannerRefresh(), /2026-09-09 20:00.*角色资料待同步/);
+    assert.deepEqual([result.bannerRows, result.roster, result.indexedCharacters], [[], [], []]);
+
+    result = plain(api.pendingBanner(Date.parse('2026-09-09T12:00:00+08:00'), 'current', '新角色'));
+    assert.equal(result.pending[0].phase_status, 'current');
+    assert.equal(result.filtered[0].characters.length, 1);
+    assert.equal(result.nextBoundary, Date.parse('2026-09-10T00:00:00+08:00'));
+    result = plain(api.pendingBanner(Date.parse('2026-09-09T23:59:59+08:00'), 'current', 'no-match'));
+    assert.equal(result.pending[0].phase_status, 'current');
+    assert.equal(result.filtered.length, 0);
+    assert.match(document.getElementById('bannerGrid').markup(), /当前搜索与阶段没有匹配/);
+
+    result = plain(api.pendingBanner(Date.parse('2026-09-10T00:00:00+08:00'), 'current'));
+    assert.equal(result.pending[0].phase_status, 'previous');
+    assert.equal(result.filtered.length, 0);
+    assert.equal(result.nextBoundary, null);
+    result = plain(api.pendingBanner(Date.parse('2026-09-10T00:00:00+08:00'), app === HSR_APP ? 'recent' : 'all'));
+    assert.equal(result.filtered.length, 1);
+    assert.match(document.getElementById('bannerGrid').markup(), /已结束/);
+  }
 });
 
 test('banner refresh labels expose the managed official snapshot timestamp', () => {

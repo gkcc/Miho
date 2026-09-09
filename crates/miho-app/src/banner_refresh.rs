@@ -61,6 +61,21 @@ pub struct BannerRefreshMetadataV1 {
 
 pub type BannerNameMapV1 = BTreeMap<String, String>;
 
+#[derive(Debug)]
+struct MissingOfficialCharacterNames(Vec<String>);
+
+impl std::fmt::Display for MissingOfficialCharacterNames {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "official characters are missing from the current bundle name_map: {:?}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for MissingOfficialCharacterNames {}
+
 #[derive(Debug, Clone)]
 struct DateToken {
     end: usize,
@@ -500,7 +515,9 @@ pub fn parse_zzz_content_list_json(input: &str) -> Result<Vec<OfficialBannerPhas
 /// snapshot. No filesystem writes occur.
 ///
 /// `name_map` must be the current export bundle's Chinese-name-to-canonical-
-/// slug map. New official characters that cannot be resolved fail closed.
+/// slug map. Announcements ahead of the identity catalog remain complete
+/// official facts in `refresh.pending_phases`, outside canonical characters
+/// and downstream calculations. Ambiguous or invalid identities still fail.
 pub fn merge_banner_plan_snapshot(
     existing_plan_json: &[u8],
     official_phases: &[OfficialBannerPhaseV1],
@@ -528,6 +545,24 @@ pub fn merge_banner_plan_snapshot(
     migrate_legacy_character_slugs(phases, name_map);
     let existing_character_index = index_existing_characters(phases);
     let official_phases = dedupe_official_phases(official_phases.to_vec())?;
+    // Reserve each baseline's precise identity before any broad character
+    // overlap matching. A recovering pool must not claim another date group
+    // from the same announcement merely because both feature a rerun agent.
+    let existing_owners = phases
+        .iter()
+        .map(|phase| {
+            official_phases
+                .iter()
+                .position(|official| {
+                    phase.get("id").and_then(Value::as_str) == Some(official.id.as_str())
+                })
+                .or_else(|| {
+                    official_phases
+                        .iter()
+                        .position(|official| same_official_source_and_date(phase, official))
+                })
+        })
+        .collect::<Vec<_>>();
     let official_statuses = official_phases
         .iter()
         .map(|phase| official_phase_status(phase, fetched_at))
@@ -548,10 +583,26 @@ pub fn merge_banner_plan_snapshot(
     let official_phase_count = official_phases.len();
     let mut used_existing = BTreeSet::new();
     let mut confirmed_slugs = BTreeSet::new();
-    for official in &official_phases {
+    let mut pending_phases = Vec::new();
+    let mut pending_official_indexes = BTreeSet::new();
+    for (official_index, official) in official_phases.iter().enumerate() {
         validate_official_phase(official)?;
         let mut resolved_characters =
-            resolve_official_characters(official, name_map, &existing_character_index)?;
+            match resolve_official_characters(official, name_map, &existing_character_index) {
+                Ok(characters) => characters,
+                Err(error) => {
+                    let Some(missing) = error.downcast_ref::<MissingOfficialCharacterNames>()
+                    else {
+                        return Err(error);
+                    };
+                    let mut pending = serde_json::to_value(official)?;
+                    pending["phase_status"] = json!(official_phase_status(official, fetched_at));
+                    pending["missing_names"] = json!(missing.0);
+                    pending_phases.push(pending);
+                    pending_official_indexes.insert(official_index);
+                    continue;
+                }
+            };
         clear_confirmed_phase_metadata(&mut resolved_characters);
         confirmed_slugs.extend(
             resolved_characters
@@ -559,8 +610,20 @@ pub fn merge_banner_plan_snapshot(
                 .filter_map(|character| character.get("slug").and_then(Value::as_str))
                 .map(str::to_owned),
         );
-        let match_index =
-            find_matching_phase(phases, official, &resolved_characters, &used_existing);
+        let mut unavailable_existing = used_existing.clone();
+        unavailable_existing.extend(
+            existing_owners
+                .iter()
+                .enumerate()
+                .filter(|(_, owner)| owner.is_some_and(|owner| owner != official_index))
+                .map(|(index, _)| index),
+        );
+        let match_index = find_matching_phase(
+            phases,
+            official,
+            &resolved_characters,
+            &unavailable_existing,
+        );
         let status = official_phase_status(official, fetched_at);
         let merged = if let Some(index) = match_index {
             used_existing.insert(index);
@@ -585,11 +648,25 @@ pub fn merge_banner_plan_snapshot(
             used_existing.insert(index);
         }
     }
+    // Never keep a canonical copy of an announcement whose identity binding
+    // is now pending. Keep indexes stable until matching above has finished.
+    phases.retain(|phase| {
+        !pending_official_indexes.iter().any(|index| {
+            let official = &official_phases[*index];
+            phase.get("id").and_then(Value::as_str) == Some(official.id.as_str())
+                || same_official_source_and_date(phase, official)
+        })
+    });
     refresh_dated_phase_statuses(phases, fetched_at);
     remove_promoted_satellites(phases, &confirmed_slugs);
     dedupe_plan_phases(phases);
 
     append_root_sources(root_object, &official_phases)?;
+    let refresh_status = if pending_phases.is_empty() {
+        refresh_status
+    } else {
+        "pending_identity"
+    };
     root_object.insert(
         "refresh".to_owned(),
         json!({
@@ -601,6 +678,9 @@ pub fn merge_banner_plan_snapshot(
             "official_next_phase_count": official_next_phase_count,
         }),
     );
+    if !pending_phases.is_empty() {
+        root_object.get_mut("refresh").unwrap()["pending_phases"] = json!(pending_phases);
+    }
     root_object.insert(
         "updated_at".to_owned(),
         Value::String(fetched_at.date().format("%Y-%m-%d").to_string()),
@@ -1623,6 +1703,7 @@ fn resolve_official_characters(
         .collect::<Vec<_>>();
     let mut output = Vec::new();
     let mut slugs = BTreeSet::new();
+    let mut missing_names = BTreeSet::new();
     for official in &phase.characters {
         let needle = normalize_cn_name(&official.name_cn);
         let exact_candidates = normalized_map
@@ -1662,10 +1743,8 @@ fn resolve_official_characters(
         }
         if candidates.len() != 1 {
             if candidates.is_empty() {
-                bail!(
-                    "official character {:?} is missing from the current bundle name_map",
-                    official.name_cn
-                );
+                missing_names.insert(official.name_cn.clone());
+                continue;
             }
             bail!(
                 "official character {:?} resolves to multiple canonical slugs: {:?}",
@@ -1700,6 +1779,9 @@ fn resolve_official_characters(
         );
         output.push(character);
     }
+    if !missing_names.is_empty() {
+        return Err(MissingOfficialCharacterNames(missing_names.into_iter().collect()).into());
+    }
     Ok(output)
 }
 
@@ -1710,6 +1792,16 @@ fn is_valid_slug(slug: &str) -> bool {
         && slug
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn same_official_source_and_date(phase: &Value, official: &OfficialBannerPhaseV1) -> bool {
+    phase.get("source_url").and_then(Value::as_str) == Some(official.source_url.as_str())
+        && phase
+            .get("date_range")
+            .and_then(Value::as_str)
+            .is_some_and(|date| {
+                normalize_date_range(date) == normalize_date_range(&official.date_range)
+            })
 }
 
 fn find_matching_phase(
@@ -1737,6 +1829,7 @@ fn find_matching_phase(
             if phase.get("status").and_then(Value::as_str) == Some("satellite") {
                 return None;
             }
+            let id_match = phase.get("id").and_then(Value::as_str) == Some(official.id.as_str());
             let source_match = phase.get("source_url").and_then(Value::as_str)
                 == Some(official.source_url.as_str());
             let date_match = phase
@@ -1765,14 +1858,16 @@ fn find_matching_phase(
                 .collect::<BTreeSet<_>>();
             let overlap = incoming_slugs.intersection(&existing_slugs).count();
             let anchor_overlap = incoming_anchor_slugs.intersection(&existing_slugs).count();
-            let eligible = (source_match && date_match)
+            let eligible = id_match
+                || (source_match && date_match)
                 || (date_match && overlap > 0)
                 || (source_match && anchor_overlap > 0)
                 || (version_match && anchor_overlap > 0);
             if !eligible {
                 return None;
             }
-            let score = usize::from(source_match) * 100
+            let score = usize::from(id_match) * 200
+                + usize::from(source_match) * 100
                 + usize::from(date_match) * 80
                 + usize::from(title_match) * 40
                 + usize::from(version_match) * 20
@@ -2741,9 +2836,9 @@ mod tests {
     }
 
     #[test]
-    fn merge_fails_closed_when_bundle_name_map_cannot_resolve_new_character() {
+    fn merge_keeps_official_facts_pending_when_bundle_name_map_is_empty() {
         let phases = parse_zzz_content_list_json(ZZZ_LIST_FIXTURE).unwrap();
-        let error = merge_banner_plan_snapshot(
+        let snapshot = merge_banner_plan_snapshot(
             br#"{"phases":[]}"#,
             &phases,
             &BTreeMap::new(),
@@ -2752,8 +2847,21 @@ mod tests {
                 source_label: "official".to_owned(),
             },
         )
-        .unwrap_err();
-        assert!(error.to_string().contains("name_map"));
+        .unwrap();
+        let value: Value = serde_json::from_slice(&snapshot).unwrap();
+        assert_eq!(value["phases"], json!([]));
+        assert_eq!(value["refresh"]["status"], "pending_identity");
+        let pending = &value["refresh"]["pending_phases"][0];
+        assert_eq!(pending["source_url"], phases[0].source_url);
+        assert_eq!(
+            pending["characters"].as_array().unwrap().len(),
+            phases[0].characters.len()
+        );
+        assert!(pending["characters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|character| character.get("slug").is_none()));
     }
 
     #[test]
@@ -2844,6 +2952,271 @@ mod tests {
         assert_eq!(value["refresh"]["official_phase_count"], 1);
         assert_eq!(value["refresh"]["official_current_phase_count"], 0);
         assert_eq!(value["refresh"]["official_next_phase_count"], 0);
+    }
+
+    fn pending_identity_phase(game: &str, id: &str, name: &str) -> OfficialBannerPhaseV1 {
+        OfficialBannerPhaseV1 {
+            id: format!("{game}-official-{id}-1"),
+            title: format!("官方新角色卡池 {id}"),
+            subtitle: "官方公告".to_owned(),
+            date_range: "2026-09-09 11:00 至 2026-09-30 11:59".to_owned(),
+            start_at: "2026-09-09 11:00".to_owned(),
+            end_at: Some("2026-09-30 11:59".to_owned()),
+            source_label: "官方网站".to_owned(),
+            source_url: if game == "zzz" {
+                format!("https://zzz.mihoyo.com/news/{id}")
+            } else {
+                format!("https://www.miyoushe.com/sr/article/{id}")
+            },
+            characters: vec![OfficialBannerCharacterV1 {
+                name_cn: name.to_owned(),
+                banner_role: "限定 S 级 UP".to_owned(),
+                descriptor_cn: Some("电·锋御".to_owned()),
+            }],
+        }
+    }
+
+    fn pending_identity_refresh() -> BannerRefreshMetadataV1 {
+        BannerRefreshMetadataV1 {
+            fetched_at: "2026-09-09T23:00:00+08:00".to_owned(),
+            source_label: "官方网站".to_owned(),
+        }
+    }
+
+    #[test]
+    fn unknown_official_names_preserve_facts_and_recover_when_catalog_catches_up() {
+        for game in ["hsr", "zzz"] {
+            let unknown = pending_identity_phase(game, "165991", "克拉蕾");
+            let known = pending_identity_phase(game, "165992", "南宫羽");
+            let official = vec![unknown.clone(), known];
+            let mut names = BTreeMap::from([("南宫羽".to_owned(), "nangong-yu".to_owned())]);
+            let snapshot = merge_banner_plan_snapshot(
+                br#"{"phases":[]}"#,
+                &official,
+                &names,
+                &pending_identity_refresh(),
+            )
+            .unwrap();
+            let value: Value = serde_json::from_slice(&snapshot).unwrap();
+            assert_eq!(value["refresh"]["status"], "pending_identity");
+            assert_eq!(value["refresh"]["official_current_phase_count"], 2);
+            assert_eq!(value["phases"].as_array().unwrap().len(), 1);
+            assert_eq!(value["phases"][0]["characters"][0]["slug"], "nangong-yu");
+            let pending = &value["refresh"]["pending_phases"][0];
+            assert_eq!(pending["missing_names"], json!(["克拉蕾"]));
+            assert_eq!(pending["source_url"], unknown.source_url);
+            assert_eq!(pending["start_at"], unknown.start_at);
+            assert_eq!(pending["end_at"], unknown.end_at.unwrap());
+            assert_eq!(pending["phase_status"], "current");
+            assert_eq!(pending["characters"][0]["descriptor_cn"], "电·锋御");
+            assert!(pending["characters"][0].get("slug").is_none());
+
+            // A retry while the catalog lags remains idempotent.
+            let retry = merge_banner_plan_snapshot(
+                &snapshot,
+                &official,
+                &names,
+                &pending_identity_refresh(),
+            )
+            .unwrap();
+            assert_eq!(snapshot, retry);
+            names.insert("克拉蕾".to_owned(), "claret".to_owned());
+            let recovered = merge_banner_plan_snapshot(
+                &snapshot,
+                &official,
+                &names,
+                &pending_identity_refresh(),
+            )
+            .unwrap();
+            let recovered: Value = serde_json::from_slice(&recovered).unwrap();
+            assert_eq!(recovered["refresh"]["status"], "fresh");
+            assert!(recovered["refresh"].get("pending_phases").is_none());
+            assert_eq!(recovered["phases"].as_array().unwrap().len(), 2);
+            assert_eq!(recovered["phases"][1]["characters"][0]["slug"], "claret");
+        }
+    }
+
+    #[test]
+    fn pending_recovery_cannot_claim_another_date_group_with_shared_rerun_characters() {
+        for game in ["hsr", "zzz"] {
+            for baseline_identity in ["official", "legacy", "outdated-date"] {
+                let mut first = pending_identity_phase(game, "165991", "新角色");
+                let mut second = pending_identity_phase(game, "165991", "共享复刻");
+                second.id = format!("{game}-official-165991-2");
+                second.end_at = Some("2026-10-15 11:59".to_owned());
+                second.date_range = "2026-09-09 11:00 至 2026-10-15 11:59".to_owned();
+                first.characters.push(second.characters[0].clone());
+                let official = vec![first.clone(), second.clone()];
+                let mut names =
+                    BTreeMap::from([("共享复刻".to_owned(), "shared-rerun".to_owned())]);
+                let pending = merge_banner_plan_snapshot(
+                    br#"{"phases":[]}"#,
+                    &official,
+                    &names,
+                    &pending_identity_refresh(),
+                )
+                .unwrap();
+                let mut baseline: Value = serde_json::from_slice(&pending).unwrap();
+                assert_eq!(baseline["phases"].as_array().unwrap().len(), 1);
+                let second_id = if baseline_identity == "legacy" {
+                    "legacy-second-pool".to_owned()
+                } else {
+                    second.id.clone()
+                };
+                baseline["phases"][0]["id"] = json!(second_id);
+                if baseline_identity == "outdated-date" {
+                    // Exact IDs outrank an old boundary that now happens to
+                    // coincide with the recovering first group's dates.
+                    baseline["phases"][0]["date_range"] = json!(first.date_range);
+                }
+                names.insert("新角色".to_owned(), "new-agent".to_owned());
+                let recovered = merge_banner_plan_snapshot(
+                    &serde_json::to_vec(&baseline).unwrap(),
+                    &official,
+                    &names,
+                    &pending_identity_refresh(),
+                )
+                .unwrap();
+                let value: Value = serde_json::from_slice(&recovered).unwrap();
+                let phases = value["phases"].as_array().unwrap();
+                assert_eq!(phases.len(), 2);
+                assert_eq!(
+                    phases
+                        .iter()
+                        .filter_map(|phase| phase["id"].as_str())
+                        .collect::<BTreeSet<_>>()
+                        .len(),
+                    2
+                );
+                let first_phase = phases
+                    .iter()
+                    .find(|phase| phase["date_range"] == first.date_range)
+                    .unwrap();
+                let second_phase = phases
+                    .iter()
+                    .find(|phase| phase["date_range"] == second.date_range)
+                    .unwrap();
+                assert_eq!(first_phase["id"], first.id);
+                assert_eq!(first_phase["characters"][0]["slug"], "new-agent");
+                assert_eq!(second_phase["id"], second_id);
+                assert_eq!(second_phase["characters"].as_array().unwrap().len(), 1);
+                assert_eq!(second_phase["characters"][0]["slug"], "shared-rerun");
+                assert_eq!(
+                    merge_banner_plan_snapshot(
+                        &recovered,
+                        &official,
+                        &names,
+                        &pending_identity_refresh(),
+                    )
+                    .unwrap(),
+                    recovered
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pending_phase_removes_legacy_canonical_copy_without_removing_other_date_group() {
+        for game in ["hsr", "zzz"] {
+            let mut pending = pending_identity_phase(game, "165991", "新角色");
+            let mut known = pending_identity_phase(game, "165991", "共享复刻");
+            known.id = format!("{game}-official-165991-2");
+            known.end_at = Some("2026-10-15 11:59".to_owned());
+            known.date_range = "2026-09-09 11:00 至 2026-10-15 11:59".to_owned();
+            pending.characters.push(known.characters[0].clone());
+            let baseline = json!({"phases":[
+                {"id":"legacy-first", "status":"current", "source_url":pending.source_url, "date_range":pending.date_range, "characters":[{"slug":"shared-rerun", "name_cn":"共享复刻"}]},
+                {"id":"legacy-second", "status":"current", "source_url":known.source_url, "date_range":known.date_range, "characters":[{"slug":"shared-rerun", "name_cn":"共享复刻"}]}
+            ]});
+            let official = vec![pending.clone(), known.clone()];
+            let names = BTreeMap::from([("共享复刻".to_owned(), "shared-rerun".to_owned())]);
+            let snapshot = merge_banner_plan_snapshot(
+                &serde_json::to_vec(&baseline).unwrap(),
+                &official,
+                &names,
+                &pending_identity_refresh(),
+            )
+            .unwrap();
+            let value: Value = serde_json::from_slice(&snapshot).unwrap();
+            assert_eq!(value["phases"].as_array().unwrap().len(), 1);
+            assert_eq!(value["phases"][0]["id"], "legacy-second");
+            assert_eq!(value["phases"][0]["date_range"], known.date_range);
+            assert_eq!(value["refresh"]["pending_phases"][0]["id"], pending.id);
+            assert_eq!(
+                merge_banner_plan_snapshot(
+                    &snapshot,
+                    &official,
+                    &names,
+                    &pending_identity_refresh(),
+                )
+                .unwrap(),
+                snapshot
+            );
+        }
+    }
+
+    #[test]
+    fn entirely_unknown_phase_is_retained_without_canonical_characters() {
+        let mut phase = pending_identity_phase("zzz", "165991", "克拉蕾");
+        phase.characters.push(OfficialBannerCharacterV1 {
+            name_cn: "另一位新角色".to_owned(),
+            banner_role: "A 级 UP".to_owned(),
+            descriptor_cn: None,
+        });
+        let snapshot = merge_banner_plan_snapshot(
+            br#"{"phases":[]}"#,
+            &[phase],
+            &BTreeMap::new(),
+            &pending_identity_refresh(),
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(&snapshot).unwrap();
+        assert_eq!(value["phases"], json!([]));
+        assert_eq!(value["refresh"]["status"], "pending_identity");
+        assert_eq!(
+            value["refresh"]["pending_phases"][0]["characters"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            value["refresh"]["pending_phases"][0]["missing_names"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn missing_name_does_not_hide_an_ambiguous_identity_or_invalid_window() {
+        let mut phase = pending_identity_phase("zzz", "165991", "未知角色");
+        phase.characters.push(OfficialBannerCharacterV1 {
+            name_cn: "三月七".to_owned(),
+            banner_role: "A 级 UP".to_owned(),
+            descriptor_cn: None,
+        });
+        let names = BTreeMap::from([
+            ("三月七·形态一".to_owned(), "march-one".to_owned()),
+            ("三月七·形态二".to_owned(), "march-two".to_owned()),
+        ]);
+        let error = merge_banner_plan_snapshot(
+            br#"{"phases":[]}"#,
+            &[phase.clone()],
+            &names,
+            &pending_identity_refresh(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("multiple canonical slugs"));
+        phase.end_at = Some("2026-09-01 00:00".to_owned());
+        assert!(merge_banner_plan_snapshot(
+            br#"{"phases":[]}"#,
+            &[phase],
+            &BTreeMap::new(),
+            &pending_identity_refresh(),
+        )
+        .is_err());
     }
 
     #[test]

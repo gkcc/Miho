@@ -68,6 +68,17 @@ game when safe. ZZZ derived reports run only after a successful ZZZ export in
 the current attempt. A failure in one derived step stops later ZZZ derived
 steps. A selected game is successful only after all of its owned steps finish.
 
+An official banner announcement may precede its canonical character catalog.
+For both games, a valid announcement with missing character identities is
+persisted in the banner plan's `refresh.pending_phases`, with all official
+names, roles, dates and source links. `refresh.status = pending_identity`
+discloses this on the banner page. These phases do not enter canonical banner
+characters, roster additions or derived calculations, and do not block fresh
+endgame exports. Every update retries binding against the current catalog;
+successful binding removes the pending facts automatically. Ambiguous or
+invalid identities, malformed announcements and network/cache failures retain
+their failure behavior. This is not a last-good or stale-source fallback.
+
 ## Durable state and receipts
 
 Files live below `.miho`:

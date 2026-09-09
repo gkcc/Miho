@@ -39,6 +39,34 @@ function snapshot(game, state = 'ready', code = '') {
   };
 }
 
+test('the product probe verifies pending-only announcements while keeping canonical counts separate', () => {
+  const merge = extractNamedFunction(productProbeSource, 'bannerVerificationSnapshot');
+  const verify = Function('assert', `return (${extractNamedFunction(productProbeSource, 'verifyPendingBanner').toString()});`)(assert);
+  const pending = {
+    bannerRefreshStatus: 'pending_identity',
+    bannerAllRowCount: 0, bannerCurrentRowCount: 0, bannerNextRowCount: 0,
+    bannerDataCurrentNames: [], bannerDataCurrentRoles: [], bannerDataNextNames: [], bannerDataNextRoles: [], bannerDataNextDateRanges: [],
+    bannerPendingAllCount: 2, bannerPendingCurrentCount: 1, bannerPendingNextCount: 1,
+    bannerPendingCurrentNames: ['当前新角色'], bannerPendingCurrentRoles: ['限定 S 级'],
+    bannerPendingNextNames: ['下期新角色'], bannerPendingNextRoles: ['限定 S 级'], bannerPendingNextDateRanges: ['官方日期'],
+    bannerPendingIsolationErrors: [], bannerPendingCardErrors: [], bannerPendingSectionErrors: [],
+    bannerPendingSectionCount: 1, bannerPendingExpectedSectionCount: 1,
+  };
+  const visible = merge(pending);
+  assert.equal(visible.bannerAllRowCount, 2);
+  assert.equal(visible.bannerCurrentRowCount, 1);
+  assert.equal(visible.bannerNextRowCount, 1);
+  assert.deepEqual(visible.bannerDataCurrentNames, ['当前新角色']);
+  assert.deepEqual(visible.bannerDataNextNames, ['下期新角色']);
+  assert.equal(pending.bannerAllRowCount, 0, 'canonical DATA banner rows remain empty');
+  assert.doesNotThrow(() => verify(pending, 'zzz'));
+  assert.throws(() => verify({...pending, bannerRefreshStatus: 'fresh'}, 'zzz'), /explicit refresh status/);
+  assert.throws(() => verify({...pending, bannerPendingIsolationErrors: [{name: '当前新角色'}]}, 'zzz'), /canonical roster/);
+  assert.throws(() => verify({...pending, bannerPendingCardErrors: [{reason: 'button'}]}, 'zzz'), /identity-dependent/);
+  assert.throws(() => verify({...pending, bannerPendingSectionErrors: [{reason: 'date'}]}, 'zzz'), /official dates/);
+  assert.throws(() => verify({...pending, bannerPendingSectionCount: 0}, 'zzz'), /official dates/);
+});
+
 function deterministicClock() {
   let milliseconds = 0;
   let sleeps = 0;
