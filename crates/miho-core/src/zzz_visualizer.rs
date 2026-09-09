@@ -34,6 +34,7 @@ pub fn attach_zzz_visualizer(
     let (mut banner, banner_refresh) = build_banner(bundle, context, &roster, local_datetime)?;
     localize_icons(&mut banner, context);
     merge_banner_into_roster(&mut roster, &banner);
+    crate::roster_order::complete_release_order(&mut roster, bundle, context, canonical)?;
     let team_templates = build_team_templates(&teams, &roster, &names, &phase_info)?;
     let decision_cards = read_object_sidecar(bundle, context, "decision_cards.json")?
         .unwrap_or_else(|| json!({"summary":{},"cards":[]}));
@@ -684,14 +685,24 @@ fn build_roster(
             tier.and_then(|row| nonempty(row, "role_group")),
             Some(role_from_style(&style)),
         ]);
-        let release_order = if let Some(value) = name.and_then(|row| nonempty(row, "release_order"))
-        {
-            numeric_float(value).unwrap_or(Value::Null)
-        } else if let Some(value) = official_row.map(|row| row.release_order) {
+        let release_order = if let Some(value) = official_row.map(|row| row.release_order) {
             Number::from_f64(value as f64).map_or(Value::Null, Value::Number)
+        } else if let Some(value) = name.and_then(|row| nonempty(row, "release_order")) {
+            numeric_float(value).unwrap_or(Value::Null)
         } else {
             Value::from(9999 + index)
         };
+        let catalog_release_order = official_row
+            .map(|row| Value::from(row.release_order))
+            .or_else(|| {
+                name.filter(|row| get(row, "kind") == "agent")
+                    .and_then(|_| {
+                        release_order
+                            .as_f64()
+                            .filter(|value| *value >= 0.0 && *value < 9999.0)
+                    })
+                    .map(Value::from)
+            });
         output.push(json!({
             "character_slug":slug,
             "character_name_en":first(&[name.and_then(|row|nonempty(row,"character_name_en")),tier.and_then(|row|nonempty(row,"character_name_en")),usage_row.and_then(|row|nonempty(row,"character_name_en")),(!official_value(|row|&row.name_en).is_empty()).then(||official_value(|row|&row.name_en)),Some(&slug)]),
@@ -708,6 +719,7 @@ fn build_roster(
             "tags":tier.map(|row|get(row,"tags")).unwrap_or(""),
             "icon_url":first(&[tier.and_then(|row|nonempty(row,"icon_url")),(!official_value(|row|&row.icon_url).is_empty()).then(||official_value(|row|&row.icon_url))]),
             "release_order":release_order,
+            "catalog_release_order":catalog_release_order,
         }));
     }
     localize_icons(&mut output, context);
@@ -1773,6 +1785,55 @@ mod tests {
         let mut output = json!({"phaseInfoRows": enriched});
         sanitize_urls(&mut output, "");
         assert_eq!(output["phaseInfoRows"][0]["mechanic_url"], "");
+    }
+
+    #[test]
+    fn visualizer_roster_places_tier_and_banner_only_releases_inside_catalog_timeline() {
+        let context = VisualizerContext::new(chrono::NaiveDate::from_ymd_opt(2026, 9, 10).unwrap());
+        let mut bundle = ArtifactBundle::default();
+        bundle
+            .add_json(
+                "raw/hoyowiki/zzz_agents_en-us.json",
+                &json!([
+                    {"entry_page_id":"1", "name":"Latest"},
+                    {"entry_page_id":"2", "name":"Older"}
+                ]),
+            )
+            .unwrap();
+        bundle.add_text("raw/prydwen_tier/tier-list_latest.html", json!({"characters":[
+            {"slug":"latest", "upcomingVersion":"3.1", "upcoming":false},
+            {"slug":"older", "upcomingVersion":"3.0", "upcoming":false},
+            {"slug":"new-from-tier", "upcomingVersion":"3.2", "upcoming":false, "isNew":false},
+            {"slug":"new-from-banner", "upcomingVersion":"3.1", "upcoming":false}
+        ]}).to_string()).unwrap();
+        let tiers = ["latest", "older", "new-from-tier"]
+            .map(|slug| row(&[("character_slug", slug), ("tier", "T0")]));
+        let names = ["latest", "new-from-tier"].map(|slug| {
+            row(&[
+                ("character_slug", slug),
+                ("kind", "unknown"),
+                ("release_order", "9999"),
+            ])
+        });
+        let banner = vec![
+            json!({"character_slug":"older", "phase_status":"next"}),
+            json!({"character_slug":"new-from-banner", "phase_status":"previous"}),
+        ];
+        let mut roster = build_roster(&bundle, &[], &tiers, &names, &context).unwrap();
+        // A stale name_map sentinel cannot override a fresh official catalog position.
+        assert_eq!(roster[0]["character_slug"], "latest");
+        merge_banner_into_roster(&mut roster, &banner);
+        crate::roster_order::complete_release_order(&mut roster, &bundle, &context, canonical)
+            .unwrap();
+        assert_eq!(
+            roster
+                .iter()
+                .map(|row| value_str(row, "character_slug"))
+                .collect::<Vec<_>>(),
+            ["new-from-tier", "latest", "new-from-banner", "older"]
+        );
+        assert_eq!(roster[0]["release_order_source"], "prydwen_version");
+        assert_eq!(roster[3]["release_order_source"], "official_catalog");
     }
 
     #[test]

@@ -62,6 +62,32 @@ function completeZzzPhasePresentation(phase) {
     && mechanicName !== "机制未提供");
 }
 
+function expectedBoxOrder(rosterRows, game) {
+  return rosterRows.map((row, index) => {
+    const raw = String(row?.release_order ?? '').trim();
+    const value = Number(game === 'hsr' ? row?.release_order : raw);
+    const order = game === 'hsr'
+      ? (Number.isFinite(value) ? value : 99999)
+      : (raw && Number.isFinite(value) ? value : Number.POSITIVE_INFINITY);
+    return {row, index, order};
+  }).sort((left, right) => left.order - right.order
+    || (game === 'hsr' ? String(left.row.character_name_en).localeCompare(String(right.row.character_name_en)) : 0)
+    || left.index - right.index)
+    .map(({row}) => String(row.character_slug || ''));
+}
+
+function verifyBoxOrder(snapshot, game) {
+  assert(Array.isArray(snapshot.boxExpectedSlugs) && Array.isArray(snapshot.boxActualSlugs)
+    && snapshot.boxExpectedSlugs.length === snapshot.rosterCount
+    && snapshot.boxActualSlugs.every(Boolean)
+    && JSON.stringify(snapshot.boxActualSlugs) === JSON.stringify(snapshot.boxExpectedSlugs),
+  `${game} Box DOM order does not match numeric release_order`, {
+    expected: snapshot.boxExpectedSlugs,
+    actual: snapshot.boxActualSlugs,
+  });
+  return {orderingVerified: true, leadingSlugs: snapshot.boxActualSlugs.slice(0, 12)};
+}
+
 const webSocketUrl = args.get("ws");
 const expectedOwned = {
   hsr: Number(args.get("expected-hsr-owned")),
@@ -363,6 +389,7 @@ const outerExpression = `(() => {
 
 const productExpression = `(async () => {
   const selectUniquePhaseMetadata = ${selectUniquePhaseMetadata.toString()};
+  const expectedBoxOrder = ${expectedBoxOrder.toString()};
   const visualState = (element) => {
     if (!element) return { visible: false, display: '', visibility: '', opacity: null, rectCount: 0 };
     const own = getComputedStyle(element);
@@ -413,6 +440,9 @@ const productExpression = `(async () => {
     } catch { return ''; }
   };
   const rosterRows = typeof DATA === 'object' && Array.isArray(DATA?.rosterRows) ? DATA.rosterRows : [];
+  const boxGame = location.pathname.includes('/hsr/') ? 'hsr' : 'zzz';
+  const boxExpectedSlugs = expectedBoxOrder(rosterRows, boxGame);
+  const boxActualSlugs = cards.map((card) => String(card.dataset.slug || ''));
   const usageRows = typeof DATA === 'object' && Array.isArray(DATA?.usageRows) ? DATA.usageRows : [];
   const latestEndgameSampleDate = usageRows
     .map((row) => String(row?.collect_date ?? '').trim())
@@ -689,6 +719,8 @@ const productExpression = `(async () => {
     tabs,
     cardCount: cards.length,
     rosterCount: rosterRows.length,
+    boxExpectedSlugs,
+    boxActualSlugs,
     ownedCardCount: cards.filter((card) => card.classList.contains('owned')).length,
     ownedStateCount,
     imageCount: images.length,
@@ -1226,6 +1258,7 @@ function verifyProduct(snapshot, game) {
   assert(snapshot.statePage === "box" && snapshot.boxVisible, `${game} Visualizer did not render My Box`, snapshot);
   assert(snapshot.tabs.some((tab) => tab.text === "我的 Box" && tab.active), `${game} My Box tab is not active`, snapshot);
   assert(snapshot.cardCount === expectedTotal[game] && snapshot.rosterCount === expectedTotal[game], `${game} roster is incomplete`, snapshot);
+  verifyBoxOrder(snapshot, game);
   assert(snapshot.ownedCardCount === expectedOwned[game] && snapshot.ownedStateCount === expectedOwned[game], `${game} owned Box count does not match disk state`, snapshot);
   assert(snapshot.imageCount === expectedTotal[game] && snapshot.decodedImageCount === expectedTotal[game], `${game} has broken character images`, snapshot);
   assert(snapshot.emptyImages === 0, `${game} contains empty character image sources`, snapshot);

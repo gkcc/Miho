@@ -39,6 +39,33 @@ function snapshot(game, state = 'ready', code = '') {
   };
 }
 
+test('the product probe checks both games numeric Box DOM order including zero and game-specific ties', () => {
+  const expectedOrder = extractNamedFunction(productProbeSource, 'expectedBoxOrder');
+  const verify = Function('assert', `return (${extractNamedFunction(productProbeSource, 'verifyBoxOrder').toString()});`)(assert);
+  const rows = [
+    {character_slug: 'old', character_name_en: 'Old', release_order: '10'},
+    {character_slug: 'claret', character_name_en: 'Claret', release_order: 0},
+    {character_slug: 'zeta', character_name_en: 'Zeta', release_order: '2'},
+    {character_slug: 'alpha', character_name_en: 'Alpha', release_order: 2},
+    {character_slug: 'empty', character_name_en: 'Empty', release_order: ''},
+    {character_slug: 'invalid', character_name_en: 'Invalid', release_order: 'not-a-number'},
+  ];
+  const before = JSON.stringify(rows);
+  assert.deepEqual(expectedOrder(rows, 'zzz'), ['claret', 'zeta', 'alpha', 'old', 'empty', 'invalid']);
+  assert.deepEqual(expectedOrder(rows, 'hsr'), ['claret', 'empty', 'alpha', 'zeta', 'old', 'invalid']);
+  assert.equal(JSON.stringify(rows), before, 'probe sorting must not mutate the source roster');
+  for (const game of ['hsr', 'zzz']) {
+    const order = expectedOrder(rows, game);
+    const value = {rosterCount: rows.length, boxExpectedSlugs: order, boxActualSlugs: [...order]};
+    assert.equal(verify(value, game).orderingVerified, true);
+    assert.throws(() => verify({...value, boxActualSlugs: [...order].reverse()}, game), /Box DOM order/);
+    assert.throws(() => verify({...value, boxActualSlugs: order.slice(1)}, game), /Box DOM order/);
+    assert.throws(() => verify({...value, boxActualSlugs: ['', ...order.slice(1)]}, game), /Box DOM order/);
+  }
+  assert.match(productProbeSource, /const boxActualSlugs = cards\.map\(\(card\) => String\(card\.dataset\.slug/u);
+  assert.match(productProbeSource, /verifyBoxOrder\(snapshot, game\);/u);
+});
+
 test('the product probe verifies pending-only announcements while keeping canonical counts separate', () => {
   const merge = extractNamedFunction(productProbeSource, 'bannerVerificationSnapshot');
   const verify = Function('assert', `return (${extractNamedFunction(productProbeSource, 'verifyPendingBanner').toString()});`)(assert);

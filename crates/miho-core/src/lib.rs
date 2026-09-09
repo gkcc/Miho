@@ -21,6 +21,7 @@ pub mod output;
 pub mod pipeline;
 pub mod pull_value;
 pub mod report;
+mod roster_order;
 pub mod source;
 pub mod supplemental;
 pub mod visualizer;

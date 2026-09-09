@@ -5,6 +5,7 @@ use serde_json::{json, Map, Number, Value};
 use crate::{
     normalize::{character_slug, natural_version_cmp},
     output::ArtifactBundle,
+    roster_order::complete_release_order,
     visualizer::{
         attach_avatar_assets, attach_hsr_static_assets, attach_visualizer_data,
         banner_phase_boundary_fields, effective_banner_status as shared_effective_banner_status,
@@ -37,6 +38,7 @@ pub fn attach_hsr_visualizer(
     let phase_info = build_phase_info(&phases, context);
     let (banner, banner_refresh) = build_banner(context, &roster, local_datetime)?;
     merge_banner_into_roster(&mut roster, &banner);
+    complete_release_order(&mut roster, bundle, context, canonical)?;
     let usage = build_usage(&characters, &tiers, &roster, context);
     let team_templates = build_teams(&teams, &phase_info, &roster, context)?;
     let trend_json = sanitize_avatar_rows(&trend, &roster, context);
@@ -372,6 +374,7 @@ fn build_official_roster(
             usage,
             "HoYoWiki",
         );
+        entry.insert("catalog_release_order".into(), order.into());
         set_merged_field(&mut entry, "alias_slugs", &[&raw_slug, &slug]);
         if let Some(base) = roster.get_mut(&slug) {
             merge_roster_entries(base, &entry);
@@ -1968,6 +1971,196 @@ mod tests {
             .iter()
             .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
             .collect()
+    }
+
+    fn release_order_context() -> VisualizerContext {
+        VisualizerContext::new_with_local_datetime(
+            chrono::NaiveDate::from_ymd_opt(2026, 9, 10)
+                .unwrap()
+                .and_hms_opt(12, 0, 0)
+                .unwrap(),
+        )
+    }
+
+    fn add_release_order_catalog(bundle: &mut ArtifactBundle, agents: &[(&str, &str)]) {
+        let rows = agents
+            .iter()
+            .map(|(id, name)| json!({"entry_page_id":id,"name":name}))
+            .collect::<Vec<_>>();
+        bundle
+            .add_json("raw/hoyowiki/hsr_characters_en-us.json", &rows)
+            .unwrap();
+    }
+
+    #[test]
+    fn release_order_completes_tier_and_usage_entries_and_survives_catalog_catchup() {
+        let mut bundle = ArtifactBundle::default();
+        add_release_order_catalog(
+            &mut bundle,
+            &[("2", "Recent Catalog"), ("4", "Older Catalog")],
+        );
+        bundle.add_text("raw/prydwen_tier/tier-list_latest.html", r#"<script>{"characters":[
+            {"slug":"new-tier","name":"New Tier","releasePatch":"4.5","isNew":false,"upcoming":false,"isReleased":true},
+            {"slug":"recent-catalog","name":"Recent Catalog","releasePatch":"4.4","upcoming":false,"isReleased":true},
+            {"slug":"new-usage","name":"New Usage","releasePatch":"4.3","upcoming":false,"isReleased":true},
+            {"slug":"older-catalog","name":"Older Catalog","releasePatch":"4.2","upcoming":false,"isReleased":true}
+        ]}</script>"#).unwrap();
+        let tiers = vec![row(&[
+            ("character_slug", "new-tier"),
+            ("character_name_en", "New Tier"),
+        ])];
+        let usage = vec![row(&[
+            ("character_slug", "new-usage"),
+            ("character_name_en", "New Usage"),
+        ])];
+        let context = release_order_context();
+        let mut roster = build_roster(&bundle, &tiers, &usage, &[], &context).unwrap();
+        assert!(roster
+            .iter()
+            .find(|r| r["character_slug"] == "new-tier")
+            .unwrap()
+            .get("catalog_release_order")
+            .is_none());
+        assert!(roster
+            .iter()
+            .find(|r| r["character_slug"] == "new-usage")
+            .unwrap()
+            .get("catalog_release_order")
+            .is_none());
+        assert_eq!(
+            roster
+                .iter()
+                .find(|r| r["character_slug"] == "recent-catalog")
+                .unwrap()["catalog_release_order"],
+            0
+        );
+        assert_eq!(
+            roster
+                .iter()
+                .find(|r| r["character_slug"] == "older-catalog")
+                .unwrap()["catalog_release_order"],
+            1
+        );
+        merge_banner_into_roster(&mut roster, &[]);
+        complete_release_order(&mut roster, &bundle, &context, canonical).unwrap();
+        let expected = vec!["new-tier", "recent-catalog", "new-usage", "older-catalog"];
+        assert_eq!(
+            roster
+                .iter()
+                .map(|r| r["character_slug"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            roster
+                .iter()
+                .filter_map(|r| r["release_order"].as_u64())
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+        let first = roster.clone();
+        complete_release_order(&mut roster, &bundle, &context, canonical).unwrap();
+        assert_eq!(roster, first);
+
+        add_release_order_catalog(
+            &mut bundle,
+            &[
+                ("1", "New Tier"),
+                ("2", "Recent Catalog"),
+                ("3", "New Usage"),
+                ("4", "Older Catalog"),
+            ],
+        );
+        let mut caught_up = build_roster(&bundle, &tiers, &usage, &[], &context).unwrap();
+        merge_banner_into_roster(&mut caught_up, &[]);
+        complete_release_order(&mut caught_up, &bundle, &context, canonical).unwrap();
+        assert_eq!(
+            caught_up
+                .iter()
+                .map(|r| r["character_slug"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(caught_up.iter().all(|r| r
+            .get("catalog_release_order")
+            .and_then(Value::as_u64)
+            .is_some()));
+    }
+
+    #[test]
+    fn release_order_handles_banner_only_future_current_rerun_and_canonical_aliases() {
+        let mut bundle = ArtifactBundle::default();
+        add_release_order_catalog(&mut bundle, &[("1", "Recent Catalog"), ("2", "Topaz")]);
+        bundle.add_text("raw/prydwen_tier/tier-list_latest.html", r#"<script>{"characters":[
+            {"slug":"future-agent","name":"Future Agent","releasePatch":"4.6","upcoming":true,"isReleased":false},
+            {"slug":"recent-catalog","name":"Recent Catalog","releasePatch":"4.5","upcoming":false,"isReleased":true},
+            {"slug":"banner-current","name":"Banner Current","releasePatch":"4.4","upcoming":false,"isReleased":true},
+            {"slug":"banner-rerun","name":"Banner Rerun","releasePatch":"2.0","upcoming":false,"isReleased":true},
+            {"slug":"topaz","name":"Topaz","releasePatch":"1.4","upcoming":false,"isReleased":true},
+            {"slug":"undated-agent","name":"Undated Agent","releasePatch":"$undefined","upcoming":false,"isReleased":true}
+        ]}</script>"#).unwrap();
+        let mut context = release_order_context();
+        context.add_sidecar_json("hsr_banner_plan.json", &json!({"phases":[
+            {"id":"current", "status":"current", "date_range":"2026-09-01 12:00 至 2026-09-30 11:59", "characters":[
+                {"slug":"banner-current","name_en":"Banner Current"},
+                {"slug":"undated-agent","name_en":"Undated Agent"}
+            ]},
+            {"id":"next", "status":"next", "date_range":"2026-09-20 12:00 至 2026-10-10 11:59", "characters":[
+                {"slug":"future-agent","name_en":"Future Agent"},
+                {"slug":"banner-rerun","name_en":"Banner Rerun"},
+                {"slug":"topaz","name_en":"Topaz"}
+            ]}
+        ]})).unwrap();
+        let mut roster = build_roster(&bundle, &[], &[], &[], &context).unwrap();
+        let (banner, _) =
+            build_banner(&context, &roster, context.require_local_datetime().unwrap()).unwrap();
+        merge_banner_into_roster(&mut roster, &banner);
+        assert_eq!(
+            roster
+                .iter()
+                .find(|r| r["character_slug"] == "banner-rerun")
+                .unwrap()["banner_statuses"],
+            "next"
+        );
+        complete_release_order(&mut roster, &bundle, &context, canonical).unwrap();
+        assert_eq!(
+            roster
+                .iter()
+                .map(|r| r["character_slug"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec![
+                "future-agent",
+                "recent-catalog",
+                "banner-current",
+                "banner-rerun",
+                "topaz-and-numby",
+                "undated-agent"
+            ]
+        );
+        let topaz = roster
+            .iter()
+            .find(|r| r["character_slug"] == "topaz-and-numby")
+            .unwrap();
+        assert_eq!(topaz["catalog_release_order"], 1);
+        assert_eq!(topaz["banner_statuses"], "next");
+        assert_eq!(
+            roster
+                .iter()
+                .filter(|r| r["character_slug"] == "topaz-and-numby")
+                .count(),
+            1
+        );
+        assert!(roster
+            .iter()
+            .filter(|r| r["source"] == "banner_plan")
+            .all(|r| r.get("catalog_release_order").is_none()));
+        assert_eq!(
+            roster
+                .iter()
+                .filter_map(|r| r["release_order"].as_u64())
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4, 5]
+        );
     }
 
     #[test]

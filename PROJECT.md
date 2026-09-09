@@ -746,6 +746,12 @@
 - **验证与交付**：应用层 85 passed / 1 live ignored、native runner 33/33、Rust Visualizer 44/44、Node 156/156 与更新后的 probe 契约 9/9、fmt/diff、前端和三份 Release 构建、嵌入资源校验通过。Desktop/人工 CLI SHA-256 为 `F4917A9FCF59228A8A5137A3AEADDA340956FB366B775EAB589218BD72DA2DB6` / `3E94AB85AEA769667E7A38AB8AE8C09540BB8C7CC55FDB7A2C748D744D435F1C`，已更新 `D:\Miho Endgame`。owner-aware candidate `installer-d64c0a09b05d4109ab4e5ae5752ad816` healthy 后切到唯一无窗 generation `miho-0.1.0-378f68dbd5ec17966591e0584fedd566ffc8ea4eb36d4c71862cf9a8de1e0817`；正式任务重放 `20260909T154413735925Z-143732-0` 双游戏 healthy，`Running → Ready / LastTaskResult=0`，次日 09:30，无 candidate/journal。未进入安装器或 portable 链。
 - **真实入口与边界**：安装版隐藏 CDP 完成 ZZZ → HSR → ZZZ，核对 3.2 上期克拉蕾/南宫羽/安东/妮可、待同步提示、六模式与健康状态，正常退出 0、stdout/stderr 为空。ZZZ 终局统计仍为上游最新 8 月 29 日；Claret 暂无内置头像，使用已有文字占位，本次采用聚焦更新/卡池的产品探针，未扩做无关推荐及全 roster 头像验收。HSR/ZZZ Box 为 61/93、25/59，文件 SHA-256 保持 `7CA25CFA0286211DB577ED4E068C12377442926013803A7BF05F20F5D5C8E347` / `CB1FADF416B10F51ADEC0126B45E8E001EA7924BC3DA556C6A4C23C81B466D4A`。旧运行进程关闭接口曾报 WebView 发送失败，确认正常保存流程及 Box 哈希后才停止并释放 owner 锁；新构建正常退出验证通过。构建使用隔离 worktree，主工作区已有四个推荐器改动保持未提交。
 
+### 2026-09-10：补齐官方目录滞后时的双游戏 Box 排序
+
+- **原因与修复**：此前只覆盖 banner-only 新角色，Prydwen-only 的克拉蕾仍被 `9999` 兜底追加到最后，上轮界面验收也漏查顺序。HSR/ZZZ 现在共享最终排序：保留官方目录位置，读取 Prydwen `releasePatch` / `upcomingVersion`，把缺目录角色插入可比版本位置；不依赖 `isNew`，不凭复刻 `next` 提前角色。ZZZ 新目录位置优先于旧 name_map 哨兵。同版本无日期保持稳定顺序，无可比版本依据继续标为 unknown，不推测实装时间。
+- **验证**：48 项 Rust Visualizer、10 项 Node probe 契约、fmt/diff、前端与三份 Release 构建、嵌入资源校验通过。通用界面探针新增双游戏完整 DOM 顺序检查；安装版隐藏实测 ZZZ → HSR → ZZZ → HSR → ZZZ、每次 Box → 卡池 → Box，Claret 始终第 1，Sigrid 回到 3.1 版本组，官方角色相对顺序不变，正常退出 0。聚焦 Box 验收，未扩测推荐及头像；Claret 仍使用文字占位。
+- **交付**：正式 Desktop / CLI SHA-256 为 `4A2CBD23749E5DEB5E83EFE1AE98EF4F55B2B1729EF911DB9979B7E3ECA54458` / `0C578277446C016BBB2C346C52E4A9027A058E4702068B8BBCA6A959A96C26F7`。owner-aware attempt `installer-04be26d317e9444eb504666d18709c2d` 双游戏刷新且 health=true，唯一任务 generation 为 `miho-0.1.0-812479a1736eb2ff64b9a95e0844aef7fb0a3c0a2ce11f438f032247afd4efc6`，Ready / LastTaskResult=0、09:30，无 candidate/journal。按用户最新保存，HSR/ZZZ Box 为 63/93、26/59，SHA-256 全程保持 `02A9EE0452B0128EE3FB25B24C2D91E3AF4DCEC86AEF84408A2F440080A6ADA7` / `5E3C03AED3ECCC78250B1EE18447E53ECD12B1221F21D918A62B83C9233A85AB`；四个既有推荐器改动未纳入提交，未进入安装器/portable 链。
+
 ## 恢复入口
 
 - 项目状态：本文件。
