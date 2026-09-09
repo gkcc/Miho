@@ -752,6 +752,11 @@
 - **验证**：48 项 Rust Visualizer、10 项 Node probe 契约、fmt/diff、前端与三份 Release 构建、嵌入资源校验通过。通用界面探针新增双游戏完整 DOM 顺序检查；安装版隐藏实测 ZZZ → HSR → ZZZ → HSR → ZZZ、每次 Box → 卡池 → Box，Claret 始终第 1，Sigrid 回到 3.1 版本组，官方角色相对顺序不变，正常退出 0。聚焦 Box 验收，未扩测推荐及头像；Claret 仍使用文字占位。
 - **交付**：正式 Desktop / CLI SHA-256 为 `4A2CBD23749E5DEB5E83EFE1AE98EF4F55B2B1729EF911DB9979B7E3ECA54458` / `0C578277446C016BBB2C346C52E4A9027A058E4702068B8BBCA6A959A96C26F7`。owner-aware attempt `installer-04be26d317e9444eb504666d18709c2d` 双游戏刷新且 health=true，唯一任务 generation 为 `miho-0.1.0-812479a1736eb2ff64b9a95e0844aef7fb0a3c0a2ce11f438f032247afd4efc6`，Ready / LastTaskResult=0、09:30，无 candidate/journal。按用户最新保存，HSR/ZZZ Box 为 63/93、26/59，SHA-256 全程保持 `02A9EE0452B0128EE3FB25B24C2D91E3AF4DCEC86AEF84408A2F440080A6ADA7` / `5E3C03AED3ECCC78250B1EE18447E53ECD12B1221F21D918A62B83C9233A85AB`；四个既有推荐器改动未纳入提交，未进入安装器/portable 链。
 
+### 2026-09-10：修正 Box 排序交付遗漏的远端契约基准
+
+- `5b4b908` 的 Verify run `34376774350` 失败于两项 Rust/Python JSON 对照：新增排序来源字段、连续序号及官方目录优先顺序没有同步旧基准。测试现以独立审定的双游戏固定 roster 契约覆盖三个排序字段和顺序，其余内容继续严格对照 Python；两项 Live Probe 同步适配，变异检查仍拒绝错序、字段缺失/错值/错类型及非排序内容变化。未修改产品代码或工作流门禁。
+- 隔离工作区完整 `pnpm run verify:fast` 通过（Python 237 passed、Node 契约、Rust workspace、前端构建），`pnpm run test:live` 2/2 通过。本次遗漏表明，变更 Visualizer 输出语义必须核对完整 JSON 基准；交付还须读取推送提交对应的远端结果，不能把推送成功视为门禁通过。现有安装版与任务程序继续使用已验证的 Box 修复。
+
 ## 恢复入口
 
 - 项目状态：本文件。

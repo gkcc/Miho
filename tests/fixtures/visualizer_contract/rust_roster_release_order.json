@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "hsr": [
+    {
+      "character_slug": "agent-alpha",
+      "release_order": 0,
+      "catalog_release_order": 0,
+      "release_order_source": "official_catalog"
+    },
+    {
+      "character_slug": "agent-epsilon",
+      "release_order": 1,
+      "catalog_release_order": 1,
+      "release_order_source": "official_catalog"
+    },
+    {
+      "character_slug": "topaz-and-numby",
+      "release_order": 2,
+      "catalog_release_order": 3,
+      "release_order_source": "official_catalog"
+    },
+    {
+      "character_slug": "agent-zeta",
+      "release_order": 3,
+      "release_order_source": "unknown"
+    }
+  ],
+  "zzz": [
+    {
+      "character_slug": "agent-alpha",
+      "release_order": 0,
+      "catalog_release_order": 0,
+      "release_order_source": "official_catalog"
+    },
+    {
+      "character_slug": "agent-official",
+      "release_order": 1,
+      "catalog_release_order": 1,
+      "release_order_source": "official_catalog"
+    },
+    {
+      "character_slug": "agent-beta",
+      "release_order": 2,
+      "catalog_release_order": 20.0,
+      "release_order_source": "official_catalog"
+    },
+    {
+      "character_slug": "agent-gamma",
+      "release_order": 3,
+      "catalog_release_order": 30.0,
+      "release_order_source": "official_catalog"
+    },
+    {
+      "character_slug": "agent-usage",
+      "release_order": 4,
+      "catalog_release_order": null,
+      "release_order_source": "unknown"
+    },
+    {
+      "character_slug": "agent-banner-only",
+      "release_order": 5,
+      "release_order_source": "unknown"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import csv
 import json
 import os
@@ -74,6 +75,46 @@ BUNDLED_AVATAR_MANIFEST = json.loads(
         / "manifest-v1.json"
     ).read_text(encoding="utf-8")
 )
+
+
+def _apply_rust_roster_release_order_contract(
+    expected: dict[str, object], game: str
+) -> None:
+    """Keep the Python oracle except for the reviewed Rust release timeline.
+
+    This fixture fixes every roster identity, position, and ordering field;
+    it never derives expectations from the Rust output being checked.
+    """
+    contract = json.loads(
+        (FIXTURES / "rust_roster_release_order.json").read_text(encoding="utf-8")
+    )
+    assert contract["schema_version"] == 1
+    release_rows = contract[game]
+    python_rows = expected["rosterRows"]
+    assert isinstance(python_rows, list)
+    python_slugs = [row["character_slug"] for row in python_rows]
+    release_slugs = [row["character_slug"] for row in release_rows]
+    assert len(set(python_slugs)) == len(python_slugs), "duplicate Python roster identity"
+    assert len(set(release_slugs)) == len(release_slugs), "duplicate Rust contract identity"
+    assert set(python_slugs) == set(release_slugs), "Rust contract roster identities differ"
+    by_slug = {row["character_slug"]: row for row in python_rows}
+    ordering_fields = {
+        "release_order", "catalog_release_order", "release_order_source"
+    }
+    roster = []
+    for index, release_row in enumerate(release_rows):
+        assert set(release_row) <= ordering_fields | {"character_slug"}
+        assert type(release_row["release_order"]) is int
+        assert release_row["release_order"] == index
+        assert release_row["release_order_source"] in {"official_catalog", "unknown"}
+        row = dict(by_slug[release_row["character_slug"]])
+        for field in ordering_fields:
+            if field in release_row:
+                row[field] = release_row[field]
+            else:
+                row.pop(field, None)
+        roster.append(row)
+    expected["rosterRows"] = roster
 
 
 def _bundled_avatar_entries(game: str) -> list[dict[str, object]]:
@@ -547,11 +588,12 @@ def test_python_oracle_emits_one_cycle_legacy_wire_and_compact_v2(
     assert v2_path.stat().st_size < legacy_path.stat().st_size
 
 
-def test_rust_hsr_visualizer_matches_python_json_exactly(
+def test_rust_hsr_visualizer_matches_python_json_and_release_order_contract(
     visualizer_workspace: Path,
     rust_hsr_visualizer_root: Path,
 ) -> None:
     expected = load_json(_visualizer_root(visualizer_workspace, "hsr") / "data.json")
+    _apply_rust_roster_release_order_contract(expected, "hsr")
     actual = load_json(rust_hsr_visualizer_root / "data.json")
     actual_v2 = load_json(rust_hsr_visualizer_root / "data.v2.json")
 
@@ -572,13 +614,14 @@ def test_rust_hsr_visualizer_file_set_and_asset_hashes_are_exact(
 
 
 @pytest.mark.live
-def test_real_hsr_cli_visualizer_matches_the_complete_python_oracle(
+def test_real_hsr_cli_visualizer_matches_python_oracle_and_release_order_contract(
     cli_hsr_visualizer_root: tuple[Path, Path],
 ) -> None:
     actual_root, expected_root = cli_hsr_visualizer_root
     expected_data = load_json(expected_root / "data.json")
     actual_data = load_json(actual_root / "data.json")
     _apply_hsr_bundled_avatar_contract(expected_data)
+    _apply_rust_roster_release_order_contract(expected_data, "hsr")
     assert_json_contract_equal(expected_data, actual_data, dynamic_pointers=())
 
     contract = load_json(FIXTURES / "contract.json")
@@ -599,11 +642,12 @@ def test_real_hsr_cli_visualizer_matches_the_complete_python_oracle(
         assert binary_sha256(actual_root / name) == expected_hash
 
 
-def test_rust_zzz_visualizer_matches_python_json_exactly(
+def test_rust_zzz_visualizer_matches_python_json_and_release_order_contract(
     visualizer_workspace: Path,
     rust_zzz_visualizer_root: Path,
 ) -> None:
     expected = load_json(_visualizer_root(visualizer_workspace, "zzz") / "data.json")
+    _apply_rust_roster_release_order_contract(expected, "zzz")
     actual = load_json(rust_zzz_visualizer_root / "data.json")
     actual_v2 = load_json(rust_zzz_visualizer_root / "data.v2.json")
     assert_json_contract_equal(expected, actual, dynamic_pointers=())
@@ -623,12 +667,13 @@ def test_rust_zzz_visualizer_file_set_and_asset_hashes_are_exact(
 
 
 @pytest.mark.live
-def test_real_zzz_cli_visualizer_matches_the_complete_python_oracle(
+def test_real_zzz_cli_visualizer_matches_python_oracle_and_release_order_contract(
     cli_zzz_visualizer_root: tuple[Path, Path, Path, Path],
 ) -> None:
     actual_root, expected_root, actual_hub, expected_hub = cli_zzz_visualizer_root
     expected_data = load_json(expected_root / "data.json")
     actual_data = load_json(actual_root / "data.json")
+    _apply_rust_roster_release_order_contract(expected_data, "zzz")
     assert_json_contract_equal(expected_data, actual_data, dynamic_pointers=())
 
     contract = load_json(FIXTURES / "contract.json")
@@ -950,6 +995,32 @@ def test_python_banner_clock_uses_time_of_day_for_same_date_window() -> None:
         effective_phase_status(missing_whitespace, now=datetime(2026, 7, 12, 13))
         == "current"
     )
+
+
+@pytest.mark.parametrize("game", ["hsr", "zzz"])
+@pytest.mark.parametrize(
+    "mutation",
+    ["order", "missing_field", "wrong_value", "wrong_type", "extra_field", "non_order_field"],
+)
+def test_rust_roster_contract_rejects_output_mutations(game: str, mutation: str) -> None:
+    expected = load_json(FIXTURES / game / "data.json")
+    _apply_rust_roster_release_order_contract(expected, game)
+    actual = copy.deepcopy(expected)
+    rows = actual["rosterRows"]
+    if mutation == "order":
+        rows[0], rows[1] = rows[1], rows[0]
+    elif mutation == "missing_field":
+        del rows[0]["release_order_source"]
+    elif mutation == "wrong_value":
+        rows[0]["release_order"] = 99
+    elif mutation == "wrong_type":
+        rows[0]["catalog_release_order"] = 0.0
+    elif mutation == "extra_field":
+        rows[-1]["catalog_release_order"] = None
+    else:
+        rows[0]["character_name_cn"] = "unexpected name"
+    with pytest.raises(AssertionError, match="visualizer JSON differs"):
+        assert_json_contract_equal(expected, actual, dynamic_pointers=())
 
 
 def test_json_comparator_is_type_and_array_order_strict() -> None:
