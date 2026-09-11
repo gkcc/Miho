@@ -757,6 +757,13 @@
 - `5b4b908` 的 Verify run `34376774350` 失败于两项 Rust/Python JSON 对照：新增排序来源字段、连续序号及官方目录优先顺序没有同步旧基准。测试现以独立审定的双游戏固定 roster 契约覆盖三个排序字段和顺序，其余内容继续严格对照 Python；两项 Live Probe 同步适配，变异检查仍拒绝错序、字段缺失/错值/错类型及非排序内容变化。未修改产品代码或工作流门禁。
 - 隔离工作区完整 `pnpm run verify:fast` 通过（Python 237 passed、Node 契约、Rust workspace、前端构建），`pnpm run test:live` 2/2 通过。本次遗漏表明，变更 Visualizer 输出语义必须核对完整 JSON 基准；交付还须读取推送提交对应的远端结果，不能把推送成功视为门禁通过。现有安装版与任务程序继续使用已验证的 Box 修复。
 
+### 2026-09-12：组队练度、完整实证阵容与全局锁定
+
+- HSR/ZZZ 的末层、自定义推荐默认忽略练度；可选参考已录入核心项，只扣已知短板，未填项和星魂/影画/专武不因填写而加分。已拥有角色在忽略练度时只看即战力。移除按职能/属性自动平替及其加分，完整方案只使用原始整队实战样本，缺口保留原角色。
+- 左侧候选增加整队锁定；硬约束可切换本关/本队或全局，全局必上至少在一队出现、排除覆盖每队，按模式与策略保存并兼容旧约束。失效/冲突锁保留并提供手动解锁。HSR 指定形态与跨队部署互斥分开判断；三队搜索修正低位次可行队被分支上限挤掉及第 32 位必上掩码误判，仍明确为有界搜索。
+- 验证：Node 181/181、Python Visualizer 87 passed / 2 live deselected、Rust Visualizer 48/48，三份 Release 构建与 7 项嵌入资源校验通过。安装版隐藏 CDP 完成 ZZZ → HSR → ZZZ，双策略实测练度保存、左右锁队、全局必上/排除、冲突保留及恢复；正常退出 0、端口和子进程清理，HSR/ZZZ Box（63/26 owned）SHA-256 全程不变。探针运行需临时从 PATH 移除重复 Node 路径，避免 Get-Command 返回两个可执行路径；未改系统环境。
+- 已更新 `D:\Miho Endgame` 的 Desktop/人工 CLI（SHA-256 前缀 `AE9E2ACA30B1` / `669A58AC1F9F`）。owner-aware attempt `installer-60d1f8a05cc34f69806d7fa67b6ed3d9` healthy，唯一无窗 generation 为 `miho-0.1.0-7f086148662966557c8cb0d60c8453b748db7d8a7b7f2e931f5aaf8043647cd7`；每日 09:30 任务 Ready / LastTaskResult=0，无切换 journal。未进入安装器或 portable 链；本次四项既有未提交推荐器改动已在同一交付中验证收口。
+
 ## 恢复入口
 
 - 项目状态：本文件。

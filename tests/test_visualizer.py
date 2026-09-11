@@ -321,7 +321,13 @@ def test_write_visualizer_app_outputs_interactive_files(tmp_path):
     assert "no-store" in app_text
     assert "./data.v2.json" in app_text
     assert "已成型只看即战力" in app_text
-    assert "settled=member.owned&&build.ready" in app_text
+    assert 'id="recBuildSelect"' in index_text
+    assert '<option value="ignore" selected>忽略练度（默认）</option>' in index_text
+    assert '<option value="recorded">参考已录入练度</option>' in index_text
+    assert "normalizeRecBuildMode" in app_text
+    assert "recommendationRecordedBuildScore" in app_text
+    assert "settled=member.owned&&(!useBuild||build.ready)" in app_text
+    assert "未填项不扣分" in app_text
     assert "tierSummaryFor" in app_text
     assert "Prydwen 按模式分档" in app_text
     assert "投入谨慎" in app_text

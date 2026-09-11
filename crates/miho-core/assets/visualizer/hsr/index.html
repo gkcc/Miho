@@ -124,6 +124,7 @@
         <div class="control-group compact"><label id="recScopeLabel" for="recScopeSelect">实战节点</label><select id="recScopeSelect"></select></div>
         <div class="control-group"><span class="control-label" id="recElementLabel">敌方弱点（仅标注）</span><div class="tier-checks" id="recElementControl" role="group" aria-labelledby="recElementLabel"></div></div>
         <div class="control-group compact"><label for="recSortSelect">排序参考</label><select id="recSortSelect" title="切换候选队伍与多队方案共同使用的推荐口径"><option value="balanced" selected>综合推荐</option><option value="history">历史表现</option><option value="box">Box 即战力</option></select></div>
+        <div class="control-group compact"><label for="recBuildSelect">练度</label><select id="recBuildSelect" title="忽略练度时，未填或已填均不影响排序与过滤；参考练度时只考虑已录入的不足，未填不扣分"><option value="ignore" selected>忽略练度（默认）</option><option value="recorded">参考已录入练度</option></select></div>
         <div class="control-group compact"><label for="recGapSelect">缺口</label><select id="recGapSelect" title="限制缺少角色数量"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="2">最多缺2人</option><option value="4">显示全部</option></select></div>
         <div class="control-group compact"><label for="recRiskSelect">风险</label><select id="recRiskSelect" title="当前模式 T1及以下、近期走弱或核心属性不匹配时的处理方式"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></div>
         <div class="control-group compact"><label for="recLimitSelect">数量</label><select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></div>
@@ -133,12 +134,14 @@
         <div class="constraint-picker">
           <label for="recCharacterSelect">角色硬约束 <span id="recConstraintScopeHint">按当前模式与节点保存</span></label>
           <div class="constraint-picker-row">
+            <select id="recConstraintScopeSelect" aria-label="硬约束作用范围"><option value="local">本关</option><option value="global">全局（整套方案）</option></select>
             <select id="recCharacterSelect" title="选择要加入当前关卡约束的角色"></select>
             <button id="recRequireBtn" type="button">必须上场</button>
             <button id="recExcludeBtn" type="button">排除</button>
             <button id="recConstraintClearBtn" type="button" class="quiet">清空本关</button>
           </div>
           <p id="recConstraintMessage" aria-live="polite"></p>
+          <p id="recGlobalConstraintSummary"></p>
         </div>
         <div class="constraint-groups">
           <div><strong>必须上场</strong><div id="recRequiredList" class="constraint-chips"></div></div>

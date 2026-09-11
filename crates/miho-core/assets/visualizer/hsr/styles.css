@@ -12,3 +12,7 @@
 
 .tooltip{pointer-events:auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
 :where(button,a,input,select,[role="button"],[tabindex]):focus-visible{outline:3px solid #e07a16;outline-offset:2px}svg [tabindex]:focus-visible{outline:none;filter:drop-shadow(0 0 3px #e07a16);stroke:#e07a16!important;stroke-width:3!important}
+
+.rec-candidate-lock,.rec-active-locks{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}.rec-active-locks{margin:0 0 10px}.rec-candidate-lock select{max-width:100%;padding:5px;border:1px solid #a8bcc3;border-radius:6px;background:#fff}.rec-lock-button:disabled{opacity:.65;cursor:default}.rec-controls{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+
+#recConstraintScopeSelect{grid-column:1/-1;max-width:230px}#recGlobalConstraintSummary{margin:5px 0 0;color:#50646c;font-size:11px;line-height:1.5;overflow-wrap:anywhere}

@@ -321,11 +321,23 @@ def test_hsr_and_zzz_recommenders_keep_parallel_dual_strategy_controls() -> None
         assert "function customPoolTemplates(" in app
         assert "scope_key!=='all'" in app
         assert "function recPlanScopes(" in app
-        assert "function substituteCandidates(" in app
+        # Only complete observed formations enter plans; a missing character
+        # must not create an unverified theoretical composition.
+        assert "function substituteCandidates(" not in app
         assert "function expandSlateItemVariants(" in app
         assert "function showRecTooltip(" in app
         assert "bindAccessibleDetail(card,'recTooltip'" in app
-        assert "evidenceConfidence:assignmentRows.length?'C'" in app
+        assert "substitutionAssignments:[],isSubstituted:false" in app
+        assert "evidenceConfidence:templateEvidenceGrade(item.template)" in app
+        assert "不会自动替换角色或放宽锁定" in app
+        assert 'id="recBuildSelect"' in index
+        assert '<option value="ignore" selected>忽略练度（默认）</option>' in index
+        assert '<option value="recorded">参考已录入练度</option>' in index
+        assert 'id="recConstraintScopeSelect"' in index
+        assert '<option value="global">全局（整套方案）</option>' in index
+        assert "function recSlateGlobalConstraints(" in app
+        assert "function recSlateScopeConstraints(" in app
+        assert "attachRecCandidateLockControls(card,item)" in app
 
     zzz_styles = (
         ROOT

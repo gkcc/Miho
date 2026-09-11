@@ -23,6 +23,7 @@ const HSR_HARNESS = String.raw`
       scope: settings.scope || '4-1',
       strategy: settings.strategy || 'final',
       sortMode: normalizeRecSortMode(settings.sortMode),
+      buildMode: normalizeRecBuildMode(settings.buildMode),
       teamCounts: settings.teamCounts || {...DEFAULT_REC_TEAM_COUNTS},
       targetScopes: settings.targetScopes || {},
       elements: settings.elements || {},
@@ -73,6 +74,9 @@ const HSR_HARNESS = String.raw`
   },
   cacheState() {
     return {dataEpoch, boxStateRevision, size: recScoredPoolCache.size};
+  },
+  setBuildMode(value) {
+    rec.buildMode = normalizeRecBuildMode(value);
   },
   setSearch(value) {
     rec.search = String(value || '').toLowerCase();
@@ -144,6 +148,21 @@ const HSR_HARNESS = String.raw`
            substitutions: item.substitutionAssignments.map(row => ({missing: row.missing, replacement: row.replacement})),
          } : null),
       })),
+    };
+  },
+  async slatesAsync() {
+    const scopes = recPlanScopes();
+    const pools = await prepareRecSlateCandidatePoolsAsync(scopes);
+    const candidateLists = reconcileRecSlateCandidateLists(scopes, pools.fullCandidateLists);
+    const input = await recSlateSolverInputAsync(candidateLists, pools.rawCandidateCounts, pools.eligibleCandidateCounts, 3);
+    const result = hydrateRecSlateResult(
+      {scopes, fullCandidateLists: pools.fullCandidateLists, candidateLists, input},
+      runSharedSlateSolver(input),
+      'contract-async',
+    );
+    return {
+      solver_meta: {...result.solver_meta},
+      plans: result.plans.map(plan => ({picks: plan.picks.map(item => item ? {id: item.template.id, finalChars: [...item.finalChars]} : null)})),
     };
   },
   slateCandidates(scopeKeys) {
@@ -326,6 +345,7 @@ const ZZZ_HARNESS = String.raw`
       gap: settings.gap || '3',
       riskMode: settings.riskMode || 'warn',
       sortMode: normalizeRecSortMode(settings.sortMode),
+      buildMode: normalizeRecBuildMode(settings.buildMode),
       limit: settings.limit || '20',
       search: settings.search || '',
     };
@@ -336,6 +356,9 @@ const ZZZ_HARNESS = String.raw`
   constraints(mode, scope) {
     const sets = constraintSets(mode, scope);
     return {required: [...sets.required], excluded: [...sets.excluded]};
+  },
+  setConstraints(mode, scope, required = [], excluded = []) {
+    rec.constraints[key(mode, scope)] = {required: [...required], excluded: [...excluded]};
   },
   setElements(mode, scope, values) {
     rec.elements[key(mode, scope)] = [...values];
@@ -372,6 +395,9 @@ const ZZZ_HARNESS = String.raw`
   },
   cacheState() {
     return {dataEpoch, boxRevision, size: recScoredPoolCache.size};
+  },
+  setBuildMode(value) {
+    rec.buildMode = normalizeRecBuildMode(value);
   },
   setSearch(value) {
     rec.search = String(value || '').toLowerCase();
@@ -462,6 +488,16 @@ const ZZZ_HARNESS = String.raw`
           substitutions: item.substitutionAssignments.map(row => ({missing: row.missing, replacement: row.replacement})),
         } : null),
       })),
+    };
+  },
+  async slatesAsync() {
+    const scopes = recPlanScopes();
+    const draft = await prepareRecSlateSolveAsync(scopes, {maxSolutions: 3});
+    const prepared = finalizeRecSlateSolve(draft.scopeList, draft.fullCandidateLists, draft.rawCandidateCounts, {maxSolutions: draft.maxSolutions});
+    const result = hydrateRecSlateResult(prepared, runSharedSlateSolver(prepared.input), 'contract-async');
+    return {
+      solver_meta: {...result.solver_meta},
+      plans: result.plans.map(plan => ({picks: plan.picks.map(item => item ? {id: item.template.id, finalChars: [...item.finalChars]} : null)})),
     };
   },
   slateCandidates(scopeKeys) {
@@ -858,6 +894,37 @@ test('shared exact two-stage solver looks past same-team variants for diverse al
   assert.deepEqual(result.solutions.map(solution => solution.totalScore), [150, 140, 130]);
 });
 
+test('shared exact solver enforces plan-wide required and excluded members across every returned solution', () => {
+  const lists = [
+    [
+      {key: 'banned-best', score: 1000, members: ['banned']},
+      {key: 'ordinary', score: 100, members: ['ordinary']},
+      {key: 'required-low', score: 1, members: ['must-appear']},
+    ],
+    [
+      {key: 'right-1', score: 40, members: ['right-1']},
+      {key: 'right-2', score: 30, members: ['right-2']},
+      {key: 'right-3', score: 20, members: ['right-3']},
+      {key: 'right-4', score: 10, members: ['right-4']},
+    ],
+  ];
+  const result = solveSlate({
+    candidateLists: lists,
+    requiredMembers: ['must-appear'],
+    excludedMembers: ['banned'],
+    maxSolutions: 3,
+  });
+  assert.equal(result.solutions.length, 3);
+  assert.equal(result.solver_meta.required_member_count, 1);
+  assert.equal(result.solver_meta.excluded_member_count, 1);
+  result.solutions.forEach(solution => {
+    const members = solution.picks.flatMap((pick, scope) => lists[scope][pick].members);
+    assert.ok(members.includes('must-appear'));
+    assert.ok(!members.includes('banned'));
+    assert.equal(solution.picks[0], 2, 'filtered candidates must retain their original hydration indexes');
+  });
+});
+
 test('shared slate solver deduplicates different evidence keys that converge to the same final deployment', () => {
   const result = solveSlate({
     candidateLists: [[
@@ -902,6 +969,24 @@ test('shared three-stage beam preserves lower-scoring states that can still comp
   assert.equal(result.solver_meta.max_filled, 3);
   assert.deepEqual(result.solutions[0].picks, [0, 1, 0]);
   assert.equal(result.solutions[0].totalScore, 201);
+});
+
+test('shared beam keeps a below-branch-limit candidate when it is needed by a plan-wide requirement', () => {
+  const result = solveSlate({
+    candidateLists: [
+      [{key: 'first', score: 100, members: ['first']}],
+      [
+        {key: 'higher', score: 100, members: ['higher']},
+        {key: 'required', score: 1, members: ['must-appear']},
+      ],
+      [{key: 'third', score: 100, members: ['third']}],
+    ],
+    requiredMembers: ['must-appear'],
+    beamWidth: 2,
+    branchLimit: 1,
+  });
+  assert.equal(result.solutions.length, 1);
+  assert.deepEqual(result.solutions[0].picks, [0, 1, 0]);
 });
 
 function hsrCharacter(slug, element, roles, pathName, releaseOrder) {
@@ -1429,12 +1514,7 @@ test('HSR hard constraints filter before ranking and protect required/excluded s
     ['valid-constrained-team'],
     'required and excluded characters must be applied as hard filters before ranking',
   );
-  const requiredSubstitution = ranked[0].substitutions.find(entry => entry.missing === 'required');
-  assert.deepEqual(
-    requiredSubstitution.candidates,
-    [],
-    'a required but unowned character must stay in the team instead of receiving a substitute',
-  );
+  assert.deepEqual(ranked[0].substitutions, [], 'missing members never receive mechanical substitutes');
   assert.ok(ranked[0].finalChars.includes('required'), 'the required missing character must remain in finalChars');
   assert.ok(!ranked[0].finalChars.includes('excluded'), 'an excluded character must never enter finalChars');
   assert.ok(
@@ -1448,7 +1528,59 @@ test('HSR hard constraints filter before ranking and protect required/excluded s
   );
 });
 
-test('HSR reserved characters skip the first substitute and select the next valid candidate', () => {
+test('HSR joint plans apply concrete-node constraints and comprehensive-pool constraints to every solution', async () => {
+  const teams = {
+    leftOne: ['left-pin', 'left-1a', 'left-1b', 'left-1c'],
+    leftTwo: ['left-pin', 'left-2a', 'left-2b', 'left-2c'],
+    leftExcluded: ['globally-excluded', 'left-xa', 'left-xb', 'left-xc'],
+    rightOne: ['must-appear', 'right-1a', 'right-1b', 'right-1c'],
+    rightTwo: ['must-appear', 'right-2a', 'right-2b', 'right-2c'],
+    rightOrdinary: ['right-o1', 'right-o2', 'right-o3', 'right-o4'],
+  };
+  const slugs = [...new Set(Object.values(teams).flat())];
+  const rosterRows = slugs.map((slug, index) => hsrCharacter(slug, '火', slug.includes('1a') ? 'main_dps' : 'support', '同谐', index + 1));
+  const templates = [
+    hsrTemplate('comprehensive-marker', 'all', teams.rightOne, 1, 35),
+    hsrTemplate('left-excluded-best', '4-1', teams.leftExcluded, 1, 35),
+    hsrTemplate('left-valid-one', '4-1', teams.leftOne, 2, 30),
+    hsrTemplate('left-valid-two', '4-1', teams.leftTwo, 3, 25),
+    hsrTemplate('right-ordinary-best', '4-2', teams.rightOrdinary, 1, 35),
+    hsrTemplate('right-required-one', '4-2', teams.rightOne, 20, 5),
+    hsrTemplate('right-required-two', '4-2', teams.rightTwo, 30, 3),
+  ];
+  const api = loadContract(HSR_APP, HSR_HARNESS);
+  api.reset(
+    hsrData(rosterRows, templates),
+    {
+      mode: 'as',
+      scope: 'all',
+      strategy: 'final',
+      targetScopes: {as: ['4-1', '4-2']},
+      constraints: {
+        'as|all': {required: ['must-appear'], excluded: ['globally-excluded']},
+        'as|4-1': {required: ['left-pin'], excluded: []},
+      },
+      gap: '4',
+    },
+    slugs,
+    allBuilds(slugs, hsrFullBuild),
+  );
+
+  assert.deepEqual(plain(api.planScopes()), ['4-1', '4-2'], 'the comprehensive pool must remain a plan-wide control, not a third team');
+  for (const result of [plain(api.slates()), plain(await api.slatesAsync())]) {
+    assert.ok(result.plans.length >= 2, 'the fixture must expose multiple compliant alternatives');
+    assert.equal(result.solver_meta.required_member_count, 1);
+    assert.equal(result.solver_meta.excluded_member_count, 1);
+    result.plans.forEach(plan => {
+      const members = plan.picks.flatMap(item => item.finalChars);
+      assert.ok(members.includes('must-appear'), 'a comprehensive-pool required character must appear somewhere in the slate');
+      assert.ok(!members.includes('globally-excluded'), 'a comprehensive-pool excluded character must appear nowhere in the slate');
+      assert.ok(plan.picks[0].finalChars.includes('left-pin'), 'the concrete first-node requirement must still apply only to that node');
+    });
+  }
+});
+
+test('HSR reserved role matches never become automatic substitutes', () => {
   const rosterRows = [
     hsrCharacter('core', '火', 'main_dps', '毁灭', 10),
     hsrCharacter('open-support-slot', '冰', 'support', '同谐', 11),
@@ -1475,20 +1607,13 @@ test('HSR reserved characters skip the first substitute and select the next vali
 
   const baseline = plain(api.ranked('as', 'reserve-scope'))[0];
   const reserved = plain(api.ranked('as', 'reserve-scope', [], {reserved: ['candidate-1']}))[0];
-  assert.equal(
-    baseline.substitutions.find(entry => entry.missing === 'open-support-slot').candidates[0],
-    'candidate-1',
-    'the fixture must rank candidate-1 first before reservation',
-  );
-  assert.equal(
-    reserved.substitutions.find(entry => entry.missing === 'open-support-slot').candidates[0],
-    'candidate-2',
-    'reserved candidate-1 must be skipped in favor of candidate-2',
-  );
+  assert.deepEqual(baseline.finalChars, template.chars, 'the source team membership must remain intact');
+  assert.deepEqual(reserved.finalChars, template.chars);
+  assert.deepEqual(reserved.substitutions, []);
   assert.ok(!reserved.finalChars.includes('candidate-1'), 'a reserved character must not enter the final team');
 });
 
-test('HSR multiple missing slots receive distinct substitutes', () => {
+test('HSR multiple missing slots retain the exact missing source characters', () => {
   const rosterRows = [
     hsrCharacter('core', '火', 'main_dps', '毁灭', 10),
     hsrCharacter('missing-support-a', '冰', 'support', '同谐', 11),
@@ -1514,12 +1639,12 @@ test('HSR multiple missing slots receive distinct substitutes', () => {
   );
 
   const ranked = plain(api.ranked('as', 'substitute-scope'))[0];
-  const assigned = ranked.substitutions.map(entry => entry.candidates[0]);
-  assert.deepEqual(assigned, ['candidate-1', 'candidate-2']);
-  assert.equal(new Set(ranked.finalChars).size, 4, 'the recommended final team must not repeat one substitute');
+  assert.deepEqual(ranked.substitutions, []);
+  assert.deepEqual(ranked.finalChars, template.chars);
+  assert.equal(ranked.ownedCount, 2, 'same-role owned units must not hide two source-team gaps');
 });
 
-test('HSR joint planning assigns substitutes globally and caps theoretical evidence at C', () => {
+test('HSR joint planning preserves source teams and reports no solution when their gaps are disallowed', () => {
   const rosterRows = [
     hsrCharacter('core-a', '火', 'main_dps', '毁灭', 10),
     hsrCharacter('missing-support-a', '冰', 'support', '同谐', 11),
@@ -1549,16 +1674,15 @@ test('HSR joint planning assigns substitutes globally and caps theoretical evide
   assert.equal(result.solver_meta.search_type, 'exact');
   const picks = result.plans[0].picks;
   assert.deepEqual(picks.map(item => item.id), ['scope-a-team', 'scope-b-team']);
-  const assigned = picks.flatMap(item => item.substitutions.map(row => row.replacement));
-  assert.equal(new Set(assigned).size, 2, 'two teams must not greedily claim the same substitute');
-  assert.equal(new Set(picks.flatMap(item => item.finalChars)).size, 8, 'the final joint slate must not reuse any deployment entity');
-  assert.ok(picks.every(item => item.evidenceConfidence === 'C'), 'any substituted team must remain theoretical C evidence');
-  assert.ok(picks.every(item => item.finalMissingCount === 0));
-  const originalScores = Object.fromEntries(plain(api.ranked('as', '4-1')).concat(plain(api.ranked('as', '4-2'))).map(item => [item.id, item.score]));
-  assert.ok(picks.every(item => item.score > originalScores[item.id]), 'final owned substitutes must update the Box-aware objective instead of keeping the missing-template score');
+  assert.ok(picks.every(item => item.substitutions.length === 0));
+  assert.equal(new Set(picks.flatMap(item => item.finalChars)).size, 8);
+  assert.ok(picks.every(item => item.finalMissingCount === 1));
+  assert.deepEqual(picks.map(item => item.finalChars), templates.map(item => item.chars));
+  api.setRiskAndGap('warn', 0);
+  assert.deepEqual(plain(api.slates()).plans, [], 'same-role alternatives cannot fabricate a complete owned slate');
 });
 
-test('HSR substituted custom variants recompute final weakness scores and risks', () => {
+test('HSR custom candidates retain exact source-team weakness evidence and risks', () => {
   const rosterRows = [
     hsrCharacter('missing-ice-core', '冰', 'main_dps', '毁灭', 10),
     hsrCharacter('fire-core', '火', 'main_dps', '毁灭', 1),
@@ -1575,14 +1699,12 @@ test('HSR substituted custom variants recompute final weakness scores and risks'
   api.reset(data, settings, owned, allBuilds(owned, hsrFullBuild));
 
   assert.equal(plain(api.ranked('as', 'custom-1'))[0].weaknessMatched, true, 'the real evidence template contains an Ice core');
-  const fireVariant = plain(api.slateCandidates(['custom-1']))[0].find(item => item.substitutions.some(row => row.replacement === 'fire-core'));
-  assert.ok(fireVariant, 'the owned same-role Fire core should be available as a theoretical substitute');
-  assert.equal(fireVariant.coreElementHits, 0);
-  assert.equal(fireVariant.weaknessMatched, false, 'the final substituted team must not inherit the missing Ice core match');
-  assert.equal(fireVariant.scoreParts.balanced.find(part => part.key === 'weakness').value, -220);
-  assert.ok(fireVariant.risks.includes('core-none'), 'the final team must receive its own weakness risk');
-  assert.ok(!fireVariant.risks.includes('tier-forgotten'), 'risks from the replaced character must not survive on the final team');
-  assert.equal(fireVariant.evidenceConfidence, 'C');
+  const candidates = plain(api.slateCandidates(['custom-1']))[0];
+  assert.equal(candidates.length, 1);
+  assert.deepEqual(candidates[0].finalChars, template.chars);
+  assert.equal(candidates[0].weaknessMatched, true);
+  assert.ok(candidates[0].risks.includes('tier-forgotten'));
+  assert.deepEqual(candidates[0].substitutions, []);
 
   const cleanData = hsrData(rosterRows, [template]);
   api.reset(cleanData, {...settings, riskMode: 'filter'}, owned, allBuilds(owned, hsrFullBuild));
@@ -1594,7 +1716,7 @@ test('HSR substituted custom variants recompute final weakness scores and risks'
   );
 });
 
-test('HSR locked final teams reserve their deployment entities and invalid locks auto-clear', () => {
+test('HSR locked final teams reserve their deployment entities and invalid locks remain until explicitly released', () => {
   const shared = 'shared-star';
   const leftShared = [shared, 'left-a', 'left-b', 'left-c'];
   const leftAlternative = ['left-alt-core', 'left-alt-a', 'left-alt-b', 'left-alt-c'];
@@ -1623,8 +1745,8 @@ test('HSR locked final teams reserve their deployment entities and invalid locks
   assert.equal(new Set(locked.flatMap(item => item.finalChars)).size, 8);
 
   api.setConstraints('as', '4-1', [], [shared]);
-  plain(api.slates());
-  assert.deepEqual(plain(api.locks()), {}, 'a lock that violates a new hard constraint must be removed explicitly');
+  assert.deepEqual(plain(api.slates()).plans, [], 'a conflicting hard lock must make the slate unsatisfiable');
+  assert.equal(plain(api.locks())['as|final|4-1'], lockKey, 'a hard lock must never be silently released');
 });
 
 test('HSR exposes balanced, historical, and Box rankings for the reported Apocalyptic Shadow teams', () => {
@@ -1645,15 +1767,11 @@ test('HSR exposes balanced, historical, and Box rankings for the reported Apocal
     }
   }
 
-  assert.deepEqual(snapshots.balanced.map(item => item.id), ['elation-trailblazer-team', 'yao-guang-team']);
+  assert.deepEqual(snapshots.balanced.map(item => item.id), ['yao-guang-team', 'elation-trailblazer-team']);
   assert.deepEqual(snapshots.history.map(item => item.id), ['yao-guang-team', 'elation-trailblazer-team']);
-  assert.deepEqual(snapshots.box.map(item => item.id), ['elation-trailblazer-team', 'yao-guang-team']);
-
   const balancedById = Object.fromEntries(snapshots.balanced.map(item => [item.id, item]));
-  assert.ok(Math.abs(balancedById['elation-trailblazer-team'].scores.box - 441.725) < 1e-9);
-  assert.ok(Math.abs(balancedById['yao-guang-team'].scores.box - 405.635) < 1e-9);
-  assert.ok(Math.abs(balancedById['elation-trailblazer-team'].scores.balanced - 493.001) < 1e-9);
-  assert.ok(Math.abs(balancedById['yao-guang-team'].scores.balanced - 480.549) < 1e-9);
+  assert.equal(balancedById['elation-trailblazer-team'].scores.box, balancedById['yao-guang-team'].scores.box, 'different build entry completeness must not bias default Box scores');
+  assert.equal(balancedById['elation-trailblazer-team'].scoreParts.box.find(part => part.key === 'build').value, 0);
   assert.equal(balancedById['elation-trailblazer-team'].scores.history, 0);
   assert.equal(balancedById['yao-guang-team'].scores.history, 100);
   const firstPerformance = balancedById['elation-trailblazer-team'].scoreParts.balanced.find(part => part.key === 'performance');
@@ -1803,7 +1921,7 @@ test('HSR unknown build coverage is disclosed without becoming a low-build risk'
   const rosterRows = chars.map((slug, index) => hsrCharacter(slug, '火', index === 0 ? 'main_dps' : index === 3 ? 'sustain' : 'support', index === 3 ? '丰饶' : '同谐', index + 1));
   const data = hsrData(rosterRows, [hsrTemplate('unknown-build-team', '4-1', chars, 1, 30)]);
 
-  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'filter', gap: '4'}, chars, {});
+  api.reset(data, {mode: 'as', scope: '4-1', buildMode: 'recorded', riskMode: 'filter', gap: '4'}, chars, {});
   const unknown = plain(api.ranked('as', '4-1'));
   assert.equal(unknown.length, 1, 'missing build records must not be filtered as low build');
   assert.equal(unknown[0].ownedCount, 4);
@@ -1811,7 +1929,7 @@ test('HSR unknown build coverage is disclosed without becoming a low-build risk'
   assert.equal(unknown[0].buildReadyCount, 0);
   assert.ok(!unknown[0].risks.some(risk => String(risk).startsWith('build-')));
 
-  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'warn', gap: '4'}, chars, {
+  api.reset(data, {mode: 'as', scope: '4-1', buildMode: 'recorded', riskMode: 'warn', gap: '4'}, chars, {
     core: {level: 20, lc: 20, eidolon: 0, signature: 'no', traces: 'low', relics: 'none'},
   });
   const recordedLow = plain(api.ranked('as', '4-1'))[0];
@@ -1829,21 +1947,21 @@ test('HSR settled builds ignore tier and trend investment reminders while retain
   const settledBuilds = allBuilds(chars, hsrFullBuild);
   settledBuilds['settled-core'] = {level: 75, lc: 70, eidolon: 0, signature: 'no', traces: 'high', relics: 'good'};
 
-  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'warn', sortMode: 'box', gap: '4'}, chars, settledBuilds);
+  api.reset(data, {mode: 'as', scope: '4-1', buildMode: 'recorded', riskMode: 'warn', sortMode: 'box', gap: '4'}, chars, settledBuilds);
   const settled = plain(api.ranked('as', '4-1'))[0];
   assert.equal(settled.buildReadyCount, 4, 'the near-complete core build must use the existing settled threshold');
   assert.ok(!settled.risks.includes('tier-forgotten'), 'a settled T5 character has no remaining investment decision to warn about');
   assert.ok(!settled.risks.includes('trend'), 'a settled character should be judged by current strength instead of popularity trend');
 
   const unfinishedBuilds = {...settledBuilds, 'settled-core': {level: 70, lc: 70, eidolon: 0, signature: 'no', traces: 'high', relics: 'good'}};
-  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'warn', sortMode: 'box', gap: '4'}, chars, unfinishedBuilds);
+  api.reset(data, {mode: 'as', scope: '4-1', buildMode: 'recorded', riskMode: 'warn', sortMode: 'box', gap: '4'}, chars, unfinishedBuilds);
   const unfinished = plain(api.ranked('as', '4-1'))[0];
   assert.ok(unfinished.risks.includes('build-mid'));
   assert.ok(unfinished.risks.includes('tier-forgotten'));
   assert.ok(unfinished.risks.includes('trend'));
   assert.ok(settled.scores.box > unfinished.scores.box, 'settled handling must preserve the absolute build-strength contribution');
 
-  api.reset(data, {mode: 'as', scope: '4-1', riskMode: 'filter', sortMode: 'box', gap: '4'}, chars, settledBuilds);
+  api.reset(data, {mode: 'as', scope: '4-1', buildMode: 'recorded', riskMode: 'filter', sortMode: 'box', gap: '4'}, chars, settledBuilds);
   assert.deepEqual(plain(api.ranked('as', '4-1')).map(item => item.id), ['settled-team']);
 });
 
@@ -1900,8 +2018,8 @@ test('HSR multi-team planning optimizes the selected score model instead of only
     {...hsrTemplate('history-right', '4-2', historyD, 1, 30), avg_round: 4000},
   ];
   const built = new Set([...highA, ...highC]);
-  const builds = Object.fromEntries(slugs.filter(slug => built.has(slug)).map(slug => [slug, hsrFullBuild()]));
-  const settings = {mode: 'as', scope: '4-1', strategy: 'final', targetScopes: {as: ['4-1', '4-2']}, gap: '4'};
+  const builds = Object.fromEntries(slugs.map(slug => [slug, built.has(slug) ? hsrFullBuild() : {level: 20, lc: 20, traces: 'low', relics: 'none'}]));
+  const settings = {buildMode: 'recorded', mode: 'as', scope: '4-1', strategy: 'final', targetScopes: {as: ['4-1', '4-2']}, gap: '4'};
 
   api.reset(hsrData(rosterRows, templates), {...settings, sortMode: 'box'}, slugs, builds);
   assert.deepEqual(plain(api.plan()), ['box-left', 'box-right']);
@@ -2006,7 +2124,7 @@ test('ZZZ async scoring cache ignores search, limit-adjacent filters, and deboun
   assert.deepEqual(candidates.async, candidates.sync, 'cooperative joint preparation must preserve synchronous oracle ordering');
   assert.deepEqual(plain(await api.lockBoundary('s1')), {
     afterDraft: {'sd|final|s1': 'invalid-lock'},
-    afterFinalize: {},
+    afterFinalize: {'sd|final|s1': 'invalid-lock'},
   }, 'asynchronous candidate work must remain pure until the current request reconciles locks');
 });
 
@@ -2026,13 +2144,13 @@ test('ZZZ warn only displays risks, off keeps identical scores, and filter alone
   builds['risky-core'] = {level: 55, engine: 50, mindscape: 0, signature: 'no', skills: 'high', discs: 'good'};
   const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
 
-  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'warn'}, slugs, builds);
+  api.reset(data, {mode: 'sd', scope: 's1', buildMode: 'recorded', riskMode: 'warn'}, slugs, builds);
   const warn = plain(api.ranked('sd', 's1'));
   assert.ok(warn.find(item => item.id === 'risky-team').risks.some(risk => risk.includes('T5')));
   assert.ok(warn.find(item => item.id === 'risky-team').risks.some(risk => risk.includes('练度未成型')));
   assert.ok(warn.find(item => item.id === 'risky-team').risks.some(risk => risk.includes('近4期走弱')));
 
-  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'off'}, slugs, builds);
+  api.reset(data, {mode: 'sd', scope: 's1', buildMode: 'recorded', riskMode: 'off'}, slugs, builds);
   const off = plain(api.ranked('sd', 's1'));
   assert.deepEqual(
     off.map(item => ({id: item.id, score: item.score, scores: item.scores})),
@@ -2040,7 +2158,7 @@ test('ZZZ warn only displays risks, off keeps identical scores, and filter alone
     'warn must not change any score or recommendation order relative to off',
   );
 
-  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'filter'}, slugs, builds);
+  api.reset(data, {mode: 'sd', scope: 's1', buildMode: 'recorded', riskMode: 'filter'}, slugs, builds);
   assert.deepEqual(plain(api.ranked('sd', 's1')).map(item => item.id), ['safe-team']);
 });
 
@@ -2060,7 +2178,7 @@ test('ZZZ distinguishes unknown tiers and waives tier and trend reminders for se
   const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
   const data = zzzData(rosterRows, templates, tierRows);
   data.usageRows = [10, 7, 5, 3].map((app_rate, index) => ({character_slug: 't5-core', mode: 'sd', sub_mode: 'all', collect_date: `2026-07-0${index + 1}`, app_rate}));
-  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'warn'}, slugs, allBuilds(slugs, zzzFullBuild));
+  api.reset(data, {mode: 'sd', scope: 's1', buildMode: 'recorded', riskMode: 'warn'}, slugs, allBuilds(slugs, zzzFullBuild));
   const byId = Object.fromEntries(plain(api.ranked('sd', 's1')).map(item => [item.id, item]));
 
   assert.equal(api.tier('unknown-core', 'sd'), null);
@@ -2072,7 +2190,7 @@ test('ZZZ distinguishes unknown tiers and waives tier and trend reminders for se
   assert.equal(byId['unknown-team'].score, byId['t1-team'].score, 'tier warnings must not silently change warn-mode scores');
   assert.equal(byId['t1-team'].score, byId['t5-team'].score, 'settled agents with equal absolute builds must remain equal regardless of tier');
 
-  api.reset(data, {mode: 'sd', scope: 's1', riskMode: 'filter'}, slugs, allBuilds(slugs, zzzFullBuild));
+  api.reset(data, {mode: 'sd', scope: 's1', buildMode: 'recorded', riskMode: 'filter'}, slugs, allBuilds(slugs, zzzFullBuild));
   assert.deepEqual(plain(api.ranked('sd', 's1')).map(item => item.id).sort(), ['t1-team', 't5-team', 'unknown-team']);
 });
 
@@ -2093,7 +2211,7 @@ test('ZZZ treats unrecorded builds as unavailable evidence and scores only expli
     ...allBuilds(ready, zzzFullBuild),
   };
   const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
-  api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'warn', sortMode: 'box'}, slugs, builds);
+  api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', buildMode: 'recorded', riskMode: 'warn', sortMode: 'box'}, slugs, builds);
   const byId = Object.fromEntries(plain(api.ranked('sd', 's1')).map(item => [item.id, item]));
 
   assert.equal(byId['unrecorded-team'].recordedCount, 0);
@@ -2103,14 +2221,14 @@ test('ZZZ treats unrecorded builds as unavailable evidence and scores only expli
   assert.ok(byId['low-team'].risks.every(risk => risk.includes('练度待补')));
   assert.deepEqual(
     byId['unrecorded-team'].scoreParts.box.find(part => part.key === 'build'),
-    {key: 'build', label: '练度（录入 0/3）', value: 0, available: false},
+    {key: 'build', label: '练度', detail: '仅按已录入核心项扣除未成型短板；未填项不扣分，星魂/影画与专武不加分', value: 0, available: false},
     'unknown investment must contribute neither a positive baseline nor a negative penalty',
   );
-  assert.ok(byId['ready-team'].scores.box > byId['unrecorded-team'].scores.box);
+  assert.equal(byId['ready-team'].scores.box, byId['unrecorded-team'].scores.box);
   assert.ok(byId['ready-team'].scores.box > byId['low-team'].scores.box);
-  assert.ok(byId['low-team'].scores.box > byId['unrecorded-team'].scores.box, 'known partial investment is positive Box evidence while unknown investment is no evidence');
+  assert.ok(byId['low-team'].scores.box < byId['unrecorded-team'].scores.box, 'only known shortfalls count; unknown entries do not mean zero investment');
 
-  api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', riskMode: 'filter', sortMode: 'box'}, slugs, builds);
+  api.reset(zzzData(rosterRows, templates, tierRows), {mode: 'sd', scope: 's1', buildMode: 'recorded', riskMode: 'filter', sortMode: 'box'}, slugs, builds);
   assert.deepEqual(
     plain(api.ranked('sd', 's1')).map(item => item.id),
     ['ready-team', 'unrecorded-team'],
@@ -2258,6 +2376,58 @@ test('ZZZ hard constraints are scope-isolated and reserved characters remove con
     'reserved-next',
     'ZZZ reserved characters must remove a conflicting first choice and expose the next team',
   );
+});
+
+test('ZZZ joint plans apply concrete-stage constraints and comprehensive-pool constraints to every solution', async () => {
+  const teams = {
+    leftOne: ['left-pin', 'left-1a', 'left-1b'],
+    leftTwo: ['left-pin', 'left-2a', 'left-2b'],
+    leftExcluded: ['globally-excluded', 'left-xa', 'left-xb'],
+    rightOne: ['must-appear', 'right-1a', 'right-1b'],
+    rightTwo: ['must-appear', 'right-2a', 'right-2b'],
+    rightOrdinary: ['right-o1', 'right-o2', 'right-o3'],
+  };
+  const slugs = [...new Set(Object.values(teams).flat())];
+  const rosterRows = slugs.map((slug, index) => zzzCharacter(slug, slug.includes('1a') ? 'crit_dps' : 'support', index + 1));
+  const templates = [
+    zzzTemplate('comprehensive-marker', 'all', teams.rightOne, 1, 35),
+    zzzTemplate('left-excluded-best', 's1', teams.leftExcluded, 1, 35),
+    zzzTemplate('left-valid-one', 's1', teams.leftOne, 2, 30),
+    zzzTemplate('left-valid-two', 's1', teams.leftTwo, 3, 25),
+    zzzTemplate('right-ordinary-best', 's2', teams.rightOrdinary, 1, 35),
+    zzzTemplate('right-required-one', 's2', teams.rightOne, 20, 5),
+    zzzTemplate('right-required-two', 's2', teams.rightTwo, 30, 3),
+  ];
+  const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
+  api.reset(
+    zzzData(rosterRows, templates, slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: 'T0'}))),
+    {
+      mode: 'sd',
+      scope: 'all',
+      strategy: 'final',
+      targetScopes: {sd: ['s1', 's2']},
+      constraints: {
+        'sd|all': {required: ['must-appear'], excluded: ['globally-excluded']},
+        'sd|s1': {required: ['left-pin'], excluded: []},
+      },
+      gap: '3',
+    },
+    slugs,
+    allBuilds(slugs, zzzFullBuild),
+  );
+
+  assert.deepEqual(plain(api.planScopes()), ['s1', 's2'], 'the comprehensive pool must remain a plan-wide control, not a third team');
+  for (const result of [plain(api.slates()), plain(await api.slatesAsync())]) {
+    assert.ok(result.plans.length >= 2, 'the fixture must expose multiple compliant alternatives');
+    assert.equal(result.solver_meta.required_member_count, 1);
+    assert.equal(result.solver_meta.excluded_member_count, 1);
+    result.plans.forEach(plan => {
+      const members = plan.picks.flatMap(item => item.finalChars);
+      assert.ok(members.includes('must-appear'), 'a comprehensive-pool required agent must appear somewhere in the slate');
+      assert.ok(!members.includes('globally-excluded'), 'a comprehensive-pool excluded agent must appear nowhere in the slate');
+      assert.ok(plan.picks[0].finalChars.includes('left-pin'), 'the concrete first-stage requirement must still apply only to that stage');
+    });
+  }
 });
 
 test('ZZZ supports non-contiguous target stages and recomputes the joint plan for only those stages', () => {
@@ -2452,7 +2622,7 @@ test('ZZZ ranks each custom team with that team\'s own configured weaknesses', (
   assert.equal(ranked.find(item => item.id !== 'other-ice-team').coreHits, 0);
 });
 
-test('ZZZ theoretical substitutes use owned agents with matching role and prefer style before element', () => {
+test('ZZZ same-role same-style and same-element units cannot replace a missing source member', () => {
   const rosterRows = [
     {...zzzCharacter('fixed-core', 'crit_dps', 10), style_cn: '强攻', element_cn: '火'},
     {...zzzCharacter('fixed-flex', 'support', 11), style_cn: '防护', element_cn: '物理'},
@@ -2467,10 +2637,8 @@ test('ZZZ theoretical substitutes use owned agents with matching role and prefer
   api.reset(zzzData(rosterRows, [template]), {mode: 'sd', scope: 's1', gap: '3'}, owned, allBuilds(owned, zzzFullBuild));
 
   const ranked = plain(api.ranked('sd', 's1'))[0];
-  const substitution = ranked.substitutions.find(entry => entry.missing === 'missing-support');
-  assert.deepEqual(substitution.candidates, ['same-style', 'same-element']);
-  assert.ok(!substitution.candidates.includes('wrong-role'));
-  assert.deepEqual(ranked.finalChars, ['fixed-core', 'same-style', 'fixed-flex']);
+  assert.deepEqual(ranked.substitutions, []);
+  assert.deepEqual(ranked.finalChars, template.chars);
 
   api.reset(
     zzzData(rosterRows, [template]),
@@ -2479,11 +2647,11 @@ test('ZZZ theoretical substitutes use owned agents with matching role and prefer
     allBuilds(owned, zzzFullBuild),
   );
   const required = plain(api.ranked('sd', 's1'))[0];
-  assert.deepEqual(required.substitutions[0].candidates, [], 'a required missing agent must not be replaced by theory');
+  assert.deepEqual(required.substitutions, [], 'a required missing agent must not be replaced by theory');
   assert.ok(required.finalChars.includes('missing-support'));
 });
 
-test('ZZZ joint planning allocates theoretical substitutes globally and labels every substituted team C', () => {
+test('ZZZ joint planning uses source-team memberships and preserves real-team lock identities', () => {
   const rosterRows = [
     {...zzzCharacter('left-core', 'crit_dps', 10), style_cn: '强攻'},
     {...zzzCharacter('left-flex', 'support', 11), style_cn: '防护'},
@@ -2510,10 +2678,10 @@ test('ZZZ joint planning allocates theoretical substitutes globally and labels e
   const result = plain(api.slates());
   const picks = result.plans[0].picks;
   assert.deepEqual(picks.map(item => item.id), ['left-team', 'right-team']);
-  assert.ok(picks.every(item => item.evidenceConfidence === 'C'));
-  assert.ok(picks.every(item => item.finalMissingCount === 0));
+  assert.deepEqual(picks.map(item => item.finalChars), templates.map(item => item.chars));
+  assert.ok(picks.every(item => item.finalMissingCount === 1));
+  assert.ok(picks.every(item => item.substitutions.length === 0));
   assert.equal(new Set(picks.flatMap(item => item.finalChars)).size, 6);
-  assert.equal(new Set(picks.flatMap(item => item.substitutions.map(row => row.replacement))).size, 2);
 
   const realVariant = plain(api.slateCandidates(['s1']))[0].find(item => item.substitutions.length === 0);
   assert.equal(realVariant.slateKey, realVariant.baseKey, 'the original real-team key must remain backward compatible');
@@ -2524,7 +2692,7 @@ test('ZZZ joint planning allocates theoretical substitutes globally and labels e
   );
 });
 
-test('ZZZ substituted custom variants recompute final weakness matches while original evidence gates stay conservative', () => {
+test('ZZZ custom candidates retain source memberships and cannot evade gap or risk gates', () => {
   const rosterRows = [
     {...zzzCharacter('missing-ice-core', 'crit_dps', 10), style_cn: '强攻', element_cn: '冰'},
     {...zzzCharacter('fire-core', 'crit_dps', 1), style_cn: '强攻', element_cn: '火'},
@@ -2542,10 +2710,11 @@ test('ZZZ substituted custom variants recompute final weakness matches while ori
     allBuilds(owned, zzzFullBuild),
   );
   assert.equal(plain(api.ranked('sd', 'custom-1'))[0].attributeMatched, true, 'the real template records an Ice core');
-  const fireVariant = plain(api.slateCandidates(['custom-1']))[0].find(item => item.substitutions.some(row => row.replacement === 'fire-core'));
-  assert.equal(fireVariant.coreHits, 0);
-  assert.equal(fireVariant.attributeMatched, false, 'the actual substituted team must not inherit the missing Ice core match');
-  assert.equal(fireVariant.evidenceConfidence, 'C');
+  const candidates = plain(api.slateCandidates(['custom-1']))[0];
+  assert.equal(candidates.length, 1);
+  assert.deepEqual(candidates[0].finalChars, templates[0].chars);
+  assert.equal(candidates[0].attributeMatched, true);
+  assert.deepEqual(candidates[0].substitutions, []);
 
   api.reset(
     data,
@@ -2564,13 +2733,14 @@ test('ZZZ substituted custom variants recompute final weakness matches while ori
   assert.deepEqual(plain(api.slateCandidates(['custom-1']))[0], [], 'a C substitute must not rescue an original template rejected by the hard risk gate');
 });
 
-test('ZZZ recommendation cards expose accessible evidence tooltips and theoretical-substitute disclosure', () => {
+test('ZZZ recommendation cards expose accessible evidence tooltips without mechanical-substitute suggestions', () => {
   const app = readFileSync(ZZZ_APP, 'utf8');
   const styles = readFileSync(ZZZ_STYLE, 'utf8');
   assert.match(app, /bindAccessibleDetail\(card,'recTooltip'/);
   assert.match(app, /邦布证据/);
   assert.match(app, /原模板 Box/);
-  assert.match(app, /替补按同职责、同特性与同属性推演，证据最高 C/);
+  assert.match(app, /function substitutionHtml\(\)\{return ''\}/);
+  assert.doesNotMatch(app, /function substituteCandidates/);
   assert.match(styles, /\.rec-sub-evidence/);
   assert.match(styles, /\.rec-slate-evidence\.real/);
   assert.match(styles, /\.rec-solution-summary span\.theory/);
@@ -2738,7 +2908,7 @@ test('ZZZ migrates legacy Nom Box state and scoped recommendation constraints wi
     },
   }));
   assert.deepEqual(migratedConstraints, {
-    'sd|s1': {required: ['norma'], excluded: ['other']},
+    'sd|s1': {required: ['norma'], excluded: ['norma', 'other']},
     'sd|s2': {required: [], excluded: ['norma']},
   });
 });
@@ -3986,5 +4156,71 @@ for (const [game, appPath] of [['HSR', HSR_APP], ['ZZZ', ZZZ_APP]]) {
     contract.releaseFirstPut();
     assert.equal(await flushing, '本机自动保存');
     assert.equal(contract.putCount(), 2);
+  });
+}
+
+
+for (const game of ['HSR', 'ZZZ']) {
+  const isHSR = game === 'HSR';
+  const mode = isHSR ? 'as' : 'sd';
+  const scope = isHSR ? '4-1' : 's1';
+  const size = isHSR ? 4 : 3;
+  const fullBuild = isHSR ? hsrFullBuild : zzzFullBuild;
+  const chars = Array.from({length: size}, (_, index) => `member-${index}`);
+  const roster = chars.map((slug, index) => isHSR
+    ? hsrCharacter(slug, '火', index ? 'support' : 'main_dps', '同谐', index + 1)
+    : zzzCharacter(slug, index ? 'support' : 'crit_dps', index + 1));
+  const template = isHSR
+    ? hsrTemplate('source-team', scope, chars, 1, 20)
+    : zzzTemplate('source-team', scope, chars, 1, 20);
+  const data = isHSR ? hsrData(roster, [template]) : zzzData(roster, [template]);
+  const api = () => loadContract(isHSR ? HSR_APP : ZZZ_APP, isHSR ? HSR_HARNESS : ZZZ_HARNESS);
+  const lowBuild = isHSR
+    ? {level: 20, lc: 20, traces: 'low', relics: 'none'}
+    : zzzLowBuild();
+
+  test(`${game} default ranking and risk filtering are invariant to omitted or partial build forms`, () => {
+    const contract = api();
+    const dataWithTier = {...data, tierRows: [{character_slug: chars[0], tier_mode: mode, tier: 'T1'}]};
+    for (const riskMode of ['warn', 'filter']) {
+      let baseline;
+      for (const builds of [{}, allBuilds(chars, fullBuild), {[chars[0]]: lowBuild}, {[chars[0]]: {level: isHSR ? 80 : 60}}]) {
+        contract.reset(dataWithTier, {mode, scope, riskMode, sortMode: 'box'}, chars, builds);
+        const snapshot = plain(contract.ranked(mode, scope)).map(item => ({id: item.id, scores: item.scores, risks: item.risks}));
+        baseline ??= snapshot;
+        assert.deepEqual(snapshot, baseline, 'merely filling in the form must not change default scores or risk eligibility');
+      }
+    }
+    contract.reset(data, {mode, scope, riskMode: 'filter'}, chars, {});
+    const picked = plain(contract.slates()).plans[0].picks[0];
+    assert.equal(picked.finalMissingCount, 0, 'owned members remain deployable with unknown builds');
+    assert.equal(isHSR ? picked.finalBuildReadyCount : picked.finalReadyCount, 0, 'unknown builds must not be labeled ready');
+  });
+
+  test(`${game} recorded build mode only counts known shortfalls and separates cached score modes`, async () => {
+    const contract = api();
+    const settings = {mode, scope, buildMode: 'recorded', sortMode: 'box', riskMode: 'warn'};
+    let neutralScore;
+    const partialMax = {level: isHSR ? 80 : 60};
+    const configOnly = isHSR ? {eidolon: 6, signature: 'yes'} : {mindscape: 6, signature: 'yes'};
+    for (const builds of [{}, allBuilds(chars, fullBuild), {[chars[0]]: partialMax}, {[chars[0]]: configOnly}]) {
+      contract.reset(data, settings, chars, builds);
+      const item = plain(contract.ranked(mode, scope))[0];
+      neutralScore ??= item.score;
+      assert.equal(item.score, neutralScore, 'unknown, formed, partial max and configuration-only records receive no fill-form bonus');
+      assert.ok(!item.risks.some(risk => String(risk).includes('build-') || String(risk).includes('练度')));
+    }
+    contract.reset(data, {...settings, buildMode: 'ignore'}, chars, {[chars[0]]: lowBuild});
+    const ignored = plain(await contract.rankedAsync(mode, scope))[0];
+    contract.setBuildMode('recorded');
+    const recorded = plain(await contract.rankedAsync(mode, scope))[0];
+    assert.ok(recorded.score < ignored.score, 'only explicitly recorded shortfalls should reduce Box score');
+    contract.setBuildMode('ignore');
+    assert.deepEqual(plain(await contract.rankedAsync(mode, scope))[0], ignored, 'switching back must not reuse recorded-build scores');
+    contract.setBuildMode('recorded');
+    contract.setRiskAndGap('filter', 0);
+    assert.deepEqual(plain(contract.ranked(mode, scope)), [], 'the explicit recorded-build filter may reject a known low build');
+    contract.reset(data, {...settings, riskMode: 'filter'}, chars, {});
+    assert.equal(plain(contract.ranked(mode, scope)).length, 1, 'the same filter must retain unknown builds');
   });
 }
