@@ -16,7 +16,8 @@
 
 ## 当前状态
 
-- 2026-09-23 清理盘点：工作区文件合计约 1.17 GiB；主要为 Git 历史约 525 MiB、旧验证目录约 328 MiB、双游戏导出约 241 MiB。已在 `AGENTS.md` 将每次交付前清理列为强制完成条件。独立复审确认可清理重复依赖、生成缓存与两组旧回滚，保留最近一组回滚、源码/patch/证据及业务数据；实际删除被执行工具策略拦截（普通缓存的收窄操作同样被拦截），本轮未释放空间，清理仍待执行。
+- 2026-10-02：修复双游戏显式空采样导致的更新失败，当前 Desktop、CLI 与每日任务已同步；双游戏真实按钮、桌面数据和正式任务均通过校验，详见下方本次交付记录。
+- 2026-10-02 清理已执行：移除 24 项编译缓存、重复依赖、生成前端和两组旧回滚，共 5.78 GiB 文件，D 盘可用空间增加约 5.03 GiB。保留一组已校验的前版 Desktop/CLI（41.46 MiB）、源码/锁文件/证据、Git 历史和业务导出；9 月 23 日受策略阻拦的清理已收口。
 - 工作区已安全迁移到 `D:\Projects\终局内容提取`；6,111 个不可再生项目文件与 16,301 个归档文件逐路径 SHA-256 校验均为零差异，迁移回执保存在归档目录。
 - D 盘迁移后重建验证：Rust workspace 迁移测试持续通过，frozen pnpm install、Vite build 与 Tauri `--no-bundle` 通过；双游戏 visualizer 契约、Rust 实现、真实 CLI、Hub 与浏览器冒烟现已全部收口。
 - 工作区治理完成：业务资产已归档到 `D:\Projects\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
@@ -764,6 +765,13 @@
 - 左侧候选增加整队锁定；硬约束可切换本关/本队或全局，全局必上至少在一队出现、排除覆盖每队，按模式与策略保存并兼容旧约束。失效/冲突锁保留并提供手动解锁。HSR 指定形态与跨队部署互斥分开判断；三队搜索修正低位次可行队被分支上限挤掉及第 32 位必上掩码误判，仍明确为有界搜索。
 - 验证：Node 181/181、Python Visualizer 87 passed / 2 live deselected、Rust Visualizer 48/48，三份 Release 构建与 7 项嵌入资源校验通过。安装版隐藏 CDP 完成 ZZZ → HSR → ZZZ，双策略实测练度保存、左右锁队、全局必上/排除、冲突保留及恢复；正常退出 0、端口和子进程清理，HSR/ZZZ Box（63/26 owned）SHA-256 全程不变。探针运行需临时从 PATH 移除重复 Node 路径，避免 Get-Command 返回两个可执行路径；未改系统环境。
 - 已更新 `D:\Miho Endgame` 的 Desktop/人工 CLI（SHA-256 前缀 `AE9E2ACA30B1` / `669A58AC1F9F`）。owner-aware attempt `installer-60d1f8a05cc34f69806d7fa67b6ed3d9` healthy，唯一无窗 generation 为 `miho-0.1.0-7f086148662966557c8cb0d60c8453b748db7d8a7b7f2e931f5aaf8043647cd7`；每日 09:30 任务 Ready / LastTaskResult=0，无切换 journal。未进入安装器或 portable 链；本次四项既有未提交推荐器改动已在同一交付中验证收口。
+
+### 2026-10-02：显式空采样引发的 HSR 更新失败
+
+- 上游 `4.6.1` 配置明确 `moc: null`，旧实现仍请求不存在的 chars/comps 目录并制造新期次，触发 `update.hsr_export.degraded`。共享 pipeline 对两游戏只跳过显式 null 的模式；缺失/畸形配置、已配置模式的抓取故障及缓存降级仍保留原门禁。MoC 最新真实样本为 `2026-09-17`，PF/AS/AA 为 `2026-10-01`，不伪造新鲜度。
+- 定点检查：pipeline 25、data quality 12、native runner 33 项通过；Rust fmt、diff check、完整 `pnpm run tauri:build` 与三份 EXE 的 7 项嵌入资源校验通过。已更新 `D:\Miho Endgame` Desktop/人工 CLI，owner-aware candidate healthy，唯一无窗 generation 前缀为 `c1df29ee419b`。正式任务 attempt `20261002T095805228796Z-201976-0` 完成双游戏 network export 和报告，Running → Ready、退出 0、health true，下次 `2026-10-03 09:30`。未扩展全量本地矩阵或安装器链。
+- 真实 HSR/ZZZ 按钮均提交成功；正常宿主重启后的 DOM 显示当前权威 revision，Box 保持 66/26 owned 且文件 SHA-256 不变，程序正常退出 0、调试端口与临时任务已清理。隐藏窗口自动刷新未在 60 秒探针内观察到，不声称该时序已通过；前端刷新代码未改。MoC 陈旧提示与既有 Excel 长单元格 best-effort warning 继续保留。
+- 验证环境：工具宿主启动的 AppData export 返回错误 17。独立只读 WinAPI 复核发现其 workspace 父目录与 out/out_zzz 子目录卷身份不同，具体映射机制尚未确认；正常 Explorer 按钮和 Task Scheduler 宿主均可提交。后续遇到同类工具宿主错误时，使用正常系统宿主验收，保留原目录事务。小回执及唯一前版回滚保存在 `.codex_work/hsr-update-20261002`；清理保留 `.git`（525.63 MiB）和 `out`/`out_zzz`（206.74/42.17 MiB）。
 
 ## 恢复入口
 

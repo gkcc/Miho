@@ -16,7 +16,7 @@ const MAX_PIPELINE_FETCH_CONCURRENCY: usize = 4;
 use crate::{
     contract::{
         diagnostic_code, Diagnostic, DiagnosticSeverity, DiagnosticSource, ExportContext,
-        ExportOutcome,
+        ExportOutcome, GameMode,
     },
     hf::TreeEntry,
     hsr::{
@@ -442,13 +442,13 @@ pub async fn run_source_export<S: SnapshotSource>(
                 push_hsr_raw_json(&mut dataset, "config.json", &config)?;
             }
             for (snapshot, snapshot_tree) in snapshot_inputs {
+                let modes = snapshot_modes(&config, &snapshot, &request.modes);
                 let snapshot_paths = snapshot_tree
                     .iter()
                     .map(|entry| entry.path.as_str())
                     .collect::<Vec<_>>();
                 let mut mode_files = BTreeMap::new();
-                let mode_tree_paths = request
-                    .modes
+                let mode_tree_paths = modes
                     .iter()
                     .flat_map(|mode| {
                         [
@@ -458,7 +458,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                     })
                     .collect::<Vec<_>>();
                 let mut mode_trees = fetch_tree_batch(source, mode_tree_paths).await.into_iter();
-                for mode in &request.modes {
+                for mode in &modes {
                     let (chars_path, chars_result) = mode_trees
                         .next()
                         .expect("each requested mode should have a chars tree result");
@@ -524,7 +524,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                 } else {
                     Value::Array(vec![])
                 };
-                for mode in &request.modes {
+                for mode in &modes {
                     let config_missing = config.get(&snapshot).is_none();
                     let mut entry = config
                         .get(&snapshot)
@@ -640,6 +640,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                 push_zzz_raw_json(&mut dataset, "config.json", &config)?;
             }
             for (snapshot, snapshot_tree) in snapshot_inputs {
+                let modes = snapshot_modes(&config, &snapshot, &request.modes);
                 let paths = snapshot_tree
                     .iter()
                     .map(|entry| entry.path.as_str())
@@ -665,8 +666,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                 } else {
                     Value::Array(vec![])
                 };
-                let mode_tree_paths = request
-                    .modes
+                let mode_tree_paths = modes
                     .iter()
                     .flat_map(|mode| {
                         [
@@ -676,7 +676,7 @@ pub async fn run_source_export<S: SnapshotSource>(
                     })
                     .collect::<Vec<_>>();
                 let mut mode_trees = fetch_tree_batch(source, mode_tree_paths).await.into_iter();
-                for mode in &request.modes {
+                for mode in &modes {
                     let (chars_tree, chars_result) = mode_trees
                         .next()
                         .expect("each requested mode should have a chars tree result");
@@ -1013,6 +1013,21 @@ fn push_zzz_raw_json(
         .raw_text_artifacts
         .push((format!("raw/hf/{source_path}"), text));
     Ok(())
+}
+
+fn snapshot_modes(config: &Value, snapshot: &str, requested: &[GameMode]) -> Vec<GameMode> {
+    requested
+        .iter()
+        .filter(|mode| {
+            // An explicit null means this snapshot has no sample for the mode.
+            // Missing or malformed configuration must keep its existing diagnostics.
+            !config
+                .get(snapshot)
+                .and_then(|entry| entry.get(mode.code()))
+                .is_some_and(Value::is_null)
+        })
+        .copied()
+        .collect()
 }
 
 fn diagnostic_from_message(
@@ -2053,6 +2068,143 @@ mod tests {
             field(&headers, alice, "character_name_cn"),
             "爱丽丝·泰姆菲尔德"
         );
+    }
+
+    #[tokio::test]
+    async fn explicit_null_modes_keep_the_last_real_sample_for_both_games() {
+        for (game, unavailable, available) in [
+            (Game::Hsr, GameMode::HsrMoc, GameMode::HsrPf),
+            (Game::Zzz, GameMode::ZzzDa, GameMode::ZzzSd),
+        ] {
+            let mut source = MemorySource::default();
+            source.trees.insert(
+                String::new(),
+                vec![
+                    tree_entry("1.0.0", "directory"),
+                    tree_entry("2.0.0", "directory"),
+                ],
+            );
+            source.json.insert(
+                "config.json".into(),
+                serde_json::json!({
+                    "1.0.0": {
+                        "collect_date": "2026-01-01",
+                        (unavailable.code()): {"ver": "1.0.0"},
+                        (available.code()): {"ver": "1.0.0"}
+                    },
+                    "2.0.0": {
+                        "collect_date": "2026-01-02",
+                        (unavailable.code()): null,
+                        (available.code()): {"ver": "2.0.0"}
+                    }
+                }),
+            );
+            for snapshot in ["1.0.0", "2.0.0"] {
+                source.trees.insert(
+                    snapshot.into(),
+                    vec![tree_entry(&format!("{snapshot}/builds.json"), "file")],
+                );
+                // Even shared usage carrying a value for the unavailable mode
+                // must not manufacture a new sample or phase for that mode.
+                source.json.insert(
+                    format!("{snapshot}/builds.json"),
+                    serde_json::json!([{
+                        "char": "A",
+                        (format!("app_rate_{unavailable}")): 10,
+                        (format!("app_rate_{available}")): 20
+                    }]),
+                );
+            }
+            for leaf in ["chars", "comps"] {
+                source
+                    .list_failures
+                    .insert(format!("2.0.0/{unavailable}/{leaf}"));
+            }
+            let mut request = hsr_request();
+            request.game = game;
+            request.modes = vec![unavailable, available];
+            request.features.hf_teams = true;
+            let run = run_source_export(&source, &request).await.unwrap();
+            assert!(run.warnings.is_empty(), "{game:?}: {:?}", run.warnings);
+            assert!(run.errors.is_empty(), "{game:?}: {:?}", run.errors);
+            let (headers, phases) = csv_table(&run.bundle, "phase_index.csv");
+            assert_eq!(phases.len(), 3, "{game:?}");
+            let unavailable_phases = phases
+                .iter()
+                .filter(|row| field(&headers, row, "mode") == unavailable.code())
+                .collect::<Vec<_>>();
+            assert_eq!(unavailable_phases.len(), 1, "{game:?}");
+            assert_eq!(
+                field(&headers, unavailable_phases[0], "snapshot_id"),
+                "1.0.0"
+            );
+            assert_eq!(
+                field(&headers, unavailable_phases[0], "collect_date"),
+                "2026-01-01"
+            );
+            assert!(phases.iter().any(|row| {
+                field(&headers, row, "mode") == available.code()
+                    && field(&headers, row, "snapshot_id") == "2.0.0"
+            }));
+            let (headers, usage) = csv_table(&run.bundle, "character_usage_long.csv");
+            assert_eq!(usage.len(), 3, "{game:?}");
+            assert!(!usage.iter().any(|row| {
+                field(&headers, row, "mode") == unavailable.code()
+                    && field(&headers, row, "snapshot_id") == "2.0.0"
+            }));
+            assert!(!source
+                .listed
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|path| { path.starts_with(&format!("2.0.0/{unavailable}/")) }));
+        }
+    }
+
+    #[test]
+    fn snapshot_modes_only_omit_explicit_null_and_preserve_requested_order() {
+        let requested = [GameMode::HsrMoc, GameMode::HsrPf, GameMode::HsrAs];
+        let config = serde_json::json!({"1.0.0": {"pf": null, "as": {"ver": "1"}}});
+        assert_eq!(
+            snapshot_modes(&config, "1.0.0", &requested),
+            [requested[0], requested[2]]
+        );
+        for value in [
+            serde_json::json!({}),
+            serde_json::json!(null),
+            serde_json::json!({
+                "1.0.0": {"moc": false, "pf": "invalid", "as": []}
+            }),
+        ] {
+            assert_eq!(snapshot_modes(&value, "1.0.0", &requested), requested);
+        }
+    }
+
+    #[tokio::test]
+    async fn configured_mode_tree_failures_remain_errors_for_both_games() {
+        for (game, mode) in [(Game::Hsr, GameMode::HsrMoc), (Game::Zzz, GameMode::ZzzSd)] {
+            let mut source = MemorySource::default();
+            source
+                .trees
+                .insert(String::new(), vec![tree_entry("1.0.0", "directory")]);
+            source.json.insert(
+                "config.json".into(),
+                serde_json::json!({
+                    "1.0.0": {"collect_date": "2026-01-01", (mode.code()): {"ver": "1"}}
+                }),
+            );
+            let failed_path = format!("1.0.0/{mode}/comps");
+            source.list_failures.insert(failed_path.clone());
+            let mut request = hsr_request();
+            request.game = game;
+            request.modes = vec![mode];
+            let run = run_source_export(&source, &request).await.unwrap();
+            assert!(
+                run.errors.iter().any(|error| error.contains(&failed_path)),
+                "{game:?}"
+            );
+            assert!(source.listed.lock().unwrap().contains(&failed_path));
+        }
     }
 
     #[tokio::test]

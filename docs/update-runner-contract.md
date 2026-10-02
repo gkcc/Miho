@@ -79,6 +79,13 @@ successful binding removes the pending facts automatically. Ambiguous or
 invalid identities, malformed announcements and network/cache failures retain
 their failure behavior. This is not a last-good or stale-source fallback.
 
+For both games, an explicit mode `null` in the fetched Hugging Face snapshot
+configuration means that snapshot has no sample for that mode. Do not request
+its chars/comps directories or manufacture phase, usage, team or histograph
+rows; keep that mode's latest real sample from another snapshot. Missing or
+malformed configuration, failures for configured modes and cache fallback
+retain their existing diagnostic and freshness requirements.
+
 ## Durable state and receipts
 
 Files live below `.miho`:
