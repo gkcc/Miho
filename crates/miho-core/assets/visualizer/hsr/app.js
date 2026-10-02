@@ -24,7 +24,7 @@ const desktopMode=globalThis.__MIHO_DESKTOP__===true;
 let DATA=null,DATA_INDEX=null,dataEpoch=0,boxStateRevision=0;
 let state={page:PAGES.has(location.hash.slice(1))?location.hash.slice(1):'box',mode:'moc',view:'trend',role:'main_dps',tiers:new Set(TIERS),metric:'app_rate',limit:'12',search:'',avatars:true,focus:null,hover:null};
 let box={owned:new Set(),builds:{},buildSlug:'',element:'all',path:'all',role:'all',rarity:'all',status:'all',search:'',saveStatus:'浏览器缓存',exportStatus:''};
-let rec={mode:'moc',scope:'',strategy:'final',constraintScope:'local',buildMode:'ignore',sortMode:'balanced',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:{},constraints:{},locks:{},gap:'1',riskMode:'warn',limit:'8',search:''};
+let rec={mode:'moc',scope:'',strategy:'final',constraintScope:'local',buildMode:'ignore',sortMode:'balanced',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:{},constraints:{},locks:{},teamExclusions:{},gap:'1',riskMode:'warn',limit:'8',search:''};
 const BANNER_PHASES=[['current','当期UP'],['next','后续卡池'],['recent','历史参考'],['all','全部含已结束']];
 const DATE_DRIVEN_BANNER_STATUSES=new Set(['current','next','previous','expired','past']);
 const BANNER_STATUS_ORDER={current:0,next:1,satellite:2,recent:3,previous:4,expired:5,past:6};
@@ -307,7 +307,7 @@ function resetCurrentPage(){
     renderBanner();return;
   }
   if(state.page==='recommender'){
-    rec={mode:'moc',scope:'',strategy:'final',constraintScope:'local',buildMode:'ignore',sortMode:'balanced',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:rec.elements||{},constraints:rec.constraints||{},locks:{},gap:'1',riskMode:'warn',limit:'8',search:''};
+    rec={mode:'moc',scope:'',strategy:'final',constraintScope:'local',buildMode:'ignore',sortMode:'balanced',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:rec.elements||{},constraints:rec.constraints||{},locks:{},teamExclusions:rec.teamExclusions||{},gap:'1',riskMode:'warn',limit:'8',search:''};
     recConstraintMessage='';
     ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();return;
   }
@@ -592,8 +592,8 @@ function recSortMeta(mode=rec.sortMode){const key=normalizeRecSortMode(mode);ret
   history:{key,label:'历史表现',scoreLabel:'历史参考分',description:'只比较同模式候选池内的 Rank、占比和有效表现，不代表当前 Box 可立即成队。'},
   box:{key,label:'Box 即战力',scoreLabel:'Box 分',description:'比较拥有、缺口和跨队冲突；默认忽略练度，可选按已录入短板扣分。阵容均来自完整实战样本。'},
 }[key];}
-function loadRecSettings(){try{const raw=JSON.parse(localStorage.getItem(REC_KEY)||'{}');rec={...rec,...raw,strategy:raw.strategy==='custom'?'custom':'final',constraintScope:raw.constraintScope==='global'?'global':'local',buildMode:normalizeRecBuildMode(raw.buildMode),sortMode:normalizeRecSortMode(raw.sortMode),teamCounts:normalizeRecTeamCounts(raw.teamCounts),targetScopes:normalizeRecTargetScopes(raw.targetScopes),elements:raw.elements&&typeof raw.elements==='object'&&!Array.isArray(raw.elements)?raw.elements:{},constraints:raw.constraints&&typeof raw.constraints==='object'&&!Array.isArray(raw.constraints)?raw.constraints:{},locks:normalizeRecLocks(raw.locks),riskMode:raw.riskMode||'warn'};}catch{rec={...rec,strategy:'final',constraintScope:'local',buildMode:'ignore',sortMode:'balanced',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:{},constraints:{},locks:{},riskMode:'warn'};}ensureRecScope();}
-function saveRecSettings(){localStorage.setItem(REC_KEY,JSON.stringify({updatedAt:new Date().toISOString(),mode:rec.mode,scope:rec.scope,strategy:rec.strategy,constraintScope:rec.constraintScope==='global'?'global':'local',buildMode:normalizeRecBuildMode(rec.buildMode),sortMode:normalizeRecSortMode(rec.sortMode),teamCounts:rec.teamCounts,targetScopes:rec.targetScopes,gap:rec.gap,riskMode:rec.riskMode||'warn',limit:rec.limit,search:rec.search,elements:rec.elements,constraints:rec.constraints,locks:normalizeRecLocks(rec.locks)}));}
+function loadRecSettings(){try{const raw=JSON.parse(localStorage.getItem(REC_KEY)||'{}');rec={...rec,...raw,strategy:raw.strategy==='custom'?'custom':'final',constraintScope:raw.constraintScope==='global'?'global':'local',buildMode:normalizeRecBuildMode(raw.buildMode),sortMode:normalizeRecSortMode(raw.sortMode),teamCounts:normalizeRecTeamCounts(raw.teamCounts),targetScopes:normalizeRecTargetScopes(raw.targetScopes),elements:raw.elements&&typeof raw.elements==='object'&&!Array.isArray(raw.elements)?raw.elements:{},constraints:raw.constraints&&typeof raw.constraints==='object'&&!Array.isArray(raw.constraints)?raw.constraints:{},locks:normalizeRecLocks(raw.locks),teamExclusions:normalizeRecTeamExclusions(raw.teamExclusions),riskMode:raw.riskMode||'warn'};}catch{rec={...rec,strategy:'final',constraintScope:'local',buildMode:'ignore',sortMode:'balanced',teamCounts:{...DEFAULT_REC_TEAM_COUNTS},targetScopes:{},elements:{},constraints:{},locks:{},teamExclusions:{},riskMode:'warn'};}ensureRecScope();}
+function saveRecSettings(){localStorage.setItem(REC_KEY,JSON.stringify({updatedAt:new Date().toISOString(),mode:rec.mode,scope:rec.scope,strategy:rec.strategy,constraintScope:rec.constraintScope==='global'?'global':'local',buildMode:normalizeRecBuildMode(rec.buildMode),sortMode:normalizeRecSortMode(rec.sortMode),teamCounts:rec.teamCounts,targetScopes:rec.targetScopes,gap:rec.gap,riskMode:rec.riskMode||'warn',limit:rec.limit,search:rec.search,elements:rec.elements,constraints:rec.constraints,locks:normalizeRecLocks(rec.locks),teamExclusions:normalizeRecTeamExclusions(rec.teamExclusions)}));}
 function recTeamCount(mode=rec.mode){return String(rec.teamCounts?.[mode])==='3'?3:2}
 function isCustomScope(scope){return /^custom-[123]$/.test(String(scope||''))}
 function recSettingKey(mode=rec.mode,scope=rec.scope){return `${mode}|${scope||''}`}
@@ -601,6 +601,71 @@ function recLockKey(scope,mode=rec.mode,strategy=rec.strategy){return `${mode}|$
 function recLockedVariantKey(scope,mode=rec.mode,strategy=rec.strategy){return normalizeRecLocks(rec.locks)[recLockKey(scope,mode,strategy)]||''}
 function clearRecLock(scope,mode=rec.mode,strategy=rec.strategy){const key=recLockKey(scope,mode,strategy);if(!rec.locks||!Object.prototype.hasOwnProperty.call(rec.locks,key))return false;delete rec.locks[key];return true}
 function recElementSet(mode=rec.mode,scope=rec.scope){return new Set(rec.elements[recSettingKey(mode,scope)]||[])}
+
+// Battle feedback belongs to a complete party in one stage, independently of character constraints.
+function recTeamChars(value){return(Array.isArray(value)?value:value?.finalChars||value?.template?.chars||value?.chars||[]).filter(slug=>typeof slug==='string'&&slug.trim()).map(canonicalSlug).sort()}
+function recTeamSignature(value){return JSON.stringify(recTeamChars(value))}
+function normalizeRecTeamExclusions(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))return{};
+  const output={};
+  for(const [key,rows] of Object.entries(value)){
+    const parts=key.split('|');if(parts.length!==3||!MODES.some(mode=>mode[0]===parts[0])||!['final','custom'].includes(parts[1])||!parts[2]||parts[2]==='all'||!Array.isArray(rows))continue;
+    const teams=new Map();for(const row of rows){if(!Array.isArray(row))continue;const chars=recTeamChars(row);if(chars.length!==4||new Set(chars).size!==4)continue;teams.set(JSON.stringify(chars),chars);}
+    if(teams.size)output[key]=[...teams.values()];
+  }
+  return output;
+}
+function recExcludedTeamRows(scope,mode=rec.mode,strategy=rec.strategy){return normalizeRecTeamExclusions(rec.teamExclusions)[recLockKey(scope,mode,strategy)]||[]}
+function isRecTeamExcluded(scope,item,mode=rec.mode,strategy=rec.strategy){const signature=recTeamSignature(item);return recExcludedTeamRows(scope,mode,strategy).some(chars=>JSON.stringify(chars)===signature)}
+function refreshRecTeamFeedback(){recScoredPoolCache.clear();recSlateCandidateCache.clear();recListRequestId+=1;recSlateRequestId+=1;saveRecSettings();renderRecommender();}
+function excludeRecTeam(scope,item){
+  const scopeKey=scope.key||scope,chars=recTeamChars(item);
+  if(!scopeKey||scopeKey==='all'||chars.length!==4||new Set(chars).size!==4||item.template?.mode&&item.template.mode!==rec.mode||isCustomScope(scopeKey)!==(rec.strategy==='custom'))return false;
+  if(isRecTeamExcluded(scopeKey,chars))return false;
+  const key=recLockKey(scopeKey),rows=recExcludedTeamRows(scopeKey);rec.teamExclusions=normalizeRecTeamExclusions(rec.teamExclusions);rec.teamExclusions[key]=[...rows,chars];
+  const lockedKey=recLockedVariantKey(scopeKey),scopeIndex=recPlanScopes().findIndex(entry=>entry.key===scopeKey),locked=recSlateCurrentPrepared?.fullCandidateLists?.[scopeIndex]?.find(candidate=>candidate.variantKey===lockedKey);
+  const storedChars=lockedKey.split('|').slice(2,-1);
+  if(lockedKey&&(lockedKey===item.variantKey||locked&&recTeamSignature(locked)===recTeamSignature(chars)||recTeamSignature(storedChars)===recTeamSignature(chars)))clearRecLock(scopeKey);
+  recSlateNotice=`已仅在 ${scope.label||scopeKey} 排除此队；其他关的选择保留。可在“微调某一关”中恢复。`;
+  refreshRecTeamFeedback();return true;
+}
+function restoreRecTeam(scope,chars){
+  const key=recLockKey(scope),signature=recTeamSignature(chars),rows=recExcludedTeamRows(scope).filter(team=>JSON.stringify(team)!==signature);
+  rec.teamExclusions=normalizeRecTeamExclusions(rec.teamExclusions);if(rows.length)rec.teamExclusions[key]=rows;else delete rec.teamExclusions[key];
+  recSlateNotice='已恢复本关这支队伍，重新计算方案。';refreshRecTeamFeedback();
+}
+function openRecFineTune(scope){
+  if(!recPlanScopes().some(entry=>entry.key===scope.key))return false;
+  rec.scope=scope.key;rec.constraintScope='local';rec.search='';saveRecSettings();syncRecControls();renderRecommender({recomputeSlate:false});
+  const panel=$('recFineTune');if(panel){panel.open=true;panel.scrollIntoView?.({behavior:'smooth',block:'start'});}return true;
+}
+function selectRecPlan(scopes,plan){
+  const active=recPlanScopes(),prepared=recSlateCurrentPrepared;
+  if(scopes.length!==active.length||scopes.some((scope,index)=>scope.key!==active[index].key)||plan.picks.length!==scopes.length||!plan.picks.every(Boolean)||!prepared)return false;
+  const used=new Set();for(let index=0;index<scopes.length;index++){
+    const item=plan.picks[index];if(isRecTeamExcluded(scopes[index].key,item)||!prepared.fullCandidateLists?.[index]?.some(candidate=>candidate.variantKey===item.variantKey))return false;
+    for(const slug of slateItemSlugs(item)){if(used.has(slug))return false;used.add(slug);}
+  }
+  rec.locks=normalizeRecLocks(rec.locks);scopes.forEach((scope,index)=>{rec.locks[recLockKey(scope.key)]=plan.picks[index].variantKey;});
+  recSlateNotice='已选用整套方案。可从其中一关进入微调，其他关保持锁定。';saveRecSettings();renderRecommender();return true;
+}
+function attachRecTeamActions(card,scope,item,{fineTune=true}={}){
+  const row=document.createElement('div');row.className='rec-team-actions';
+  if(fineTune){const edit=document.createElement('button');edit.type='button';edit.textContent='微调本关';edit.className='rec-fine-tune-button';edit.onclick=event=>{event.stopPropagation();openRecFineTune(scope);};row.appendChild(edit);}
+  const exclude=document.createElement('button');exclude.type='button';exclude.className='rec-team-exclude-button';exclude.textContent='本关排除此队';exclude.title='仅排除本关的完整成员组合；其他关仍可使用这些成员';exclude.onclick=event=>{event.stopPropagation();excludeRecTeam(scope,item);};row.appendChild(exclude);card.appendChild(row);
+}
+function attachRecPlanAction(section,scopes,plan){
+  const selected=plan.picks.every((item,index)=>item&&recLockedVariantKey(scopes[index].key)===item.variantKey);
+  section.classList.toggle('selected',selected);const button=document.createElement('button');button.type='button';button.className='rec-select-plan-button';button.textContent=selected?'已选用这套方案':'选用这套方案';button.disabled=selected||!plan.picks.every(Boolean);button.onclick=()=>selectRecPlan(scopes,plan);section.prepend(button);
+}
+function renderRecTeamFeedback(){
+  const scopes=recPlanScopes(),current=scopes.find(scope=>scope.key===rec.scope),scopeLabel=current?.label||rec.scope,summary=$('recTeamExclusionSummary'),list=$('recTeamExclusionList');
+  const label=$('recFineTuneScope');if(label)label.textContent=scopeLabel? `· ${scopeLabel}`:'';
+  if(summary){summary.innerHTML='';for(const scope of scopes){const count=recExcludedTeamRows(scope.key).length;if(!count)continue;const button=document.createElement('button');button.type='button';button.textContent=`${scope.label} 已排除 ${count} 队 · 查看 / 恢复`;button.onclick=()=>openRecFineTune(scope);summary.appendChild(button);}}
+  if(list){list.innerHTML='';const rows=recExcludedTeamRows(rec.scope);if(!rows.length)list.textContent=rec.scope==='all'?'请先选择具体关卡。':'本关尚未排除队伍。';rows.forEach(chars=>{const row=document.createElement('div');row.className='rec-excluded-team';const text=document.createElement('span');text.textContent=chars.map(charName).join(' / ');const button=document.createElement('button');button.type='button';button.textContent='恢复';button.className='rec-team-restore-button';button.onclick=()=>restoreRecTeam(rec.scope,chars);row.append(text,button);list.appendChild(row);});}
+  const replan=$('recReplanBtn');if(replan){replan.disabled=!scopes.some(scope=>recLockedVariantKey(scope.key));replan.onclick=()=>{scopes.forEach(scope=>clearRecLock(scope.key));recSlateNotice='已解除当前整套方案的锁定，按已保存的排除反馈重新选队。';saveRecSettings();renderRecommender();};}
+}
+
 function setRecElementSet(set,mode=rec.mode,scope=rec.scope){rec.elements[recSettingKey(mode,scope)]=[...set].sort((a,b)=>ELEMENT_ORDER.indexOf(a)-ELEMENT_ORDER.indexOf(b));}
 function recConstraintKey(mode=rec.mode,scope=rec.scope,strategy=rec.strategy){return `${mode}|${strategy==='custom'?'custom':'final'}|${scope||''}`}
 function recConstraintEditScope(){return rec.constraintScope==='global'||rec.scope==='all'?'all':rec.scope}
@@ -904,15 +969,16 @@ function scoredPoolContext(mode=rec.mode,scope=rec.scope,used=new Set(),options=
   const constraints=options.constraints||recSlateScopeConstraints(mode,scope);
   const reserved=new Set([...(options.reserved||[])].map(deploymentGroup));
   const weaknessDriven=isCustomScope(scope);
-  const key=JSON.stringify([dataEpoch,boxStateRevision,mode,scope,rec.strategy,normalizeRecBuildMode(rec.buildMode),stableSetKey(selected),stableSetKey(constraints.required,canonicalSlug),stableSetKey(constraints.excluded,canonicalSlug),stableSetKey(used,deploymentGroup),stableSetKey(reserved)]);
-  const templates=scopeTemplates(mode,scope).filter(t=>templateMatchesConstraints(t,constraints)&&templateHasUniqueDeployments(t));
-  return{key,mode,scope,selected,constraints,reserved,weaknessDriven,used,templates};
+  const key=JSON.stringify([dataEpoch,boxStateRevision,mode,scope,rec.strategy,normalizeRecBuildMode(rec.buildMode),stableSetKey(selected),stableSetKey(constraints.required,canonicalSlug),stableSetKey(constraints.excluded,canonicalSlug),stableSetKey(used,deploymentGroup),stableSetKey(reserved),recExcludedTeamRows(scope,mode).map(recTeamSignature).sort()]);
+  const templates=scopeTemplates(mode,scope).filter(t=>templateMatchesConstraints(t,constraints)&&templateHasUniqueDeployments(t)&&!isRecTeamExcluded(scope,t,mode));
+  return{key,mode,scope,strategy:rec.strategy,selected,constraints,reserved,weaknessDriven,used,templates};
 }
 function buildScoredPoolSync(context){const existing=recScoredPoolCache.get(context.key);if(Array.isArray(existing))return existing;const scored=finalizeRecommendationScores(context.templates.map(template=>scoreTemplate(template,context.selected,context.used,context.constraints,context.reserved,{targetScope:context.scope,weaknessDriven:context.weaknessDriven})),'balanced');return putBoundedCache(recScoredPoolCache,context.key,scored)}
 function buildScoredPoolAsync(context){const existing=recScoredPoolCache.get(context.key);if(Array.isArray(existing))return Promise.resolve(existing);if(existing&&typeof existing.then==='function')return existing;const runtime=globalThis.MihoSlateSolver,promise=runtime.cooperativeMap(context.templates,template=>scoreTemplate(template,context.selected,context.used,context.constraints,context.reserved,{targetScope:context.scope,weaknessDriven:context.weaknessDriven}),{budgetMs:8}).then(scored=>{const finalized=finalizeRecommendationScores(scored,'balanced');if(recScoredPoolCache.get(context.key)===promise)recScoredPoolCache.set(context.key,finalized);return finalized;}).catch(error=>{if(recScoredPoolCache.get(context.key)===promise)recScoredPoolCache.delete(context.key);throw error;});return putBoundedCache(recScoredPoolCache,context.key,promise)}
 function projectRankedPool(scored,context,options={}){
   const maxGap=Number(options.maxGap??rec.gap),q=options.ignoreSearch?'':rec.search,sortMode=normalizeRecSortMode(options.sortMode??rec.sortMode),riskMode=options.riskMode||rec.riskMode||'warn';
   return scored.map(item=>({...item,scoreMode:sortMode,score:item.scores[sortMode]})).filter(item=>{
+    if(isRecTeamExcluded(context.scope,item,context.mode,context.strategy))return false;
     if(Number.isFinite(maxGap)&&item.missingCount>maxGap)return false;
     if(riskMode==='filter'&&item.risks.length)return false;
     if(context.reserved.size&&item.finalChars.some(slug=>context.reserved.has(deploymentGroup(slug))))return false;
@@ -987,12 +1053,13 @@ function renderRecommender(options={}){
   const phaseInfo=recommendationPhaseInfo(latest);
   syncFreshnessNavigation(rec.mode,phaseInfo);
   renderPhaseMechanics(latest);
+  renderRecTeamFeedback();
   $('recTitle').textContent=`${modeLabel} · ${scope?.label||rec.scope}`;
   const freshness=modeFreshness(rec.mode,phaseInfo);
   const templateLabel=freshnessTemplateLabel(freshness.status,custom?'当前模式完整实战阵容池':'当前同节点实战模板');
   const sortMeta=recSortMeta();
   const strategyNote=custom?'跨全部具体战斗侧去重；核心输出命中任一弱点优先':`${plannedScopes.length}队联合优化；同节点实战排序优先；弱点默认仅标注，不参与加减分；选择“过滤风险”时才硬筛选`;
-  $('recSubtitle').textContent=`${phaseLabel(latest)} · ${latest.collect_date||''} · ${freshnessStatusLabel(freshness.status)} · ${templateLabel} ${templates.length} 队 · ${sortMeta.description} · ${strategyNote}${rec.search?' · 搜索只筛选左侧候选，不会改动右侧联合方案':''}`;
+  $('recSubtitle').textContent=`${phaseLabel(latest)} · ${latest.collect_date||''} · ${freshnessStatusLabel(freshness.status)} · ${templateLabel} ${templates.length} 队 · ${sortMeta.description} · ${strategyNote}${rec.search?' · 搜索只筛选本关候选，不会改动整套方案':''}`;
   const riskLabel=rec.riskMode==='filter'?'过滤风险':rec.riskMode==='off'?'忽略风险':'仅提醒';
   const tierRiskLabel=rec.riskMode==='off'?'T档/趋势不提醒':'已成型只看即战力';
   const freshnessBadge=freshnessBadgeHtml(freshness);
@@ -1057,6 +1124,7 @@ function recCard(item,index){
   card.innerHTML=`<div class="rec-card-head"><div><h3>${index}. ${esc((t.names_cn||[]).filter(Boolean).join(' / ')||t.chars.map(charName).join(' / '))}</h3><div class="rec-meta">${esc(item.weaknessDriven?`来源 ${sourceScope}`:sourceScope)} · Rank ${esc(rankDisplayText(t.rank))} · ${t.app_rate==null?'-':pct(t.app_rate)} · ${esc(performanceSummary(item.performance))}</div></div><div class="rec-score"><strong>${Math.round(item.score)}</strong><span>${esc(scoreMeta.scoreLabel)}</span><span>${item.ownedCount}/4 已拥有</span><span>练度已录入 ${item.buildRecordedCount}/${item.ownedCount}</span></div></div>${scoreReferencesHtml(item)}${scoreBreakdownHtml(item)}<div class="rec-team">${item.members.map(m=>recMemberHtml(m,item)).join('')}</div><div class="rec-tags">${recTags(item).map(tag=>`<span class="${tag.danger?'danger':tag.warn?'warn':''}">${esc(tag.text)}</span>`).join('')}</div>${riskNoteHtml(item)}${substitutionHtml(item)}${missingNames.length?`<div class="rec-note">缺：${esc(missingNames.join('、'))}</div>`:''}`;
   bindAccessibleDetail(card,'recTooltip',event=>showRecTooltip(event,item),`查看第 ${index} 队推荐的完整证据与评分`);
   attachRecCandidateLockControls(card,item);
+  if(rec.scope&&rec.scope!=='all')attachRecTeamActions(card,{key:rec.scope,label:recScopeOptions(rec.mode).find(scope=>scope.key===rec.scope)?.label||rec.scope},item,{fineTune:false});
   return card;
 }
 
@@ -1117,6 +1185,7 @@ function toggleRecTargetScope(scopeKey){
   recConstraintMessage='';saveRecSettings();syncRecControls();renderRecommender();
 }
 function renderRecTargetScopeControls(){
+  const division=$('recDivisionControl');if(division){division.innerHTML='';division.classList.toggle('hidden',rec.mode!=='aa'||rec.strategy==='custom');if(rec.mode==='aa'&&rec.strategy!=='custom')for(const [key,label] of [['1-1','骑士关（三队）'],['2-1','王棋关（一队）']]){const button=document.createElement('button');button.type='button';button.textContent=label;const active=(rec.scope==='2-1')===(key==='2-1');button.className=`rec-lock-button ${active?'active':''}`;button.setAttribute('aria-pressed',String(active));button.onclick=()=>{rec.scope=key;ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();};division.appendChild(button);}}
   const root=$('recTargetScopeButtons');if(!root)return;root.innerHTML='';
   const selected=new Set(selectedFinalRecScopes().map(scope=>scope.key));
   finalRecScopes().forEach(scope=>{const button=document.createElement('button');button.type='button';button.dataset.value=scope.key;button.textContent=scope.label;button.classList.toggle('active',selected.has(scope.key));button.setAttribute('aria-pressed',String(selected.has(scope.key)));button.title=selected.has(scope.key)&&selected.size===1?'至少保留一个参战关卡':`${selected.has(scope.key)?'取消':'加入'}联合优化：${scope.label}`;button.onclick=()=>toggleRecTargetScope(scope.key);root.appendChild(button);});
@@ -1226,6 +1295,7 @@ function renderRecActiveLocks(root){
   scopes.forEach(scope=>{const button=document.createElement('button');button.type='button';button.className='rec-lock-button active';button.textContent=`${scope.label} 已锁定 · 解锁`;button.onclick=()=>{clearRecLock(scope.key);recSlateNotice=`${scope.label} 已解锁。`;saveRecSettings();renderRecSlate();syncRecCandidateLockControls();};row.appendChild(button);});root.prepend(row);
 }
 function toggleRecSlateLock(scope,item){
+  if(isRecTeamExcluded(scope.key,item))return;
   const current=recLockedVariantKey(scope.key);if(current===item.variantKey){clearRecLock(scope.key);recSlateNotice=`${scope.label} 已解锁。`;saveRecSettings();renderRecSlate();syncRecCandidateLockControls();return;}
   const selectedScopes=recPlanScopes(),groups=slateItemSlugs(item),prepared=recSlateCurrentPrepared;
   for(let index=0;index<selectedScopes.length;index++){const otherScope=selectedScopes[index];if(otherScope.key===scope.key)continue;const otherKey=recLockedVariantKey(otherScope.key);if(!otherKey)continue;const other=prepared?.fullCandidateLists?.[index]?.find(candidate=>candidate.variantKey===otherKey);if(other&&[...slateItemSlugs(other)].some(group=>groups.has(group))){recSlateNotice=`无法锁定 ${scope.label}：与 ${otherScope.label} 的已锁阵容复用角色。`;renderRecSlateResult(recSlateCurrentPrepared?.result||{plans:[],solver_meta:{},scopes:selectedScopes});return;}}
@@ -1237,18 +1307,18 @@ function renderRecSlateTeamCard(scope,item,scoreMeta){
   if(!item){card.innerHTML=`<h3>${esc(scope.label)}</h3><div class="rec-note">没有同时满足缺口、角色约束与不复用要求的队伍</div>`;return card;}
   card.onmouseenter=e=>showRecTooltip(e,item);card.onmousemove=moveTooltip;card.onmouseleave=()=>scheduleTooltipClose($('recTooltip'));
   const locked=recLockedVariantKey(scope.key)===item.variantKey,subText=item.isSubstituted?`<div class="rec-slate-evidence"><b>替补推演 · 证据最高 C</b>：${item.substitutionAssignments.map(row=>`${esc(charName(row.missing))} → ${esc(charName(row.replacement))}`).join('；')}。历史指标仍来自原模板「${esc((item.template.names_cn||[]).filter(Boolean).join(' / '))}」。</div>`:`<div class="rec-slate-evidence real">原始实证队伍 · ${esc(templateEvidenceSummary(item.template))}。${esc(item.template.evidence_comment||'')}</div>`;
-  card.innerHTML=`<div class="rec-slate-card-head"><h3>${esc(scope.label)} · ${esc(scoreMeta.scoreLabel)} ${Math.round(item.score)} · 缺口 ${item.finalMissingCount}</h3><button type="button" class="rec-lock-button ${locked?'active':''}">${locked?'已锁定':'锁定本关'}</button></div><div class="rec-slate-team">${item.finalMembers.map(member=>`<img class="${member.owned?'':'missing'} ${member.risks.length&&rec.riskMode!=='off'?'risky':''}" src="${esc(member.info.icon_url)}" title="${esc(charName(member.slug))}" alt="">`).join('')}</div><div class="rec-slate-coverage">最终阵容 ${item.finalOwnedCount}/4 已拥有 · 练度已录入 ${item.finalBuildRecordedCount}/${item.finalOwnedCount} · 成型 ${item.finalBuildReadyCount}/${item.finalBuildRecordedCount}</div>${subText}${riskNoteHtml(item)}`;
-  const lockButton=card.querySelector('.rec-lock-button');lockButton.setAttribute('aria-pressed',String(locked));lockButton.onclick=event=>{event.stopPropagation();toggleRecSlateLock(scope,item);};bindAccessibleDetail(card,'recTooltip',event=>showRecTooltip(event,item),`查看 ${scope.label} 联合方案详情`);return card;
+  card.innerHTML=`<div class="rec-slate-card-head"><h3>${esc(scope.label)} · ${esc(scoreMeta.scoreLabel)} ${Math.round(item.score)} · 缺口 ${item.finalMissingCount}</h3><button type="button" class="rec-lock-button ${locked?'active':''}">${locked?'已锁定':'锁定本关'}</button></div><div class="rec-slate-team">${item.finalMembers.map(member=>`<div class="rec-slate-member"><img class="${member.owned?'':'missing'} ${member.risks.length&&rec.riskMode!=='off'?'risky':''}" src="${esc(member.info.icon_url)}" title="${esc(charName(member.slug))}" alt=""><span>${esc(charName(member.slug))}</span></div>`).join('')}</div><div class="rec-slate-coverage">最终阵容 ${item.finalOwnedCount}/4 已拥有 · 练度已录入 ${item.finalBuildRecordedCount}/${item.finalOwnedCount} · 成型 ${item.finalBuildReadyCount}/${item.finalBuildRecordedCount}</div>${subText}${riskNoteHtml(item)}`;
+  const lockButton=card.querySelector('.rec-lock-button');lockButton.setAttribute('aria-pressed',String(locked));lockButton.onclick=event=>{event.stopPropagation();toggleRecSlateLock(scope,item);};attachRecTeamActions(card,scope,item);bindAccessibleDetail(card,'recTooltip',event=>showRecTooltip(event,item),`查看 ${scope.label} 联合方案详情`);return card;
 }
 function recSlatePlanStats(plan){const items=plan.picks.filter(Boolean),members=new Set(items.flatMap(item=>item.finalMembers.map(member=>canonicalSlug(member.slug))));return{score:plan.displayScore,missing:items.reduce((sum,item)=>sum+item.finalMissingCount,0),owned:items.reduce((sum,item)=>sum+item.finalOwnedCount,0),recorded:items.reduce((sum,item)=>sum+item.finalBuildRecordedCount,0),ready:items.reduce((sum,item)=>sum+item.finalBuildReadyCount,0),members};}
 function signedSlateDelta(value,digits=0){const rounded=digits?Number(value).toFixed(digits):String(Math.round(value));return`${value>0?'+':''}${rounded}`}
 function recSlateRoleDiff(plan,best){const current=recSlatePlanStats(plan).members,baseline=recSlatePlanStats(best).members,added=[...current].filter(slug=>!baseline.has(slug)).sort((a,b)=>charName(a).localeCompare(charName(b))),removed=[...baseline].filter(slug=>!current.has(slug)).sort((a,b)=>charName(a).localeCompare(charName(b)));if(!added.length&&!removed.length)return'变化角色：无';return`变化角色：${[added.length&&`新增 ${added.map(charName).join('、')}`,removed.length&&`移出 ${removed.map(charName).join('、')}`].filter(Boolean).join('；')}`;}
 function renderRecSlateResult(result){
   const scopes=result.scopes||recPlanScopes(),plans=result.plans||[],scoreMeta=recSortMeta(),meta=result.solver_meta||{},strategyLabel=rec.strategy==='custom'?'跨节点阵容池联合选队':'已选实战节点联合选队（综合池约束全局生效；未选关卡不预留角色）',slateTemplate=plans[0]?.picks?.find(Boolean)?.template,freshness=modeFreshness(rec.mode,recommendationPhaseInfo(slateTemplate)),historical=freshness.status==='stale';
-  $('recSlateSubtitle').textContent=`${historical?'历史样本 · ':''}${plans[0]?.filled||0}/${scopes.length} 队 · 目标：${scoreMeta.label} · ${strategyLabel} · 最多 3 套 · 搜索只筛左侧，不触发重算`;
+  $('recSlateSubtitle').textContent=`${historical?'历史样本 · ':''}${plans[0]?.filled||0}/${scopes.length} 队 · 目标：${scoreMeta.label} · ${strategyLabel} · 最多 3 套 · 先选用整套方案，再微调本关`;
   const status=$('recSlateStatus');if(status)status.textContent=[recSlateNotice,recSlateSearchMeta(meta)].filter(Boolean).join(' ');
-  syncRecCandidateLockControls();const boxEl=$('recSlateList');boxEl.innerHTML='';if(!plans.length){boxEl.innerHTML='<div class="rec-empty">暂无满足当前条件的完整实证方案。请调整参战关卡或约束；不会自动替换角色或放宽锁定。</div>';renderRecActiveLocks(boxEl);return;}
-  const best=plans[0],bestStats=recSlatePlanStats(best);plans.slice(0,3).forEach((plan,index)=>{const stats=recSlatePlanStats(plan),changes=index?plan.picks.filter((item,scopeIndex)=>(item?.variantKey||'')!==(best.picks[scopeIndex]?.variantKey||'')).length:0,hasSubstitution=plan.picks.some(item=>item?.isSubstituted),diff=index?`较首选：分差 ${signedSlateDelta(stats.score-bestStats.score,1)} · 变化 ${changes} 关 · 缺口 ${signedSlateDelta(stats.missing-bestStats.missing)} · 练度录入 ${signedSlateDelta(stats.recorded-bestStats.recorded)} · 成型 ${signedSlateDelta(stats.ready-bestStats.ready)}`:'当前口径联合最优',roles=index?recSlateRoleDiff(plan,best):'变化角色：基准方案';const section=document.createElement('section');section.className=`rec-slate-solution ${historical?'historical':''}`;section.innerHTML=`<div class="rec-slate-solution-head"><div><strong>方案 ${index+1}${index?'':' · 首选'}</strong><span>${esc(diff)}</span></div><div class="rec-slate-summary">${historical?'<span class="history">历史样本</span>':''}<span>总缺口 ${stats.missing}</span><span>练度 ${stats.recorded}/${stats.owned}</span><span>成型 ${stats.ready}/${stats.recorded}</span>${hasSubstitution?'<span class="theory">含 C 级替补推演</span>':'<span>全为原始实证队</span>'}</div></div><div class="rec-slate-diff">${esc(roles)}</div>`;plan.picks.forEach((item,scopeIndex)=>section.appendChild(renderRecSlateTeamCard(scopes[scopeIndex],item,scoreMeta)));boxEl.appendChild(section);});
+  renderRecTeamFeedback();syncRecCandidateLockControls();const boxEl=$('recSlateList');boxEl.innerHTML='';if(!plans.length){boxEl.innerHTML='<div class="rec-empty">暂无满足当前条件的完整实证方案。请调整参战关卡或约束；不会自动替换角色或放宽锁定。</div>';renderRecActiveLocks(boxEl);return;}
+  const best=plans[0],bestStats=recSlatePlanStats(best);plans.slice(0,3).forEach((plan,index)=>{const stats=recSlatePlanStats(plan),changes=index?plan.picks.filter((item,scopeIndex)=>(item?.variantKey||'')!==(best.picks[scopeIndex]?.variantKey||'')).length:0,hasSubstitution=plan.picks.some(item=>item?.isSubstituted),diff=index?`较首选：分差 ${signedSlateDelta(stats.score-bestStats.score,1)} · 变化 ${changes} 关 · 缺口 ${signedSlateDelta(stats.missing-bestStats.missing)} · 练度录入 ${signedSlateDelta(stats.recorded-bestStats.recorded)} · 成型 ${signedSlateDelta(stats.ready-bestStats.ready)}`:'当前口径联合最优',roles=index?recSlateRoleDiff(plan,best):'变化角色：基准方案';const section=document.createElement('section');section.className=`rec-slate-solution ${historical?'historical':''}`;section.innerHTML=`<div class="rec-slate-solution-head"><div><strong>方案 ${index+1}${index?'':' · 首选'}</strong><span>${esc(diff)}</span></div><div class="rec-slate-summary">${historical?'<span class="history">历史样本</span>':''}<span>总缺口 ${stats.missing}</span><span>练度 ${stats.recorded}/${stats.owned}</span><span>成型 ${stats.ready}/${stats.recorded}</span>${hasSubstitution?'<span class="theory">含 C 级替补推演</span>':'<span>全为原始实证队</span>'}</div></div><div class="rec-slate-diff">${esc(roles)}</div>`;plan.picks.forEach((item,scopeIndex)=>section.appendChild(renderRecSlateTeamCard(scopes[scopeIndex],item,scoreMeta)));attachRecPlanAction(section,scopes,plan);boxEl.appendChild(section);});
   renderRecActiveLocks(boxEl);recSlateNotice='';
 }
 function renderRecSlate(){

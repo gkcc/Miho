@@ -16,8 +16,9 @@
 
 ## 当前状态
 
+- 2026-10-02：双游戏推荐页改为先选择整套多队方案，再微调本关；新增按关保存、可恢复的完整队伍排除。当前桌面、人工 CLI 与每日任务 generation 已同步，真实按钮流程和精确健康校验通过。
 - 2026-10-02：修复双游戏显式空采样导致的更新失败，当前 Desktop、CLI 与每日任务已同步；双游戏真实按钮、桌面数据和正式任务均通过校验，详见下方本次交付记录。
-- 2026-10-02 清理已执行：移除 24 项编译缓存、重复依赖、生成前端和两组旧回滚，共 5.78 GiB 文件，D 盘可用空间增加约 5.03 GiB。保留一组已校验的前版 Desktop/CLI（41.46 MiB）、源码/锁文件/证据、Git 历史和业务导出；9 月 23 日受策略阻拦的清理已收口。
+- 2026-10-02 本次多队方案交付清理已执行：移除 28 项编译缓存、依赖、生成前端、临时探针和旧回滚，共 6.10 GiB 文件，D 盘可用空间增加约 5.13 GiB。唯一前版 Desktop/CLI（41.33 MiB）保存在 `.codex_work/multi-team-20261002/rollback`；保留源码、锁文件、证据、Git 历史和业务导出。初轮 pytest 的 1.17 MiB 临时文件位于 AppData，按保留规则未删除，详见本次交付记录。
 - 工作区已安全迁移到 `D:\Projects\终局内容提取`；6,111 个不可再生项目文件与 16,301 个归档文件逐路径 SHA-256 校验均为零差异，迁移回执保存在归档目录。
 - D 盘迁移后重建验证：Rust workspace 迁移测试持续通过，frozen pnpm install、Vite build 与 Tauri `--no-bundle` 通过；双游戏 visualizer 契约、Rust 实现、真实 CLI、Hub 与浏览器冒烟现已全部收口。
 - 工作区治理完成：业务资产已归档到 `D:\Projects\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
@@ -771,7 +772,14 @@
 - 上游 `4.6.1` 配置明确 `moc: null`，旧实现仍请求不存在的 chars/comps 目录并制造新期次，触发 `update.hsr_export.degraded`。共享 pipeline 对两游戏只跳过显式 null 的模式；缺失/畸形配置、已配置模式的抓取故障及缓存降级仍保留原门禁。MoC 最新真实样本为 `2026-09-17`，PF/AS/AA 为 `2026-10-01`，不伪造新鲜度。
 - 定点检查：pipeline 25、data quality 12、native runner 33 项通过；Rust fmt、diff check、完整 `pnpm run tauri:build` 与三份 EXE 的 7 项嵌入资源校验通过。已更新 `D:\Miho Endgame` Desktop/人工 CLI，owner-aware candidate healthy，唯一无窗 generation 前缀为 `c1df29ee419b`。正式任务 attempt `20261002T095805228796Z-201976-0` 完成双游戏 network export 和报告，Running → Ready、退出 0、health true，下次 `2026-10-03 09:30`。未扩展全量本地矩阵或安装器链。
 - 真实 HSR/ZZZ 按钮均提交成功；正常宿主重启后的 DOM 显示当前权威 revision，Box 保持 66/26 owned 且文件 SHA-256 不变，程序正常退出 0、调试端口与临时任务已清理。隐藏窗口自动刷新未在 60 秒探针内观察到，不声称该时序已通过；前端刷新代码未改。MoC 陈旧提示与既有 Excel 长单元格 best-effort warning 继续保留。
-- 验证环境：工具宿主启动的 AppData export 返回错误 17。独立只读 WinAPI 复核发现其 workspace 父目录与 out/out_zzz 子目录卷身份不同，具体映射机制尚未确认；正常 Explorer 按钮和 Task Scheduler 宿主均可提交。后续遇到同类工具宿主错误时，使用正常系统宿主验收，保留原目录事务。小回执及唯一前版回滚保存在 `.codex_work/hsr-update-20261002`；清理保留 `.git`（525.63 MiB）和 `out`/`out_zzz`（206.74/42.17 MiB）。
+- 验证环境：工具宿主启动的 AppData export 返回错误 17。独立只读 WinAPI 复核发现其 workspace 父目录与 out/out_zzz 子目录卷身份不同，具体映射机制尚未确认；正常 Explorer 按钮和 Task Scheduler 宿主均可提交。后续遇到同类工具宿主错误时，使用正常系统宿主验收，保留原目录事务。小回执保存在 `.codex_work/hsr-update-20261002`；该次前版回滚已由下方多队方案交付的唯一前版替代。清理保留 `.git`（525.63 MiB）和 `out`/`out_zzz`（206.74/42.17 MiB）。
+
+### 2026-10-02：多队方案优先与本关整队排除
+
+- HSR/ZZZ 主区展示整套多队方案，选用后保留各关队伍，再按需展开本关微调。完整成员组合可仅在指定模式、场景和关卡排除、持久保存及恢复；排除只解除对应队伍的本关锁定，其余关卡锁队和角色约束保持。换采样记录不会绕过排除；HSR 保留不同形态，ZZZ 不把邦布视为队伍成员。异相仲裁主区提供骑士三队/王棋一队选择。推荐仍基于当前 Box 与已有证据，不假定临时提升练度。
+- 验证：推荐器 190/190；Python Visualizer 前轮 73 项通过，更新六个 UI 资源契约哈希后对四项失败及 Hub 做定点复查，5 项通过。Vite、三份 Release 构建、每份 EXE 的 7 项精确嵌入资源及 PE 子系统校验通过。`scripts/probe_multi_team_workflow_v1.mjs` 在当前安装版和真实 Box 上完成两游戏选用第二套、微调、按关排除、刷新持久化、恢复与重选整套，另验证 HSR 仲裁分区；原偏好及 66/26 owned Box 哈希均恢复或保持不变。未扩展全量本地 Rust 矩阵或安装器链。
+- 已更新 `D:\Miho Endgame` Desktop/人工 CLI（SHA-256 前缀 `7A57E5C5288B` / `1897BB17CEF6`）。owner-aware candidate 和最终只读 health 均为 healthy，精确 attempt 为 `installer-467b78847b12460789b691d7bf92e335`；唯一无窗 generation 前缀 `3eac9ad06cfd`，正式任务 Ready/Enabled，下次 `2026-10-03 09:30`。小回执在 `.codex_work/multi-team-20261002`；桌面已从正常 Explorer 宿主打开。
+- 清理前检查绝对路径、链接祖先、tracked 文件及进程/任务消费者，实际移除 6.10 GiB 文件（D 盘增加 5.13 GiB），仅保留已验证的前版 Desktop/CLI 41.33 MiB。初轮测试临时目录 `C:\Users\zy958\AppData\Local\Temp\pytest-of-zy958\pytest-1361`（1.17 MiB）按 AppData 保留规则留存。隐藏测试宿主的关闭请求未到达既有关闭协调器，正常退出未验证；身份、Box 和更新状态核对后仅终止本次宿主及其 8 个 WebView 子进程，端口与临时任务已清除，关闭代码未改。
 
 ## 恢复入口
 

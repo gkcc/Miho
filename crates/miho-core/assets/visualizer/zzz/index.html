@@ -56,23 +56,30 @@
   </section>
 
   <section id="recommenderView" class="hidden">
+    <div class="rec-workflow-intro"><h2>先选多队方案，再微调本关</h2><p>按当前 Box 分配整套队伍；某关打不过，可以仅在本关排除这支队伍。</p></div>
+    <section class="controls rec-controls rec-overview-controls" aria-label="整套方案条件">
+      <div class="control-field"><span class="control-label" id="recModeControlLabel">模式</span><div id="recModeControl" class="segmented" role="group" aria-labelledby="recModeControlLabel"></div></div>
+      <label for="recSortSelect">排序口径<select id="recSortSelect"><option value="balanced" selected>综合推荐</option><option value="history">历史表现</option><option value="box">Box 即战力</option></select></label>
+      <label for="recBuildSelect">练度<select id="recBuildSelect" title="只参考已录入练度；不会假定临时提升练度"><option value="ignore" selected>忽略练度（默认）</option><option value="recorded">参考已录入练度</option></select></label>
+      <label for="recGapSelect">缺口<select id="recGapSelect"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="3">显示全部</option></select></label>
+      <label for="recRiskSelect">风险<select id="recRiskSelect"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></label>
+    </section>
     <section class="controls rec-target-controls rec-plan-controls" id="recPlanControls" aria-label="推荐场景">
       <div class="control-field"><span class="control-label" id="recStrategyControlLabel">推荐场景</span><div id="recStrategyControl" class="segmented" role="group" aria-labelledby="recStrategyControlLabel"></div></div>
       <label id="recTeamCountControl" for="recTeamCountSelect">方案队数<select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></label>
       <div class="control-field" id="recTargetScopeGroup"><span class="control-label" id="recTargetScopeControlLabel">参战关卡（可多选）</span><div id="recTargetScopeControl" class="segmented" role="group" aria-labelledby="recTargetScopeControlLabel"></div></div>
       <p id="recStrategyHint"></p>
     </section>
-    <section class="controls rec-controls">
-      <div class="control-field"><span class="control-label" id="recModeControlLabel">模式</span><div id="recModeControl" class="segmented" role="group" aria-labelledby="recModeControlLabel"></div></div>
+    <section class="panel rec-slate rec-primary-slate" aria-label="多队方案"><div class="panel-head"><div><h2>多队方案</h2><p id="recSlateSubtitle"></p><p id="recSlateMeta" class="rec-solver-meta"></p><p id="recSlateMessage" class="rec-slate-message" aria-live="polite"></p></div><button id="recReplanBtn" type="button" class="quiet">重新选择整套方案</button></div><div id="recTeamExclusionSummary" class="rec-team-exclusion-summary"></div><div id="recSlateList" class="rec-slate-list"></div></section>
+    <details id="recFineTune" class="rec-fine-tune">
+    <summary>微调某一关 <span id="recFineTuneScope"></span></summary>
+    <section class="controls rec-controls" aria-label="本关微调条件">
       <label for="recScopeSelect"><span id="recScopeLabel">实战关卡</span><select id="recScopeSelect"></select></label>
       <div class="control-field"><span class="control-label" id="recElementControlLabel">敌方弱点（默认仅标注）</span><div id="recElementControl" class="segmented" role="group" aria-labelledby="recElementControlLabel"></div></div>
-      <label for="recSortSelect">排序口径<select id="recSortSelect"><option value="balanced" selected>综合推荐</option><option value="history">历史表现</option><option value="box">Box 即战力</option></select></label>
-      <label for="recBuildSelect">练度<select id="recBuildSelect" title="忽略练度时，未填或已填均不影响排序与过滤；参考练度时只考虑已录入的不足，未填不扣分"><option value="ignore" selected>忽略练度（默认）</option><option value="recorded">参考已录入练度</option></select></label>
-      <label for="recGapSelect">缺口<select id="recGapSelect"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="3">显示全部</option></select></label>
-      <label for="recRiskSelect">风险<select id="recRiskSelect"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></label>
       <label for="recLimitSelect">数量<select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></label>
       <label for="recSearchInput">搜索<input id="recSearchInput" type="search" placeholder="角色 / 队伍 / 邦布" /></label>
     </section>
+    <section class="rec-team-exclusions" aria-label="本关已排除的队伍"><h3>本关已排除的队伍</h3><p>按三名代理人的组合保存，换采样记录或邦布也不会再次推荐。可随时恢复。</p><div id="recTeamExclusionList"></div></section>
     <section class="rec-constraints" aria-label="代理人硬约束">
       <div class="constraint-picker">
         <label for="recCharacterSelect">代理人硬约束 <span id="recConstraintScopeHint">按当前模式与关卡保存</span></label>
@@ -92,10 +99,8 @@
       </div>
     </section>
     <section id="phaseMechanics" class="phase-mechanics"><div><h2 id="phaseTitle">当期数据</h2><p id="phaseDates"></p></div><p id="phaseText"></p></section>
-    <section class="rec-layout">
       <section class="panel"><div class="panel-head"><div><h2 id="recTitle">组队推荐</h2><p id="recSubtitle"></p></div><div id="recBadges" class="badges"></div></div><div id="recList" class="rec-list"></div></section>
-      <aside class="panel rec-slate"><div class="panel-head"><div><h2>多队方案</h2><p id="recSlateSubtitle"></p><p id="recSlateMeta" class="rec-solver-meta"></p><p id="recSlateMessage" class="rec-slate-message" aria-live="polite"></p></div></div><div id="recSlateList" class="rec-slate-list"></div></aside>
-    </section>
+    </details>
     <div id="recTooltip" class="tooltip" role="tooltip" hidden></div>
   </section>
 </main>

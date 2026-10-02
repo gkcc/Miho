@@ -21,9 +21,11 @@ function loadGame(game){
   const hsr=game==='hsr',sets=hsr?'recConstraintSets':'constraintSets',setter=hsr?'setRecConstraintSets':'setConstraintSets',save=hsr?'saveRecSettings':'saveRec',load=hsr?'loadRecSettings':'loadRec';
   const harness=`
     ${hsr?'renderRecommender':'renderRec'}=()=>{};
+    ${hsr?'syncRecControls':'syncRec'}=()=>{};
+    renderRecSlate=()=>{};
     ${hsr?'syncRecConstraintControls':'syncConstraintControls'}=()=>{};
     globalThis.contract={
-      reset(data,settings={}){${hsr?'initializeVisualizerData':'installVisualizerData'}(data);rec={...rec,mode:'${hsr?'as':'sd'}',scope:'s1',strategy:'final',constraintScope:'local',buildMode:'ignore',constraints:{},locks:{},targetScopes:{},elements:{},teamCounts:{...DEFAULT_REC_TEAM_COUNTS},gap:'0',riskMode:'off',search:'',...settings};box.owned=new Set(DATA.rosterRows.map(row=>row.character_slug));box.builds={};},
+      reset(data,settings={}){${hsr?'initializeVisualizerData':'installVisualizerData'}(data);rec={...rec,mode:'${hsr?'as':'sd'}',scope:'s1',strategy:'final',constraintScope:'local',buildMode:'ignore',constraints:{},locks:{},teamExclusions:{},targetScopes:{},elements:{},teamCounts:{...DEFAULT_REC_TEAM_COUNTS},gap:'0',riskMode:'off',search:'',...settings};box.owned=new Set(DATA.rosterRows.map(row=>row.character_slug));box.builds={};},
       state(){return {...rec}},
       patch(settings){Object.assign(rec,settings)},
       sets(scope,strategy=rec.strategy){const value=${sets}(rec.mode,scope,strategy);return {required:[...value.required],excluded:[...value.excluded]}},
@@ -35,6 +37,18 @@ function loadGame(game){
       editScope(){return recConstraintEditScope()},
       conflicts(){return recConstraintConflicts()},
       ranked(scope){return ${hsr?'rankedRecommendations':'rankedFor'}(rec.mode,scope).map(item=>item.template.id)},
+      async rankedAsync(scope){return (await ${hsr?'rankedRecommendationsAsync':'rankedForAsync'}(rec.mode,scope)).map(item=>item.template.id)},
+      async candidatesAsync(){return (await recSlateCandidateListsAsync(recPlanScopes())).map(items=>items.map(item=>item.template.id))},
+      exclude(scope,chars){return excludeRecTeam({key:scope,label:scope},{template:{mode:rec.mode,chars}})},
+      restore(scope,chars){restoreRecTeam(scope,chars)},
+      excluded(scope){return recExcludedTeamRows(scope)},
+      replaceData(data){${hsr?'initializeVisualizerData':'installVisualizerData'}(data)},
+      prepare(){const scopeList=recPlanScopes();recSlateCurrentPrepared={fullCandidateLists:recSlateCandidateLists(scopeList)};return solveRecSlates(scopeList,{maxSolutions:3}).plans},
+      select(plan){return selectRecPlan(recPlanScopes(),plan)},
+      edit(scope){return openRecFineTune(recPlanScopes().find(entry=>entry.key===scope))},
+      lock(scope,item){rec.locks[recLockKey(scope)]=item.${hsr?'variantKey':'slateKey'}},
+      detachPrepared(){recSlateCurrentPrepared=null},
+      planScopes(){return recPlanScopes().map(scope=>scope.key)},
       completePlans(){return solveRecSlates(recPlanScopes(),{maxSolutions:3}).plans.filter(plan=>plan.picks.every(Boolean)).map(plan=>plan.picks.map(item=>[...item.finalChars]))},
     };`;
   new vm.Script(readFileSync(path.join(ASSETS,'solver.js'),'utf8')+'\n'+readFileSync(path.join(ASSETS,game,'app.js'),'utf8')+'\n'+harness).runInContext(context,{timeout:2000});
@@ -90,6 +104,42 @@ for(const game of ['hsr','zzz']){
     assert.match(html,/<option value="global">全局（整套方案）<\/option>/);
     assert.match(html,/id="recGlobalConstraintSummary"/);
   });
+
+  test(`${game}: stage team feedback filters warmed synchronous and async pools, keeps other stages, and restores`,async()=>{
+    const api=loadGame(game),alt=Array.from({length:size},(_,i)=>`c${i}`);
+    api.reset(fixture(game,[{id:'failed',scope:'s1',chars:first},{id:'alternative',scope:'s1',chars:alt},{id:'same-other-stage',scope:'s2',chars:first},{id:'second',scope:'s2',chars:second}]));
+    await api.candidatesAsync();await api.rankedAsync('s1');const pending=api.rankedAsync('s1');
+    assert.equal(api.exclude('s1',first),true);
+    assert.ok(!plain(await pending).includes('failed'),'in-flight scoring must not resurrect a newly excluded team');
+    assert.deepEqual(plain(api.ranked('s1')),['alternative']);
+    assert.deepEqual(plain(await api.rankedAsync('s1')),['alternative']);
+    const pools=plain(await api.candidatesAsync());assert.deepEqual(pools[0],['alternative']);assert.ok(pools[1].includes('same-other-stage'));
+    assert.deepEqual(plain(api.sets('s1')),{required:[],excluded:[]},'team feedback must not exclude individual members');
+    assert.ok(api.completePlans().length);api.restore('s1',first);assert.ok(plain(await api.rankedAsync('s1')).includes('failed'));assert.ok(plain(await api.candidatesAsync())[0].includes('failed'));
+  });
+
+  test(`${game}: excluded party survives reordered new evidence and reload, with mode and strategy isolation`,async()=>{
+    const api=loadGame(game),mode=game==='hsr'?'as':'sd';api.reset(data);api.exclude('s1',first);api.reload();
+    const refreshed=fixture(game,[{id:'first',scope:'s1',chars:first},{id:'second',scope:'s2',chars:second}]);refreshed.teamTemplates[0]={...refreshed.teamTemplates[0],id:'new-sample',chars:[...first].reverse(),rank:99,collect_date:'2026-10-02',bangboo:'different-bangboo'};api.replaceData(refreshed);
+    assert.deepEqual(plain(await api.rankedAsync('s1')),[]);assert.equal(api.exclude('s1',[...first].reverse()),false,'same party order must not create a second exclusion');
+    api.patch({strategy:'custom',scope:'custom-1'});assert.deepEqual(plain(api.excluded('custom-1')),[]);assert.ok(api.ranked('custom-1').includes('new-sample'));
+    api.exclude('custom-1',first);assert.ok(!api.ranked('custom-1').includes('new-sample'));assert.ok(api.ranked('custom-2').includes('new-sample'));
+    api.patch({strategy:'final',scope:'s1',mode:game==='hsr'?'moc':'da'});assert.deepEqual(plain(api.excluded('s1')),[]);api.patch({mode});assert.equal(api.excluded('s1').length,1);
+  });
+
+  test(`${game}: selecting a whole alternative plan pins it; excluding its failed stage clears only that lock`,()=>{
+    const api=loadGame(game),alt=Array.from({length:size},(_,i)=>`c${i}`);
+    api.reset(fixture(game,[{id:'first',scope:'s1',chars:first},{id:'alternative',scope:'s1',chars:alt},{id:'second',scope:'s2',chars:second}]));
+    const plans=api.prepare();assert.ok(plans.length>=2);const chosen=plans[1];assert.equal(api.select(chosen),true);assert.equal(Object.keys(api.state().locks).length,2);
+    const secondLock=Object.values(api.state().locks)[1];assert.equal(api.edit('s1'),true);assert.equal(api.state().scope,'s1');assert.equal(Object.keys(api.state().locks).length,2);
+    api.detachPrepared();api.exclude('s1',chosen.picks[0].finalChars);assert.equal(Object.keys(api.state().locks).length,1,'feedback must identify an existing lock even while candidate preparation is pending');assert.equal(Object.values(api.state().locks)[0],secondLock);
+    assert.equal(api.completePlans().length,1);assert.deepEqual(plain(api.completePlans()[0][1]),second);api.restore('s1',chosen.picks[0].finalChars);assert.equal(Object.keys(api.state().locks).length,1,'restore must not silently reinstate the failed-stage lock');
+    api.prepare();assert.equal(api.select({...chosen,picks:[chosen.picks[0],null]}),false);
+  });
+
+  test(`${game}: excluding the only compatible team reports no complete plan without dropping other locks`,()=>{
+    const api=loadGame(game);api.reset(data);const plan=api.prepare()[0];api.select(plan);api.exclude('s1',first);assert.equal(Object.keys(api.state().locks).length,1);assert.equal(api.completePlans().length,0);
+  });
 }
 
 test('HSR global required and excluded target the selected form while cross-team deployment conflicts still share a group',()=>{
@@ -100,4 +150,13 @@ test('HSR global required and excluded target the selected form while cross-team
   api.put('all',[],[harmony]);assert.equal(api.completePlans().length,1,'excluding harmony does not exclude preservation');
   api.reset(fixture('hsr',[{id:'harmony',scope:'s1',chars:[harmony,'a1','a2','a3']},{id:'preservation',scope:'s2',chars:[preservation,'b1','b2','b3']}]));
   api.put('all',[harmony]);assert.equal(api.completePlans().length,0,'different Trailblazer forms still cannot deploy in two teams');
+});
+
+test('HSR team exclusion distinguishes forms, and fine tuning keeps the selected arbitration division',()=>{
+  const api=loadGame('hsr'),harmony=['trailblazer-harmony','a1','a2','a3'],preservation=['trailblazer-preservation','a1','a2','a3'];
+  api.reset(fixture('hsr',[{id:'harmony',scope:'s1',chars:harmony},{id:'preservation',scope:'s1',chars:preservation},{id:'second',scope:'s2',chars:['b0','b1','b2','b3']} ]));
+  api.exclude('s1',harmony);assert.deepEqual(plain(api.ranked('s1')),['preservation']);
+  const arbitration=fixture('hsr',['1-1','1-2','1-3','2-1'].map((scope,index)=>({id:scope,scope,chars:Array.from({length:4},(_,i)=>`party${index}-${i}`)})));
+  arbitration.teamTemplates.forEach(template=>{template.mode='aa'});api.reset(arbitration,{mode:'aa',scope:'1-1'});
+  const plan=api.prepare()[0];assert.equal(api.select(plan),true);api.edit('1-2');assert.deepEqual(plain(api.planScopes()),['1-1','1-2','1-3']);assert.equal(Object.keys(api.state().locks).length,3);
 });
