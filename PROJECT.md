@@ -16,9 +16,10 @@
 
 ## 当前状态
 
+- 2026-10-02：修复窗口获得焦点时的数秒卡顿。HSR 校验从约 5 秒降至 0.17–0.18 秒，校验与协议处理移出窗口线程；当前 Desktop/CLI 已更新，安装路径启动、双游戏页面与 Box 校验通过。
 - 2026-10-02：双游戏推荐页改为先选择整套多队方案，再微调本关；新增按关保存、可恢复的完整队伍排除。当前桌面、人工 CLI 与每日任务 generation 已同步，真实按钮流程和精确健康校验通过。
 - 2026-10-02：修复双游戏显式空采样导致的更新失败，当前 Desktop、CLI 与每日任务已同步；双游戏真实按钮、桌面数据和正式任务均通过校验，详见下方本次交付记录。
-- 2026-10-02 本次多队方案交付清理已执行：移除 28 项编译缓存、依赖、生成前端、临时探针和旧回滚，共 6.10 GiB 文件，D 盘可用空间增加约 5.13 GiB。唯一前版 Desktop/CLI（41.33 MiB）保存在 `.codex_work/multi-team-20261002/rollback`；保留源码、锁文件、证据、Git 历史和业务导出。初轮 pytest 的 1.17 MiB 临时文件位于 AppData，按保留规则未删除，详见本次交付记录。
+- 2026-10-02 多队方案交付清理已执行：移除 28 项编译缓存、依赖、生成前端、临时探针和旧回滚，共 6.10 GiB 文件，D 盘可用空间增加约 5.13 GiB。该次回滚现由下方窗口性能交付的唯一前版替代；保留源码、锁文件、证据、Git 历史和业务导出。初轮 pytest 的 1.17 MiB 临时文件位于 AppData，按保留规则未删除，详见本次交付记录。
 - 工作区已安全迁移到 `D:\Projects\终局内容提取`；6,111 个不可再生项目文件与 16,301 个归档文件逐路径 SHA-256 校验均为零差异，迁移回执保存在归档目录。
 - D 盘迁移后重建验证：Rust workspace 迁移测试持续通过，frozen pnpm install、Vite build 与 Tauri `--no-bundle` 通过；双游戏 visualizer 契约、Rust 实现、真实 CLI、Hub 与浏览器冒烟现已全部收口。
 - 工作区治理完成：业务资产已归档到 `D:\Projects\终局内容提取-archive\20260712-005035`，清单含 761 个文件及 SHA-256。
@@ -780,6 +781,13 @@
 - 验证：推荐器 190/190；Python Visualizer 前轮 73 项通过，更新六个 UI 资源契约哈希后对四项失败及 Hub 做定点复查，5 项通过。Vite、三份 Release 构建、每份 EXE 的 7 项精确嵌入资源及 PE 子系统校验通过。`scripts/probe_multi_team_workflow_v1.mjs` 在当前安装版和真实 Box 上完成两游戏选用第二套、微调、按关排除、刷新持久化、恢复与重选整套，另验证 HSR 仲裁分区；原偏好及 66/26 owned Box 哈希均恢复或保持不变。未扩展全量本地 Rust 矩阵或安装器链。
 - 已更新 `D:\Miho Endgame` Desktop/人工 CLI（SHA-256 前缀 `7A57E5C5288B` / `1897BB17CEF6`）。owner-aware candidate 和最终只读 health 均为 healthy，精确 attempt 为 `installer-467b78847b12460789b691d7bf92e335`；唯一无窗 generation 前缀 `3eac9ad06cfd`，正式任务 Ready/Enabled，下次 `2026-10-03 09:30`。小回执在 `.codex_work/multi-team-20261002`；桌面已从正常 Explorer 宿主打开。
 - 清理前检查绝对路径、链接祖先、tracked 文件及进程/任务消费者，实际移除 6.10 GiB 文件（D 盘增加 5.13 GiB），仅保留已验证的前版 Desktop/CLI 41.33 MiB。初轮测试临时目录 `C:\Users\zy958\AppData\Local\Temp\pytest-of-zy958\pytest-1361`（1.17 MiB）按 AppData 保留规则留存。隐藏测试宿主的关闭请求未到达既有关闭协调器，正常退出未验证；身份、Box 和更新状态核对后仅终止本次宿主及其 8 个 WebView 子进程，端口与临时任务已清除，关闭代码未改。
+
+### 2026-10-02：窗口获得焦点时卡顿
+
+- 原因与修复：焦点、可见性恢复及每分钟检查在窗口线程同步校验完整数据。真实 HSR 校验为 4.93–5.89 秒，原生消息等待超过 5 秒；93 张头像被重复检查 7,360 次。现改为每轮去重，descriptor 与 Visualizer 协议处理进入后台线程；工作区、token、路径、大小及头像完整性校验保留，排队请求在 worker 内重新读取当前工作区。
+- 验证：18 项 Rust 协议测试、33 项前端检查、Vite/Release 构建与嵌入资源校验通过，独立复核无 Blocker/High。双游戏真实按钮、冷加载、Box GET 和 stale token 409 通过；HSR 校验 172–182ms，冷加载 380ms，窗口消息 p95 0.33ms/max 45.24ms。未量化物理拖动帧率；人工并发调用旧 Box IPC 仍可造成约 145ms 锁等候，该入口未被当前前端使用。
+- 交付：`D:\Miho Endgame` Desktop/人工 CLI SHA-256 前缀为 `C31A194FA55C` / `3B07BAA55D81`。安装路径 DOM、正常退出 0 与子进程/端口清理通过，已重新打开正常窗口。Box（66/26 owned）、owner、authority、每日任务 generation 均未改变，health true、任务 Ready/LastTaskResult=0。此次仅改桌面运行时，未改共享生成逻辑或资源，保留原任务 generation；未进入安装器/portable 链。小回执在 `.codex_work/window-drag-20261002`。
+- 清理：检查绝对路径、链接祖先、tracked 文件及进程/任务消费者后，移除 2.54 GiB 编译缓存、依赖、前端构建、临时探针及旧回滚，D 盘增加约 2.08 GiB。唯一前版 Desktop/CLI 与小回执（41.38 MiB）保存在 `.codex_work/window-drag-20261002/rollback`；源码、锁文件、业务导出、Git 历史及用户 AppData 保留。
 
 ## 恢复入口
 

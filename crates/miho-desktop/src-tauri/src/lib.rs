@@ -421,25 +421,30 @@ fn read_installed_owner_instance_id_v1() -> std::io::Result<Option<String>> {
 }
 
 #[tauri::command]
-fn get_visualizer_url(
+async fn get_visualizer_url(
     game: String,
-    state: State<'_, DesktopState>,
+    app: tauri::AppHandle,
 ) -> Result<visualizer_protocol::VisualizerDescriptorV1, String> {
-    let _gate = state
-        .lock_gate()
-        .map_err(|_| "Desktop state is unavailable.".to_owned())?;
-    let (root, workspace) = state
-        .workspaces
-        .active_access()
-        .map_err(|_| "Desktop workspace state is unavailable.".to_owned())?;
-    state
-        .storage_scope(&root)
-        .map_err(|_| "The active workspace storage scope is unavailable.".to_owned())?;
-    visualizer_protocol::visualizer_descriptor(&root, &game, &workspace.workspace_id)
-        .map_err(|_| {
-            "The requested visualizer is not available in the active workspace.".to_owned()
-        })?
-        .ok_or_else(|| "Unknown visualizer game.".to_owned())
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DesktopState>();
+        let _gate = state
+            .lock_gate()
+            .map_err(|_| "Desktop state is unavailable.".to_owned())?;
+        let (root, workspace) = state
+            .workspaces
+            .active_access()
+            .map_err(|_| "Desktop workspace state is unavailable.".to_owned())?;
+        state
+            .storage_scope(&root)
+            .map_err(|_| "The active workspace storage scope is unavailable.".to_owned())?;
+        visualizer_protocol::visualizer_descriptor(&root, &game, &workspace.workspace_id)
+            .map_err(|_| {
+                "The requested visualizer is not available in the active workspace.".to_owned()
+            })?
+            .ok_or_else(|| "Unknown visualizer game.".to_owned())
+    })
+    .await
+    .map_err(|_| "Desktop state is unavailable.".to_owned())?
 }
 
 #[tauri::command]
@@ -487,28 +492,37 @@ fn save_box_state(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .register_uri_scheme_protocol(
+        .register_asynchronous_uri_scheme_protocol(
             visualizer_protocol::VISUALIZER_SCHEME,
-            |context, request| {
-                let state = context.app_handle().state::<DesktopState>();
-                let Ok(_gate) = state.lock_gate() else {
-                    return visualizer_protocol::unavailable_response();
-                };
-                let Ok((root, workspace)) = state.workspaces.active_access() else {
-                    return visualizer_protocol::unavailable_response();
-                };
-                let Ok(storage_scope) = state.storage_scope(&root) else {
-                    return visualizer_protocol::unavailable_response();
-                };
-                let export_directory = context.app_handle().path().download_dir().ok();
-                visualizer_protocol::handle_workspace_request_with_export_directory(
-                    &root,
-                    &workspace.workspace_id,
-                    &storage_scope,
-                    export_directory.as_deref(),
-                    context.webview_label(),
-                    request,
-                )
+            |context, request, responder| {
+                let app = context.app_handle().clone();
+                let webview_label = context.webview_label().to_owned();
+                tauri::async_runtime::spawn_blocking(move || {
+                    // Resolve the active workspace under the gate in the worker;
+                    // queued requests must still reject a stale workspace token.
+                    let response = (|| {
+                        let state = app.state::<DesktopState>();
+                        let Ok(_gate) = state.lock_gate() else {
+                            return visualizer_protocol::unavailable_response();
+                        };
+                        let Ok((root, workspace)) = state.workspaces.active_access() else {
+                            return visualizer_protocol::unavailable_response();
+                        };
+                        let Ok(storage_scope) = state.storage_scope(&root) else {
+                            return visualizer_protocol::unavailable_response();
+                        };
+                        let export_directory = app.path().download_dir().ok();
+                        visualizer_protocol::handle_workspace_request_with_export_directory(
+                            &root,
+                            &workspace.workspace_id,
+                            &storage_scope,
+                            export_directory.as_deref(),
+                            &webview_label,
+                            request,
+                        )
+                    })();
+                    responder.respond(response);
+                });
             },
         )
         .setup(|app| {

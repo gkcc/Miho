@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -768,6 +769,17 @@ fn checked_workspace_visualizer_file(
 }
 
 fn avatar_references_are_ready(root: &Path, game: &str, value: &serde_json::Value) -> bool {
+    // References recur in thousands of team records. Check each file once per
+    // scan, without retaining readiness across calls or bypassing path checks.
+    avatar_references_are_ready_once(root, game, value, &mut HashSet::new())
+}
+
+fn avatar_references_are_ready_once<'a>(
+    root: &Path,
+    game: &str,
+    value: &'a serde_json::Value,
+    checked: &mut HashSet<&'a str>,
+) -> bool {
     match value {
         serde_json::Value::String(value) => {
             let Some(reference) = value.strip_prefix("./assets/avatars/") else {
@@ -776,19 +788,20 @@ fn avatar_references_are_ready(root: &Path, game: &str, value: &serde_json::Valu
             let name = reference.split(['?', '#']).next().unwrap_or_default();
             safe_avatar_name(name)
                 && avatar_mime(name).is_some()
-                && checked_workspace_visualizer_file(
-                    root,
-                    game,
-                    &PathBuf::from("assets").join("avatars").join(name),
-                )
-                .is_ok()
+                && (!checked.insert(name)
+                    || checked_workspace_visualizer_file(
+                        root,
+                        game,
+                        &PathBuf::from("assets").join("avatars").join(name),
+                    )
+                    .is_ok())
         }
         serde_json::Value::Array(values) => values
             .iter()
-            .all(|value| avatar_references_are_ready(root, game, value)),
+            .all(|value| avatar_references_are_ready_once(root, game, value, checked)),
         serde_json::Value::Object(values) => values
             .values()
-            .all(|value| avatar_references_are_ready(root, game, value)),
+            .all(|value| avatar_references_are_ready_once(root, game, value, checked)),
         _ => true,
     }
 }
@@ -1627,6 +1640,23 @@ mod tests {
         )
         .unwrap();
         assert!(visualizer_is_ready(&root, "hsr"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn repeated_avatar_readiness_is_scoped_to_each_game_and_each_scan() {
+        let root = root();
+        let data = br#"{"teams":[{"avatar":"./assets/avatars/agent-one.webp"},{"avatar":"./assets/avatars/agent-one.webp?alias=safe#fragment"}]}"#;
+        for (game, directory) in [("hsr", "out"), ("zzz", "out_zzz")] {
+            fs::write(root.join(directory).join("visualizer/data.json"), data).unwrap();
+            assert!(visualizer_is_ready(&root, game));
+            fs::remove_file(
+                root.join(directory)
+                    .join("visualizer/assets/avatars/agent-one.webp"),
+            )
+            .unwrap();
+            assert!(!visualizer_is_ready(&root, game));
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
