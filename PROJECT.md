@@ -808,3 +808,11 @@
 - 逆境推荐从原始 CSV 恢复来源后再合并，避免导出去重表吞掉另一来源。正式数据保留 114 支逆境队，其中 100 支含双来源；普通三关仍为 229/130/181 支。安装版后台 DOM 实测分区切换和偏好保存、ZZZ → HSR → ZZZ，正常退出 0；双游戏 Box SHA-256 不变。
 - 定点验证：Rust 50、Python 81（2 live deselected）、Node 128，通过独立复核、三份 Release 构建和各 7 项嵌入资源校验。Desktop/CLI 已替换；owner-aware attempt `installer-dcee409aade14a9687724857ff8977ac` healthy，每日 09:30 任务切到 `0b9ee8dec8ed` generation，Ready/Enabled。未构建安装器或 portable；重开使用 Explorer 桌面 Shell 文档的 Application.ShellExecute，普通 Shell.Application 调用未保持进程。
 - 已删除本次缓存、依赖、前端构建及旧回滚，共 7.43 GiB；仅留前版 Desktop/CLI 41.43 MiB 和一份当前回执 `.codex_work/da-scope-20261007/verification.json`，OS temp 运行目录随后即时回收。
+
+
+### 2026-10-07：强队优先与关卡留白
+
+- 危局强袭战默认按各队推荐分由高到低逐队比较，保留强队，再用剩余角色补关卡；无法补齐时允许留白，避免以三队平庸阵容挤掉两支强队。双游戏最终配队可按模式保存“强队优先，允许留白”或“优先配齐所选关卡”；其他模式默认配齐，自定义队伍保持原行为。留白方案可选用，锁定和全局必上/排除仍为硬条件；不会展示仍可补队的劣化备选。三关仍明确为有界近似搜索。
+- 实机：原严格条件候选 3/0/2，首关与第三关复用角色，现展示一队加两关留白；去除全局排除的受控验收可选用两队加首领二留白，重载保存、配齐开关及 HSR 对应入口均通过后台 worker 路径。原偏好恢复，双游戏 Box SHA-256 不变，正常退出 0，子进程与端口已清理。
+- 验证：Node 139 项通过，另新增两强队胜过三中等队的单项通过，共 140；Python 68 项通过后针对四项旧哈希失败复查 5 项通过，共 72 个唯一用例，2 live deselected。独立复核含 700 组生成案例，通过三份 Release 构建、各 7 项精确嵌入及 PE 校验。Desktop/CLI 已同步；owner-aware attempt `installer-f062ab5fe2a547dc827830dd1c391d09` healthy，09:30 任务切至 `03486822e851` generation，Ready/Enabled。未扩展全 workspace 矩阵或安装器链；唯一当前回执 `.codex_work/da-partial-20261007/verification.json`。
+- 清理前核对路径、链接、Git tracked 文件及进程/任务消费者，实际回收 6.07 GiB 编译缓存、依赖、前端构建与旧回滚；仅保留上一版 Desktop/CLI 41.45 MiB。安装版已通过 Explorer 正常重开；本次 OS temp 工作运行在收尾即时删除。

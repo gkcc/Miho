@@ -60,6 +60,7 @@
     <section class="controls rec-controls rec-overview-controls" aria-label="整套方案条件">
       <div class="control-field"><span class="control-label" id="recModeControlLabel">模式</span><div id="recModeControl" class="segmented" role="group" aria-labelledby="recModeControlLabel"></div></div>
       <label for="recSortSelect">排序口径<select id="recSortSelect"><option value="balanced" selected>综合推荐</option><option value="history">历史表现</option><option value="box">Box 即战力</option></select></label>
+      <label id="recFillPolicyControl" for="recFillPolicySelect">配队目标<select id="recFillPolicySelect" aria-label="配队目标"><option value="quality">强队优先，允许留白</option><option value="complete">优先配齐所选关卡</option></select></label>
       <label for="recBuildSelect">练度<select id="recBuildSelect" title="只参考已录入练度；不会假定临时提升练度"><option value="ignore" selected>忽略练度（默认）</option><option value="recorded">参考已录入练度</option></select></label>
       <label for="recGapSelect">缺口<select id="recGapSelect"><option value="0">只看可成队</option><option value="1" selected>最多缺1人</option><option value="3">显示全部</option></select></label>
       <label for="recRiskSelect">风险<select id="recRiskSelect"><option value="warn" selected>仅提醒</option><option value="filter">过滤风险</option><option value="off">忽略风险</option></select></label>

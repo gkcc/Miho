@@ -24,6 +24,31 @@
       || String(left.key || '').localeCompare(String(right.key || ''));
   }
 
+  function qualityOrder(left, right) {
+    const leftScores = left.sortedTeamScores;
+    const rightScores = right.sortedTeamScores;
+    for (let index = 0; index < Math.min(leftScores.length, rightScores.length); index += 1) {
+      if (leftScores[index] !== rightScores[index]) return rightScores[index] - leftScores[index];
+    }
+    return rightScores.length - leftScores.length
+      || numeric(right.weaknessMatches) - numeric(left.weaknessMatches)
+      || String(left.key || '').localeCompare(String(right.key || ''));
+  }
+
+  function mandatoryScopes(input, scopeCount) {
+    const indexes = new Set();
+    let valid = true;
+    for (const values of [input.mandatoryScopeIndexes, input.lockedScopeIndexes]) {
+      if (values == null) continue;
+      if (!Array.isArray(values)) { valid = false; continue; }
+      for (const index of values) {
+        if (!Number.isInteger(index) || index < 0 || index >= scopeCount) valid = false;
+        else indexes.add(index);
+      }
+    }
+    return {indexes, valid};
+  }
+
   function normalizedMembers(values) {
     return [...new Set((Array.isArray(values) ? values : []).map(value => String(value || '')).filter(Boolean))];
   }
@@ -100,6 +125,7 @@
       requiredCount: 0,
       weaknessMatches: 0,
       totalScore: 0,
+      sortedTeamScores: [],
       key: '',
     };
   }
@@ -120,6 +146,7 @@
       requiredCount: state.requiredCount + candidate.requiredCount,
       weaknessMatches: state.weaknessMatches + candidate.weaknessMatches,
       totalScore: state.totalScore + candidate.score,
+      sortedTeamScores: [...state.sortedTeamScores, candidate.score].sort((left, right) => right - left),
       key: `${state.key}|${candidate.key}`,
     };
   }
@@ -134,15 +161,43 @@
     };
   }
 
-  function selectSolutions(states, maxSolutions, requiredFilled, requiredCount) {
-    const ordered = states.slice().sort(stateOrder);
-    const maxFilled = ordered[0]?.filled ?? 0;
-    if (maxFilled < requiredFilled) return {solutions: [], maxFilled};
+  function supplementOptionalScopes(state, prepared) {
+    if (state.requiredCount !== prepared.requiredCount
+      || [...prepared.mandatoryScopeIndexes].some(index => state.picks[index] == null)) return state;
+    let completed = state;
+    while (true) {
+      let best = null;
+      let bestScope = -1;
+      for (let index = 0; index < prepared.lists.length; index += 1) {
+        if (completed.picks[index] != null) continue;
+        const candidate = prepared.lists[index].find(item => !conflicts(completed.mask, item.mask));
+        if (candidate && (!best || candidateOrder(candidate, best) < 0)) {
+          best = candidate;
+          bestScope = index;
+        }
+      }
+      if (!best) return completed;
+      completed = extendState(completed, bestScope, best);
+    }
+  }
+
+  function selectSolutions(states, maxSolutions, prepared) {
+    const requiredFilled = prepared.lists.length;
+    const order = prepared.qualityFirst ? qualityOrder : stateOrder;
+    const ordered = states.slice().sort(order);
+    const maxFilled = states.reduce((maximum, state) => Math.max(maximum, state.filled), 0);
+    if (!prepared.qualityFirst && maxFilled < requiredFilled) return {solutions: [], maxFilled};
     const seen = new Set();
     const eligible = [];
     for (const state of ordered) {
-      if (state.filled !== requiredFilled) break;
-      if (state.requiredCount !== requiredCount) continue;
+      if (!prepared.qualityFirst && state.filled !== requiredFilled) break;
+      if (!state.filled || state.requiredCount !== prepared.requiredCount
+        || [...prepared.mandatoryScopeIndexes].some(index => state.picks[index] == null)) continue;
+      // Once hard constraints are met, adding any compatible team strictly
+      // improves the shared score prefix (including a negative-score team).
+      // A strict subset must not become a misleading diverse alternative.
+      if (prepared.qualityFirst && state.picks.some((pick, index) => pick == null
+        && prepared.lists[index].some(candidate => !conflicts(state.mask, candidate.mask)))) continue;
       const signature = state.memberSignatures.map((value) => value == null ? '~' : value).join('|');
       if (seen.has(signature)) continue;
       seen.add(signature);
@@ -159,6 +214,7 @@
     const selectedKeys = new Set([eligible[0].key]);
     const bestTeamSignature = eligible[0].teamKeys.map((key) => key == null ? '~' : key).join('|');
     for (const state of eligible.slice(1)) {
+      if (selected.length >= maxSolutions) break;
       const teamSignature = state.teamKeys.map((key) => key == null ? '~' : key).join('|');
       if (teamSignature === bestTeamSignature) continue;
       selected.push(state);
@@ -173,13 +229,20 @@
         if (selected.length >= maxSolutions) break;
       }
     }
-    return {maxFilled, solutions: selected.sort(stateOrder).map((state) => ({
+    return {maxFilled, solutions: selected.sort(order).map((state) => ({
         picks: state.picks,
         teamKeys: state.teamKeys,
         memberSignatures: state.memberSignatures,
         filled: state.filled,
         weaknessMatches: state.weaknessMatches,
         totalScore: state.totalScore,
+        sortedTeamScores: state.sortedTeamScores,
+        skippedScopes: state.picks.flatMap((pick, scopeIndex) => pick != null ? [] : [{
+          scopeIndex,
+          reason: !prepared.lists[scopeIndex].length ? 'no_eligible_candidates'
+            : prepared.lists[scopeIndex].every(candidate => conflicts(state.mask, candidate.mask))
+              ? 'member_conflict' : 'quality_first_tradeoff',
+        }]),
         key: state.key,
       }))};
   }
@@ -188,7 +251,7 @@
     const base = emptyState(1, prepared.wordCount);
     const states = [skipState(base)];
     for (const candidate of prepared.lists[0] || []) states.push(extendState(base, 0, candidate));
-    return selectSolutions(states, maxSolutions, 1, prepared.requiredCount);
+    return selectSolutions(states, maxSolutions, prepared);
   }
 
   function solveExactTwo(prepared, maxSolutions) {
@@ -196,7 +259,7 @@
     const base = emptyState(2, prepared.wordCount);
     const states = [skipState(skipState(base))];
 
-    for (const right of rightItems.slice(0, maxSolutions)) {
+    for (const right of prepared.qualityFirst ? rightItems : rightItems.slice(0, maxSolutions)) {
       states.push(extendState(skipState(base), 1, right));
     }
 
@@ -232,7 +295,7 @@
         if (ordinaryFilled && requiredFilled) break;
       }
     }
-    return selectSolutions(states, maxSolutions, 2, prepared.requiredCount);
+    return selectSolutions(states, maxSolutions, prepared);
   }
 
   function addsRequiredCoverage(state, candidate, requiredMask) {
@@ -264,10 +327,35 @@
     prepared.lists.forEach((candidates, scopeIndex) => {
       const next = [];
       const remainingLists = prepared.lists.slice(scopeIndex + 1);
-      const remainsViable = state => remainingLists.every(list => list.some(candidate => !conflicts(state.mask, candidate.mask)))
+      const remainsViable = state => remainingLists.every((list, index) => (
+        prepared.qualityFirst && !prepared.mandatoryScopeIndexes.has(scopeIndex + index + 1)
+      ) || list.some(candidate => !conflicts(state.mask, candidate.mask)))
         && requiredCoverageRemainsPossible(state, remainingLists, prepared.requiredMask, prepared.requiredCount);
+      // Rank partial quality-first paths by a compatible future upper bound.
+      // Otherwise an early ordinary team can evict the skip needed to keep a
+      // much stronger later team. Future candidates may still conflict with
+      // each other, so this remains an explicitly approximate beam search.
+      const optimisticStates = new WeakMap();
+      const optimistic = state => {
+        if (optimisticStates.has(state)) return optimisticStates.get(state);
+        const upperBound = {...state, sortedTeamScores: [
+          ...state.sortedTeamScores,
+          ...remainingLists.flatMap(list => {
+            const best = list.find(candidate => !conflicts(state.mask, candidate.mask));
+            return best ? [best.score] : [];
+          }),
+        ].sort((a, b) => b - a)};
+        optimisticStates.set(state, upperBound);
+        return upperBound;
+      };
+      const beamOrder = prepared.qualityFirst ? (left, right) => (
+        qualityOrder(optimistic(left), optimistic(right)) || qualityOrder(left, right)
+      ) : stateOrder;
       for (const state of states) {
-        next.push(skipState(state));
+        if (!prepared.mandatoryScopeIndexes.has(scopeIndex)) {
+          const skipped = skipState(state);
+          if (!prepared.qualityFirst || remainsViable(skipped)) next.push(skipped);
+        }
         let compatible = 0;
         let requiredCompatible = 0;
         let blockedCompatible = 0;
@@ -278,7 +366,7 @@
           // candidate can preserve a complete slate and its required members.
           // Retain a bounded sample only for incomplete-search diagnostics.
           if (!remainsViable(extended)) {
-            if (blockedCompatible < branchLimit) next.push(extended);
+            if (!prepared.qualityFirst && blockedCompatible < branchLimit) next.push(extended);
             blockedCompatible += 1;
             continue;
           }
@@ -294,7 +382,7 @@
         }
       }
       if (!remainingLists.length) {
-        states = next.sort(stateOrder).slice(0, beamWidth);
+        states = next.sort(prepared.qualityFirst ? qualityOrder : stateOrder).slice(0, beamWidth);
         return;
       }
       const viable = [];
@@ -303,9 +391,13 @@
         const target = remainsViable(state) ? viable : blocked;
         target.push(state);
       }
-      states = [...viable.sort(stateOrder), ...blocked.sort(stateOrder)].slice(0, beamWidth);
+      states = [...viable.sort(beamOrder), ...blocked.sort(beamOrder)].slice(0, beamWidth);
     });
-    return selectSolutions(states, maxSolutions, scopeCount, prepared.requiredCount);
+    // The bounded beam may have dropped a low-ranked compatible supplement
+    // in an earlier scope. Complete surviving valid states before dominance
+    // filtering, preserving their stronger teams and every hard constraint.
+    if (prepared.qualityFirst) states = states.map(state => supplementOptionalScopes(state, prepared));
+    return selectSolutions(states, maxSolutions, prepared);
   }
 
   function solve(input = {}) {
@@ -318,9 +410,15 @@
     const branchLimit = Math.max(maxSolutions, numeric(input.branchLimit, DEFAULT_BRANCH_LIMIT));
     const prepared = buildPreparedLists(candidateLists, input.requiredMembers, input.excludedMembers);
     const scopeCount = prepared.lists.length;
+    const mandatory = mandatoryScopes(input, scopeCount);
+    prepared.mandatoryScopeIndexes = mandatory.indexes;
+    prepared.qualityFirst = input.objective === 'quality-first';
     let outcome;
     let searchType;
-    if (scopeCount <= 1) {
+    if (!mandatory.valid || [...mandatory.indexes].some(index => !prepared.lists[index].length)) {
+      searchType = scopeCount <= 2 ? 'exact' : 'beam';
+      outcome = {solutions: [], maxFilled: 0};
+    } else if (scopeCount <= 1) {
       searchType = 'exact';
       outcome = scopeCount ? solveExactOne(prepared, maxSolutions) : {solutions: [], maxFilled: 0};
     } else if (scopeCount === 2) {
@@ -337,8 +435,15 @@
         search_type: searchType,
         exact: searchType === 'exact',
         scope_count: scopeCount,
+        objective: prepared.qualityFirst ? 'quality-first' : 'fill-first',
+        mandatory_scope_indexes: [...mandatory.indexes].sort((a, b) => a - b),
+        invalid_mandatory_scope_indexes: !mandatory.valid,
         max_filled: outcome.maxFilled,
-        complete_solution_count: outcome.solutions.length,
+        solution_count: outcome.solutions.length,
+        complete_solution_count: outcome.solutions.filter(solution => solution.filled === scopeCount).length,
+        partial_solution_count: outcome.solutions.filter(solution => solution.filled < scopeCount).length,
+        selected_filled: outcome.solutions[0]?.filled ?? 0,
+        skipped_scope_reasons: outcome.solutions[0]?.skippedScopes || [],
         raw_candidate_counts: Array.isArray(input.rawCandidateCounts)
           ? input.rawCandidateCounts.map((value) => numeric(value))
           : candidateLists.map((list) => list.length),

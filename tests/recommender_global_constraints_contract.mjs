@@ -27,6 +27,7 @@ function loadGame(game){
     globalThis.contract={
       reset(data,settings={}){${hsr?'initializeVisualizerData':'installVisualizerData'}(data);rec={...rec,mode:'${hsr?'as':'sd'}',scope:'s1',strategy:'final',constraintScope:'local',buildMode:'ignore',constraints:{},locks:{},teamExclusions:{},targetScopes:{},elements:{},teamCounts:{...DEFAULT_REC_TEAM_COUNTS},gap:'0',riskMode:'off',search:'',...settings};box.owned=new Set(DATA.rosterRows.map(row=>row.character_slug));box.builds={};},
       state(){return {...rec}},
+      quality(){return recQualityFirst()},
       patch(settings){Object.assign(rec,settings)},
       sets(scope,strategy=rec.strategy){const value=${sets}(rec.mode,scope,strategy);return {required:[...value.required],excluded:[...value.excluded]}},
       effective(scope){const value=recSlateScopeConstraints(rec.mode,scope);return {required:[...value.required],excluded:[...value.excluded]}},
@@ -191,4 +192,22 @@ test('ZZZ unified Adversity reload preserves exclusions, contradictory constrain
   api.patch({constraints:{},teamExclusions:{}});assert.equal(api.completePlans().length,0,'saved conflicting locks alone must block the unified stage');
   assert.equal(api.unlock('2-1'),true);api.reload();assert.equal(api.completePlans().length,1,'explicit unlock resolves the retained lock conflict');
   assert.deepEqual(plain(api.state().scopeLockConflicts),{});
+});
+
+for(const game of ['hsr','zzz']){
+  test(`${game}: quality-first permits an empty stage, selects the available teams, and preserves hard locks`,()=>{
+    const size=game==='hsr'?4:3,first=Array.from({length:size},(_,i)=>`p${i}`),second=Array.from({length:size},(_,i)=>`q${i}`),mode=game==='hsr'?'as':'sd';
+    const api=loadGame(game);api.reset(fixture(game,[{id:'first',scope:'s1',chars:first},{id:'second',scope:'s2',chars:second}]),{qualityFirstModes:{[mode]:true}});
+    api.put('s2',[],[second[0]]);const plans=api.prepare();assert.ok(plans.length);assert.equal(plans[0].picks.filter(Boolean).length,1);
+    assert.equal(api.select(plans[0]),true,'A partial plan must be usable');assert.equal(Object.keys(api.state().locks).length,1);
+    api.reload();assert.equal(api.quality(),true);assert.equal(Object.keys(api.state().locks).length,1);
+    api.put('s1',[],[first[0]]);assert.equal(api.prepare().length,0,'An invalid locked team cannot be silently skipped');
+    api.unlock('s1');api.patch({qualityFirstModes:{[mode]:false}});assert.equal(api.prepare().length,0,'Complete mode still requires all selected stages');
+    api.reload();assert.equal(api.quality(),false);
+  });
+}
+
+test('zzz: deadly assault defaults to quality-first while other modes and custom teams retain complete recommendations',()=>{
+  const api=loadGame('zzz');api.reset(fixture('zzz',[]),{mode:'da'});assert.equal(api.quality(),true);
+  api.patch({mode:'sd'});assert.equal(api.quality(),false);api.patch({mode:'da',strategy:'custom'});assert.equal(api.quality(),false);
 });
