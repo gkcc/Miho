@@ -151,12 +151,16 @@ pub fn scope_label(mode: &str, scope: &str) -> (String, String) {
     if mode == "sd" && matches!(normalized.as_str(), "1" | "2" | "3") {
         return (format!("5-{normalized}"), format!("第5防线 {normalized}"));
     }
-    if mode == "da" && matches!(normalized.as_str(), "1" | "2" | "3") {
-        return (format!("1-{normalized}"), format!("首领 {normalized}"));
+    if mode == "da" {
+        if matches!(normalized.as_str(), "4" | "2-1") {
+            return ("2-1".into(), "逆境模式".into());
+        }
+        let boss = normalized.strip_prefix("1-").unwrap_or(&normalized);
+        if matches!(boss, "1" | "2" | "3") {
+            return (format!("1-{boss}"), format!("首领 {boss}"));
+        }
     }
-    if (mode == "sd" && normalized.starts_with("5-"))
-        || (mode == "da" && normalized.starts_with("1-"))
-    {
+    if mode == "sd" && normalized.starts_with("5-") {
         return (normalized.clone(), normalized.replace('-', " / "));
     }
     (normalized.clone(), normalized)
@@ -420,6 +424,13 @@ mod tests {
         assert_eq!(
             scope_label("da", "top_combined.json"),
             ("all".into(), "全部".into())
+        );
+        for scope in ["4", "2-1_combined.json"] {
+            assert_eq!(scope_label("da", scope), ("2-1".into(), "逆境模式".into()));
+        }
+        assert_eq!(
+            scope_label("da", "1-3_combined.json"),
+            ("1-3".into(), "首领 3".into())
         );
     }
 }

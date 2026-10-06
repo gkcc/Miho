@@ -801,3 +801,10 @@
 - 迁移校验：`D:\Projects\终局内容提取-archive\migration-manifests\20260712-c-to-d\receipt.json`。
 - update runner 契约：`docs/update-runner-contract.md`；外部现状与迁移阻断：`automation_capability_report.md`。
 - 当前剩余长期边界：历史安装器链仍未做 Authenticode、跨账户 release lease 和完整 NSIS 任意切点强杀/物理掉电恢复；这些不是当前 Tauri 直接交付的阻断。后台进程采样也不等于连续 ETW 审计。
+
+### 2026-10-07：危局逆境关卡编号统一
+
+- HF `2-1` 与 Prydwen `4` 统一为“逆境模式”；Rust/Python 生成和旧数据展示都使用同一编号，普通三首领与逆境一队分别配队，参战选择不再重复消耗角色。旧编号下的必上、排除、锁队和整队排除迁移保留；冲突锁队须显式解锁。HSR 仲裁已有骑士/王棋分区，本次只读审计及实机复验。
+- 逆境推荐从原始 CSV 恢复来源后再合并，避免导出去重表吞掉另一来源。正式数据保留 114 支逆境队，其中 100 支含双来源；普通三关仍为 229/130/181 支。安装版后台 DOM 实测分区切换和偏好保存、ZZZ → HSR → ZZZ，正常退出 0；双游戏 Box SHA-256 不变。
+- 定点验证：Rust 50、Python 81（2 live deselected）、Node 128，通过独立复核、三份 Release 构建和各 7 项嵌入资源校验。Desktop/CLI 已替换；owner-aware attempt `installer-dcee409aade14a9687724857ff8977ac` healthy，每日 09:30 任务切到 `0b9ee8dec8ed` generation，Ready/Enabled。未构建安装器或 portable；重开使用 Explorer 桌面 Shell 文档的 Application.ShellExecute，普通 Shell.Application 调用未保持进程。
+- 已删除本次缓存、依赖、前端构建及旧回滚，共 7.43 GiB；仅留前版 Desktop/CLI 41.43 MiB 和一份当前回执 `.codex_work/da-scope-20261007/verification.json`，OS temp 运行目录随后即时回收。

@@ -18,6 +18,7 @@ from miho_core.banner_plan import effective_banner_phases
 from miho_core.visualizer_data import compact_visualizer_data
 
 from .constants import ELEMENT_CN, MODE_CN, ROLE_ORDER, STYLE_CN
+from .parsers import scope_label
 from .prydwen import extract_phase_updates_from_html
 
 
@@ -105,6 +106,14 @@ def write_visualizer_app(
     banner_rows = _load_banner_rows(out_dir, roster_rows)
     banner_rows = _localize_avatar_rows(visualizer_dir, banner_rows)
     roster_rows = _merge_banner_rows_into_roster(roster_rows, banner_rows)
+    # The exported dedup table keeps one source; restore both Adversity sources
+    # before unifying their scope aliases and merging recommendation evidence.
+    raw_teams_path = out_dir / "team_rank_raw.csv"
+    if raw_teams_path.exists():
+        with raw_teams_path.open(encoding="utf-8-sig", newline="") as stream:
+            raw_adversity = [row for row in csv.DictReader(stream) if row.get("mode") == "da" and scope_label("da", row.get("sub_mode", ""))[0] == "2-1"]
+        if raw_adversity:
+            team_rows = [row for row in team_rows if not (row.get("mode") == "da" and scope_label("da", row.get("sub_mode", ""))[0] == "2-1")] + raw_adversity
     team_templates = _build_team_templates(team_rows, roster_rows, name_rows, phase_info_rows)
     decision_cards = _load_decision_cards(out_dir)
     data_quality = _read_data_quality(out_dir)
@@ -767,7 +776,8 @@ def _build_team_templates(
         chars = [normalize_character_id(row.get(f"char_{i}_slug")) for i in range(1, 4)]
         if any(not c for c in chars):
             continue
-        key = "|".join([mode, str(row.get("sub_mode") or ""), ">".join(sorted(chars))])
+        normalized_scope, normalized_label = scope_label(mode, str(row.get("sub_mode") or "all"))
+        key = "|".join([mode, normalized_scope, ">".join(sorted(chars))])
         bangboo = normalize_character_id(row.get("bangboo_slug"))
         stability_component = any(
             str(names.get(char, {}).get("role_group") or "") == "support" for char in chars
@@ -775,8 +785,8 @@ def _build_team_templates(
         template = {
             "mode": mode,
             "mode_cn": row.get("mode_cn") or MODE_CN.get(mode, mode),
-            "scope_key": row.get("sub_mode") or "all",
-            "scope_label": row.get("sub_mode_cn") or row.get("sub_mode") or "全部",
+            "scope_key": normalized_scope,
+            "scope_label": normalized_label if mode == "da" else row.get("sub_mode_cn") or row.get("sub_mode") or "全部",
             "collect_date": collect_date,
             "phase_ver": row.get("phase_ver", ""),
             "phase_name": row.get("phase_name", ""),

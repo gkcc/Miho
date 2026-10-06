@@ -17,7 +17,9 @@ from zzz_endgame_exporter.visualizer import (
 def test_zzz_scope_label_matches_processed_files():
     assert scope_label("sd", "5-1_combined.json") == ("5-1", "5 / 1")
     assert scope_label("sd", "top_combined.json") == ("all", "全部")
-    assert scope_label("da", "1-3_combined.json") == ("1-3", "1 / 3")
+    assert scope_label("da", "1-3_combined.json") == ("1-3", "首领 3")
+    assert scope_label("da", "2-1_combined.json") == ("2-1", "逆境模式")
+    assert scope_label("da", "4") == ("2-1", "逆境模式")
 
 
 def test_zzz_phase_and_team_rows_include_bangboo():

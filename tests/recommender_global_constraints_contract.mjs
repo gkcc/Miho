@@ -47,6 +47,7 @@ function loadGame(game){
       select(plan){return selectRecPlan(recPlanScopes(),plan)},
       edit(scope){return openRecFineTune(recPlanScopes().find(entry=>entry.key===scope))},
       lock(scope,item){rec.locks[recLockKey(scope)]=item.${hsr?'variantKey':'slateKey'}},
+      unlock(scope){return clearRecLock(scope)},
       detachPrepared(){recSlateCurrentPrepared=null},
       planScopes(){return recPlanScopes().map(scope=>scope.key)},
       completePlans(){return solveRecSlates(recPlanScopes(),{maxSolutions:3}).plans.filter(plan=>plan.picks.every(Boolean)).map(plan=>plan.picks.map(item=>[...item.finalChars]))},
@@ -159,4 +160,35 @@ test('HSR team exclusion distinguishes forms, and fine tuning keeps the selected
   const arbitration=fixture('hsr',['1-1','1-2','1-3','2-1'].map((scope,index)=>({id:scope,scope,chars:Array.from({length:4},(_,i)=>`party${index}-${i}`)})));
   arbitration.teamTemplates.forEach(template=>{template.mode='aa'});api.reset(arbitration,{mode:'aa',scope:'1-1'});
   const plan=api.prepare()[0];assert.equal(api.select(plan),true);api.edit('1-2');assert.deepEqual(plain(api.planScopes()),['1-1','1-2','1-3']);assert.equal(Object.keys(api.state().locks).length,3);
+});
+
+
+test('ZZZ Deadly Assault legacy scope merges into one Adversity division without consuming ordinary parties',()=>{
+  const data=fixture('zzz',['1-1','1-2','1-3','2-1','4'].map((scope,index)=>({id:scope,scope,chars:[`party${index}-a`,`party${index}-b`,`party${index}-c`]})));
+  data.teamTemplates.forEach(template=>{template.mode='da'});
+  const api=loadGame('zzz');api.reset(data,{mode:'da',scope:'4',targetScopes:{da:['1-1','1-2','1-3']}});api.reload();
+  assert.equal(api.state().scope,'2-1');assert.deepEqual(plain(api.planScopes()),['2-1']);
+  assert.equal(api.completePlans().length,2,'both old source records remain available in the single canonical stage');
+  assert.ok(api.completePlans().every(plan=>plan.length===1));
+  api.patch({scope:'1-1'});assert.deepEqual(plain(api.planScopes()),['1-1','1-2','1-3']);
+  assert.ok(api.completePlans().every(plan=>plan.length===3));
+});
+
+test('ZZZ unified Adversity reload preserves exclusions, contradictory constraints, and conflicting locks',()=>{
+  const data=fixture('zzz',[{id:'adversity',scope:'4',chars:['a0','a1','a2']}]);data.teamTemplates[0].mode='da';
+  const api=loadGame('zzz');api.reset(data,{mode:'da',scope:'4',targetScopes:{da:['4','2-1']},
+    constraints:{'da|4':{required:['a0'],excluded:['a1']},'da|final|2-1':{required:['a1'],excluded:['a2']}},
+    elements:{'da|4':['火'],'da|2-1':['冰']},
+    teamExclusions:{'da|final|4':[['a0','a1','a2']],'da|final|2-1':[['b0','b1','b2']]},
+    locks:{'da|final|4':'da|4|legacy|a0+a1+a2|2026-09-01|1','da|final|2-1':'da|2-1|other|b0+b1+b2|2026-09-01|2'}});
+  api.reload();api.reload();
+  assert.deepEqual(plain(api.state().targetScopes.da),['2-1']);
+  assert.deepEqual(plain(api.sets('2-1')),{required:['a1','a0'],excluded:['a2','a1']});
+  assert.deepEqual(plain(api.state().elements['da|2-1']),['火','冰']);
+  assert.equal(api.excluded('2-1').length,2);assert.equal(api.state().scopeLockConflicts['da|final|2-1'].length,2);
+  assert.equal(api.completePlans().length,0,'conflicting saved settings must never be silently loosened');
+  assert.ok(api.conflicts().some(message=>message.includes('a1')));
+  api.patch({constraints:{},teamExclusions:{}});assert.equal(api.completePlans().length,0,'saved conflicting locks alone must block the unified stage');
+  assert.equal(api.unlock('2-1'),true);api.reload();assert.equal(api.completePlans().length,1,'explicit unlock resolves the retained lock conflict');
+  assert.deepEqual(plain(api.state().scopeLockConflicts),{});
 });

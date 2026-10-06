@@ -17,6 +17,25 @@ use crate::{
 
 type Row = BTreeMap<String, String>;
 
+fn read_recommendation_teams(bundle: &ArtifactBundle) -> Result<Vec<Row>> {
+    let mut teams = read_csv_rows(bundle, "team_rank_dedup_unordered.csv")?;
+    if bundle.get("team_rank_raw.csv").is_some() {
+        let is_adversity = |row: &Row| {
+            get(row, "mode") == "da"
+                && crate::zzz::scope_label("da", get(row, "sub_mode")).0 == "2-1"
+        };
+        let raw = read_csv_rows(bundle, "team_rank_raw.csv")?
+            .into_iter()
+            .filter(is_adversity)
+            .collect::<Vec<_>>();
+        if !raw.is_empty() {
+            teams.retain(|row| !is_adversity(row));
+            teams.extend(raw);
+        }
+    }
+    Ok(teams)
+}
+
 pub fn attach_zzz_visualizer(
     bundle: &mut ArtifactBundle,
     context: &VisualizerContext,
@@ -24,7 +43,7 @@ pub fn attach_zzz_visualizer(
     let local_datetime = context.require_local_datetime()?;
     let usage = read_csv_rows(bundle, "character_usage_long.csv")?;
     let tiers = read_csv_rows(bundle, "prydwen_tier_current.csv")?;
-    let teams = read_csv_rows(bundle, "team_rank_dedup_unordered.csv")?;
+    let teams = read_recommendation_teams(bundle)?;
     let names = read_csv_rows(bundle, "name_map.csv")?;
     let changelog = read_csv_rows(bundle, "prydwen_tier_changelog_history.csv")?;
     let phases = read_csv_rows(bundle, "phase_index.csv")?;
@@ -818,7 +837,9 @@ fn build_team_templates(
         }
         let mut signature = chars.clone();
         signature.sort();
-        let key = format!("{mode}|{}|{}", get(row, "sub_mode"), signature.join(">"));
+        let raw_scope = first(&[nonempty(row, "sub_mode"), Some("all")]);
+        let (scope_key, scope_label) = crate::zzz::scope_label(mode, &raw_scope);
+        let key = format!("{mode}|{scope_key}|{}", signature.join(">"));
         let collect_date = first(&[
             nonempty(row, "collect_date"),
             phase_dates
@@ -835,8 +856,8 @@ fn build_team_templates(
         });
         let mut template = json!({
             "mode":mode,"mode_cn":first(&[nonempty(row,"mode_cn"),Some(mode_cn(mode))]),
-            "scope_key":first(&[nonempty(row,"sub_mode"),Some("all")]),
-            "scope_label":first(&[nonempty(row,"sub_mode_cn"),nonempty(row,"sub_mode"),Some("全部")]),
+            "scope_key":scope_key,
+            "scope_label":if mode == "da" { scope_label } else { first(&[nonempty(row,"sub_mode_cn"),nonempty(row,"sub_mode"),Some("全部")]) },
             "collect_date":collect_date,"phase_ver":get(row,"phase_ver"),"phase_name":get(row,"phase_name"),
             "rank":numeric_float(get(row,"rank"))?,"app_rate":numeric_float(get(row,"app_rate"))?,"avg_score":numeric_float(get(row,"avg_score"))?,
             "bangboo":bangboo,"bangboo_name":first(&[nonempty(row,"bangboo_name_cn"),name_map.get(&bangboo).and_then(|row|nonempty(row,"character_name_cn"))]),
@@ -2033,6 +2054,49 @@ mod tests {
         assert_eq!(rows[0]["stability_component"], true);
         assert_eq!(rows[0]["evidence_grade"], "A");
         assert!(numeric_float("NaN").is_err());
+    }
+
+    #[test]
+    fn adversity_aliases_merge_without_losing_source_evidence() {
+        let team = |scope: &str, source: &str| {
+            row(&[
+                ("mode", "da"),
+                ("snapshot_id", "3.2.2"),
+                ("collect_date", "2026-09-28"),
+                ("sub_mode", scope),
+                ("char_1_slug", "a"),
+                ("char_2_slug", "b"),
+                ("char_3_slug", "c"),
+                ("rank", "1"),
+                ("source_file", source),
+            ])
+        };
+        let input = [team("2-1", "hf.json"), team("4", "prydwen.html")];
+        let rows = build_team_templates(&input, &[], &[], &[]).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["scope_key"], "2-1");
+        assert_eq!(rows[0]["scope_label"], "逆境模式");
+        assert_eq!(rows[0]["merged_source_files"], "hf.json;prydwen.html");
+        let reversed = [input[1].clone(), input[0].clone()];
+        assert_eq!(
+            rows,
+            build_team_templates(&reversed, &[], &[], &[]).unwrap()
+        );
+        let header = "mode,snapshot_id,collect_date,sub_mode,char_1_slug,char_2_slug,char_3_slug,rank,source_file\n";
+        let hf = "da,3.2.2,2026-09-28,2-1,a,b,c,1,hf.json\n";
+        let prydwen = "da,3.2.2,2026-09-28,4,a,b,c,1,prydwen.html\n";
+        let mut bundle = ArtifactBundle::default();
+        bundle
+            .add_text("team_rank_dedup_unordered.csv", format!("{header}{hf}"))
+            .unwrap();
+        bundle
+            .add_text("team_rank_raw.csv", format!("{header}{hf}{prydwen}"))
+            .unwrap();
+        let restored = read_recommendation_teams(&bundle).unwrap();
+        assert_eq!(
+            build_team_templates(&restored, &[], &[], &[]).unwrap(),
+            rows
+        );
     }
 
     #[test]

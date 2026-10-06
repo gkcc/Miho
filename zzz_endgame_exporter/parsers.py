@@ -170,11 +170,13 @@ def scope_label(mode: str, scope: str) -> tuple[str, str]:
         return "all", "全部"
     if mode == "sd" and normalized in {"1", "2", "3"}:
         return f"5-{normalized}", f"第5防线 {normalized}"
-    if mode == "da" and normalized in {"1", "2", "3"}:
-        return f"1-{normalized}", f"首领 {normalized}"
+    if mode == "da":
+        if normalized in {"4", "2-1"}:
+            return "2-1", "逆境模式"
+        boss = normalized.removeprefix("1-")
+        if boss in {"1", "2", "3"}:
+            return f"1-{boss}", f"首领 {boss}"
     if mode == "sd" and normalized.startswith("5-"):
-        return normalized, normalized.replace("-", " / ")
-    if mode == "da" and normalized.startswith("1-"):
         return normalized, normalized.replace("-", " / ")
     return normalized or "all", normalized or "全部"
 
