@@ -70,14 +70,15 @@
       <label id="recTeamCountControl" for="recTeamCountSelect">方案队数<select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></label>
       <div id="recDivisionControl" class="segmented hidden" role="group" aria-label="危局强袭模式"></div>
       <div class="control-field" id="recTargetScopeGroup"><span class="control-label" id="recTargetScopeControlLabel">参战关卡（可多选）</span><div id="recTargetScopeControl" class="segmented" role="group" aria-labelledby="recTargetScopeControlLabel"></div></div>
-      <p id="recStrategyHint"></p>
+      <p id="recStrategyHint"></p><div id="recEncounterPartyControls" class="rec-encounter-party-controls hidden"></div><div id="recEncounterDetails" class="rec-encounter-details hidden" aria-live="polite"></div><details id="recManualEncounter" class="rec-manual-encounter hidden" open></details>
     </section>
     <section class="panel rec-slate rec-primary-slate" aria-label="多队方案"><div class="panel-head"><div><h2>多队方案</h2><p id="recSlateSubtitle"></p><p id="recSlateMeta" class="rec-solver-meta"></p><p id="recSlateMessage" class="rec-slate-message" aria-live="polite"></p></div><button id="recReplanBtn" type="button" class="quiet">重新选择整套方案</button></div><div id="recTeamExclusionSummary" class="rec-team-exclusion-summary"></div><div id="recSlateList" class="rec-slate-list"></div></section>
     <details id="recFineTune" class="rec-fine-tune">
     <summary>微调某一关 <span id="recFineTuneScope"></span></summary>
     <section class="controls rec-controls" aria-label="本关微调条件">
       <label for="recScopeSelect"><span id="recScopeLabel">实战关卡</span><select id="recScopeSelect"></select></label>
-      <div class="control-field"><span class="control-label" id="recElementControlLabel">敌方弱点（默认仅标注）</span><div id="recElementControl" class="segmented" role="group" aria-labelledby="recElementControlLabel"></div></div>
+      <label id="recEncounterControl" class="hidden rec-encounter-control">关卡敌情<select id="recEncounterSelect"></select></label>
+        <div class="control-field"><span class="control-label" id="recElementControlLabel">敌方弱点（默认仅标注）</span><div id="recElementControl" class="segmented" role="group" aria-labelledby="recElementControlLabel"></div></div>
       <label for="recLimitSelect">数量<select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></label>
       <label for="recSearchInput">搜索<input id="recSearchInput" type="search" placeholder="角色 / 队伍 / 邦布" /></label>
     </section>

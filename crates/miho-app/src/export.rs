@@ -440,6 +440,46 @@ pub async fn execute_export_observed_with_hub_v1(
                 invocation,
             )
             .await?;
+        } else {
+            match crate::hsr_encounter_refresh::refresh(&mut run.bundle, invocation.observed_at())
+                .await
+            {
+                Ok(warnings) => {
+                    run.diagnostics
+                        .extend(warnings.into_iter().map(|message| Diagnostic {
+                            severity: DiagnosticSeverity::Warning,
+                            code: diagnostic_code::ENCOUNTER_DATA_INCOMPLETE.into(),
+                            source: DiagnosticSource::Hoyowiki,
+                            game: Game::Hsr,
+                            snapshot: None,
+                            mode: None,
+                            path: Some("hsr_encounters_v1.json".into()),
+                            message,
+                        }))
+                }
+                Err(error) => {
+                    let warning = format!("HSR 官方非末层资料本次不可用：{error}");
+                    run.bundle.add_json("hsr_encounters_v1.json",&serde_json::json!({
+                        "schema_version":"miho-encounters-v1","game":"hsr","encounters":[],"warnings":[warning]
+                    }))?;
+                    run.bundle.add_json(
+                        "hsr_battle_records_v1.json",
+                        &serde_json::json!({
+                            "schema_version":"miho-battle-records-v1","game":"hsr","records":[]
+                        }),
+                    )?;
+                    run.diagnostics.push(Diagnostic {
+                        severity: DiagnosticSeverity::Warning,
+                        code: diagnostic_code::ENCOUNTER_DATA_INCOMPLETE.into(),
+                        source: DiagnosticSource::Hoyowiki,
+                        game: Game::Hsr,
+                        snapshot: None,
+                        mode: None,
+                        path: Some("hsr_encounters_v1.json".into()),
+                        message: warning,
+                    });
+                }
+            }
         }
     }
     match task.game {
@@ -510,7 +550,7 @@ async fn attach_official_zzz_phase_snapshot(
     bundle.add_bytes("zzz_official_endgame_phases.json", refresh.normalized)?;
     diagnostics.extend(refresh.warnings.into_iter().map(|message| Diagnostic {
         severity: DiagnosticSeverity::Warning,
-        code: diagnostic_code::PIPELINE_WARNING.to_owned(),
+        code: diagnostic_code::ENCOUNTER_DATA_INCOMPLETE.to_owned(),
         source: DiagnosticSource::Hoyowiki,
         game: Game::Zzz,
         snapshot: None,
@@ -1322,6 +1362,12 @@ fn is_known_sidecar(path: &Path) -> bool {
                 | "zzz_endgame_phase_overrides.json"
                 | "zzz_banner_plan.json"
                 | "decision_cards.json"
+                | "hsr_encounters_v1.json"
+                | "zzz_encounters_v1.json"
+                | "hsr_battle_records_v1.json"
+                | "zzz_battle_records_v1.json"
+                | "hsr_team_profiles_v1.json"
+                | "zzz_team_profiles_v1.json"
         )
     )
 }
@@ -1363,6 +1409,17 @@ fn visualizer_context(
     invocation: &ExportInvocation,
 ) -> anyhow::Result<VisualizerContext> {
     let mut context = VisualizerContext::new_with_local_datetime(invocation.local_datetime());
+    let game_key = if game == Game::Hsr { "hsr" } else { "zzz" };
+    for kind in ["encounters", "battle_records", "team_profiles"] {
+        let name = format!("{game_key}_{kind}_v1.json");
+        for directory in [".miho", "configs"] {
+            let candidate = invocation.resolve(Path::new(directory)).join(&name);
+            if let Some(bytes) = read_banner_plan_candidate(&candidate)? {
+                context.add_sidecar_bytes(&name, bytes)?;
+                break;
+            }
+        }
+    }
     for (slug, bytes) in avatars {
         context.add_avatar_webp(slug, bytes.clone())?;
     }

@@ -678,3 +678,114 @@
     };
   }
 })(globalThis);
+
+// Encounter advice is a bounded suitability estimate, never a damage simulation.
+(function (root) {
+  'use strict';
+  const LABELS = {break:'击破',follow_up:'追加攻击',dot:'持续伤害',ultimate:'终结技',aoe:'群体',anomaly:'异常',disorder:'紊乱',crit:'直伤暴击',rupture:'锐化（命破）',stun:'失衡窗口'};
+  const ALIASES = {fua:'follow_up','follow-up':'follow_up','追加攻击':'follow_up','击破':'break','持续伤害':'dot',DoT:'dot','终结技':'ultimate','群体':'aoe','异常':'anomaly','紊乱':'disorder','暴击':'crit','贯穿':'rupture','锐化':'rupture','锐化伤害':'rupture','失衡':'stun'};
+  const signature = chars => JSON.stringify([...new Set((chars || []).map(String))].sort());
+  const tags = values => [...new Set((Array.isArray(values) ? values : String(values || '').split(/[;,|]/)).map(value => {const normalized=String(value).trim().toLowerCase();return ALIASES[value] || ALIASES[normalized] || normalized;}).filter(value => LABELS[value]))];
+  const safeUrl = value => /^https?:\/\//i.test(String(value || '')) ? String(value) : '';
+  function rows(data, game, mode) {
+    return (data?.encounterRows || []).filter(row => row && row.game === game && row.mode === mode && typeof row.scope_key === 'string' && row.scope_key);
+  }
+  function profile(data, game, members, mode = '') {
+    const chars = members.map(member => member.slug), exact = (data?.teamProfileRows || []).find(row => (!row.game || row.game === game) && (!row.mode || row.mode === mode) && signature(row.chars) === signature(chars));
+    if (exact && safeUrl(exact.source_url) && exact.inferred !== true && ['A','B'].includes(exact.evidence_grade)) {
+      const primary = tags(exact.primary_tags), secondary = tags(exact.secondary_tags).filter(tag => !primary.includes(tag));
+      return {primary,secondary,inferred:false,source_url:safeUrl(exact.source_url),unknown:primary.length ? [] : ['队伍主导伤害类型未确认']};
+    }
+    const core = members.filter(member => member.core || /(?:crit_dps|anomaly_dps|rupture_dps)/.test(member.info?.role_group || '') || member.info?.style_cn === '命破' || game==='hsr' && /(?:^|;)(?:main_dps|sub_dps)(?:;|$)/.test(member.info?.role_groups || ''));
+    const perCore = core.map(member => {
+      const info = member.info || {}, explicit = tags(info.damage_tags || info.combat_tags || []), roles = String(info.role_groups || info.role_group || '');
+      if (game === 'zzz') {
+        if(info.style_cn==='命破') {explicit.splice(0,explicit.length,...explicit.filter(tag=>!['crit','anomaly','disorder'].includes(tag)),'rupture');}
+        else {
+          if (roles.includes('anomaly_dps') || info.style_cn === '异常') explicit.push('anomaly');
+          if (roles.includes('crit_dps') || info.style_cn === '强攻') explicit.push('crit');
+          if (roles.includes('rupture_dps')) explicit.push('rupture');
+        }
+      } else {
+        for (const [pattern,tag] of [[/break|击破/,'break'],[/follow_up|followup|fua|追加/,'follow_up'],[/dot|持续伤害/,'dot'],[/ultimate|终结技/,'ultimate'],[/aoe|群体/,'aoe']]) if (pattern.test(roles)) explicit.push(tag);
+      }
+      return [...new Set(explicit)];
+    });
+    const all = [...new Set(perCore.flat())], primary = all.filter(tag => perCore.length && perCore.every(row => row.includes(tag))), secondary = all.filter(tag => !primary.includes(tag));
+    if (game === 'zzz' && members.some(member => member.info?.style_cn === '击破' || member.info?.role_group === 'stun')) secondary.push('stun');
+    // Two different anomaly elements permit disorder; a single anomaly member does not describe the party.
+    if (game === 'zzz' && core.filter((member,index) => perCore[index].includes('anomaly')).length >= 2 && new Set(core.filter((member,index) => perCore[index].includes('anomaly')).map(member => member.info?.element_cn).filter(Boolean)).size >= 2) secondary.push('disorder');
+    const unknown = ['画像来自角色标签推断，队伍伤害占比与实战轴未确认'];
+    if (!primary.length) unknown.push('队伍主导伤害类型未知');
+    if (perCore.some(row => !row.length) || !core.length) unknown.push('部分输出角色缺少伤害类型资料');
+    return {primary,secondary:[...new Set(secondary)],inferred:true,source_url:'',tag_sources:[...new Set(core.map(member=>safeUrl(member.info?.tag_source_url)).filter(Boolean))],unknown};
+  }
+  function parseEffect(effect, encounter) {
+    const text = String(effect?.text || '').trim();
+    const enemyBound = effect?.scope === 'enemy' && (encounter.enemies || []).length === 1 && (!effect.enemy_id || String(encounter.enemies[0].id) === String(effect.enemy_id));
+    if ((effect?.verified !== true && !((encounter.user_provided === true || encounter.user_input_overlay === true) && effect?.user_confirmed === true)) || !text || !(['phase','encounter'].includes(effect.scope) || enemyBound)) return {unknown:text || effect?.name || '未核验机制'};
+    // Choice, uptime, enemy attacks and conditional phases must never become permanent party buffs.
+    if (/当|如果|每|后|前|期间|条件|阶段|状态|层|秒|回合|持续|触发|累计|至多|最多|至少|交替|选择|任选|敌人造成|敌方造成|我方受到|角色受到|敌人伤害|攻击力|受到的伤害降低|所受伤害降低/.test(text.replace(/持续伤害/g,'DOT'))) return {unknown:text};
+    const percentages = text.match(/\d+(?:\.\d+)?\s*[%％]/g) || [];
+    if (percentages.length !== 1) return {unknown:text};
+    const subject = '(?:(?:全体|所有)?(?:我方)?(?:代理人|角色)(?:的)?(?:造成)?(?:的)?|我方(?:造成)?(?:的)?|造成(?:的)?|(?:全体|所有)?(?:敌人|敌方目标|敌方)受到(?:的)?)?';
+    const category = '((?:所有|全部|全)?伤害|击破伤害|(?:追加攻击|追击|终结技|群体|对群|属性异常|异常|紊乱|暴击|锐化|贯穿)(?:的)?伤害|持续伤害|(?:物理|火|冰|雷|风|量子|虚数|电|以太)(?:属性)?(?:的)?伤害)';
+    // Match the complete supported phrase. Recognizing an element inside an unknown
+    // qualifier (for example summon or counter damage) does not establish party coverage.
+    const match = text.replace(/\s+/g,'').match(new RegExp(`^${subject}${category}(?:的)?(提升|提高|增加|降低|减少)(?:了)?(\\d+(?:\\.\\d+)?)\\s*[%％][。.!！]?$`));
+    if (!match) return {unknown:text};
+    const tagPatterns = [[/击破伤害/,'break'],[/追加攻击|追击伤害/,'follow_up'],[/DOT|持续伤害/,'dot'],[/终结技/,'ultimate'],[/群体伤害|对群伤害/,'aoe'],[/异常伤害|属性异常/,'anomaly'],[/紊乱/,'disorder'],[/暴击/,'crit'],[/锐化|贯穿/,'rupture']];
+    const normalizedCategory = match[1].replace(/的/g,'');
+    const parsedText = normalizedCategory.replace(/持续伤害/g,'DOT'), matchedTags = tagPatterns.filter(([pattern]) => pattern.test(parsedText)).map(([,tag]) => tag);
+    const element = ['物理','火','冰','雷','风','量子','虚数','电','以太'].find(value => new RegExp(`^${value}(?:属性)?伤害$`).test(normalizedCategory));
+    if(!matchedTags.length&&!element&&!/^(?:所有|全部|全)?伤害$/.test(normalizedCategory))return{unknown:text};
+    const direction = /降低|减少/.test(match[0]) ? -1 : 1;
+    return {text,tag:matchedTags[0] || '',element:element || '',value:Math.min(100,Number(match[3])) * .9 * direction};
+  }
+  function records(data, encounter, chars) {
+    return (data?.battleRecordRows || []).filter(row => {
+      const value = Number(row.metric_value);
+      return row.game === encounter.game && row.mode === encounter.mode && String(row.phase_ver) === String(encounter.phase_ver) && row.encounter_key === encounter.scope_key && signature(row.chars) === signature(chars) && row.chars?.length === chars.length && row.is_quick_clear === false && ['A','B'].includes(row.evidence_grade) && safeUrl(row.source_url) && ['encounter','floor','node','stage','side'].includes(row.metric_scope) && ['score','points','cycles','rounds','duration','seconds','clear_time'].includes(row.metric_kind) && Number.isFinite(value) && (value > 0 || value === 0 && row.metric_kind==='cycles') && Math.abs(value-99.99) > .001;
+    });
+  }
+  function evaluate(data, encounter, members) {
+    const image = profile(data,encounter.game,members,encounter.mode), reasons = [], unknown = [...image.unknown], parts = [], core = members.filter(member => member.core || member.info?.style_cn === '命破');
+    const weaknessHits = core.filter(member => (encounter.weaknesses || []).includes(member.info?.element_cn));
+    const resistanceHits = core.filter(member => (encounter.resistances || []).includes(member.info?.element_cn));
+    if ((encounter.weaknesses || []).length && core.length) {
+      const value = weaknessHits.length ? 28 : -16, detail = weaknessHits.length ? '核心输出命中敌方弱点' : '核心输出未命中弱点，仍可由词缀或实战证据补足';
+      parts.push({key:'encounter-weakness',label:'关卡弱点',value,detail,available:true});reasons.push(detail);
+    }
+    if (resistanceHits.length) {
+      const detail = `核心输出遇到抗性：${[...new Set(resistanceHits.map(member => member.info.element_cn))].join(' / ')}（未提供抗性倍率）`;
+      parts.push({key:'encounter-resistance',label:'敌方抗性',value:-55 * resistanceHits.length / Math.max(1,core.length),detail,available:true});reasons.push(detail);
+    }
+    const dimensions = new Map();
+    for (const effect of encounter.effects || []) {
+      const parsed = parseEffect(effect,encounter);
+      if (parsed.unknown) {unknown.push(parsed.unknown);continue;}
+      const weight = parsed.tag ? image.primary.includes(parsed.tag) ? 1 : image.secondary.includes(parsed.tag) ? .35 : image.primary.length ? 0 : null : parsed.element ? core.length ? core.filter(member => member.info?.element_cn === parsed.element).length / core.length : null : 1;
+      if (weight == null) {unknown.push(`${parsed.text}：队伍资料不足，未计分`);continue;}
+      if (!weight) {reasons.push(`未匹配：${parsed.text}`);continue;}
+      const dimension = parsed.tag || parsed.element || 'all', value = parsed.value * weight * (parsed.tag && image.inferred ? .7 : 1), old = dimensions.get(dimension) || {positive:0,negative:0,texts:[]};
+      old.positive = Math.max(old.positive,value);old.negative = Math.min(old.negative,value);old.texts.push(parsed.text);dimensions.set(dimension,old);
+    }
+    let effectValue = 0;
+    for (const dimension of dimensions.values()) {effectValue += dimension.positive + dimension.negative;reasons.push(`${dimension.negative < 0 ? '冲突' : '适配'}：${dimension.texts.join('；')}`);}
+    if (dimensions.size) parts.push({key:'encounter-effects',label:'词缀适配',value:Math.max(-150,Math.min(150,effectValue)),detail:'仅无条件已核验规则；同类取最强正负项，适配分不代表伤害倍率',available:true});
+    const exactRecords = records(data,encounter,members.map(member => member.slug));
+    if (exactRecords.length) {parts.push({key:'encounter-record',label:'同关阵容实战证据',value:600,detail:`完整成员 / 同模式 / 同期 / 同关卡 / 非速通有效记录 ${exactRecords.length} 条；整层成绩只证明同关阵容出现，不预测单侧成绩`,available:true});reasons.push(exactRecords.some(row=>row.metric_scope==='floor')?'有完整成员同关实战记录；整层成绩不能视为单侧成绩':'有完整成员同目标实战记录');}
+    else unknown.push('无完整成员同目标有效实战样本；原模板成绩仅作跨关参考');
+    if (!encounter.effects?.length) unknown.push('未提供已核验词缀');
+    if (encounter.mechanic_text && !(encounter.effects || []).some(effect => effect.text === encounter.mechanic_text)) unknown.push(encounter.mechanic_text);
+    return {encounter,profile:image,parts,reasons,unknown:[...new Set(unknown)],exactRecords};
+  }
+  function html(advice, escape) {
+    if (!advice) return '';
+    const image = advice.profile, label = values => values.map(tag => LABELS[tag]).join(' / ') || '未知';
+    const metricLabel=row=>row.metric_scope==='floor'?(['score','points'].includes(row.metric_kind)?'整层总得分':['cycles','rounds'].includes(row.metric_kind)?'整层总回合':'整层总耗时'):({score:'分数',points:'得分',cycles:'回合',rounds:'回合',duration:'耗时',seconds:'秒',clear_time:'通关耗时'}[row.metric_kind]||'成绩');
+    const recordText = advice.exactRecords.length ? advice.exactRecords.map(row => `${metricLabel(row)} ${row.metric_value} · ${row.evidence_grade} 级${row.metric_scope==='floor'?'（不是单侧成绩）':''}${row.build_context?' · 配置背景见来源':''}${row.metric_kind==='cycles'&&Number(row.metric_value)===0?' · 零回合高配参考':''}`).join('；') : '跨关迁移参考 · 目标证据 C';
+    return `<div class="rec-encounter-advice"><b>${escape(advice.encounter.label || advice.encounter.scope_key)}${advice.encounter.user_input_overlay ? ' · 用户补充敌情' : ''}${advice.encounter.user_provided ? ' · 用户提供' : ''}</b><p>主：${escape(label(image.primary))} · 次：${escape(label(image.secondary))} · ${image.inferred ? '角色标签推断' : '来源画像'}</p><p>${escape(recordText)}</p>${advice.exactRecords.map(row => `<a href="${escape(safeUrl(row.source_url))}" target="_blank" rel="noopener noreferrer">同目标实战来源</a>`).join(' ')}${(image.tag_sources||[]).map(url=>`<a href="${escape(url)}" target="_blank" rel="noopener noreferrer">角色伤害标签来源</a>`).join(' ')}${image.source_url ? `<a href="${escape(image.source_url)}" target="_blank" rel="noopener noreferrer">队伍画像来源</a>` : ''}${advice.reasons.map(text => `<p>${escape(text)}</p>`).join('')}<details><summary>未知与条件机制 ${advice.unknown.length} 项</summary>${advice.unknown.map(text => `<p>${escape(text)}</p>`).join('')}</details></div>`;
+  }
+  Object.defineProperty(root,'MihoEncounterAdvisor',{value:Object.freeze({rows,profile,evaluate,records,html,safeUrl}),configurable:false,writable:false});
+})(globalThis);

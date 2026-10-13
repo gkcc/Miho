@@ -43,6 +43,12 @@ const DEFAULT_UPDATE_CONFIG_RELATIVE_PATH_V1: &str = "configs/update_v1.json";
 
 static NEXT_ATTEMPT_ID: AtomicU64 = AtomicU64::new(0);
 
+fn export_diagnostic_blocks_update(diagnostic: &miho_core::contract::Diagnostic) -> bool {
+    diagnostic.code != diagnostic_code::WORKBOOK_GENERATION_FAILED
+        && !(diagnostic.code == diagnostic_code::ENCOUNTER_DATA_INCOMPLETE
+            && diagnostic.severity == miho_core::contract::DiagnosticSeverity::Warning)
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum UpdateRunStatusV1 {
@@ -681,7 +687,7 @@ impl NativeUpdateExecutorV1 {
         if receipt
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code != diagnostic_code::WORKBOOK_GENERATION_FAILED)
+            .any(export_diagnostic_blocks_update)
         {
             return Err(UpdateStepExecutionErrorV1::Failure(
                 UpdateStepFailureV1::safe(
@@ -2902,6 +2908,35 @@ mod tests {
             .unwrap();
         fs::rename(&path, &moved).unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn optional_encounter_gaps_do_not_hide_required_source_failures() {
+        use miho_core::contract::{Diagnostic, DiagnosticSeverity, DiagnosticSource};
+        let mut warning = Diagnostic {
+            severity: DiagnosticSeverity::Warning,
+            code: diagnostic_code::ENCOUNTER_DATA_INCOMPLETE.into(),
+            source: DiagnosticSource::Hoyowiki,
+            game: Game::Zzz,
+            snapshot: None,
+            mode: None,
+            path: None,
+            message: "Official encounter period is unknown; disclosed fallback".into(),
+        };
+        assert!(!export_diagnostic_blocks_update(&warning));
+        warning.game = Game::Hsr;
+        assert!(!export_diagnostic_blocks_update(&warning));
+        warning.severity = DiagnosticSeverity::RecoverableError;
+        assert!(export_diagnostic_blocks_update(&warning));
+        warning.severity = DiagnosticSeverity::Warning;
+        for code in [
+            diagnostic_code::PIPELINE_WARNING,
+            diagnostic_code::SUPPLEMENTAL_CACHE_FALLBACK,
+            diagnostic_code::SUPPLEMENTAL_FETCH_FAILED,
+        ] {
+            warning.code = code.into();
+            assert!(export_diagnostic_blocks_update(&warning));
+        }
     }
 
     #[test]

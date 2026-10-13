@@ -127,7 +127,7 @@
         <div class="control-group compact" id="recTeamCountControl"><label for="recTeamCountSelect">方案队数</label><select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></div>
         <div id="recDivisionControl" class="control-group hidden" aria-label="异相仲裁挑战区域"></div>
         <div class="control-group" id="recTargetScopeControl"><span class="control-label" id="recTargetScopeButtonsLabel">参战关卡（可多选）</span><div class="tier-checks" id="recTargetScopeButtons" role="group" aria-labelledby="recTargetScopeButtonsLabel"></div></div>
-        <p id="recStrategyHint"></p>
+        <p id="recStrategyHint"></p><div id="recEncounterPartyControls" class="rec-encounter-party-controls hidden"></div><div id="recEncounterDetails" class="rec-encounter-details hidden" aria-live="polite"></div><details id="recManualEncounter" class="rec-manual-encounter hidden" open></details>
       </section>
       <section class="rec-slate rec-primary-slate" aria-label="多队方案">
         <div class="panel-head"><div><h2>多队方案</h2><p id="recSlateSubtitle"></p></div><button id="recReplanBtn" type="button" class="quiet">重新选择整套方案</button></div>
@@ -139,6 +139,7 @@
       <summary>微调某一关 <span id="recFineTuneScope"></span></summary>
       <section class="rec-controls" aria-label="本关微调条件">
         <div class="control-group compact"><label id="recScopeLabel" for="recScopeSelect">实战节点</label><select id="recScopeSelect"></select></div>
+        <label id="recEncounterControl" class="hidden rec-encounter-control">关卡敌情<select id="recEncounterSelect"></select></label>
         <div class="control-group"><span class="control-label" id="recElementLabel">敌方弱点（仅标注）</span><div class="tier-checks" id="recElementControl" role="group" aria-labelledby="recElementLabel"></div></div>
         <div class="control-group compact"><label for="recLimitSelect">数量</label><select id="recLimitSelect"><option value="8" selected>Top 8</option><option value="12">Top 12</option><option value="20">Top 20</option></select></div>
         <div class="control-group search"><label for="recSearchInput">搜索</label><input id="recSearchInput" type="search" placeholder="角色 / 队伍 / 来源" /></div>

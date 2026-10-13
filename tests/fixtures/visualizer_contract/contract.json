@@ -34,16 +34,16 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "91158d802791cc0aa34ebb5a7265eb50c24f46368a1a505624530b3468abe1de",
-      "index.html": "e0d099543b005d20f57ddaa25141788a0dd1e34a4c5a4c7df0941215b1e17120",
-      "solver.js": "98480e313b0667046862e00399cbbc21168ad0aeb2e30141bf98782cb946ac66",
-      "styles.css": "2b7cb07b51e318f57362ac3317c10531fc2ae13155c7db83669f2fa575715ee8"
+      "app.js": "67918277fb1d63fea7dd5a650552ed1033861dc702573c181b6b1411105aa6de",
+      "index.html": "3d039afa6cf54be0ab6f333d68db9613275198c348378f1339f4cc3ff2cd60ce",
+      "solver.js": "de478cc0c9d4495b74c1f803aef451ba9337eac41f93d3ac68de1ee695897ae8",
+      "styles.css": "9a85f67725a3fe36e6b96ceb150147a0f1f103a8d7cc3d3e52269e56276f959f"
     },
     "zzz": {
-      "app.js": "409f10ec05fd1fddbc95e5fb478c41a4669c2e50577cf61a1de2e3f6e3e32392",
-      "index.html": "af9ae74678c718b0c6adebee15f2ab4a68260d8a84776642438f1d72ea0cae30",
-      "solver.js": "98480e313b0667046862e00399cbbc21168ad0aeb2e30141bf98782cb946ac66",
-      "styles.css": "68a1d633b4a9f66c7ac1d33b854070e1fef5fce0f1f40fcca864292307d8e22b"
+      "app.js": "a155936203cde788f8c0e6af15f94852b0afbb0ce8ee423c5f6d3142c354bdfc",
+      "index.html": "09b56be65743fc5f7be362ce6640a4cbd67c24dc24eb9d5232c149e9aa040a8a",
+      "solver.js": "de478cc0c9d4495b74c1f803aef451ba9337eac41f93d3ac68de1ee695897ae8",
+      "styles.css": "e34dbc6debc24f2841702185c45ac9123af6f1b1746573e1fed19eaae993f945"
     },
     "hub": {
       "app.js": "45043faae8d788fb9557335a1fffbf7f36f7f5c0778c489a85560f2c5ef2def0",

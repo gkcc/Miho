@@ -126,6 +126,19 @@ def _bundled_avatar_entries(game: str) -> list[dict[str, object]]:
     return entries
 
 
+def _apply_rust_encounter_absence_contract(expected: dict[str, object], game: str) -> None:
+    # These legacy fixtures deliberately have no encounter/record/profile inputs.
+    # The Rust product now exports their absence explicitly; retain exact checks.
+    expected.update({
+        "encounterRows": [], "battleRecordRows": [], "teamProfileRows": [],
+        "encounterDataQuality": {
+            "schema_version": "miho-encounters-v1", "game": game,
+            "encounter_count": 0, "battle_record_count": 0, "profile_count": 0,
+            "warnings": [], "public_record_status": "no_verified_records",
+        },
+    })
+
+
 def _cli_visualizer_file_set(base_files: list[str], game: str) -> list[str]:
     files = set(base_files)
     files.update(
@@ -306,7 +319,7 @@ def test_hsr_final_target_controls_remain_responsive() -> None:
 
 
 def test_hsr_and_zzz_recommenders_keep_parallel_dual_strategy_controls() -> None:
-    for game, custom_label in (("hsr", "按弱点配队"), ("zzz", "按属性配队")):
+    for game, custom_label in (("hsr", "按关卡敌情配队"), ("zzz", "按关卡敌情配队")):
         visualizer = (
             ROOT / "crates" / "miho-core" / "assets" / "visualizer" / game
         )
@@ -606,6 +619,7 @@ def test_rust_hsr_visualizer_matches_python_json_and_release_order_contract(
 ) -> None:
     expected = load_json(_visualizer_root(visualizer_workspace, "hsr") / "data.json")
     _apply_rust_roster_release_order_contract(expected, "hsr")
+    _apply_rust_encounter_absence_contract(expected, "hsr")
     actual = load_json(rust_hsr_visualizer_root / "data.json")
     actual_v2 = load_json(rust_hsr_visualizer_root / "data.v2.json")
 
@@ -634,6 +648,7 @@ def test_real_hsr_cli_visualizer_matches_python_oracle_and_release_order_contrac
     actual_data = load_json(actual_root / "data.json")
     _apply_hsr_bundled_avatar_contract(expected_data)
     _apply_rust_roster_release_order_contract(expected_data, "hsr")
+    _apply_rust_encounter_absence_contract(expected_data, "hsr")
     assert_json_contract_equal(expected_data, actual_data, dynamic_pointers=())
 
     contract = load_json(FIXTURES / "contract.json")
@@ -660,6 +675,7 @@ def test_rust_zzz_visualizer_matches_python_json_and_release_order_contract(
 ) -> None:
     expected = load_json(_visualizer_root(visualizer_workspace, "zzz") / "data.json")
     _apply_rust_roster_release_order_contract(expected, "zzz")
+    _apply_rust_encounter_absence_contract(expected, "zzz")
     actual = load_json(rust_zzz_visualizer_root / "data.json")
     actual_v2 = load_json(rust_zzz_visualizer_root / "data.v2.json")
     assert_json_contract_equal(expected, actual, dynamic_pointers=())
@@ -686,6 +702,7 @@ def test_real_zzz_cli_visualizer_matches_python_oracle_and_release_order_contrac
     expected_data = load_json(expected_root / "data.json")
     actual_data = load_json(actual_root / "data.json")
     _apply_rust_roster_release_order_contract(expected_data, "zzz")
+    _apply_rust_encounter_absence_contract(expected_data, "zzz")
     assert_json_contract_equal(expected_data, actual_data, dynamic_pointers=())
 
     contract = load_json(FIXTURES / "contract.json")

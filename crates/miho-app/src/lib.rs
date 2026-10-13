@@ -6,6 +6,8 @@
 //! `miho-core`; this crate owns path discovery, input reads, rendering, and the
 //! final batch installation.
 
+mod hsr_encounter_refresh;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,

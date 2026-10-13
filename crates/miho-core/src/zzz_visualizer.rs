@@ -82,6 +82,7 @@ pub fn attach_zzz_visualizer(
         "data_quality": data_quality,
         "freshness": freshness,
     });
+    crate::encounter::attach_advice_data("zzz", bundle, context, &mut data)?;
     if let Some(refresh) = banner_refresh {
         data.as_object_mut()
             .expect("visualizer data must be an object")

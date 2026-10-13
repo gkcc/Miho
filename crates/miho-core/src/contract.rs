@@ -254,6 +254,7 @@ pub mod diagnostic_code {
     pub const NAME_SEED_FAILED: &str = "name_seed.read_failed";
     pub const HISTORY_READ_FAILED: &str = "history.read_failed";
     pub const WORKBOOK_GENERATION_FAILED: &str = "workbook.generation_failed";
+    pub const ENCOUNTER_DATA_INCOMPLETE: &str = "encounter.data_incomplete";
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]

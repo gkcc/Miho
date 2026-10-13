@@ -63,6 +63,7 @@ struct OfficialPage {
     name: String,
     version: String,
     modules: Vec<Value>,
+    layout: Value,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -83,6 +84,9 @@ struct OfficialClient {
     headers: HeaderMap,
     raw: BTreeMap<String, Vec<u8>>,
     warnings: Vec<String>,
+    pages: BTreeMap<String, OfficialPage>,
+    encounters: Vec<Value>,
+    da_anchors: BTreeMap<PhaseIdentity, (String, String)>,
 }
 
 impl OfficialClient {
@@ -92,6 +96,9 @@ impl OfficialClient {
             headers: official_headers()?,
             raw: BTreeMap::new(),
             warnings: Vec::new(),
+            pages: BTreeMap::new(),
+            encounters: Vec::new(),
+            da_anchors: BTreeMap::new(),
         })
     }
 
@@ -123,6 +130,9 @@ impl OfficialClient {
     }
 
     async fn page(&mut self, id: &str) -> anyhow::Result<OfficialPage> {
+        if let Some(page) = self.pages.get(id) {
+            return Ok(page.clone());
+        }
         if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) {
             return Err(anyhow!("invalid official entry page id: {id}"));
         }
@@ -152,7 +162,9 @@ impl OfficialClient {
             format!("raw/hoyowiki/endgame/entry-{id}-zh-cn.json"),
             fetched.text.as_bytes().to_vec(),
         );
-        decode_page(&fetched.text, id).map_err(anyhow::Error::msg)
+        let page = decode_page(&fetched.text, id).map_err(anyhow::Error::msg)?;
+        self.pages.insert(id.to_owned(), page.clone());
+        Ok(page)
     }
 
     fn record_fallback(&mut self, label: &str, source: FetchSource, reason: Option<&str>) {
@@ -174,8 +186,9 @@ pub(crate) async fn refresh_official_phases(
     previous_snapshot: Option<&[u8]>,
     fetched_at: DateTime<FixedOffset>,
 ) -> anyhow::Result<OfficialPhaseRefresh> {
-    let targets = latest_targets(bundle)?;
+    let targets = sampled_targets(bundle)?;
     let mut client = OfficialClient::new(http, cache_root)?;
+    client.da_anchors = previous_da_anchors(previous_snapshot);
     let mut rows = Vec::new();
     let mut warnings = Vec::new();
 
@@ -203,6 +216,17 @@ pub(crate) async fn refresh_official_phases(
         }
     }
     warnings.append(&mut client.warnings);
+    let encounter_status = if client.encounters.is_empty() {
+        "unavailable"
+    } else if warnings.is_empty() {
+        "verified"
+    } else {
+        "partial"
+    };
+    client.raw.insert("zzz_encounters_v1.json".to_owned(), serde_json::to_vec_pretty(&json!({
+        "schema_version":"miho-encounters-v1", "game":"zzz", "fetched_at":fetched_at.to_rfc3339(),
+        "quality_status":encounter_status, "warnings":warnings, "encounters":client.encounters,
+    }))?);
     let normalized = merge_snapshot(previous_snapshot, rows, fetched_at)?;
     Ok(OfficialPhaseRefresh {
         normalized,
@@ -211,7 +235,7 @@ pub(crate) async fn refresh_official_phases(
     })
 }
 
-fn latest_targets(bundle: &ArtifactBundle) -> anyhow::Result<Vec<PhaseTarget>> {
+fn sampled_targets(bundle: &ArtifactBundle) -> anyhow::Result<Vec<PhaseTarget>> {
     let mut latest = BTreeMap::<String, PhaseTarget>::new();
     for row in read_csv_rows(bundle, "phase_index.csv")? {
         let mode = row.get("mode").cloned().unwrap_or_default();
@@ -241,7 +265,12 @@ fn latest_targets(bundle: &ArtifactBundle) -> anyhow::Result<Vec<PhaseTarget>> {
             target.identity.snapshot_id.as_str(),
             target.identity.phase_ver.as_str(),
         );
-        let replace = latest.get(&mode).is_none_or(|current| {
+        // One canonical sampled snapshot per complete period, never reuse a stage across periods.
+        let period_key = format!(
+            "{}:{}:{}:{}",
+            mode, target.identity.phase_ver, target.identity.start_date, target.identity.end_date
+        );
+        let replace = latest.get(&period_key).is_none_or(|current| {
             key > (
                 current.collect_date.as_str(),
                 current.identity.start_date.as_str(),
@@ -250,7 +279,7 @@ fn latest_targets(bundle: &ArtifactBundle) -> anyhow::Result<Vec<PhaseTarget>> {
             )
         });
         if replace {
-            latest.insert(mode, target);
+            latest.insert(period_key, target);
         }
     }
     Ok(latest.into_values().collect())
@@ -321,6 +350,17 @@ async fn fetch_sd_phase(
     )?;
 
     let mechanic_text = shared_sd_mechanic(&stage_pages)?;
+    let mut encounters = Vec::new();
+    for (stage, page) in &stage_pages {
+        match sd_encounters(page, target, *stage, &mechanic_text) {
+            Ok(rows) => encounters.extend(rows),
+            Err(error) => client.warnings.push(format!(
+                "官方式舆 {} 第{stage}防线敌情未知：{error}",
+                target.identity.start_date
+            )),
+        }
+    }
+    client.encounters.extend(encounters);
     let phase_name_cn = source_page
         .as_ref()
         .map(|page| page.name.clone())
@@ -367,11 +407,13 @@ async fn fetch_da_phase(
 ) -> anyhow::Result<OfficialPhaseRow> {
     let start = parse_iso_date(&target.identity.start_date)
         .ok_or_else(|| anyhow!("invalid DA start date"))?;
+    let anchor = client.da_anchors.get(&target.identity).cloned();
     let candidates = index
         .da
         .iter()
         .filter(|item| da_phase_number(&item.title).is_some())
-        .take(12)
+        .filter(|item| anchor.as_ref().is_none_or(|(id, _)| item.id == *id))
+        .take(if anchor.is_some() { usize::MAX } else { 2 })
         .cloned()
         .collect::<Vec<_>>();
     if candidates.is_empty() {
@@ -391,7 +433,10 @@ async fn fetch_da_phase(
         };
         pages.push((item, page));
     }
-    let (page, mechanics) = select_unique_da_phase(pages, start)?;
+    let (page, mechanics) = select_unique_da_phase(pages, start, anchor.as_ref())?;
+    client
+        .encounters
+        .extend(da_encounters(&page, target, &mechanics)?);
     let mechanic_name = mechanics
         .iter()
         .map(|(name, _)| name.as_str())
@@ -412,7 +457,7 @@ async fn fetch_da_phase(
         entry_page_ids: vec![page.id.clone()],
         source_versions: BTreeMap::from([(page.id, page.version)]),
         source_note:
-            "按官方词条 version 的固定 UTC+08:00 日期与统计周期开始日精确绑定；仅采用增益名称/增益效果表。"
+            "沿用已保存的完整周期身份与官方词条ID锚点，重新核验官方期号标题；version仅记录编辑版本，不作为开期日期。仅采用增益名称/增益效果表。"
                 .to_owned(),
     })
 }
@@ -420,16 +465,22 @@ async fn fetch_da_phase(
 fn select_unique_da_phase(
     candidates: Vec<(IndexItem, OfficialPage)>,
     start: NaiveDate,
+    anchor: Option<&(String, String)>,
 ) -> anyhow::Result<(OfficialPage, Vec<(String, String)>)> {
+    let Some((anchor_id, anchor_title)) = anchor else {
+        let versions = candidates
+            .iter()
+            .filter(|(_, page)| version_date_cn(&page.version) == Some(start))
+            .map(|(_, page)| format!("{} {} version={}", page.id, page.name, page.version))
+            .collect::<Vec<_>>();
+        return Err(anyhow!("官方危局 {start} 缺少已验证的周期/期号锚点；version是编辑时间，不能用来绑定开期。编辑同日候选：{}", versions.join("；")));
+    };
     let mut matches = Vec::new();
     for (item, page) in candidates {
         if page.name != item.title || da_phase_number(&page.name).is_none() {
             continue;
         }
-        let Some(version_date) = version_date_cn(&page.version) else {
-            continue;
-        };
-        if version_date != start {
+        if page.id != *anchor_id || page.name != *anchor_title {
             continue;
         }
         let mechanics = da_mechanics(&page)?;
@@ -447,7 +498,41 @@ fn select_unique_da_phase(
     }
     matches
         .pop()
-        .ok_or_else(|| anyhow!("no official DA page version date exactly matches {start}"))
+        .ok_or_else(|| anyhow!("official DA {start} saved anchor {anchor_id} {anchor_title} is missing or title changed"))
+}
+
+fn previous_da_anchors(previous: Option<&[u8]>) -> BTreeMap<PhaseIdentity, (String, String)> {
+    let mut anchors = BTreeMap::new();
+    let Some(value) = previous.and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok()) else {
+        return anchors;
+    };
+    if value.get("schema_version").and_then(Value::as_str) != Some(OFFICIAL_SCHEMA) {
+        return anchors;
+    }
+    for row in value
+        .get("phases")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(identity) = serialized_identity(row) else {
+            continue;
+        };
+        if identity.mode != "da" {
+            continue;
+        }
+        let title = scalar_string(row.get("phase_name_cn"));
+        let Some(ids) = row.get("entry_page_ids").and_then(Value::as_array) else {
+            continue;
+        };
+        if ids.len() == 1 && da_phase_number(&title).is_some() {
+            let id = scalar_string(ids.first());
+            if !id.is_empty() {
+                anchors.insert(identity, (id, title));
+            }
+        }
+    }
+    anchors
 }
 
 fn decode_index(text: &str) -> Result<OfficialIndex, String> {
@@ -499,6 +584,7 @@ fn decode_page(text: &str, expected_id: &str) -> Result<OfficialPage, String> {
         name,
         version: scalar_string(page.get("version")),
         modules,
+        layout: page.get("template_layout").cloned().unwrap_or(Value::Null),
     })
 }
 
@@ -719,6 +805,423 @@ fn component_json(component: &Value) -> anyhow::Result<Value> {
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("official component.data is not a JSON string"))?;
     serde_json::from_str(text).context("invalid JSON in official component.data")
+}
+
+// The API's modules array is not presentation order. The official layout owns
+// group boundaries and the pairing of each boss with its enemy-specific table.
+fn encounter_groups(page: &OfficialPage) -> anyhow::Result<Vec<(String, Vec<Value>)>> {
+    let tabs = page
+        .layout
+        .get("tab")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            anyhow!(
+                "official {} has no template layout; encounter boundaries unknown",
+                page.id
+            )
+        })?;
+    let mut groups = Vec::new();
+    for tab in tabs {
+        for group in tab
+            .get("module_group")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let name = scalar_string(group.get("name"));
+            let mut modules = Vec::new();
+            for reference in group
+                .get("module")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let id = scalar_string(reference.get("id"));
+                let matches = page
+                    .modules
+                    .iter()
+                    .filter(|module| scalar_string(module.get("id")) == id)
+                    .collect::<Vec<_>>();
+                if matches.len() != 1 {
+                    return Err(anyhow!(
+                        "official {} layout module {id} is missing or ambiguous",
+                        page.id
+                    ));
+                }
+                modules.push(matches[0].clone());
+            }
+            groups.push((name, modules));
+        }
+    }
+    Ok(groups)
+}
+
+fn module_rich_text(module: &Value) -> anyhow::Result<Vec<String>> {
+    let mut fragments = Vec::new();
+    for component in module
+        .get("components")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if component.get("component_id").and_then(Value::as_str) == Some("rich_row_base_info") {
+            if let Some(text) = component_json(component)?
+                .get("rich_text")
+                .and_then(Value::as_str)
+            {
+                fragments.push(text.to_owned());
+            }
+        }
+    }
+    Ok(fragments)
+}
+
+fn module_tables(module: &Value) -> anyhow::Result<Vec<Value>> {
+    let mut tables = Vec::new();
+    for component in module
+        .get("components")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if component.get("component_id").and_then(Value::as_str) == Some("multi_table") {
+            if let Some(rows) = component_json(component)?
+                .get("tables")
+                .and_then(Value::as_array)
+            {
+                tables.extend(rows.iter().cloned());
+            }
+        }
+    }
+    Ok(tables)
+}
+
+fn table_cells(table: &Value) -> Vec<String> {
+    table
+        .get("row")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
+}
+
+fn table_header(table: &Value) -> Vec<String> {
+    table
+        .get("header")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|cell| html_text(cell.as_str().unwrap_or("")))
+        .collect()
+}
+
+fn html_attribute(tag: &str, attribute: &str) -> Option<String> {
+    for quote in ['"', '\''] {
+        let marker = format!("{attribute}={quote}");
+        if let Some((_, tail)) = tag.split_once(&marker) {
+            return Some(html_unescape(tail.split(quote).next()?));
+        }
+    }
+    None
+}
+
+fn enemy_links(html: &str) -> Vec<Value> {
+    let mut enemies = Vec::new();
+    let mut tail = html;
+    while let Some((_, link)) = tail.split_once("<a ") {
+        let Some((tag, body)) = link.split_once('>') else {
+            break;
+        };
+        let Some((body, remaining)) = body.split_once("</a>") else {
+            break;
+        };
+        tail = remaining;
+        let Some(url) = html_attribute(tag, "href") else {
+            continue;
+        };
+        let Some(id) = entry_id_from_link(&url) else {
+            continue;
+        };
+        let name = html_text(body);
+        if !name.is_empty() {
+            enemies.push(json!({"id":id,"name":name,"source_url":public_page_url(&id),"text":html_text(html)}));
+        }
+    }
+    enemies
+}
+
+fn enemy_attributes(text: &str) -> (Vec<String>, Vec<String>, bool) {
+    let clean = html_text(text);
+    let Some((_, weakness_tail)) = clean.split_once("敌人弱点") else {
+        return (Vec::new(), Vec::new(), false);
+    };
+    let Some((weakness, resistance)) = weakness_tail.split_once("敌人抗性") else {
+        return (Vec::new(), Vec::new(), false);
+    };
+    let attributes = |fragment: &str| {
+        ["物理", "火", "冰", "电", "以太", "风"]
+            .into_iter()
+            .filter(|attribute| fragment.contains(&format!("{attribute}属性")))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let weaknesses = attributes(weakness);
+    let resistances = attributes(resistance);
+    let known = (!weaknesses.is_empty() || weakness.contains('无'))
+        && (!resistances.is_empty() || resistance.contains('无'));
+    (weaknesses, resistances, known)
+}
+
+fn encounter_effect(name: &str, text: &str, scope: &str, page: &OfficialPage) -> Value {
+    json!({"name":name,"text":text,"scope":scope,"source_url":public_page_url(&page.id),"verified":true})
+}
+
+#[allow(clippy::too_many_arguments)]
+fn encounter_row(
+    page: &OfficialPage,
+    target: &PhaseTarget,
+    floor: &str,
+    side: &str,
+    label: &str,
+    rich: &str,
+    modules: Vec<Value>,
+    enemies: Vec<Value>,
+    effects: Vec<Value>,
+    mechanic_text: String,
+    complete: bool,
+) -> Value {
+    let (weaknesses, resistances, attributes_known) = enemy_attributes(rich);
+    let quality = if attributes_known && !enemies.is_empty() && complete {
+        "verified"
+    } else {
+        "unknown"
+    };
+    json!({
+        "game":"zzz","mode":target.identity.mode,"phase_ver":target.identity.phase_ver,
+        "snapshot_id":target.identity.snapshot_id,"start_date":target.identity.start_date,"end_date":target.identity.end_date,
+        "floor":floor,"side":side,
+        "scope_key":format!("official:{}:{}:{}:{floor}:{side}",target.identity.mode,target.identity.phase_ver,target.identity.start_date),
+        "label":label,"source_url":public_page_url(&page.id),"source_label":OFFICIAL_SOURCE_LABEL,
+        "source_version":page.version,"weaknesses":weaknesses,"resistances":resistances,"enemies":enemies,
+        "effects":effects,"mechanic_text":mechanic_text,"quality_status":quality,
+        "source_text":html_text(rich),"source_modules":modules,
+        "source_note":"周期身份精确绑定；官方template_layout保留敌情边界；官方侧编号独立于统计样本侧编号。"
+    })
+}
+
+fn sd_encounters(
+    page: &OfficialPage,
+    target: &PhaseTarget,
+    floor: u8,
+    phase_effect: &str,
+) -> anyhow::Result<Vec<Value>> {
+    let mut encounters = Vec::new();
+    for (label, modules) in encounter_groups(page)? {
+        if !(label.ends_with('队') || label.starts_with("房间")) {
+            continue;
+        }
+        let rich = modules
+            .iter()
+            .map(module_rich_text)
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !html_text(&rich).contains("敌人弱点") {
+            return Err(anyhow!(
+                "official SD {} {label} has no weakness block",
+                page.id
+            ));
+        }
+        let mut enemies = Vec::new();
+        let mut effects = Vec::new();
+        let mut mechanics = Vec::new();
+        let mut complete = true;
+        if floor < 5 {
+            effects.push(encounter_effect("全期增益", phase_effect, "phase", page));
+        }
+        for module in &modules {
+            for table in module_tables(module)? {
+                let header = table_header(&table);
+                let cells = table_cells(&table);
+                // SD5 has unnamed tables: enemy entries are identified by the official
+                // encyclopedia links, while its room rules stay scoped to this room.
+                let linked = cells
+                    .iter()
+                    .flat_map(|cell| enemy_links(cell))
+                    .collect::<Vec<_>>();
+                let enemy_entry_table = !linked.is_empty()
+                    && cells.iter().all(|cell| {
+                        let text = html_text(cell);
+                        let names = enemy_links(cell)
+                            .iter()
+                            .filter_map(|enemy| enemy.get("name").and_then(Value::as_str))
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        text.is_empty() || text == names
+                    });
+                if header == ["敌方阵容"] || (floor == 5 && enemy_entry_table) {
+                    if linked.is_empty() {
+                        for cell in &cells {
+                            let name = html_text(cell);
+                            if !name.is_empty() {
+                                enemies.push(json!({"name":name,"text":name}));
+                            }
+                        }
+                    } else {
+                        enemies.extend(linked);
+                    }
+                } else if floor == 5 {
+                    let text = cells
+                        .iter()
+                        .map(|cell| html_text(cell))
+                        .filter(|text| !text.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if !text.is_empty() {
+                        mechanics.push(text.clone());
+                        if text.contains("代理人") || text.contains("本关内") {
+                            effects.push(encounter_effect(
+                                "房间增益与计分规则",
+                                &text,
+                                "encounter",
+                                page,
+                            ));
+                        } else {
+                            complete = false;
+                        }
+                    }
+                } else if cells.iter().any(|cell| !html_text(cell).is_empty()) {
+                    complete = false;
+                }
+            }
+        }
+        let side = (encounters.len() + 1).to_string();
+        let mechanic_text = if floor < 5 {
+            phase_effect.to_owned()
+        } else {
+            mechanics.join("\n")
+        };
+        encounters.push(encounter_row(
+            page,
+            target,
+            &floor.to_string(),
+            &side,
+            &format!("第{floor}防线 · {label}"),
+            &rich,
+            modules,
+            enemies,
+            effects,
+            mechanic_text,
+            complete,
+        ));
+    }
+    let expected = if floor == 5 { 3 } else { 2 };
+    if encounters.len() != expected {
+        return Err(anyhow!(
+            "official SD {} expected {expected} encounter groups, got {}",
+            page.id,
+            encounters.len()
+        ));
+    }
+    Ok(encounters)
+}
+
+fn da_encounters(
+    page: &OfficialPage,
+    target: &PhaseTarget,
+    choices: &[(String, String)],
+) -> anyhow::Result<Vec<Value>> {
+    let mut encounters = Vec::new();
+    for (group_name, modules) in encounter_groups(page)? {
+        let floor = match group_name.as_str() {
+            "当期强敌" | "试炼强敌" => "trial",
+            "绝境强敌" => "desperate",
+            _ => continue,
+        };
+        let mut side = 0;
+        let mut index = 0;
+        while index < modules.len() {
+            let rich = module_rich_text(&modules[index])?.join("\n");
+            index += 1;
+            if !html_text(&rich).contains("敌人弱点") {
+                continue;
+            }
+            side += 1;
+            let mut source_modules = vec![modules[index - 1].clone()];
+            let mut effects = choices
+                .iter()
+                .map(|(name, text)| encounter_effect(name, text, "choice", page))
+                .collect::<Vec<_>>();
+            let mut mechanics = Vec::new();
+            if let Some(module) = modules.get(index) {
+                if module_rich_text(module)?
+                    .iter()
+                    .all(|text| !html_text(text).contains("敌人弱点"))
+                {
+                    for table in module_tables(module)? {
+                        if table_header(&table) == ["敌情详解"] {
+                            let text = table_cells(&table)
+                                .iter()
+                                .map(|cell| html_text(cell))
+                                .filter(|text| !text.is_empty())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            if !text.is_empty() {
+                                effects.push(encounter_effect(
+                                    "专属敌情与操作计分",
+                                    &text,
+                                    "enemy",
+                                    page,
+                                ));
+                                mechanics.push(text);
+                            }
+                        }
+                    }
+                    source_modules.push(module.clone());
+                    index += 1;
+                }
+            }
+            let mut enemies = enemy_links(&rich);
+            if enemies.is_empty() {
+                let clean = html_text(&rich);
+                let name = clean.split("敌人弱点").next().unwrap_or("").trim();
+                if !name.is_empty() {
+                    enemies.push(json!({"name":name,"text":name}));
+                }
+            }
+            let label = enemies
+                .first()
+                .and_then(|enemy| enemy.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("敌情未知");
+            encounters.push(encounter_row(
+                page,
+                target,
+                floor,
+                &side.to_string(),
+                &format!("{group_name} · {label}"),
+                &rich,
+                source_modules,
+                enemies,
+                effects,
+                mechanics.join("\n"),
+                !mechanics.is_empty(),
+            ));
+        }
+    }
+    if encounters.is_empty() {
+        return Err(anyhow!(
+            "official DA {} has no structured boss encounters",
+            page.id
+        ));
+    }
+    Ok(encounters)
 }
 
 fn merge_snapshot(
@@ -978,6 +1481,7 @@ mod tests {
             name: name.to_owned(),
             version: version.to_owned(),
             modules,
+            layout: Value::Null,
         }
     }
 
@@ -1152,7 +1656,7 @@ mod tests {
     }
 
     #[test]
-    fn da_selector_rejects_two_valid_pages_on_the_same_date() {
+    fn da_selector_uses_verified_identity_anchor_instead_of_shared_edit_date() {
         let table = json!({
             "tables":[{
                 "header":["增益名称","增益效果"],
@@ -1189,13 +1693,127 @@ mod tests {
                 ),
             ),
         ];
-        let error =
-            select_unique_da_phase(candidates, NaiveDate::from_ymd_opt(2026, 7, 17).unwrap())
-                .unwrap_err();
+        let start = NaiveDate::from_ymd_opt(2026, 7, 17).unwrap();
+        let error = select_unique_da_phase(candidates.clone(), start, None).unwrap_err();
+        assert!(error.to_string().contains("version是编辑时间"));
+        assert!(error.to_string().contains("2101"));
+        assert!(error.to_string().contains("2201"));
+        let anchor = ("2101".to_owned(), "危局强袭战（第41期）".to_owned());
+        let (selected, _) =
+            select_unique_da_phase(candidates.clone(), start, Some(&anchor)).unwrap();
+        assert_eq!(selected.id, "2101");
+        let changed_title = ("2101".to_owned(), "危局强袭战（第42期）".to_owned());
+        assert!(select_unique_da_phase(candidates, start, Some(&changed_title)).is_err());
+    }
 
-        assert!(error
-            .to_string()
-            .contains("multiple official DA pages exactly match 2026-07-17: 2101, 2201"));
+    fn encounter_target(mode: &str) -> PhaseTarget {
+        PhaseTarget {
+            identity: PhaseIdentity {
+                mode: mode.to_owned(),
+                snapshot_id: "3.2.3".to_owned(),
+                phase_ver: "3.2.3".to_owned(),
+                start_date: "2026-10-02".to_owned(),
+                end_date: "2026-10-16".to_owned(),
+            },
+            collect_date: "2026-10-13".to_owned(),
+        }
+    }
+
+    fn encounter_layout(groups: Vec<(&str, Vec<&str>)>) -> Value {
+        json!({"tab":[{"module_group":groups.into_iter().map(|(name,ids)| json!({
+            "name":name,"module":ids.into_iter().map(|id|json!({"id":id})).collect::<Vec<_>>()
+        })).collect::<Vec<_>>()}]})
+    }
+
+    fn encounter_rich(id: &str, text: &str) -> Value {
+        json!({"id":id,"components":[component("rich_row_base_info",json!({"rich_text":text}))]})
+    }
+
+    fn encounter_table(id: &str, header: &str, rows: Vec<Vec<String>>) -> Value {
+        json!({"id":id,"components":[component("multi_table",json!({"tables":[{"header":[header],"row":rows}]}))]})
+    }
+
+    #[test]
+    fn sd_enemy_groups_preserve_each_side_and_full_period_identity() {
+        let mut official = page("2242","（26/10/2）剧变节点第一防线","1791441849",vec![
+            encounter_rich("weak1","<p>敌人弱点：电属性</p><p>敌人抗性：无</p>"),
+            encounter_table("enemy1","敌方阵容",vec![vec!["<a href=\"/zzz/wiki/content/2060/detail\">泰拉斯奎祸车</a>".to_owned()]]),
+            encounter_rich("weak2","<p>敌人弱点：风属性 以太属性</p><p>敌人抗性：物理属性</p>"),
+            encounter_table("enemy2","敌方阵容",vec![vec!["<a href=\"https://baike.mihoyo.com/zzz/wiki/content/2061/detail\">蜕生·泰拉斯奎祸车</a>".to_owned()]]),
+        ]);
+        official.layout = encounter_layout(vec![
+            ("第一队", vec!["weak1", "enemy1"]),
+            ("第二队", vec!["weak2", "enemy2"]),
+        ]);
+        let target = encounter_target("sd");
+        let rows = sd_encounters(&official, &target, 1, "全期增益").unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["weaknesses"], json!(["电"]));
+        assert_eq!(rows[0]["resistances"], json!([]));
+        assert_eq!(rows[1]["weaknesses"], json!(["以太", "风"]));
+        assert_eq!(rows[1]["resistances"], json!(["物理"]));
+        assert_eq!(rows[0]["enemies"][0]["name"], "泰拉斯奎祸车");
+        assert_eq!(rows[1]["enemies"][0]["name"], "蜕生·泰拉斯奎祸车");
+        assert_eq!(rows[0]["quality_status"], "verified");
+        let mut next = target.clone();
+        next.identity.start_date = "2026-10-16".to_owned();
+        assert_ne!(
+            rows[0]["scope_key"],
+            sd_encounters(&official, &next, 1, "全期增益").unwrap()[0]["scope_key"]
+        );
+    }
+
+    #[test]
+    fn sd_fifth_stage_keeps_three_independent_room_rules() {
+        let mut official = page("2246", "（26/10/2）剧变节点第五防线", "1", Vec::new());
+        let mut groups = Vec::new();
+        for (n, label) in [(1, "房间一"), (2, "房间二"), (3, "房间三")] {
+            let weak = format!("weak{n}");
+            let table = format!("table{n}");
+            official
+                .modules
+                .push(encounter_rich(&weak, "敌人弱点：电属性 敌人抗性：物理属性"));
+            official.modules.push(json!({"id":table,"components":[component("multi_table",json!({"tables":[
+                {"header":[""],"row":[[format!("代理人房间{n}增益提升20%。本关内计分。")]]},
+                {"header":[""],"row":[[format!("<a href=\"/zzz/wiki/content/{n}/detail\">敌人{n}</a>")]]}
+            ]}))]}));
+            groups.push(json!({"name":label,"module":[{"id":weak},{"id":table}]}));
+        }
+        official.layout = json!({"tab":[{"module_group":groups}]});
+        let rows = sd_encounters(&official, &encounter_target("sd"), 5, "共同全期增益").unwrap();
+        assert_eq!(rows.len(), 3);
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(row["side"], (i + 1).to_string());
+            assert_eq!(row["effects"][0]["scope"], "encounter");
+            assert_eq!(row["effects"].as_array().unwrap().len(), 1);
+            assert_eq!(row["quality_status"], "verified");
+            assert_eq!(row["enemies"][0]["name"], format!("敌人{}", i + 1));
+        }
+    }
+
+    #[test]
+    fn da_boss_mechanics_follow_layout_not_the_unsorted_modules_array() {
+        let mut official = page("2250","危局强袭战（第47期）","1",vec![
+            encounter_rich("698","<a href=\"/zzz/wiki/content/1978/detail\">焚昼余火·法厄同</a> 敌人弱点：风属性 冰属性 敌人抗性：物理属性"),
+            encounter_rich("715","<a href=\"/zzz/wiki/content/2138/detail\">熔狱行赭</a> 敌人弱点：冰属性 敌人抗性：无"),
+            encounter_table("713","敌情详解",vec![vec!["熔狱行赭专属过热机制。".to_owned()]]),
+            encounter_table("717","敌情详解",vec![vec!["焚昼余火专属赴火机制。".to_owned()]]),
+        ]);
+        official.layout = encounter_layout(vec![("试炼强敌", vec!["698", "717", "715", "713"])]);
+        let rows = da_encounters(
+            &official,
+            &encounter_target("da"),
+            &[("凛冽".to_owned(), "可选冰伤增益。".to_owned())],
+        )
+        .unwrap();
+        assert_eq!(rows[0]["enemies"][0]["name"], "焚昼余火·法厄同");
+        assert_eq!(rows[0]["mechanic_text"], "焚昼余火专属赴火机制。");
+        assert_eq!(rows[1]["mechanic_text"], "熔狱行赭专属过热机制。");
+        assert_eq!(rows[0]["effects"][0]["scope"], "choice");
+        assert_eq!(rows[0]["effects"][1]["scope"], "enemy");
+        assert_eq!(rows[1]["quality_status"], "verified");
+        official.layout = Value::Null;
+        assert!(da_encounters(&official, &encounter_target("da"), &[]).is_err());
     }
 
     #[test]

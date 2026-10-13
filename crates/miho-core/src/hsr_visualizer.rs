@@ -39,6 +39,42 @@ pub fn attach_hsr_visualizer(
     let (banner, banner_refresh) = build_banner(context, &roster, local_datetime)?;
     merge_banner_into_roster(&mut roster, &banner);
     complete_release_order(&mut roster, bundle, context, canonical)?;
+    // Export only explicitly supplied damage tags. Character ownership, tier
+    // and Path alone do not establish the party's dominant damage mechanism.
+    for character in &mut roster {
+        let slug = character
+            .get("character_slug")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let mut damage_tags = BTreeSet::new();
+        let mut source_url = String::new();
+        for row in tiers
+            .iter()
+            .filter(|row| canonical(get(row, "character_slug")) == slug)
+        {
+            for tag in get(row, "tags").split([',', ';', '|']).map(str::trim) {
+                let normalized = tag.to_ascii_lowercase();
+                let tag = match normalized.as_str() {
+                    "break" => Some("break"),
+                    "dot" => Some("dot"),
+                    "fua" | "follow-up" | "follow up" => Some("follow_up"),
+                    "ultimate" => Some("ultimate"),
+                    "aoe" => Some("aoe"),
+                    _ => None,
+                };
+                if let Some(tag) = tag {
+                    damage_tags.insert(tag);
+                }
+            }
+            if source_url.is_empty() {
+                source_url = safe_link_url(get(row, "source_url"));
+            }
+        }
+        if !damage_tags.is_empty() {
+            character["damage_tags"] = json!(damage_tags);
+            character["tag_source_url"] = json!(source_url);
+        }
+    }
     let usage = build_usage(&characters, &tiers, &roster, context);
     let team_templates = build_teams(&teams, &phase_info, &roster, context)?;
     let trend_json = sanitize_avatar_rows(&trend, &roster, context);
@@ -75,6 +111,7 @@ pub fn attach_hsr_visualizer(
         "data_quality": data_quality,
         "freshness": freshness,
     });
+    crate::encounter::attach_advice_data("hsr", bundle, context, &mut data)?;
     if let Some(refresh) = banner_refresh {
         data.as_object_mut()
             .expect("visualizer data must be an object")
