@@ -690,6 +690,40 @@
   function rows(data, game, mode) {
     return (data?.encounterRows || []).filter(row => row && row.game === game && row.mode === mode && typeof row.scope_key === 'string' && row.scope_key);
   }
+  function targetPhase(data, row) {
+    if (!row.phase_ver || !row.start_date || !row.end_date) return {};
+    const matches = (data?.phaseInfoRows || []).filter(phase => phase.mode === row.mode && String(phase.phase_ver || '') === String(row.phase_ver || '') && phase.start_date === row.start_date && phase.end_date === row.end_date);
+    const official = matches.filter(phase => /第[0-9一二三四五六七八九十百]+期/.test(phase.phase_name_cn || ''));
+    const names = [...new Set(official.map(phase => phase.phase_name_cn))];
+    return names.length === 1 ? official[0] : matches.length === 1 ? matches[0] : {};
+  }
+  function targetStatus(row, today) {
+    const valid = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+    if (valid(row.start_date) && row.start_date > today) return 'future';
+    if (valid(row.end_date) && row.end_date < today) return 'expired';
+    if (valid(row.start_date) && valid(row.end_date)) return 'current';
+    return ['current','expired','future'].includes(row.phase_status) ? row.phase_status : 'unknown';
+  }
+  function targetLabel(data, row) {
+    if (row.user_provided) return row.label || '自定义敌情';
+    const phase = targetPhase(data,row), dates = row.start_date && row.end_date ? `${row.start_date} — ${row.end_date}` : '日期未知';
+    if (row.game === 'zzz' && row.mode === 'sd') {
+      const numerals = ['零','一','二','三','四','五','六','七','八','九','十'], floor = String(row.floor || ''), defense = /^[1-9]$|^10$/.test(floor) ? `第${numerals[Number(floor)]}防线` : String(row.label || '').split(' · ')[0].replace(/第(\d+)防线/,(_,value)=>`第${numerals[Number(value)] || value}防线`);
+      const side = String(row.label || '').split(' · ').slice(1).join(' · ') || '队伍 / 房间未知';
+      return `剧变节点 · ${defense || '防线未知'} · ${side} · ${dates}`;
+    }
+    if (row.game === 'zzz' && row.mode === 'da') {
+      const issue = String(phase.phase_name_cn || '').match(/第[0-9一二三四五六七八九十百]+期/)?.[0] || '期数未知';
+      const label = String(row.label || ''), difficulty = label.match(/试炼强敌|绝境强敌/)?.[0] || '难度未知', boss = (row.enemies || []).map(enemy=>enemy.name).filter(Boolean).join(' / ') || (row.quality_status==='phase_only' ? 'Boss 未知' : label.replace(/^(?:试炼强敌|绝境强敌)\s*·\s*/, '') || 'Boss 未知');
+      return `危局强袭战 · ${issue} · ${boss} · ${difficulty} · ${dates}`;
+    }
+    const theme = String(phase.phase_name_cn || (/[\u4e00-\u9fff]/.test(phase.phase_name || '') ? phase.phase_name : '') || '').trim(), label = row.label || '关卡名称未知';
+    return `${theme && !theme.includes(row.phase_ver || '\u0000') && !label.includes(theme) ? `${theme} · ` : ''}${label} · ${dates}`;
+  }
+  function targetGroups(data, game, mode, today) {
+    const all = rows(data,game,mode).slice().sort((left,right)=>String(right.start_date || '').localeCompare(String(left.start_date || '')) || String(right.end_date || '').localeCompare(String(left.end_date || '')) || String(left.scope_key).localeCompare(String(right.scope_key),undefined,{numeric:true}));
+    return {current:all.filter(row=>targetStatus(row,today)==='current'),other:all.filter(row=>['future','unknown'].includes(targetStatus(row,today))),history:all.filter(row=>targetStatus(row,today)==='expired')};
+  }
   function profile(data, game, members, mode = '') {
     const chars = members.map(member => member.slug), exact = (data?.teamProfileRows || []).find(row => (!row.game || row.game === game) && (!row.mode || row.mode === mode) && signature(row.chars) === signature(chars));
     if (exact && safeUrl(exact.source_url) && exact.inferred !== true && ['A','B'].includes(exact.evidence_grade)) {
@@ -787,5 +821,5 @@
     const recordText = advice.exactRecords.length ? advice.exactRecords.map(row => `${metricLabel(row)} ${row.metric_value} · ${row.evidence_grade} 级${row.metric_scope==='floor'?'（不是单侧成绩）':''}${row.build_context?' · 配置背景见来源':''}${row.metric_kind==='cycles'&&Number(row.metric_value)===0?' · 零回合高配参考':''}`).join('；') : '跨关迁移参考 · 目标证据 C';
     return `<div class="rec-encounter-advice"><b>${escape(advice.encounter.label || advice.encounter.scope_key)}${advice.encounter.user_input_overlay ? ' · 用户补充敌情' : ''}${advice.encounter.user_provided ? ' · 用户提供' : ''}</b><p>主：${escape(label(image.primary))} · 次：${escape(label(image.secondary))} · ${image.inferred ? '角色标签推断' : '来源画像'}</p><p>${escape(recordText)}</p>${advice.exactRecords.map(row => `<a href="${escape(safeUrl(row.source_url))}" target="_blank" rel="noopener noreferrer">同目标实战来源</a>`).join(' ')}${(image.tag_sources||[]).map(url=>`<a href="${escape(url)}" target="_blank" rel="noopener noreferrer">角色伤害标签来源</a>`).join(' ')}${image.source_url ? `<a href="${escape(image.source_url)}" target="_blank" rel="noopener noreferrer">队伍画像来源</a>` : ''}${advice.reasons.map(text => `<p>${escape(text)}</p>`).join('')}<details><summary>未知与条件机制 ${advice.unknown.length} 项</summary>${advice.unknown.map(text => `<p>${escape(text)}</p>`).join('')}</details></div>`;
   }
-  Object.defineProperty(root,'MihoEncounterAdvisor',{value:Object.freeze({rows,profile,evaluate,records,html,safeUrl}),configurable:false,writable:false});
+  Object.defineProperty(root,'MihoEncounterAdvisor',{value:Object.freeze({rows,targetPhase,targetStatus,targetLabel,targetGroups,profile,evaluate,records,html,safeUrl}),configurable:false,writable:false});
 })(globalThis);

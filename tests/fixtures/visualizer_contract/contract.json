@@ -34,16 +34,16 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "67918277fb1d63fea7dd5a650552ed1033861dc702573c181b6b1411105aa6de",
-      "index.html": "3d039afa6cf54be0ab6f333d68db9613275198c348378f1339f4cc3ff2cd60ce",
-      "solver.js": "de478cc0c9d4495b74c1f803aef451ba9337eac41f93d3ac68de1ee695897ae8",
-      "styles.css": "9a85f67725a3fe36e6b96ceb150147a0f1f103a8d7cc3d3e52269e56276f959f"
+      "app.js": "9cd3f1a03422a2f7b82e4ab93a986a5811753758e1acd41ef6a9467be0c9424a",
+      "index.html": "b892066fc1365179579680ed8e3072c0d4771768c9427794906e7d2991296e87",
+      "solver.js": "e9a3d98b4c2c9b30237461a878409f29efdc4acdec0084572d3e7ace8eba2705",
+      "styles.css": "ca4000495a3aaacceaee4e28fe859a134d775ca179d86659c65f9cef4241d188"
     },
     "zzz": {
-      "app.js": "a155936203cde788f8c0e6af15f94852b0afbb0ce8ee423c5f6d3142c354bdfc",
-      "index.html": "09b56be65743fc5f7be362ce6640a4cbd67c24dc24eb9d5232c149e9aa040a8a",
-      "solver.js": "de478cc0c9d4495b74c1f803aef451ba9337eac41f93d3ac68de1ee695897ae8",
-      "styles.css": "e34dbc6debc24f2841702185c45ac9123af6f1b1746573e1fed19eaae993f945"
+      "app.js": "92fa3ad729ab05a5e87f7e8db660c746dab8244a2594d45e39109669029ba6b3",
+      "index.html": "71039428c6850f274033ea1e519a5cda9ecfb01c26c23c29f19edab363f151ad",
+      "solver.js": "e9a3d98b4c2c9b30237461a878409f29efdc4acdec0084572d3e7ace8eba2705",
+      "styles.css": "c584497068f8c5a641a6acafe6ceb32ad7b0b8ab4b88548618442c033d7001f9"
     },
     "hub": {
       "app.js": "45043faae8d788fb9557335a1fffbf7f36f7f5c0778c489a85560f2c5ef2def0",

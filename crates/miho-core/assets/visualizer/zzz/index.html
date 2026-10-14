@@ -70,7 +70,7 @@
       <label id="recTeamCountControl" for="recTeamCountSelect">方案队数<select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></label>
       <div id="recDivisionControl" class="segmented hidden" role="group" aria-label="危局强袭模式"></div>
       <div class="control-field" id="recTargetScopeGroup"><span class="control-label" id="recTargetScopeControlLabel">参战关卡（可多选）</span><div id="recTargetScopeControl" class="segmented" role="group" aria-labelledby="recTargetScopeControlLabel"></div></div>
-      <p id="recStrategyHint"></p><div id="recEncounterPartyControls" class="rec-encounter-party-controls hidden"></div><div id="recEncounterDetails" class="rec-encounter-details hidden" aria-live="polite"></div><details id="recManualEncounter" class="rec-manual-encounter hidden" open></details>
+      <p id="recStrategyHint"></p><label id="recEncounterHistoryControl" class="rec-encounter-history hidden"><input id="recEncounterHistoryToggle" type="checkbox">显示历史目标（最新在前）</label><div id="recEncounterPartyControls" class="rec-encounter-party-controls hidden"></div><div id="recEncounterDetails" class="rec-encounter-details hidden" aria-live="polite"></div><details id="recManualEncounter" class="rec-manual-encounter hidden" open></details>
     </section>
     <section class="panel rec-slate rec-primary-slate" aria-label="多队方案"><div class="panel-head"><div><h2>多队方案</h2><p id="recSlateSubtitle"></p><p id="recSlateMeta" class="rec-solver-meta"></p><p id="recSlateMessage" class="rec-slate-message" aria-live="polite"></p></div><button id="recReplanBtn" type="button" class="quiet">重新选择整套方案</button></div><div id="recTeamExclusionSummary" class="rec-team-exclusion-summary"></div><div id="recSlateList" class="rec-slate-list"></div></section>
     <details id="recFineTune" class="rec-fine-tune">
@@ -101,7 +101,7 @@
         <div><strong>排除</strong><div id="recExcludedList" class="constraint-chips excluded"></div></div>
       </div>
     </section>
-    <section id="phaseMechanics" class="phase-mechanics"><div><h2 id="phaseTitle">当期数据</h2><p id="phaseDates"></p></div><p id="phaseText"></p></section>
+    <section id="phaseMechanics" class="phase-mechanics"><div><h2 id="phaseTitle">当期数据</h2><p id="phaseDates"></p></div><p id="phaseText"></p><details class="phase-data-identity"><summary>数据标识</summary><p id="phaseDataIdentity"></p></details></section>
       <section class="panel"><div class="panel-head"><div><h2 id="recTitle">组队推荐</h2><p id="recSubtitle"></p></div><div id="recBadges" class="badges"></div></div><div id="recList" class="rec-list"></div></section>
     </details>
     <div id="recTooltip" class="tooltip" role="tooltip" hidden></div>

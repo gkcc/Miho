@@ -127,7 +127,7 @@
         <div class="control-group compact" id="recTeamCountControl"><label for="recTeamCountSelect">方案队数</label><select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></div>
         <div id="recDivisionControl" class="control-group hidden" aria-label="异相仲裁挑战区域"></div>
         <div class="control-group" id="recTargetScopeControl"><span class="control-label" id="recTargetScopeButtonsLabel">参战关卡（可多选）</span><div class="tier-checks" id="recTargetScopeButtons" role="group" aria-labelledby="recTargetScopeButtonsLabel"></div></div>
-        <p id="recStrategyHint"></p><div id="recEncounterPartyControls" class="rec-encounter-party-controls hidden"></div><div id="recEncounterDetails" class="rec-encounter-details hidden" aria-live="polite"></div><details id="recManualEncounter" class="rec-manual-encounter hidden" open></details>
+        <p id="recStrategyHint"></p><label id="recEncounterHistoryControl" class="rec-encounter-history hidden"><input id="recEncounterHistoryToggle" type="checkbox">显示历史目标（最新在前）</label><div id="recEncounterPartyControls" class="rec-encounter-party-controls hidden"></div><div id="recEncounterDetails" class="rec-encounter-details hidden" aria-live="polite"></div><details id="recManualEncounter" class="rec-manual-encounter hidden" open></details>
       </section>
       <section class="rec-slate rec-primary-slate" aria-label="多队方案">
         <div class="panel-head"><div><h2>多队方案</h2><p id="recSlateSubtitle"></p></div><button id="recReplanBtn" type="button" class="quiet">重新选择整套方案</button></div>
@@ -168,7 +168,7 @@
           <h2 id="phaseMechanicsTitle">本期机制</h2>
           <p id="phaseMechanicsSubtitle"></p>
         </div>
-        <p id="phaseMechanicsText"></p>
+        <p id="phaseMechanicsText"></p><details class="phase-data-identity"><summary>数据标识</summary><p id="phaseDataIdentity"></p></details>
         <a id="phaseMechanicsSource" href="#" target="_blank" rel="noopener noreferrer"></a>
       </section>
         <section class="rec-panel">

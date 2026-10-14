@@ -49,3 +49,7 @@
 .rec-encounter-party-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;width:100%}.rec-encounter-party-controls label{display:flex;flex-direction:column;gap:5px}.rec-encounter-party-controls select{max-width:100%}.rec-encounter-details,.rec-manual-encounter{width:100%;box-sizing:border-box}
 
 .rec-encounter-party-controls,.rec-encounter-details,.rec-manual-encounter{grid-column:1/-1;min-width:0}
+
+.rec-encounter-history{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin:10px 0;color:#607079;font-size:13px}.rec-encounter-history input{width:auto;margin:0}.rec-target-source{margin-top:10px;font-size:12px;color:#607079}
+
+.phase-data-identity{font-size:12px;color:#607079;min-width:0;grid-column:1/-1}.phase-data-identity p{margin:5px 0}

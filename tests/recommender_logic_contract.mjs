@@ -725,6 +725,7 @@ function loadContract(appPath, harness, {desktopMode = false, search = '', fetch
       else {if(!recEncounter(rec.mode,scope)?.user_input_overlay)rec.elements[key(rec.mode,scope)]=[...values];saveRecEncounterWeaknesses(new Set(values),rec.mode,scope);}
     };
     globalThis.__recommenderContract.encounter = function(scope) {return recEncounter(rec.mode,scope);};
+    globalThis.__recommenderContract.encounterOptions = function(selected='', today='2026-10-15', history=false) {rec.showEncounterHistoryModes={...rec.showEncounterHistoryModes,[rec.mode]:history};return recEncounterOptions(selected,today);};
     globalThis.__recommenderContract.evaluateEncounter = function(encounter,members) {return MihoEncounterAdvisor.evaluate(DATA,encounter,members);};
     globalThis.__recommenderContract.reloadEncounterSettings = function() {
       const owned = [...box.owned];
@@ -3351,7 +3352,7 @@ test('analysis subtitles identify the exact sampled phase without borrowing meta
     'sd',
     '2026-07-27',
   ));
-  assert.equal(historicalPresentation.title, '式舆防卫 · 期次 7');
+  assert.equal(historicalPresentation.title, '剧变节点 · 2026-07-10 至 2026-07-24');
   assert.match(historicalPresentation.dates, /期名：26\.7\.10式舆防卫战关卡阵容 · 机制：全期增益 · 状态：历史样本/u);
   assert.match(historicalPresentation.dates, /最新采样：2026-07-19（8 天前） · 周期：2026-07-10 至 2026-07-24/u);
   assert.match(historicalPresentation.text, /以下队伍仅作历史参考。 全期增益：风\/冰伤害提升，命中异常敌人后增伤并无视全属性抗性。$/u);
@@ -4383,4 +4384,22 @@ for(const game of ['hsr','zzz'])test(`${game} manual target, official supplement
   contract.setEncounterTarget('custom-1','__manual__');assert.deepEqual(plain(contract.encounter('custom-1')).weaknesses,['火']);
   contract.setEncounterTarget('custom-1','');assert.deepEqual(plain(contract.reloadEncounterSettings()).elements[`${mode}|custom-1`],['火'],'official supplements must leave the old attribute fallback intact');
   contract.setEncounterTarget('custom-1','official-b');assert.deepEqual(plain(contract.encounter('custom-1')).weaknesses,['冰']);
+});
+
+
+for(const game of ['hsr','zzz'])test(`${game} encounter target history stays opt-in and saved identities survive date sorting`,()=>{
+  const mode=game==='hsr'?'as':'sd',contract=loadContract(game==='hsr'?HSR_APP:ZZZ_APP,game==='hsr'?HSR_HARNESS:ZZZ_HARNESS),row=(id,start,end)=>({game,mode,phase_ver:id,scope_key:id,label:`${id}目标`,floor:'1',start_date:start,end_date:end,phase_status:'current'}),data={...(game==='hsr'?hsrData([],[]):zzzData([],[])),encounterRows:[row('old','2026-08-01','2026-08-15'),row('now','2026-10-02','2026-10-16'),row('recent','2026-09-18','2026-10-02')]};
+  contract.reset(data,{mode,strategy:'custom',scope:'custom-1',encounterTargets:{[`${mode}|custom|custom-1`]:'old'}},[]);
+  const normal=contract.encounterOptions();assert.ok(normal.includes('value="now"'));assert.ok(!normal.includes('value="old"'));assert.ok(!normal.includes('value="recent"'));
+  const saved=contract.encounterOptions('old');assert.ok(saved.includes('value="old"'));assert.match(saved,/历史 · 已保存/u);assert.ok(!saved.includes('value="recent"'));assert.equal(contract.encounter('custom-1').scope_key,'old');
+  const history=contract.encounterOptions('', '2026-10-15',true);assert.ok(history.indexOf('value="now"')<history.indexOf('value="recent"'));assert.ok(history.indexOf('value="recent"')<history.indexOf('value="old"'));
+  const later=contract.encounterOptions('', '2026-10-17');assert.match(later,/当期敌情未收录/u);assert.ok(!later.includes('value="now"'));assert.equal(contract.encounter('custom-1').scope_key,'old');
+});
+
+test('ZZZ official issue labels require exact dates and never infer an issue from the data version',()=>{
+  const engine=encounterEngine(),row={game:'zzz',mode:'da',phase_ver:'3.2.2',scope_key:'boss',start_date:'2026-09-25',end_date:'2026-10-09',label:'试炼强敌 · 死路屠夫',enemies:[{name:'死路屠夫'}]},phase={mode:'da',phase_ver:'3.2.2',start_date:row.start_date,end_date:row.end_date,phase_name_cn:'危局强袭战（第46期）'},data={phaseInfoRows:[phase],encounterRows:[row]};
+  assert.equal(engine.targetLabel(data,row),'危局强袭战 · 第46期 · 死路屠夫 · 试炼强敌 · 2026-09-25 — 2026-10-09');
+  assert.match(engine.targetLabel(data,{...row,end_date:'2026-10-10'}),/期数未知/u);
+  assert.match(engine.targetLabel({phaseInfoRows:[phase,{...phase,phase_name_cn:'危局强袭战（第47期）'}]},row),/期数未知/u);
+  assert.equal(engine.targetGroups(data,'zzz','da','2026-10-15').current.length,0);
 });
