@@ -127,7 +127,7 @@
         <div class="control-group compact" id="recTeamCountControl"><label for="recTeamCountSelect">方案队数</label><select id="recTeamCountSelect" title="普通低层通常为 2 队；需要三节点时可切到 3 队"><option value="2">2 队</option><option value="3">3 队</option></select></div>
         <div id="recDivisionControl" class="control-group hidden" aria-label="异相仲裁挑战区域"></div>
         <div class="control-group" id="recTargetScopeControl"><span class="control-label" id="recTargetScopeButtonsLabel">参战关卡（可多选）</span><div class="tier-checks" id="recTargetScopeButtons" role="group" aria-labelledby="recTargetScopeButtonsLabel"></div></div>
-        <p id="recStrategyHint"></p><label id="recEncounterHistoryControl" class="rec-encounter-history hidden"><input id="recEncounterHistoryToggle" type="checkbox">显示历史目标（最新在前）</label><div id="recEncounterPartyControls" class="rec-encounter-party-controls hidden"></div><div id="recEncounterDetails" class="rec-encounter-details hidden" aria-live="polite"></div><details id="recManualEncounter" class="rec-manual-encounter hidden" open></details>
+        <p id="recStrategyHint"></p><p id="recPeriodNotice" aria-live="polite"></p><label id="recEncounterHistoryControl" class="rec-encounter-history hidden"><input id="recEncounterHistoryToggle" type="checkbox">显示历史目标（最新在前）</label><div id="recEncounterPartyControls" class="rec-encounter-party-controls hidden"></div><div id="recEncounterDetails" class="rec-encounter-details hidden" aria-live="polite"></div>
       </section>
       <section class="rec-slate rec-primary-slate" aria-label="多队方案">
         <div class="panel-head"><div><h2>多队方案</h2><p id="recSlateSubtitle"></p></div><button id="recReplanBtn" type="button" class="quiet">重新选择整套方案</button></div>
@@ -149,10 +149,10 @@
         <div class="constraint-picker">
           <label for="recCharacterSelect">角色硬约束 <span id="recConstraintScopeHint">按当前模式与节点保存</span></label>
           <div class="constraint-picker-row">
-            <select id="recConstraintScopeSelect" aria-label="硬约束作用范围"><option value="local">本关</option><option value="global">全局（整套方案）</option></select>
+            <select id="recConstraintScopeSelect" aria-label="必上作用范围"><option value="local">本关</option><option value="global">全局（整套方案）</option></select>
             <select id="recCharacterSelect" title="选择要加入当前关卡约束的角色"></select>
             <button id="recRequireBtn" type="button">必须上场</button>
-            <button id="recExcludeBtn" type="button">排除</button>
+            <button id="recExcludeBtn" type="button">全局排除</button>
             <button id="recConstraintClearBtn" type="button" class="quiet">清空本关</button>
           </div>
           <p id="recConstraintMessage" aria-live="polite"></p>
@@ -160,7 +160,7 @@
         </div>
         <div class="constraint-groups">
           <div><strong>必须上场</strong><div id="recRequiredList" class="constraint-chips"></div></div>
-          <div><strong>排除</strong><div id="recExcludedList" class="constraint-chips excluded"></div></div>
+          <div><strong>全局排除（本模式所有队伍）</strong><button id="recExcludeClearBtn" type="button" class="quiet">清空排除</button><div id="recExcludedList" class="constraint-chips excluded"></div></div>
         </div>
       </section>
       <section class="phase-mechanics" id="phaseMechanicsPanel">

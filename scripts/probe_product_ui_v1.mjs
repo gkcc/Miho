@@ -1385,7 +1385,7 @@ async function verifyZzzRecommender(context) {
       rec.teamCounts = { sd: '2', da: '2' };
       rec.targetScopes = {};
       rec.elements = {};
-      rec.constraints = {};
+      rec.constraints = {};rec.excludedCharacters = {};
       rec.gap = '3';
       rec.riskMode = 'warn';
       rec.sortMode = 'balanced';
@@ -1510,7 +1510,7 @@ async function verifyZzzRecommender(context) {
       const slotOne = {
         key: slotOneKey,
         requiredSaved: Array.isArray(storedSlotOne.required) && storedSlotOne.required.includes(choices[0]),
-        excludedSaved: Array.isArray(storedSlotOne.excluded) && storedSlotOne.excluded.includes(choices[1]),
+        excludedSaved: (JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').excludedCharacters?.[rec.mode] || []).includes(choices[1]),
         requiredChipCount: document.querySelector('#recRequiredList')?.children.length ?? -1,
         excludedChipCount: document.querySelector('#recExcludedList')?.children.length ?? -1,
         scopeHint: document.querySelector('#recConstraintScopeHint')?.textContent?.trim() ?? '',
@@ -1690,9 +1690,9 @@ async function verifyZzzRecommender(context) {
       && result.slotOne.selectTitle.includes("当前队伍约束")
       && result.slotTwo.key === "da|custom-2"
       && result.slotTwo.requiredChipCount === 0
-      && result.slotTwo.excludedChipCount === 0
+      && result.slotTwo.excludedChipCount === 1
       && result.returnedSlotOne.requiredChipCount === 1
-      && result.returnedSlotOne.excludedChipCount === 1, "ZZZ custom constraints leaked between target teams", {slotOne: result.slotOne, slotTwo: result.slotTwo, returnedSlotOne: result.returnedSlotOne});
+      && result.returnedSlotOne.excludedChipCount === 1, "ZZZ required constraints must remain local and character exclusions global", {slotOne: result.slotOne, slotTwo: result.slotTwo, returnedSlotOne: result.returnedSlotOne});
     assert(JSON.stringify(result.sortProbe.options.map((option) => option.value)) === JSON.stringify(["balanced", "history", "box"])
       && result.sortProbe.options.map((option) => option.text).join("|") === "综合推荐|历史表现|Box 即战力", "ZZZ recommendation sort choices are incomplete", result.sortProbe.options);
     for (const [mode, snapshot] of Object.entries({
@@ -1777,8 +1777,8 @@ async function verifyRecommenderSearchAndLock(context, game) {
       rec.search = '';
       rec.locks = {};
       ${game === "hsr"
-        ? "rec.mode='as';rec.strategy='final';rec.scope='4-1';rec.targetScopes={as:['4-1','4-2']};rec.elements={};rec.constraints={};rec.gap='4';rec.riskMode='warn';rec.sortMode='balanced';ensureRecScope();saveRecSettings();renderRecommender();"
-        : "rec.mode='da';rec.strategy='final';rec.teamCounts={sd:'2',da:'2'};rec.scope='1-1';rec.targetScopes={da:['1-1','1-2']};rec.elements={};rec.constraints={};rec.gap='3';rec.riskMode='warn';rec.sortMode='balanced';ensureScope();saveRec();renderRec();"}
+        ? "rec.mode='as';rec.strategy='final';rec.scope='4-1';rec.targetScopes={as:['4-1','4-2']};rec.elements={};rec.constraints={};rec.excludedCharacters={};rec.gap='4';rec.riskMode='warn';rec.sortMode='balanced';ensureRecScope();saveRecSettings();renderRecommender();"
+        : "rec.mode='da';rec.strategy='final';rec.teamCounts={sd:'2',da:'2'};rec.scope='1-1';rec.targetScopes={da:['1-1','1-2']};rec.elements={};rec.constraints={};rec.excludedCharacters={};rec.gap='3';rec.riskMode='warn';rec.sortMode='balanced';ensureScope();saveRec();renderRec();"}
       return true;
     })()`, context.sessionId);
     const ready = await waitFor(`${game} searchable lockable slate`, async () => evaluate(context.id, `(() => {
@@ -1904,7 +1904,7 @@ async function verifyHsrRecommender(context) {
       need(document.querySelector('#resetBtn'), 'missing current-page reset button').click();
       rec.targetScopes = {};
       rec.elements = {};
-      rec.constraints = {};
+      rec.constraints = {};rec.excludedCharacters = {};
       rec.locks = {};
       rec.gap = '4';
       rec.riskMode = 'warn';
@@ -2037,7 +2037,7 @@ async function verifyHsrRecommender(context) {
       const slotOne = {
         key: slotOneKey,
         requiredSaved: Array.isArray(storedSlotOne.required) && storedSlotOne.required.includes(choices[0]),
-        excludedSaved: Array.isArray(storedSlotOne.excluded) && storedSlotOne.excluded.includes(choices[1]),
+        excludedSaved: (JSON.parse(localStorage.getItem(${JSON.stringify(storageKey)}) || '{}').excludedCharacters?.[rec.mode] || []).includes(choices[1]),
         requiredChipCount: document.querySelector('#recRequiredList')?.children.length ?? -1,
         excludedChipCount: document.querySelector('#recExcludedList')?.children.length ?? -1,
         scopeHint: document.querySelector('#recConstraintScopeHint')?.textContent?.trim() ?? '',
@@ -2240,9 +2240,9 @@ async function verifyHsrRecommender(context) {
       && result.constraints.slotOne.selectTitle.includes("当前队伍约束"), "HSR required/excluded constraints were not saved for the current slot", result.constraints);
     assert(result.constraints.slotTwo.key === "as|custom-2"
       && result.constraints.slotTwo.requiredChipCount === 0
-      && result.constraints.slotTwo.excludedChipCount === 0
+      && result.constraints.slotTwo.excludedChipCount === 1
       && result.constraints.returnedSlotOne.requiredChipCount === 1
-      && result.constraints.returnedSlotOne.excludedChipCount === 1, "HSR role constraints leaked between custom team slots", result.constraints);
+      && result.constraints.returnedSlotOne.excludedChipCount === 1, "HSR required constraints must remain local and character exclusions global", result.constraints);
     assert(JSON.stringify(result.sortProbe.options.map((option) => option.value)) === JSON.stringify(["balanced", "history", "box"])
       && result.sortProbe.options.map((option) => option.text).join("|") === "综合推荐|历史表现|Box 即战力", "HSR recommendation sort choices are incomplete", result.sortProbe.options);
     for (const [mode, snapshot] of Object.entries({
@@ -2328,7 +2328,7 @@ async function verifyHsrRecommenderLayout(topId, context) {
       if (!tab) throw new Error('missing recommender tab');
       tab.click();
       rec.mode='as';rec.strategy='final';rec.scope='4-1';rec.sortMode='balanced';
-      rec.targetScopes={as:['4-1','4-2']};rec.elements={};rec.constraints={};rec.locks={};
+      rec.targetScopes={as:['4-1','4-2']};rec.elements={};rec.constraints={};rec.excludedCharacters={};rec.locks={};
       rec.gap='4';rec.riskMode='warn';rec.search='';
       ensureRecScope();saveRecSettings();syncRecControls();renderRecommender();
       return true;
@@ -2495,7 +2495,7 @@ async function verifyZzzCompactTooltipLayout(topId, context) {
     await evaluate(context.id, `(() => {
       const tab=[...document.querySelectorAll('#tabs button')].find(button=>button.textContent?.trim().startsWith('组队推荐'));
       if(!tab)throw new Error('missing ZZZ recommender tab');tab.click();
-      rec.mode='sd';rec.strategy='final';rec.scope='';rec.sortMode='balanced';rec.targetScopes={};rec.elements={};rec.constraints={};rec.locks={};rec.gap='3';rec.riskMode='warn';rec.search='';
+      rec.mode='sd';rec.strategy='final';rec.scope='';rec.sortMode='balanced';rec.targetScopes={};rec.elements={};rec.constraints={};rec.excludedCharacters={};rec.locks={};rec.gap='3';rec.riskMode='warn';rec.search='';
       ensureScope();saveRec();syncRec();renderRec();return true;
     })()`, context.sessionId);
     await waitFor("ZZZ compact recommendation cards", async () => evaluate(context.id, `(() => {

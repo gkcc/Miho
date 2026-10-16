@@ -34,14 +34,14 @@
   },
   "static_text_sha256": {
     "hsr": {
-      "app.js": "9cd3f1a03422a2f7b82e4ab93a986a5811753758e1acd41ef6a9467be0c9424a",
-      "index.html": "b892066fc1365179579680ed8e3072c0d4771768c9427794906e7d2991296e87",
+      "app.js": "a721702e6e6382cde4255402688b898e4cd4fb9d454bdd2a0761bada9cdd7bda",
+      "index.html": "9e1b7a54cdb07e72432e81dc82cffceb2c2e565f33632b6de3881657962c7c56",
       "solver.js": "e9a3d98b4c2c9b30237461a878409f29efdc4acdec0084572d3e7ace8eba2705",
       "styles.css": "ca4000495a3aaacceaee4e28fe859a134d775ca179d86659c65f9cef4241d188"
     },
     "zzz": {
-      "app.js": "92fa3ad729ab05a5e87f7e8db660c746dab8244a2594d45e39109669029ba6b3",
-      "index.html": "71039428c6850f274033ea1e519a5cda9ecfb01c26c23c29f19edab363f151ad",
+      "app.js": "e6373fc353a356b10d2057cde0a82cd645bea53734a21374929e02af9ffa4d01",
+      "index.html": "b823f8499506f95783bfacec0adb163ee0cf1fd830c9e02745d87926f07abce1",
       "solver.js": "e9a3d98b4c2c9b30237461a878409f29efdc4acdec0084572d3e7ace8eba2705",
       "styles.css": "c584497068f8c5a641a6acafe6ceb32ad7b0b8ab4b88548618442c033d7001f9"
     },

@@ -1507,7 +1507,7 @@ test('HSR hard constraints filter before ranking and protect required/excluded s
   const builds = allBuilds(owned, hsrFullBuild);
   const constraints = {
     'as|4-1': {required: ['required'], excluded: ['excluded']},
-    'as|4-2': {required: ['other-required'], excluded: []},
+    'as|4-2': {required: ['other-required'], excluded: ['excluded']},
     'moc|4-1': {required: [], excluded: ['required']},
   };
   const api = loadContract(HSR_APP, HSR_HARNESS);
@@ -1520,8 +1520,8 @@ test('HSR hard constraints filter before ranking and protect required/excluded s
   );
   assert.deepEqual(
     plain(api.constraints('as', '4-2')),
-    {required: ['other-required'], excluded: []},
-    'HSR constraints from another scope must remain isolated',
+    {required: ['other-required'], excluded: ['excluded']},
+    'HSR required constraints stay local while exclusions span scopes',
   );
   assert.deepEqual(
     plain(api.constraints('moc', '4-1')),
@@ -2327,7 +2327,7 @@ test('ZZZ exposes balanced, history, and Box score models with auditable additiv
   assert.equal(api.migrateSort({sortMode: 'history'}), 'history');
 });
 
-test('ZZZ hard constraints are scope-isolated and reserved characters remove conflicting teams', () => {
+test('ZZZ required constraints stay local, exclusions span teams, and reserved characters remove conflicts', () => {
   const rosterRows = [
     zzzCharacter('required', 'crit_dps', 1),
     zzzCharacter('other-required', 'anomaly_dps', 2),
@@ -2355,7 +2355,7 @@ test('ZZZ hard constraints are scope-isolated and reserved characters remove con
   const tierRows = slugs.map(slug => ({character_slug: slug, tier_mode: 'sd', tier: 'T0'}));
   const constraints = {
     'sd|s1': {required: ['required'], excluded: ['excluded']},
-    'sd|s2': {required: ['other-required'], excluded: []},
+    'sd|s2': {required: ['other-required'], excluded: ['excluded']},
     'da|s1': {required: [], excluded: ['required']},
   };
   const api = loadContract(ZZZ_APP, ZZZ_HARNESS);
@@ -2373,8 +2373,8 @@ test('ZZZ hard constraints are scope-isolated and reserved characters remove con
   );
   assert.deepEqual(
     plain(api.constraints('sd', 's2')),
-    {required: ['other-required'], excluded: []},
-    'ZZZ constraints from another scope must remain isolated',
+    {required: ['other-required'], excluded: ['excluded']},
+    'ZZZ required constraints stay local while exclusions span scopes',
   );
   assert.deepEqual(
     plain(api.constraints('da', 's1')),
@@ -4298,36 +4298,15 @@ for (const game of ['hsr','zzz']) {
     assert.ok(ranked.slice(1).every(row=>!row.encounterAdvice.exactRecords.length));
   });
 
-  test(`${game} phase-only official targets retain their buffs while user supplements fill missing enemy fields`,()=>{
-    const contract=api(),key=`${mode}|custom|custom-1|${target.scope_key}`,official={...target,quality_status:'phase_only',weaknesses:[],resistances:[],enemies:[],effects:[{text:`${damage}提升20%`,scope:'phase',verified:true}]},manual={name:'手动补充Boss',weaknesses:['火'],resistances:['冰'],rules:[{damage_type:mainTag,direction:'down',percent:50,condition:'第一阶段',text:''}]};
-    const data=makeData(official);data.encounterRows.push({...official,scope_key:'another-official-target'});contract.reset(data,{...settings,manualEncounters:{[key]:manual}},parties.flat());
-    const selectedTarget=plain(contract.encounter('custom-1'));
-    assert.equal(selectedTarget.effects.length,2);assert.equal(selectedTarget.effects[0].verified,true);assert.equal(selectedTarget.effects[1].verified,false);assert.equal(selectedTarget.user_input_overlay,true);assert.deepEqual(selectedTarget.weaknesses,['火']);assert.deepEqual(selectedTarget.resistances,['冰']);assert.equal(selectedTarget.enemies[0].name,manual.name);
-    const advice=plain(contract.evaluateEncounter(selectedTarget,parties[0].map((slug,index)=>({slug,core:index===0,info:{element_cn:'火'}}))));
-    assert.ok(advice.parts.some(part=>part.key==='encounter-effects'&&part.value>0),'official phase buff survives the supplement');assert.ok(advice.unknown.some(text=>text.includes('第一阶段')),'supplemental phase condition is not counted as permanent');
-    contract.setEncounterTarget('custom-1','another-official-target');const other=plain(contract.encounter('custom-1'));assert.deepEqual(other.weaknesses,[]);assert.deepEqual(other.resistances,[]);assert.deepEqual(other.enemies,[]);assert.equal(other.effects.length,1,'changing the official target must not carry the previous boss mechanics');contract.setEncounterTarget('custom-1',official.scope_key);assert.equal(contract.encounter('custom-1').enemies[0].name,manual.name,'returning to the target restores its own supplement');
+  test(`${game} official-only encounters ignore legacy manual supplements and retain unknown fields`,()=>{
+    const contract=api(),key=`${mode}|custom|custom-1|${target.scope_key}`,official={...target,quality_status:'phase_only',weaknesses:[],resistances:[],enemies:[],effects:[{text:`${damage}提升20%`,scope:'phase',verified:true}]};
+    contract.reset(makeData(official),{...settings,manualEncounters:{[key]:{name:'旧手填Boss',weaknesses:['火'],resistances:['冰'],rules:[{damage_type:mainTag,percent:99}]}}},parties.flat());
+    const selected=plain(contract.encounter('custom-1'));
+    assert.deepEqual(selected.weaknesses,[]);assert.deepEqual(selected.enemies,[]);assert.deepEqual(selected.resistances,[]);assert.equal(selected.effects.length,1);assert.equal(selected.effects[0].verified,true);
+    contract.setEncounterTarget('custom-1','__manual__');assert.equal(contract.encounter('custom-1'),null);
+    assert.ok(!contract.encounterOptions().includes('__manual__'));
   });
 
-  test(`${game} zero-cycle full-floor records prove party appearance while retaining their aggregate scope`,()=>{
-    const contract=api(),record={game,mode,phase_ver:target.phase_ver,encounter_key:target.scope_key,chars:parties[2],record_id:'floor-zero',source_url:'https://example.com/battle',metric_kind:'cycles',metric_scope:'floor',metric_value:0,evidence_grade:'B',is_quick_clear:false,build_context:{high_investment:true}};
-    contract.reset(makeData(target,[record]),settings,parties.flat());
-    const row=plain(contract.ranked(mode,'custom-1'))[0];assert.deepEqual(row.chars,parties[2]);assert.equal(row.encounterAdvice.exactRecords[0].metric_scope,'floor');assert.equal(row.encounterAdvice.exactRecords[0].metric_value,0);assert.ok(row.encounterAdvice.reasons.some(text=>text.includes('不能视为单侧成绩')));
-  });
-
-  test(`${game} per-party enemy settings persist without touching Box or the old weakness fallback`,()=>{
-    const contract=api(),manualKey=`${mode}|custom|custom-2`,manual={name:'手动敌群',resistances:['火'],rules:[{damage_type:mainTag,direction:'down',percent:80,condition:'',text:''}]};
-    contract.reset(makeData(),{...settings,encounterTargets:{...settings.encounterTargets,[manualKey]:'__manual__'},manualEncounters:{[manualKey]:manual}},parties.flat());
-    assert.deepEqual(plain(contract.encounter('custom-1')).weaknesses,['火']);
-    assert.deepEqual(plain(contract.encounter('custom-2')).weaknesses,['冰']);
-    const state=plain(contract.reloadEncounterSettings());
-    assert.deepEqual(state.manual[manualKey],manual);assert.deepEqual(state.owned,state.beforeOwned);assert.deepEqual(state.elements,settings.elements);
-    assert.equal(contract.encounter('custom-2').user_provided,true);
-    const advice=plain(contract.evaluateEncounter(contract.encounter('custom-2'),parties[0].map((slug,index)=>({slug,core:index===0,info:{element_cn:'火'}}))));
-    assert.ok(advice.parts.some(part=>part.key==='encounter-effects'&&part.value<0),'user-confirmed simple rules have clearly separate provenance and still affect suitability');
-    assert.equal(contract.encounter('custom-2').effects[0].verified,false);
-    contract.reset(makeData(),{...settings,strategy:'final',scope},parties.flat());
-    assert.equal(contract.encounter('custom-1'),null,'enemy preferences are isolated from final-stage recommendations');
-  });
 }
 
 test('ZZZ mixed damage parties retain secondary anomaly without claiming anomaly dominance or disorder',()=>{
@@ -4376,16 +4355,6 @@ test('verified unsupported damage categories remain unknown instead of receiving
   const iceCrit=[{slug:'ice',core:true,info:{role_group:'crit_dps',style_cn:'强攻',element_cn:'冰'}}];for(const text of ['火属性的伤害提升30%','火属性 伤害提升30%','异常的伤害提升30%','敌人受到的火属性伤害提升30%']){const advice=plain(engine.evaluate({}, {...target,effects:[{text,scope:'phase',verified:true}]},iceCrit));assert.ok(!advice.parts.some(part=>part.key==='encounter-effects'),`normalized category must stay specific: ${text}`);assert.ok(advice.reasons.some(reason=>reason.includes('未匹配')));}
 
 });
-
-for(const game of ['hsr','zzz'])test(`${game} manual target, official supplements and attribute fallback keep independent weaknesses`,()=>{
-  const isHSR=game==='hsr',mode=isHSR?'as':'sd',size=isHSR?4:3,chars=Array.from({length:size},(_,index)=>`party-${index}`),roster=chars.map((slug,index)=>isHSR?hsrCharacter(slug,'火',index?'support':'main_dps','同谐',index+1):zzzCharacter(slug,index?'support':'crit_dps',index+1)),template=isHSR?hsrTemplate('team','4-1',chars,1,10):zzzTemplate('team','s1',chars,1,10),key=`${mode}|custom|custom-1`,data={...(isHSR?hsrData(roster,[template]):zzzData(roster,[template])),encounterRows:[{game,mode,phase_ver:'p',scope_key:'official-b',quality_status:'phase_only',weaknesses:[],resistances:[],enemies:[],effects:[]}]},contract=loadContract(isHSR?HSR_APP:ZZZ_APP,isHSR?HSR_HARNESS:ZZZ_HARNESS);
-  contract.reset(data,{mode,strategy:'custom',scope:'custom-1',elements:{[`${mode}|custom-1`]:['火']},encounterTargets:{[key]:'__manual__'},manualEncounters:{[key]:{name:'manual-a',weaknesses:['火']}}},chars);
-  contract.setEncounterTarget('custom-1','official-b');contract.setEncounterWeaknesses('custom-1',['冰']);assert.deepEqual(plain(contract.encounter('custom-1')).weaknesses,['冰']);
-  contract.setEncounterTarget('custom-1','__manual__');assert.deepEqual(plain(contract.encounter('custom-1')).weaknesses,['火']);
-  contract.setEncounterTarget('custom-1','');assert.deepEqual(plain(contract.reloadEncounterSettings()).elements[`${mode}|custom-1`],['火'],'official supplements must leave the old attribute fallback intact');
-  contract.setEncounterTarget('custom-1','official-b');assert.deepEqual(plain(contract.encounter('custom-1')).weaknesses,['冰']);
-});
-
 
 for(const game of ['hsr','zzz'])test(`${game} encounter target history stays opt-in and saved identities survive date sorting`,()=>{
   const mode=game==='hsr'?'as':'sd',contract=loadContract(game==='hsr'?HSR_APP:ZZZ_APP,game==='hsr'?HSR_HARNESS:ZZZ_HARNESS),row=(id,start,end)=>({game,mode,phase_ver:id,scope_key:id,label:`${id}目标`,floor:'1',start_date:start,end_date:end,phase_status:'current'}),data={...(game==='hsr'?hsrData([],[]):zzzData([],[])),encounterRows:[row('old','2026-08-01','2026-08-15'),row('now','2026-10-02','2026-10-16'),row('recent','2026-09-18','2026-10-02')]};

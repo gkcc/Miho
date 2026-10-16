@@ -25,7 +25,8 @@ function loadGame(game){
     renderRecSlate=()=>{};
     ${hsr?'syncRecConstraintControls':'syncConstraintControls'}=()=>{};
     globalThis.contract={
-      reset(data,settings={}){${hsr?'initializeVisualizerData':'installVisualizerData'}(data);rec={...rec,mode:'${hsr?'as':'sd'}',scope:'s1',strategy:'final',constraintScope:'local',buildMode:'ignore',constraints:{},locks:{},teamExclusions:{},targetScopes:{},elements:{},teamCounts:{...DEFAULT_REC_TEAM_COUNTS},gap:'0',riskMode:'off',search:'',...settings};box.owned=new Set(DATA.rosterRows.map(row=>row.character_slug));box.builds={};},
+      reset(data,settings={}){${hsr?'initializeVisualizerData':'installVisualizerData'}(data);rec={...rec,mode:'${hsr?'as':'sd'}',scope:'s1',strategy:'final',constraintScope:'local',buildMode:'ignore',constraints:{},excludedCharacters:{},constraintPeriods:{},locks:{},teamExclusions:{},targetScopes:{},elements:{},teamCounts:{...DEFAULT_REC_TEAM_COUNTS},gap:'0',riskMode:'off',search:'',...settings};box.owned=new Set(DATA.rosterRows.map(row=>row.character_slug));box.builds={};},
+      sweep(today){return refreshRecConstraintPeriods(today)},
       state(){return {...rec}},
       quality(){return recQualityFirst()},
       patch(settings){Object.assign(rec,settings)},
@@ -66,17 +67,17 @@ function fixture(game,teams){
 for(const game of ['hsr','zzz']){
   const size=game==='hsr'?4:3,first=Array.from({length:size},(_,i)=>`a${i}`),second=Array.from({length:size},(_,i)=>`b${i}`);
   const data=fixture(game,[{id:'first',scope:'s1',chars:first},{id:'second',scope:'s2',chars:second}]);
-  test(`${game}: global constraints persist across reload, isolate strategies and modes, and preserve legacy final all`,()=>{
+  test(`${game}: required constraints isolate scenarios while exclusions span teams and scenarios after reload`,()=>{
     const api=loadGame(game),mode=game==='hsr'?'as':'sd';api.reset(data,{constraints:{[`${mode}|all`]:{required:['a0'],excluded:['legacy-block']}}});
     assert.deepEqual(plain(api.sets('all')),{required:['a0'],excluded:['legacy-block']});
     api.patch({strategy:'custom',scope:'custom-1',constraintScope:'global',buildMode:'recorded'});
-    assert.deepEqual(plain(api.sets('all')),{required:[],excluded:[]});
+    assert.deepEqual(plain(api.sets('all')),{required:[],excluded:['legacy-block']});
     api.put('all',[...first,...second],['custom-block']);api.reload();
     assert.equal(api.state().buildMode,'recorded');assert.equal(api.state().constraintScope,'global');
     assert.equal(api.sets('all').required.length,size*2,'global required must not be clipped to one team');
     api.patch({mode:game==='hsr'?'moc':'da'});assert.equal(api.sets('all').required.length,0);
-    api.patch({mode,strategy:'final',scope:'s1'});assert.deepEqual(plain(api.sets('all')),{required:['a0'],excluded:['legacy-block']});
-    api.clear();api.reload();assert.deepEqual(plain(api.sets('all')),{required:[],excluded:[]},'clearing migrated constraints must not resurrect legacy values');
+    api.patch({mode,strategy:'final',scope:'s1'});assert.deepEqual(plain(api.sets('all')),{required:['a0'],excluded:['custom-block']});
+    api.clear();api.reload();assert.deepEqual(plain(api.sets('all')),{required:[],excluded:['custom-block']},'clearing required constraints must not resurrect legacy values');
   });
 
   test(`${game}: global required spans teams in both strategies; global exclusion filters every candidate pool`,()=>{
@@ -96,13 +97,13 @@ for(const game of ['hsr','zzz']){
     assert.deepEqual(plain(api.sets('all')),{required:['a0'],excluded:['a0']});
     assert.equal(api.completePlans().length,0);assert.ok(api.conflicts().length);
     api.put('all',[],['a0']);assert.match(api.add('required','a0'),/相反约束/);assert.deepEqual(plain(api.sets('all')),{required:[],excluded:['a0']});
-    api.patch({constraintScope:'local'});api.put('s1',['a0']);assert.ok(api.conflicts().length);assert.equal(api.completePlans().length,0);
+    api.patch({constraintScope:'local'});api.put('s1',['a0'],['a0']);assert.ok(api.conflicts().length);assert.equal(api.completePlans().length,0);
     api.patch({scope:'all'});assert.equal(api.editScope(),'all');
   });
 
   test(`${game}: hard constraint scope is an accessible visible product control`,()=>{
     const html=readFileSync(path.join(ASSETS,game,'index.html'),'utf8');
-    assert.match(html,/<select id="recConstraintScopeSelect" aria-label="硬约束作用范围">/);
+    assert.match(html,/<select id="recConstraintScopeSelect" aria-label="必上作用范围">/);
     assert.match(html,/<option value="global">全局（整套方案）<\/option>/);
     assert.match(html,/id="recGlobalConstraintSummary"/);
   });
@@ -184,12 +185,12 @@ test('ZZZ unified Adversity reload preserves exclusions, contradictory constrain
     locks:{'da|final|4':'da|4|legacy|a0+a1+a2|2026-09-01|1','da|final|2-1':'da|2-1|other|b0+b1+b2|2026-09-01|2'}});
   api.reload();api.reload();
   assert.deepEqual(plain(api.state().targetScopes.da),['2-1']);
-  assert.deepEqual(plain(api.sets('2-1')),{required:['a1','a0'],excluded:['a2','a1']});
+  assert.deepEqual(plain(api.sets('2-1')),{required:['a1','a0'],excluded:['a1','a2']});
   assert.deepEqual(plain(api.state().elements['da|2-1']),['火','冰']);
   assert.equal(api.excluded('2-1').length,2);assert.equal(api.state().scopeLockConflicts['da|final|2-1'].length,2);
   assert.equal(api.completePlans().length,0,'conflicting saved settings must never be silently loosened');
   assert.ok(api.conflicts().some(message=>message.includes('a1')));
-  api.patch({constraints:{},teamExclusions:{}});assert.equal(api.completePlans().length,0,'saved conflicting locks alone must block the unified stage');
+  api.patch({constraints:{},excludedCharacters:{},teamExclusions:{}});assert.equal(api.completePlans().length,0,'saved conflicting locks alone must block the unified stage');
   assert.equal(api.unlock('2-1'),true);api.reload();assert.equal(api.completePlans().length,1,'explicit unlock resolves the retained lock conflict');
   assert.deepEqual(plain(api.state().scopeLockConflicts),{});
 });
@@ -211,3 +212,32 @@ test('zzz: deadly assault defaults to quality-first while other modes and custom
   const api=loadGame('zzz');api.reset(fixture('zzz',[]),{mode:'da'});assert.equal(api.quality(),true);
   api.patch({mode:'sd'});assert.equal(api.quality(),false);api.patch({mode:'da',strategy:'custom'});assert.equal(api.quality(),false);
 });
+
+for(const game of ['hsr','zzz']){
+  test(`${game}: ended periods clear constraints in unopened modes once and preserve other modes`,()=>{
+    const api=loadGame(game),mode=game==='hsr'?'as':'sd',other=game==='hsr'?'moc':'da',data=fixture(game,[{id:'first',scope:'s1',chars:['a0','a1','a2',...(game==='hsr'?['a3']:[])]}]);
+    data.phaseInfoRows=[{mode,phase_ver:'one',start_date:'2026-10-01',end_date:'2026-10-15'},{mode:other,phase_ver:'other',start_date:'2026-10-01',end_date:'2026-10-30'}];
+    api.reset(data,{mode:other,constraints:{[`${mode}|final|s1`]:{required:['a0'],excluded:['a1']},[`${mode}|custom|custom-1`]:{required:['a2'],excluded:['a3']},[`${other}|final|s1`]:{required:['keep'],excluded:[]}},locks:{[`${mode}|final|s1`]:'old-lock',[`${other}|final|s1`]:'keep-lock'},teamExclusions:{[`${mode}|final|s1`]:[['a0','a1','a2']]},encounterTargets:{[`${mode}|custom|custom-1`]:'old-target'}});
+    assert.equal(api.sweep('2026-10-16'),true);
+    assert.ok(!Object.keys(api.state().constraints).some(key=>key.startsWith(mode+'|')));
+    assert.ok(!Object.keys(api.state().locks).some(key=>key.startsWith(mode+'|')));
+    assert.ok(!Object.keys(api.state().teamExclusions).some(key=>key.startsWith(mode+'|')));
+    assert.ok(!Object.keys(api.state().encounterTargets).some(key=>key.startsWith(mode+'|')));
+    assert.equal(api.state().locks[`${other}|final|s1`],'keep-lock');assert.deepEqual(plain(api.sets('s1').required),['keep']);
+    assert.match(api.state().periodResetNotice,/上一期已结束/u);
+    api.patch({mode,scope:'s1'});api.add('excluded','a1');
+    assert.equal(api.sweep('2026-10-16'),false,'do not repeatedly erase explicit settings on the same expired period');
+    assert.deepEqual(plain(api.sets('s1').excluded),['a1']);
+    data.phaseInfoRows[0]={mode,phase_ver:'two',start_date:'2026-10-16',end_date:'2026-10-30'};api.replaceData(data);api.sweep('2026-10-16');
+    assert.deepEqual(plain(api.sets('s1').excluded),[],'a new period starts with empty settings even without visiting its tab');
+  });
+  test(`${game}: active-period legacy exclusions merge across teams and scenarios and can be removed permanently`,()=>{
+    const api=loadGame(game),mode=game==='hsr'?'as':'sd',data=fixture(game,[{id:'first',scope:'s1',chars:['a0','a1','a2',...(game==='hsr'?['a3']:[])]}]);
+    data.phaseInfoRows=[{mode,phase_ver:'now',start_date:'2026-10-01',end_date:'2026-10-30'}];
+    api.reset(data,{constraints:{[`${mode}|final|s1`]:{required:['a0'],excluded:['a1']},[`${mode}|custom|custom-2`]:{required:[],excluded:['a2']}}});
+    api.sweep('2026-10-16');assert.deepEqual(plain(api.sets('s1').excluded),['a1','a2']);
+    api.patch({strategy:'custom',scope:'custom-1'});assert.deepEqual(plain(api.sets('custom-1').excluded),['a1','a2']);
+    api.put('custom-1',[],[]);api.reload();assert.deepEqual(plain(api.sets('custom-2').excluded),[]);
+    api.patch({strategy:'final',scope:'s1'});assert.deepEqual(plain(api.sets('s1').required),['a0']);assert.deepEqual(plain(api.sets('s1').excluded),[]);
+  });
+}
